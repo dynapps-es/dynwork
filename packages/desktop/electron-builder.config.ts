@@ -3,6 +3,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { Arch, type Configuration } from "electron-builder"
+import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { NativeArch } from "../../script/native-arch"
 import { DESKTOP_NATIVE_ENGLISH } from "@opencode/app/i18n/desktop-native"
 import { CLI_BINARIES, getCurrentCli, nodePtyPackage } from "./script/utils"
@@ -43,7 +44,7 @@ function resolveChannel() {
 const APP_IDS = {
   dev: "ai.opencode.desktop.dev",
   beta: "ai.opencode.desktop.beta",
-  prod: "ai.opencode.desktop",
+  prod: DynWorkIdentity.appId,
 } as const
 
 // libappimage (used by AppImageLauncher) resolves the .desktop entry inside an
@@ -255,20 +256,22 @@ export function getConfig() {
       return {
         ...base,
         appId,
-        productName: "OpenCode",
-        protocols: { name: "OpenCode", schemes: ["opencode"] },
-        // An Icon Composer package compiles to Assets.car, which macOS 26 and later draw the app icon from
-        // (Dock, Finder, system dialogs and the system icon styles). Older macOS keeps using the ICNS.
-        mac: { ...base.mac, icon: "resources/icons/icon.icon" },
-        // The DMG volume icon would otherwise use the same actool-generated ICNS.
+        productName: DynWorkIdentity.name,
+        artifactName: DynWorkIdentity.artifactPrefix + "-${os}-${arch}.${ext}",
+        protocols: { name: DynWorkIdentity.name, schemes: [DynWorkIdentity.scheme] },
+        // DynWork ships the ICNS only: compiling an Icon Composer package needs actool, which comes with full Xcode.
+        mac: { ...base.mac, icon: "resources/icons/icon.icns" },
         dmg: { icon: "resources/icons/icon.icns" },
         publish: {
           provider: "generic",
-          url: "https://opencode.ai/update/api/latest/desktop/opencode/",
+          url: DynWorkIdentity.updateFeed,
           channel: "latest",
         },
         deb: { fpm: [metainfoFpm(appId), legacyDesktopEntryFpm] },
-        rpm: { packageName: "opencode", fpm: [rpmNoBuildIdLinksFpm, metainfoFpm(appId), legacyDesktopEntryFpm] },
+        rpm: {
+          packageName: DynWorkIdentity.rpmPackage,
+          fpm: [rpmNoBuildIdLinksFpm, metainfoFpm(appId), legacyDesktopEntryFpm],
+        },
       }
     }
   }

@@ -9,6 +9,7 @@ the next tag.
 | Path | Contents |
 | --- | --- |
 | `PATCHES.md` | Every upstream file we modify, why, and the risk on upstream updates |
+| `packages/branding` | `@dynwork/branding`: the prod app identity (`src/identity.ts`) that the desktop package reads |
 
 ## Syncing with upstream
 

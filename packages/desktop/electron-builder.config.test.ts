@@ -13,9 +13,13 @@ import { CLI_BINARIES, nodePtyPackage } from "./script/utils"
 const { FileMatcher } = createRequire(import.meta.resolve("electron-builder"))("app-builder-lib/out/fileMatcher")
 
 const channels = [
-  { channel: "dev", appId: "ai.opencode.desktop.dev", feed: "dev" },
-  { channel: "beta", appId: "ai.opencode.desktop.beta", feed: "beta" },
-  { channel: "prod", appId: "ai.opencode.desktop", feed: "latest" },
+  { channel: "dev", appId: "ai.opencode.desktop.dev", feed: "https://opencode.ai/update/api/dev/desktop/opencode/" },
+  { channel: "beta", appId: "ai.opencode.desktop.beta", feed: "https://opencode.ai/update/api/beta/desktop/opencode/" },
+  {
+    channel: "prod",
+    appId: "es.dynapps.dynwork",
+    feed: "https://github.com/dynapps-es/dynwork/releases/latest/download/",
+  },
 ] as const
 
 function load(channel: string, target?: string): Configuration {
@@ -50,12 +54,8 @@ function trimFilter(dir: string, config: Configuration) {
 test.each(channels)("channel identity for $channel", ({ channel, appId, feed }) => {
   const config = load(channel)
   expect(config.appId).toBe(appId)
-  // Every published channel updates from its own feed on the update service.
-  expect(config.publish).toEqual({
-    provider: "generic",
-    url: `https://opencode.ai/update/api/${feed}/desktop/opencode/`,
-    channel: "latest",
-  })
+  // Every published channel updates from its own feed.
+  expect(config.publish).toEqual({ provider: "generic", url: feed, channel: "latest" })
   expect(config.extraMetadata?.desktopName).toBe(`${appId}.desktop`)
   // The executable must never end in `.desktop`: libappimage resolves the
   // AppImage's desktop entry by globbing `*.desktop`, and an ELF matching
@@ -90,7 +90,8 @@ test("legacy Linux launcher stays hidden", async () => {
 
 test.each(channels)("macOS bundle for $channel", ({ channel }) => {
   const config = load(channel)
-  expect(config.mac?.icon).toBe(channel === "prod" ? "resources/icons/icon.icon" : "resources/icons/icon.icns")
+  // DynWork builds without full Xcode, so prod ships the ICNS instead of an Icon Composer package.
+  expect(config.mac?.icon).toBe("resources/icons/icon.icns")
   expect(config.dmg?.icon).toBe(channel === "prod" ? "resources/icons/icon.icns" : undefined)
   // The prod override must keep the rest of the shared macOS settings.
   expect(config.mac?.target).toEqual(["dmg", "zip"])

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@dynwork/branding",
+  "private": true,
+  "version": "2.2.5",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "bun check --no-script -b",
+    "typecheck:tsc": "tsc -b",
+    "test": "bun test --timeout 30000"
+  },
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native": "catalog:"
+  }
+}

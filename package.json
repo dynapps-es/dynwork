@@ -42,7 +42,8 @@
       "packages/plugins/*",
       "services/*",
       "packages/console/*",
-      "packages/stats/*"
+      "packages/stats/*",
+      "dynwork/packages/*"
     ],
     "catalog": {
       "@effect/opentelemetry": "4.0.6",
