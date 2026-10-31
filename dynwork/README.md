@@ -10,7 +10,7 @@ the next tag.
 | --- | --- |
 | `PATCHES.md` | Every upstream file we modify, why, and the risk on upstream updates |
 | `packages/branding` | `@dynwork/branding`: the prod app identity (`src/identity.ts`) that the desktop package reads |
-| `packages/branding/theme` | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json` |
+| `packages/branding/theme` | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json` |
 
 ## Syncing with upstream
 
@@ -52,13 +52,14 @@ The script builds the CLI for this machine from `packages/cli` (release channel,
 To check the installed app, launch it in a throwaway profile:
 
 ```bash
-bun dynwork/script/smoke.ts
+bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark]
 ```
 
 The smoke test starts `/Applications/DynWork.app` with its own home, user data, XDG directories, database, config and
 background service on a private port, and none of your `OPENCODE_*` variables, so it never attaches to or restarts a
-running OpenCode service. It waits for the window, saves a screenshot to
-`plans/active/2026-10-dynwork-pilot/docs/smoke.png`, prints the theme colors read from the page, then stops only the
+running OpenCode service. It waits for the window, optionally stores a theme id and color scheme
+and reloads (for example `oc-2-deep dark`), saves a screenshot (by default to
+`plans/done/2026-10-dynwork-pilot/docs/smoke.png`), prints the theme colors read from the page, then stops only the
 processes it started and deletes the profile. It exits non-zero if the window never appears.
 
 Run the app normally from Finder. Its data lives in `~/Library/Application Support/es.dynapps.dynwork`. DynWork and

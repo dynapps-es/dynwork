@@ -2,7 +2,11 @@
 // Launches the installed DynWork in an isolated profile, waits for its window, takes a screenshot and reads the
 // theme background colors over CDP, then stops the processes it started.
 //
-//   bun dynwork/script/smoke.ts
+//   bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark]
+//
+// The screenshot defaults to plans/done/2026-10-dynwork-pilot/docs/smoke.png. With a theme id and a color scheme the
+// script stores them as the app's theme preference and reloads before it reads the colors, for example
+// `bun dynwork/script/smoke.ts /tmp/deep.png oc-2-deep dark`.
 //
 // The profile follows packages/desktop/script/bench-startup.ts: its own home, userData, XDG directories, database,
 // config and service registration, a private service port and none of the developer's OPENCODE_* variables. It never
@@ -16,7 +20,11 @@ const repo = path.resolve(import.meta.dir, "../..")
 
 const exe = "/Applications/DynWork.app/Contents/MacOS/DynWork"
 
-const screenshot = path.join(repo, "plans/active/2026-10-dynwork-pilot/docs/smoke.png")
+const screenshot = path.resolve(repo, process.argv[2] ?? "plans/done/2026-10-dynwork-pilot/docs/smoke.png")
+
+const themeID = process.argv[3]
+
+const colorScheme = process.argv[4]
 
 const root = await mkdtemp(path.join(tmpdir(), "dynwork-smoke-"))
 
@@ -33,10 +41,7 @@ await mkdir(config, { recursive: true })
 // The service would otherwise listen on the channel's default port, which the developer's own service holds.
 await Bun.write(path.join(config, "service.json"), JSON.stringify({ port: await freePort() }))
 
-await Bun.write(
-  path.join(root, "desktop/opencode.settings"),
-  JSON.stringify({ firstLaunchOnboardingComplete: true }),
-)
+await Bun.write(path.join(root, "desktop/opencode.settings"), JSON.stringify({ firstLaunchOnboardingComplete: true }))
 
 const env = {
   ...Object.fromEntries(Object.entries(process.env).filter((entry) => !/^(OPENCODE_|OTEL_|SENTRY_)/.test(entry[0]))),
@@ -66,23 +71,42 @@ async function run() {
   const page = await waitFor(
     "the main window",
     async () =>
-      (await targets()).find((target) => target.type === "page" && target.url.startsWith("oc://"))?.webSocketDebuggerUrl,
+      (await targets()).find((target) => target.type === "page" && target.url.startsWith("oc://"))
+        ?.webSocketDebuggerUrl,
     90_000,
   )
 
   const cdp = await connect(page)
 
-  await waitFor(
-    "the app shell",
-    async () =>
-      cdp.value<boolean>(
-        `!!document.querySelector('#root [data-titlebar-tab-link], #root [data-action="vertical-tabs-home"], #root [data-action="home-new-session"], #root [data-action="home-add-project-row"]')`,
-      ),
-    60_000,
-  ).catch(async (error: Error) => {
-    const seen = await cdp.value<string>(`location.href + " | " + document.body.innerText.slice(0, 300)`)
-    throw new Error(`${error.message}; the window shows: ${seen}`)
-  })
+  const shell = () =>
+    waitFor(
+      "the app shell",
+      async () =>
+        cdp.value<boolean>(
+          `!!document.querySelector('#root [data-titlebar-tab-link], #root [data-action="vertical-tabs-home"], #root [data-action="home-new-session"], #root [data-action="home-add-project-row"]')`,
+        ),
+      60_000,
+    ).catch(async (error: Error) => {
+      const seen = await cdp.value<string>(`location.href + " | " + document.body.innerText.slice(0, 300)`)
+      throw new Error(`${error.message}; the window shows: ${seen}`)
+    })
+
+  await shell()
+
+  if (themeID && colorScheme) {
+    await cdp.value(
+      `localStorage.setItem("opencode-theme-id", ${JSON.stringify(themeID)}); localStorage.setItem("opencode-color-scheme", ${JSON.stringify(colorScheme)})`,
+    )
+    await cdp.send("Page.reload")
+    // The old document stays alive for a moment after the reload call.
+    await Bun.sleep(1000)
+    await shell()
+    await waitFor(
+      `theme ${themeID}`,
+      async () => (await cdp.value<string>("document.documentElement.dataset.theme")) === themeID,
+      15_000,
+    )
+  }
 
   // Let the theme apply and the first paint settle.
   await Bun.sleep(2000)
@@ -91,8 +115,10 @@ async function run() {
     html: getComputedStyle(document.documentElement).backgroundColor,
     body: getComputedStyle(document.body).backgroundColor,
     scheme: getComputedStyle(document.documentElement).colorScheme,
-    theme: document.documentElement.dataset.theme + " " + document.documentElement.dataset.colorScheme,
+    theme: document.documentElement.dataset.theme,
+    colorScheme: document.documentElement.dataset.colorScheme,
     backgroundBase: getComputedStyle(document.documentElement).getPropertyValue("--background-base").trim(),
+    v2BackgroundBase: getComputedStyle(document.documentElement).getPropertyValue("--v2-background-bg-base").trim(),
     primary: getComputedStyle(document.documentElement).getPropertyValue("--surface-brand-base").trim(),
   }))()`)
 
