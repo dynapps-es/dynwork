@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url"
 import { defineConfig } from "electron-vite"
 import type { Plugin } from "vite"
 import { BetaNotes } from "./script/beta-notes"
@@ -15,6 +16,13 @@ function resolveChannel() {
 }
 
 const appPlugin = (await import("@opencode/app/vite")).default
+
+// DynWork ships its Dynapps theme under the bundled default's id, so the main and renderer imports of oc-2.json
+// (static and import.meta.glob) load it and every upstream "oc-2" default path keeps working unchanged.
+const defaultTheme = {
+  find: /^(?:.*\/)?themes\/oc-2\.json$/,
+  replacement: fileURLToPath(new URL("../../dynwork/packages/branding/theme/dynapps.json", import.meta.url)),
+}
 
 // Every module the entry reaches through static imports lands in one chunk. Automatic splitting
 // otherwise fragments the initial graph into ~50 files shared with lazy routes, and each file costs
@@ -50,6 +58,7 @@ export default defineConfig(async ({ command }) => {
   return {
     main: {
       resolve: {
+        alias: [defaultTheme],
         dedupe: ["effect"],
       },
       define: {
@@ -112,6 +121,9 @@ export default defineConfig(async ({ command }) => {
       },
     },
     renderer: {
+      resolve: {
+        alias: [defaultTheme],
+      },
       experimental: {
         bundledDev: true,
       },
