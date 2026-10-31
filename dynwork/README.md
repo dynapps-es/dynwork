@@ -33,3 +33,33 @@ bun run icons
 
 This needs `rsvg-convert` (`brew install librsvg`) and `iconutil` (macOS). Each size is rendered straight from the SVG,
 so the output is deterministic and never downsampled.
+
+## Build and install on macOS
+
+Builds DynWork for Apple Silicon from this checkout and installs it as `/Applications/DynWork.app`. It needs the
+workspace installed (`BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun install`), Bun 1.4.4 and the Xcode command
+line tools. The result is unsigned apart from an ad-hoc signature, so it only runs on the Mac that built it.
+
+```bash
+bun dynwork/script/desktop.ts
+```
+
+The script builds the CLI for this machine from `packages/cli` (release channel, version taken from
+`packages/desktop/package.json`), builds the desktop app on the prod channel, swaps in
+`dynwork/packages/branding/icons` before packing, signs ad hoc, clears quarantine and replaces
+`/Applications/DynWork.app`. It never touches `/Applications/OpenCode.app`. A run takes about a minute.
+
+To check the installed app, launch it in a throwaway profile:
+
+```bash
+bun dynwork/script/smoke.ts
+```
+
+The smoke test starts `/Applications/DynWork.app` with its own home, user data, XDG directories, database, config and
+background service on a private port, and none of your `OPENCODE_*` variables, so it never attaches to or restarts a
+running OpenCode service. It waits for the window, saves a screenshot to
+`plans/active/2026-10-dynwork-pilot/docs/smoke.png`, prints the theme colors read from the page, then stops only the
+processes it started and deletes the profile. It exits non-zero if the window never appears.
+
+Run the app normally from Finder. Its data lives in `~/Library/Application Support/es.dynapps.dynwork`. DynWork and
+OpenCode share the `opencode` background service name, so start one of them at a time until that is separated.
