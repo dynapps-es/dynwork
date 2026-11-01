@@ -14,7 +14,7 @@ the next tag.
 | `packages/build` | `@dynwork/build`: the build seam. `src/vite.ts` exports `DynWorkVite`, the aliases and plugins that swap the theme and the logos, which `packages/desktop/electron.vite.config.ts` spreads into its main and renderer plugins. `test/vite.test.ts` fails when an upstream specifier, module or export a swap relies on moves |
 | `script/patches.ts` | The patch guard (`bun dynwork/script/patches.ts`, logic in `packages/build/src/patches.ts`). `UPSTREAM` holds the upstream tag the stack sits on |
 | `script/sync-upstream.ts` | The upstream sync (logic in `packages/build/src/sync.ts`): rebases the stack onto a newer upstream ref in a throwaway worktree, checks it and writes a report. See "Syncing with upstream" |
-| `packages/gui` | `@dynwork/gui`: DynWork's own screens. `src/signin`: the sign-in gate the desktop shows until the device is signed in |
+| `packages/gui` | `@dynwork/gui`: DynWork's own screens and main-process helpers. `src/signin`: the sign-in gate the desktop shows until the device is signed in. `src/service.ts`: the layout of DynWork's own background service (see "Background service") |
 | `packages/branding/src` | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark |
 | `packages/branding/theme` | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json` |
 
@@ -30,6 +30,34 @@ Finishing stores the `dynwork-signin` key (a small JSON with the URL and the cho
 `localStorage`, or in `sessionStorage` when "Keep me signed in on this device" is off, and fades the screen out.
 Removing the key shows the screen again on the next launch. While it shows, the gate keeps focus and every keydown
 to itself, so app shortcuts do not act on the hidden shell. All copy lives in `copy.ts`.
+
+## Background service
+
+The packaged prod build runs its own OpenCode background service (`opencode serve --service` from the CLI it bundles),
+never the one OpenCode.app uses. `DynWorkService.layout` (`packages/gui/src/service.ts`) gives the desktop's
+`background-service.ts` and `sidecar-probe.ts` (see `PATCHES.md`) everything that service keeps, all under
+`<userData>/service`:
+
+| What | Where |
+| --- | --- |
+| Registration file (url, pid, version, private password) | `state/opencode/service.json`, through `XDG_STATE_HOME=<userData>/service/state` |
+| Config dir (`OPENCODE_CONFIG_DIR`), also the service's own `service.json` settings | `config` |
+| Database (`OPENCODE_DB`) | `opencode.db` |
+| Port | `127.0.0.1:17495` (`DynWorkIdentity.servicePort`, `0x4457`), never OpenCode's `0xC0DE` |
+
+DynWork only looks for its service at that registration file, so it never adopts, stops or replaces OpenCode.app's
+service, whatever its version, and OpenCode.app never finds DynWork's. Before the service starts, main drops every
+`OPENCODE_CONFIG*` variable the login shell exported (`DynWorkService.isolate`), so the user's own OpenCode config
+(`~/.config/opencode`, `OPENCODE_CONFIG`, `OPENCODE_CONFIG_CONTENT`) never configures it. `layout` takes an optional
+config object that reaches the service as `OPENCODE_CONFIG_CONTENT`: the extension point for DynWork's server plugin.
+Dev, beta and local builds keep upstream's shared service.
+
+The service's data dir (`XDG_DATA_HOME`: logs, snapshots, worktrees, tool output, artifacts) is userData itself, so
+its logs land in `<userData>/opencode/log`, where the desktop's debug-log export already looks. Since the data dir is
+DynWork's own, a new DynWork database never imports OpenCode.app's legacy `auth.json` provider
+keys. Still shared with OpenCode.app: the cache dir; the service also still reads skills from `~/.claude` and
+`~/.agents`, like any OpenCode service. Shells the service runs see `XDG_STATE_HOME` and `XDG_DATA_HOME` under
+DynWork's userData.
 
 ## Patch guard
 
@@ -129,12 +157,17 @@ The script builds the CLI for this machine from `packages/cli` (release channel,
 To check the installed app, launch it in a throwaway profile:
 
 ```bash
-bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width]
+bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] [--with-foreign-service]
 ```
 
-The smoke test starts `/Applications/DynWork.app` with its own home, user data, XDG directories, database, config and
-background service on a private port, and none of your `OPENCODE_*` variables, so it never attaches to or restarts a
-running OpenCode service. It waits for the window, optionally stores a theme id and color scheme
+The smoke test starts `/Applications/DynWork.app` with its own home, user data, XDG directories, database and config,
+and none of your `OPENCODE_*` variables, so it never attaches to or restarts a running OpenCode service. DynWork's own
+service runs inside that profile on its fixed port, so the smoke fails at once when a DynWork is already running. It
+also exports an `OPENCODE_CONFIG_CONTENT` the way a login shell would and fails if DynWork's service loaded it.
+`--with-foreign-service` first starts an `opencode serve --service` from this checkout, with another version string, at
+the profile's default registration, as OpenCode.app's service would be; once DynWork is ready the smoke fails unless
+that service still runs with the same pid and DynWork registered its own service under its userData. The output's
+`service` key reports both. It waits for the window, optionally stores a theme id and color scheme
 and reloads (for example `oc-2-deep dark`), saves a screenshot (by default to
 `plans/done/2026-10-dynwork-pilot/docs/smoke.png`), prints the theme colors read from the page, then stops only the
 processes it started and deletes the profile. It exits non-zero if the window never appears.
@@ -147,5 +180,5 @@ and applies the theme live instead of reloading, since a reload would land on ho
 once its wordmark has drawn, before any theme can be stored. A fresh install runs the first-launch onboarding, which
 may create `Default Project` in your real `~/Documents` (Electron reads it from macOS, not from `HOME`).
 
-Run the app normally from Finder. Its data lives in `~/Library/Application Support/es.dynapps.dynwork`. DynWork and
-OpenCode share the `opencode` background service name, so start one of them at a time until that is separated.
+Run the app normally from Finder. Its data lives in `~/Library/Application Support/es.dynapps.dynwork`, its background
+service's in the `service` folder inside it (see "Background service"), so DynWork and OpenCode run side by side.

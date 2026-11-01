@@ -2,7 +2,7 @@
 // Launches the installed DynWork in an isolated profile, waits for its window, takes a screenshot and reads the
 // theme background colors over CDP, then stops the processes it started.
 //
-//   bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width]
+//   bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] [--with-foreign-service]
 //
 // The screenshot defaults to plans/done/2026-10-dynwork-pilot/docs/smoke.png. With a theme id and a color scheme the
 // script stores them as the app's theme preference and reloads before it reads the colors, for example
@@ -19,25 +19,35 @@
 //
 // The profile follows packages/desktop/script/bench-startup.ts: its own home, userData, XDG directories, database,
 // config and service registration, a private service port and none of the developer's OPENCODE_* variables. It never
-// attaches to or restarts the developer's running OpenCode service.
+// attaches to or restarts the developer's running OpenCode service. DynWork runs its own service under its userData, on
+// its fixed port (`DynWorkIdentity.servicePort`), so a DynWork already running on this Mac makes the smoke fail early.
+//
+// --with-foreign-service plays OpenCode.app: before DynWork starts, an `opencode serve --service` from this checkout,
+// with another version string, registers at the default location of the profile. Once DynWork is ready the smoke checks
+// that the foreign service still runs with the same pid and that DynWork registered its own service under its userData.
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { DynWorkIdentity } from "../packages/branding/src/identity"
 
 const repo = path.resolve(import.meta.dir, "../..")
 
 const exe = "/Applications/DynWork.app/Contents/MacOS/DynWork"
 
-const screenshot = path.resolve(repo, process.argv[2] ?? "plans/done/2026-10-dynwork-pilot/docs/smoke.png")
+const args = process.argv.slice(2).filter((arg) => !arg.startsWith("--"))
 
-const themeID = process.argv[3]
+const withForeign = process.argv.includes("--with-foreign-service")
 
-const colorScheme = process.argv[4]
+const screenshot = path.resolve(repo, args[0] ?? "plans/done/2026-10-dynwork-pilot/docs/smoke.png")
 
-const view = process.argv[5] ?? "home"
+const themeID = args[1]
 
-const width = process.argv[6] ? Number(process.argv[6]) : undefined
+const colorScheme = args[2]
+
+const view = args[3] ?? "home"
+
+const width = args[4] ? Number(args[4]) : undefined
 
 const signInViews = ["signin", "signin-choose", "signin-finalizing", "signin-done"]
 
@@ -46,11 +56,23 @@ const signedIn = JSON.stringify({
   instance: { id: "dynapps", name: "Dynapps", host: "sp.dynapps.es" },
 })
 
+// Stands in for an OPENCODE_CONFIG_CONTENT exported by the login shell, which DynWork's service must never see.
+const shellConfig = JSON.stringify({ username: "dynwork-smoke-shell-config" })
+
+if (!(await portFree(DynWorkIdentity.servicePort)))
+  throw new Error(`Port ${DynWorkIdentity.servicePort} is in use: quit DynWork before running the smoke`)
+
 const root = await mkdtemp(path.join(tmpdir(), "dynwork-smoke-"))
 
 const config = path.join(root, "config/opencode")
 
+// The default registration of the profile, where OpenCode.app's service would register.
 const registration = path.join(root, "state/opencode/service.json")
+
+// DynWork's own registration, under its userData (`<root>/desktop`, see OPENCODE_DESKTOP_TEST_ROOT).
+const ownRegistration = path.join(root, "desktop/service/state/opencode/service.json")
+
+const foreignVersion = "0.0.0-foreign"
 
 const cdpPort = await freePort()
 
@@ -58,7 +80,8 @@ for (const dir of ["home", "data", "desktop", "state/opencode"]) await mkdir(pat
 
 await mkdir(config, { recursive: true })
 
-// The service would otherwise listen on the channel's default port, which the developer's own service holds.
+// A service using this config dir would otherwise listen on the channel's default port, which the developer's own
+// service holds. DynWork's own service ignores it; the foreign one and a DynWork without its own service use it.
 await Bun.write(path.join(config, "service.json"), JSON.stringify({ port: await freePort() }))
 
 await Bun.write(
@@ -72,15 +95,20 @@ const env = {
   OPENCODE_DESKTOP_TEST_ROOT: root,
   OPENCODE_DB: path.join(root, "data/opencode.db"),
   OPENCODE_CONFIG_DIR: config,
+  OPENCODE_CONFIG_CONTENT: shellConfig,
   // A closed proxy port makes the update check fail at once and offline.
   HTTPS_PROXY: "http://127.0.0.1:9",
 }
+
+const foreign = withForeign ? await startForeign() : undefined
 
 const app = Bun.spawn([exe, `--remote-debugging-port=${cdpPort}`], { env, stdio: ["ignore", "ignore", "ignore"] })
 
 console.log(`smoke: pid ${app.pid}, root ${root}, cdp ${cdpPort}`)
 
-const result = await run().catch((error: unknown) => error)
+const result = await run()
+  .then(async (value) => ({ ...value, service: await services() }))
+  .catch((error: unknown) => error)
 
 await stop()
 
@@ -103,7 +131,8 @@ async function run() {
 
   if (view === "first-launch") return firstLaunch(cdp)
 
-  if (width) await cdp.send("Emulation.setDeviceMetricsOverride", { width, height: 0, deviceScaleFactor: 0, mobile: false })
+  if (width)
+    await cdp.send("Emulation.setDeviceMetricsOverride", { width, height: 0, deviceScaleFactor: 0, mobile: false })
 
   if (signInViews.includes(view)) return signIn(cdp)
 
@@ -290,35 +319,173 @@ async function firstLaunch(cdp: Awaited<ReturnType<typeof connect>>) {
   return { screenshot, drawn: drawn.result?.result?.value, visible }
 }
 
-// Stops only what this run started: the app, its children and the background service it registered in the profile.
-async function stop() {
-  const registered = await Bun.file(registration)
-    .json()
-    .then((value: { pid?: number }) => value.pid)
-    .catch(() => undefined)
+// Starts an `opencode serve --service` from the checkout's sources in the profile, with another version string, and
+// waits until it answers at the profile's default registration.
+async function startForeign() {
+  const service = Bun.spawn(
+    [
+      process.execPath,
+      "--define",
+      `OPENCODE_VERSION:${JSON.stringify(foreignVersion)}`,
+      "--define",
+      'OPENCODE_CHANNEL:"latest"',
+      "src/index.ts",
+      "serve",
+      "--service",
+      "--port",
+      String(await freePort()),
+    ],
+    {
+      cwd: path.join(repo, "packages/cli"),
+      env: {
+        ...Object.fromEntries(Object.entries(env).filter((entry) => entry[0] !== "OPENCODE_CONFIG_CONTENT")),
+        XDG_DATA_HOME: path.join(root, "data"),
+        XDG_CONFIG_HOME: path.join(root, "config"),
+        XDG_CACHE_HOME: path.join(root, "cache"),
+        XDG_STATE_HOME: path.join(root, "state"),
+      },
+      stdio: ["ignore", "ignore", "ignore"],
+    },
+  )
 
-  const service =
-    registered && (await Bun.$`ps -p ${registered} -o command=`.nothrow().text()).includes(root) ? [registered] : []
+  const info = await waitFor(
+    "the foreign service",
+    async () => {
+      const registered = await read(registration)
+
+      if (registered?.pid !== service.pid) return undefined
+      const answer = await health(registered)
+
+      return answer?.version === foreignVersion ? registered : undefined
+    },
+    60_000,
+  ).catch(async (error: unknown) => {
+    service.kill("SIGKILL")
+    await rm(root, { recursive: true, force: true })
+    throw error
+  })
+
+  console.log(`smoke: foreign service pid ${info.pid}, ${info.url}, version ${foreignVersion}`)
+
+  return { service, info }
+}
+
+// DynWork's own service, without the shell's config, and the foreign one: the same pid still registered and answering,
+// never adopted or replaced.
+async function services() {
+  const own = await waitFor(
+    `DynWork's service at ${ownRegistration}`,
+    async () => {
+      const registered = await read(ownRegistration)
+
+      return registered && (await health(registered)) ? registered : undefined
+    },
+    30_000,
+  )
+
+  if (!(await Bun.$`ps -p ${own.pid} -o command=`.nothrow().text()).includes(root))
+    throw new Error(`DynWork's service ${own.pid} does not run from the profile`)
+
+  if (new URL(own.url).port !== String(DynWorkIdentity.servicePort))
+    throw new Error(`DynWork's service listens on ${own.url}, not on port ${DynWorkIdentity.servicePort}`)
+
+  // The config documents and sources the service loaded, lowest to highest priority.
+  const loaded = await fetch(new URL("/api/config", own.url), { headers: authorization(own) }).then((response) =>
+    response.text(),
+  )
+
+  if (!loaded.includes("desktop/service/config"))
+    throw new Error(`DynWork's service does not read its own config dir: ${loaded.slice(0, 300)}`)
+
+  if (loaded.includes("dynwork-smoke-shell-config"))
+    throw new Error("DynWork's service loaded the login shell's OPENCODE_CONFIG_CONTENT")
+
+  const dynwork = {
+    registration: ownRegistration,
+    pid: own.pid,
+    url: own.url,
+    version: own.version,
+    shellConfig: "not loaded",
+  }
+
+  if (!foreign) return { dynwork }
+  const registered = await read(registration)
+  const answer = registered && (await health(registered))
+  const after = { pid: registered?.pid, alive: alive(foreign.info.pid), version: answer?.version }
+
+  if (after.pid !== foreign.info.pid || !after.alive || after.version !== foreignVersion)
+    throw new Error(`The foreign service changed: ${JSON.stringify({ before: foreign.info.pid, after })}`)
+
+  if (own.pid === foreign.info.pid) throw new Error("DynWork adopted the foreign service")
+
+  return { dynwork, foreign: { registration, before: foreign.info.pid, after: after.pid, unchanged: true } }
+}
+
+async function read(file: string) {
+  return Bun.file(file)
+    .json()
+    .then((value: { pid: number; url: string; version?: string; password?: string }) => value)
+    .catch(() => undefined)
+}
+
+function authorization(info: { password?: string }) {
+  if (!info.password) return undefined
+
+  return { authorization: `Basic ${Buffer.from(`opencode:${info.password}`).toString("base64")}` }
+}
+
+async function health(info: { url: string; password?: string }) {
+  return fetch(new URL("/api/info", info.url), {
+    headers: authorization(info),
+    signal: AbortSignal.timeout(2000),
+  })
+    .then((response) => response.json() as Promise<{ version?: string; pid?: number }>)
+    .catch(() => undefined)
+}
+
+// Stops only what this run started: the app, its children, the background services registered in the profile and
+// the foreign service.
+async function stop() {
+  const registered = (
+    await Promise.all([registration, ownRegistration].map(async (file) => (await read(file))?.pid))
+  ).filter((pid): pid is number => pid !== undefined)
+
+  const service = (
+    await Promise.all(
+      registered.map(async (pid) =>
+        (await Bun.$`ps -p ${pid} -o command=`.nothrow().text()).includes(root) ? [pid] : [],
+      ),
+    )
+  ).flat()
 
   const rows = (await Bun.$`ps -eo pid=,ppid=`.text())
     .trim()
     .split("\n")
     .map((line) => line.trim().split(/\s+/).map(Number))
 
-  const tree = new Set([app.pid])
+  const tree = new Set([app.pid, ...(foreign ? [foreign.service.pid] : [])])
 
   for (const _ of rows) for (const row of rows) if (tree.has(row[1])) tree.add(row[0])
 
   const pids = [...tree, ...service]
 
-  for (const pid of pids) process.kill(pid, "SIGTERM")
+  for (const pid of new Set(pids)) if (alive(pid)) process.kill(pid, "SIGTERM")
   await Bun.sleep(3000)
-  for (const pid of pids) if (alive(pid)) process.kill(pid, "SIGKILL")
+  for (const pid of new Set(pids)) if (alive(pid)) process.kill(pid, "SIGKILL")
   await Bun.sleep(500)
 }
 
 function alive(pid: number) {
   return Bun.spawnSync(["kill", "-0", String(pid)]).exitCode === 0
+}
+
+async function portFree(port: number) {
+  const server = createServer()
+
+  return new Promise<boolean>((resolve) => {
+    server.once("error", () => resolve(false))
+    server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)))
+  })
 }
 
 async function freePort() {

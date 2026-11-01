@@ -11,7 +11,8 @@
     "test": "bun test"
   },
   "exports": {
-    "./signin": "./src/signin/index.ts"
+    "./signin": "./src/signin/index.ts",
+    "./service": "./src/service.ts"
   },
   "dependencies": {
     "@dynwork/branding": "workspace:*",

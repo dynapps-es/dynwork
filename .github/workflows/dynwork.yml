@@ -56,3 +56,8 @@ jobs:
       - name: Desktop typecheck
         run: bun typecheck
         working-directory: packages/desktop
+
+      # The service layout contract lives next to the desktop service it patches.
+      - name: Desktop service tests
+        run: bun test src/main/service
+        working-directory: packages/desktop

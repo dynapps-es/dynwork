@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import path from "node:path"
 import { app } from "electron"
+import { DynWorkService } from "@dynwork/gui/service"
 import type { Endpoint } from "@opencode/client/service"
 import { CHANNEL } from "../constants"
 
@@ -17,7 +18,7 @@ export function startSidecarProbe() {
 
   if (version === "") return
   probe = import("@opencode/client/service")
-    .then(({ Service }) => Service.discover({ version }))
+    .then(({ Service }) => Service.discover({ version, file: DynWorkService.layout(CHANNEL, app)?.file }))
     .catch(() => undefined)
 }
 

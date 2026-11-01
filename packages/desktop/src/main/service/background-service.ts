@@ -1,4 +1,5 @@
 import { app } from "electron"
+import { DynWorkService } from "@dynwork/gui/service"
 import { Context, Effect, FileSystem, Layer, Option, Path, Schema } from "effect"
 import { CHANNEL } from "../constants"
 import { BackgroundServiceState } from "./background-service-state"
@@ -42,22 +43,26 @@ const connect = Effect.fn("BackgroundService.connect")(function* (mode: "initial
   const isolated = !app.isPackaged && process.env.OPENCODE_DESKTOP_ISOLATED_SERVER === "1"
   const cli = yield* desktopCli.resolve
   const version = serviceVersion({ channel: CHANNEL, isolated, mode, version: cli.version })
+  const own = DynWorkService.layout(CHANNEL, app)
+  if (own) DynWorkService.isolate(process.env)
 
   if (isolated) process.env.XDG_STATE_HOME = app.getPath("userData")
   const client = yield* Effect.promise(() => import("@opencode/client/service"))
 
   const file =
-    process.env.OPENCODE_DESKTOP_SERVER_CHANNEL === "local"
+    own?.file ??
+    (process.env.OPENCODE_DESKTOP_SERVER_CHANNEL === "local"
       ? path.join(
           process.env.XDG_STATE_HOME ?? path.join(app.getPath("home"), ".local", "state"),
           "opencode",
           "service-local.json",
         )
-      : undefined
+      : undefined)
 
   const ensure = (required = version) =>
     client.Service.ensure({
       file,
+      env: own?.env,
       version: required,
       // A fixed port makes a second contender fail to bind and back off; port 0 never collides, so two
       // services could boot against the same database.
@@ -65,7 +70,7 @@ const connect = Effect.fn("BackgroundService.connect")(function* (mode: "initial
         ...cli.command,
         "serve",
         "--service",
-        ...(isolated ? ["--hostname", "0.0.0.0", "--port", String(0x0c0c)] : []),
+        ...(own?.args ?? (isolated ? ["--hostname", "0.0.0.0", "--port", String(0x0c0c)] : [])),
       ],
       onStart: (reason, previousVersion) =>
         runFork(Effect.logInfo("v2 CLI background service starting", { reason, previousVersion })),

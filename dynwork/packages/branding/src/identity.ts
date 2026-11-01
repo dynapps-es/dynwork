@@ -14,3 +14,7 @@ export const updateFeed = "https://github.com/dynapps-es/dynwork/releases/latest
 export const rpmPackage = "dynwork"
 
 export const artifactPrefix = "dynwork-desktop"
+
+// DynWork's own background service listens here, never on OpenCode's 0xC0DE, so the two apps never contend for one
+// port. 0x4457 is "DW"; it stays below 0x8000, the range Windows reserves for outgoing connections.
+export const servicePort = 0x4457
