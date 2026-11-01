@@ -58,6 +58,7 @@ export type LayoutRoute =
   | { type: "settings" }
   | { type: "connect" }
   | { type: "components" }
+  | { type: "page"; id: string }
   | { type: "draft"; draftID: string }
   | { type: "session"; sessionId: string; server: ServerConnection.Key }
 
@@ -71,6 +72,8 @@ export const currentRoute = (pathname: string, search: string): LayoutRoute => {
   if (parts[0] === "connect") return { type: "connect" }
 
   if (parts[0] === "components") return { type: "components" }
+
+  if (parts[0] === "page" && parts[1]) return { type: "page", id: decodeURIComponent(parts[1]) }
 
   if (parts[0] === "new-session") {
     const draftID = new URLSearchParams(search).get("draftId")

@@ -35,6 +35,7 @@ import { RecentlyClosedTabsMenu } from "./recently-closed-tabs-menu"
 import { useSettingsDialog } from "@/settings/command"
 import { rootSession } from "@/shell/routes/session"
 import { TitlebarItems, useTitlebarItems } from "@/runtime/plugin/titlebar-items"
+import { PluginSlot } from "@/runtime/plugin/render"
 
 export const newTabCommand = { id: "tab.new", keybind: "mod+t,mod+n" }
 
@@ -391,6 +392,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                 case "settings":
                 case "connect":
                 case "components":
+                case "page":
                 case "home": {
                   const selection = layout.home.selection()
 
@@ -748,6 +750,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                               <Icon name="grid-plus" />
                               {language.t("home.title")}
                             </button>
+                            <PluginSlot at="sidebar.nav" input={{ drawer: true }} />
                             <div class="flex items-center gap-1">
                               <button
                                 type="button"
@@ -859,6 +862,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                 onNewTab={openNewTab}
                                 keybind={command.keybind("tab.new")}
                               />
+                              <PluginSlot at="sidebar.nav" input={{ drawer: false }} />
                             </div>
                             <div class="h-4 w-full shrink-0" aria-hidden="true" />
                             <div class="flex min-h-0 flex-1 flex-col gap-1">

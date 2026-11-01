@@ -1,0 +1,47 @@
+/* The DynWork sidebar rows match the host's Home and Search rows (`packages/app/src/shell/titlebar/titlebar.tsx`).
+   Tailwind does not scan dynwork/, so they style themselves with the theme's v2 tokens. */
+[data-component="dynwork-nav-row"] {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 28px;
+  padding-inline: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 16px;
+  text-align: start;
+  color: var(--v2-text-text-faint);
+
+  &:is(:hover, :focus-visible, [data-state="pressed"]) {
+    color: var(--v2-text-text-base);
+  }
+
+  &:focus-visible {
+    outline: none;
+  }
+
+  [data-slot="icon-svg"] {
+    flex-shrink: 0;
+  }
+
+  [data-slot="dynwork-nav-label"] {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+/* In the tabs drawer the rows follow its Home row: wider gap and padding, a hover background of their own. */
+[data-component="dynwork-nav-row"][data-drawer] {
+  gap: 8px;
+  padding-inline: 8px;
+  background: transparent;
+
+  &:is(:hover, :focus-visible) {
+    background: var(--v2-background-bg-layer-02);
+  }
+}
