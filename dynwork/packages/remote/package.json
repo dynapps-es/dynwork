@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@dynwork/remote",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "bun check --no-script -b",
+    "typecheck:tsc": "tsc -b",
+    "test": "bun test --timeout 30000",
+    "test:hermes": "bun script/hermes.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@babel/core": "7.29.7",
+    "@babel/plugin-transform-block-scoping": "7.29.7",
+    "@babel/plugin-transform-private-methods": "7.29.7",
+    "@babel/plugin-transform-private-property-in-object": "7.29.7",
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native": "catalog:",
+    "esbuild": "0.25.12",
+    "fast-check": "catalog:",
+    "hermes-compiler": "260318099.0.5"
+  }
+}
