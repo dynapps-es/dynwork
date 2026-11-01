@@ -16,7 +16,7 @@ the next tag.
 | `script/sync-upstream.ts` | The upstream sync (logic in `packages/build/src/sync.ts`): rebases the stack onto a newer upstream ref in a throwaway worktree, checks it and writes a report. See "Syncing with upstream" |
 | `script/sp-local.ts`, `test/sp-local` | The local systemprompt harness (see "Local systemprompt instances") |
 | `packages/sp-client` | `@dynwork/sp-client`: the clean-room systemprompt 0.76 client, Effect and `fetch`, no OpenCode dependency. `SpClient` has `discover`, `deviceLinkUrl` and `parseCallback`, `exchangeCode`, `mintJwt` and `withJwt` (re-mints once on a refused JWT), `publicKey` and `fingerprint` (trust on first use), `manifest` (ed25519 over the JCS payload, ETag and 304), `profile`, `models` and `whoami`, and the errors `Unauthorized`, `RateLimited`, `Unreachable`, `SignatureInvalid`, `KeyChanged`, `Incompatible` and `Protocol`. It stores and logs no credential. `src/jcs.ts` is RFC 8785. `PROTOCOL.md` is the contract as observed (device link, code exchange, PAT to JWT, manifest, profile, models, error mapping). `bun test` runs the fake-instance tests; `SP_LOCAL_ENV=../../test/sp-local/.env.local bun test` adds the live ones against the local instances |
-| `packages/gui` | `@dynwork/gui`: DynWork's own screens and main-process helpers. `src/signin`: the sign-in gate the desktop shows until the device is signed in. `src/service.ts`: the layout of DynWork's own background service (see "Background service") |
+| `packages/gui` | `@dynwork/gui`: DynWork's own screens and main-process helpers. `src/signin`: the sign-in gate the desktop shows until the device is signed in. `src/service.ts`: the layout of DynWork's own background service (see "Background service"). `src/accounts`: the `dynwork` built-in GUI plugin that holds the systemprompt accounts in main (see "Accounts") |
 | `packages/branding/src` | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark |
 | `packages/branding/theme` | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json` |
 
@@ -32,6 +32,29 @@ Finishing stores the `dynwork-signin` key (a small JSON with the URL and the cho
 `localStorage`, or in `sessionStorage` when "Keep me signed in on this device" is off, and fades the screen out.
 Removing the key shows the screen again on the next launch. While it shows, the gate keeps focus and every keydown
 to itself, so app shortcuts do not act on the hidden shell. All copy lives in `copy.ts`.
+
+## Accounts
+
+DynWork's systemprompt accounts live in the main process, in the `dynwork` built-in GUI plugin
+(`packages/gui/src/accounts`, registered with one line in each of `packages/gui-plugins/src/main.ts` and
+`renderer.ts`). `DynWorkAccounts.make` (`accounts.ts`) keeps several instances, at most one active, and signs in with a
+personal access token, a pasted one-time code, or the browser device link (`loopback.ts`: one listener on
+`127.0.0.1`, a random port, one answer, the `state` checked, 10 minutes, the system browser opened with
+`shell.openExternal`). Windows reach it through the `dynwork.accounts` Ipc (`contract.ts`); the window entry
+(`renderer.ts`) hands its live client to the sign-in gate, which renders outside the plugin host.
+
+Where secrets live:
+
+- The PAT is stored only as `safeStorage.encryptString` ciphertext (base64) in the plugin's main storage, the desktop's
+  own SQLite under `plugin.dynwork`, key `accounts`, with each instance's URL, label, user, organization, pinned
+  manifest key and its fingerprint. Without OS encryption (`safeStorage.isEncryptionAvailable()` false) no sign-in
+  starts. A ciphertext the OS no longer opens signs the account out.
+- JWTs exist only in main memory. Each is renewed at 80 % of its lifetime; a failed renewal is tried again every 30 s
+  while it holds. A refused JWT is minted again once; a refused PAT signs the account out. Main code (gateway, sync)
+  gets one through `jwt(id)` or `withJwt(id, use)`.
+- Windows see `{id, label, url, user, org, status, active, fingerprint, trusted}` and never a PAT, JWT or code.
+  Nothing goes into OpenCode's `credential` table or the service's database.
+- Signing out forgets the PAT locally; the token stays in the user's list on the instance until revoked there.
 
 ## Local systemprompt instances
 

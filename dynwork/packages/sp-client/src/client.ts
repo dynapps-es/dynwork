@@ -103,6 +103,11 @@ export function deviceLinkUrl(instance: Pick<Instance, "baseUrl" | "deviceLinkPa
   return page.href
 }
 
+// A one-time code as the device-link page and `admin bridge issue-code` hand it out.
+export function isCode(value: string) {
+  return codePattern.test(value)
+}
+
 // Reads the browser's GET on the loopback listener. Anything that is not a well-formed answer carrying the expected
 // state is `undefined`, so the listener keeps waiting.
 export function parseCallback(url: string | URL, state: string) {
@@ -110,7 +115,7 @@ export function parseCallback(url: string | URL, state: string) {
   if (state === "" || !sameSecret(query.get("state") ?? "", state)) return undefined
   if (query.get("error") === "denied") return { _tag: "Denied" as const }
   const code = query.get("code")
-  if (code === null || !codePattern.test(code)) return undefined
+  if (code === null || !isCode(code)) return undefined
   return { _tag: "Code" as const, code }
 }
 
@@ -338,7 +343,8 @@ const send = Effect.fnUntraced(function* (baseUrl: string, request: Request) {
       return { status: response.status, headers: response.headers, body: await response.text() }
     },
     // Bun's fetch errors name the failure and the URL, never the request headers
-    catch: (cause) => unreachable(cause instanceof Error ? cause.message : "the request failed"),
+    // A fixed message: a fetch error can quote request headers, and so the bearer
+    catch: () => unreachable("the request failed"),
   }).pipe(
     Effect.timeoutOrElse({
       duration: requestTimeout,

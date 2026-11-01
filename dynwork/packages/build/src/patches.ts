@@ -58,8 +58,11 @@ async function check(root: string) {
 
   const stale = [...rows].filter((row) => !files.some((item) => item.file === row))
 
-  // A new file cannot conflict with an upstream rebase, so only files upstream also has count toward the budget.
-  const used = files.filter((item) => item.status !== "A").reduce((sum, item) => sum + item.added + item.removed, 0)
+  // A new file cannot conflict with an upstream rebase, and the lockfile is regenerated rather than merged, so only the
+  // other files upstream also has count toward the budget.
+  const used = files
+    .filter((item) => item.status !== "A" && item.file !== "bun.lock")
+    .reduce((sum, item) => sum + item.added + item.removed, 0)
 
   const problems = [
     ...files

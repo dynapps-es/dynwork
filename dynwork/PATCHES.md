@@ -7,13 +7,13 @@ Budget: 250 lines
 
 `bun dynwork/script/patches.ts` fails when an upstream file differs from the tag in `dynwork/UPSTREAM` and has no row
 below, when a row lists a file that does not differ, or when the added plus removed lines of the modified upstream files
-pass the budget above. Files DynWork adds need a row but do not count toward the budget: they cannot conflict on a
-rebase.
+pass the budget above. Files DynWork adds and `bun.lock` need a row but do not count toward the budget: new files
+cannot conflict on a rebase, and the lockfile is regenerated rather than merged.
 
 | File | Why | Risk on upstream updates |
 | --- | --- | --- |
 | `package.json` | Adds `dynwork/packages/*` to the workspaces | Low: one line in the workspace list |
-| `bun.lock` | Records the `@dynwork/branding`, `@dynwork/build` and `@dynwork/gui` workspaces and the desktop dependencies on them | Low: regenerate with `bun install` after resolving `package.json` |
+| `bun.lock` | Records the `@dynwork/branding`, `@dynwork/build`, `@dynwork/gui` and `@dynwork/sp-client` workspaces, the desktop and gui-plugins dependencies on them, and `@dynwork/gui`'s own (`@opencode/plugin`, `effect`, `electron`), which moves where bun hoists `@electron/get` | Low: regenerate with `bun install` after resolving `package.json` |
 | `packages/desktop/package.json` | Declares `@dynwork/branding`, `@dynwork/build` and `@dynwork/gui` (the isolated linker only links declared dependencies) | Low: three dev dependency lines |
 | `packages/desktop/src/main/constants.ts` | Prod app name and app id come from `DynWorkIdentity` (sets userData to `es.dynapps.dynwork`) | Low: two map entries and one import |
 | `packages/desktop/src/main/lifecycle/environment.ts` | Prod registers the `dynwork` URL scheme; dev and beta keep `opencode` | Low: one call and two imports |
@@ -25,5 +25,9 @@ rebase.
 | `packages/desktop/src/main/service/sidecar-probe.ts` | The early probe looks for a running service at DynWork's own registration file (`DynWorkService.layout(CHANNEL, app)?.file`), so prod never adopts OpenCode.app's service before the layers run | Low: one import and one argument. If upstream adds another early lookup, it reads the default registration again |
 | `packages/desktop/src/main/service/dynwork-service.test.ts` | New file: the service layout contract across channels (prod packaged, unpackaged prod, beta, dev, local), the server config extension point, and a spawn through the real `Service.ensure` that proves the service never inherits the shell's `OPENCODE_CONFIG*` | None: a new file upstream never ships |
 | `packages/desktop/src/renderer/desktop-app.tsx` | Renders `SignInGate` from `@dynwork/gui/signin` next to `ReadyApp`, inside `AppBaseProviders` for the theme and fonts. The gate covers the window (z-index 90) until the `dynwork-signin` flag exists; the startup splash (z-index 100) still fades only when the app is ready, so it reveals the gate, and the gate's fade reveals the ready app with first-launch onboarding intact | Low: one import and one JSX line. If upstream moves the startup overlay off z-index 100 or stops rendering it above `ReadyApp`, the gate shows before the splash fades or never shows |
+| `packages/gui-plugins/package.json` | Declares `@dynwork/gui` (the isolated linker only links declared dependencies), for the `dynwork` built-in | Low: one dependency line |
+| `packages/gui-plugins/src/main.ts` | Lists the `dynwork` built-in (`@dynwork/gui/accounts`) with its main entry (`@dynwork/gui/accounts/main`): DynWork's systemprompt accounts and the `dynwork.accounts` Ipc | Low: one import and one `compose` entry. If upstream renames `builtins` or stops composing main entries there, the accounts never start (`dynwork/packages/gui/test/accounts/registration.test.ts` imports the list) |
+| `packages/gui-plugins/src/renderer.ts` | Lists the `dynwork` built-in with its window entry (`@dynwork/gui/accounts/renderer`), which hands the Ipc's live client to the sign-in gate | Low: two imports and one `compose` entry. If upstream drops `eager` or reshapes the list, the window entry silently stops loading (`registration.test.ts` checks the imports and the entry in the source) |
 | `CLAUDE.md` | New file: the project instructions for this fork (Spanish with the user, English in the repository, the `dynwork/` rules). It imports `AGENTS.md` | None: upstream has no `CLAUDE.md`; if it adds one, merge by hand |
 | `.github/workflows/dynwork.yml` | New file: the fork's only workflow (patch guard, `bun test` and `bun typecheck` of every `dynwork/packages/*`, desktop typecheck). Upstream's own workflows are disabled in the fork's Actions settings, not edited, so none of them is a patch | None: upstream has no workflow of that name |
+| `packages/gui-plugins/README.md` | Its `<!-- source: src/main.ts#builtins -->` and `src/renderer.ts#builtins` blocks must match the code (the `sdk-docs` lint), so they show the `dynwork` entries too | Low: one line per block; follows every upstream change to the built-in lists |

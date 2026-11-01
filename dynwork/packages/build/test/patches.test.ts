@@ -36,6 +36,7 @@ const fixture = async (change: (root: string) => Promise<void>, listed: string[]
   await write(root, "src/b.ts", lines(10, "b"))
   await write(root, "src/gone.ts", lines(3, "gone"))
   await write(root, "README.md", "upstream\n")
+  await write(root, "bun.lock", lines(5, "lock"))
   await git(root, "add", "-A")
   await git(root, "commit", "-q", "-m", "upstream release")
   await git(root, "tag", "v1.0.0")
@@ -172,6 +173,21 @@ describe("patch guard", () => {
     const result = await Patches.check(root)
 
     expect(result.used).toBe(1)
+    expect(result.problems).toEqual([])
+  })
+
+  test("does not count the regenerated lockfile toward the budget, but still requires its row", async () => {
+    const root = await fixture(
+      async (root) => {
+        await write(root, "bun.lock", lines(40, "relocked"))
+      },
+      ["bun.lock"],
+      "Budget: 5 lines",
+    )
+
+    const result = await Patches.check(root)
+
+    expect(result.used).toBe(0)
     expect(result.problems).toEqual([])
   })
 
