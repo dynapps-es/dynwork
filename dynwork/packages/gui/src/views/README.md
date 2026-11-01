@@ -9,8 +9,9 @@ to the `dynwork` built-in (`../accounts/index.ts`); its window entry (`../accoun
 The host has two slots only built-ins fill (`BuiltinSlotMap` in `packages/plugin/src/gui/builtin.ts`), and a layout call
 to open a page (`BuiltinLayout.page`):
 
-- `sidebar.nav`: rows after New session in the vertical sidebar, and after Home in the tabs drawer of a window under
-  768px, where the host hides the sidebar. `./nav.tsx` renders the rows of `./entries.ts`.
+- `sidebar.nav`: rows after New session in the vertical sidebar, after Home in the tabs drawer of a window under
+  768px (where the host hides the sidebar), and icon buttons after Search in the horizontal titlebar, which has no
+  sidebar; `place` says which. `./nav.tsx` renders the entries of `./entries.ts`.
 - `page`: the main area of the `/page/:id` route. `./route.tsx` mounts the view whose id the route names.
 - `ctx.layout.page(id)` (through `builtinContext`) routes to `/page/<id>`, the way `ctx.layout.settings(page)` opens
   settings. The systemprompt row opens the real Accounts settings page instead of a view.

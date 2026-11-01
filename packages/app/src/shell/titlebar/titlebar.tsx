@@ -645,6 +645,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                   <div class="flex shrink-0 items-center gap-0.5">
                     {homeButton()}
                     {searchButton()}
+                    <PluginSlot at="sidebar.nav" input={{ place: "titlebar" }} />
                   </div>
                 </Show>
 
@@ -750,7 +751,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                               <Icon name="grid-plus" />
                               {language.t("home.title")}
                             </button>
-                            <PluginSlot at="sidebar.nav" input={{ drawer: true }} />
+                            <PluginSlot at="sidebar.nav" input={{ place: "drawer" }} />
                             <div class="flex items-center gap-1">
                               <button
                                 type="button"
@@ -862,7 +863,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                                 onNewTab={openNewTab}
                                 keybind={command.keybind("tab.new")}
                               />
-                              <PluginSlot at="sidebar.nav" input={{ drawer: false }} />
+                              <PluginSlot at="sidebar.nav" input={{ place: "sidebar" }} />
                             </div>
                             <div class="h-4 w-full shrink-0" aria-hidden="true" />
                             <div class="flex min-h-0 flex-1 flex-col gap-1">

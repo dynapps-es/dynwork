@@ -70,6 +70,9 @@ const signInViews = ["signin", "signin-choose", "signin-finalizing", "signin-don
 
 const accountsViews = ["accounts", "accounts-add", "accounts-pill"]
 
+// The demo views open from their entry: a sidebar row, a tabs-drawer row or a titlebar icon, by the tab layout and width.
+const pageViews = ["agents", "routines", "brain"]
+
 // Alpha's URL and PAT; read only by the views that sign in.
 const alpha = view === "signin" || view === "first-launch" ? undefined : await localInstance("ALPHA")
 
@@ -159,7 +162,7 @@ async function run() {
       )
   }
 
-  if (view === "home" || accountsViews.includes(view)) {
+  if (view === "home" || accountsViews.includes(view) || pageViews.includes(view)) {
     await cdp.send("Page.reload")
     // The old document stays alive for a moment after the reload call.
     await Bun.sleep(1000)
@@ -178,6 +181,21 @@ async function run() {
 
   if (accountsViews.includes(view)) return accounts(cdp)
 
+  if (pageViews.includes(view)) return page(cdp)
+
+  return shoot(cdp)
+}
+
+// Opens a demo view through its entry and shoots it. Under 768px the entry is in the tabs drawer, opened first.
+async function page(cdp: Cdp) {
+  const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
+  const entry = `[data-action="dynwork-${view}"]`
+  // The drawer's trigger is the button around the current tab's title.
+  if (!(await seen(entry)) && (await seen('[data-slot="mobile-tab-title"]')))
+    await cdp.value(`document.querySelector('[data-slot="mobile-tab-title"]').closest("button").click()`)
+  await waitFor(`the ${view} entry`, async () => seen(entry), 30_000)
+  await cdp.value(`document.querySelector(${JSON.stringify(entry)}).click()`)
+  await waitFor(`the ${view} view`, async () => seen(`[data-component="dynwork-view"][data-view="${view}"]`), 10_000)
   return shoot(cdp)
 }
 

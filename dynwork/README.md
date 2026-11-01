@@ -182,7 +182,8 @@ Statuses, in `State.sync` and as the Ipc's `sync` event: `{status: "idle"}`, `{s
 
 Agents (Agent Farm), Routines (this Mac) and Brain are demo screens of the November 2026 vision: they run on built-in
 data ported from the mockup, show a "Demo data" marker and make no network call, Ipc or service request. They open from
-rows under New session in the vertical sidebar (and after Home in the tabs drawer of a window under 768px), on the
+rows under New session in the vertical sidebar (after Home in the tabs drawer of a window under 768px, and as icons
+after Search in the horizontal titlebar), on the
 `/page/:id` route; the systemprompt row opens the real Settings page.
 
 - Code: `packages/gui/src/views/` (one folder per view, its `demo.ts` holds the data), contract in its `README.md`.

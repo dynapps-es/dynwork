@@ -6,6 +6,6 @@ import { ViewRoute } from "./route"
 
 /** The DynWork views: their rows in the sidebar (and the narrow window's tabs drawer) and their pages. */
 export function registerViews(ctx: SetupContext<typeof definition>) {
-  ctx.add(BuiltinSlot, { at: "sidebar.nav", render: (input) => <ViewsNav drawer={input.drawer} /> })
+  ctx.add(BuiltinSlot, { at: "sidebar.nav", render: (input) => <ViewsNav place={input.place} /> })
   ctx.add(BuiltinSlot, { at: "page", render: (input) => <ViewRoute id={input.id} /> })
 }
