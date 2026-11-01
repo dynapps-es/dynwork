@@ -2,7 +2,6 @@ import { usePlugin } from "@opencode/plugin/gui"
 import { builtinContext } from "@opencode/plugin/gui/builtin"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
-import { Tooltip } from "@opencode/ui/tooltip"
 import { For, Show } from "solid-js"
 import { navRows } from "./entries"
 import "./nav.css"
@@ -19,22 +18,22 @@ export function ViewsNav(props: { place: "sidebar" | "drawer" | "titlebar" }) {
         <Show
           when={props.place !== "titlebar"}
           fallback={
-            // Like the titlebar's own Home and Search buttons.
-            <Tooltip placement="bottom" value={row.label()} class="shrink-0">
-              <IconButton
-                type="button"
-                variant="ghost-muted"
-                size="large"
-                class="!w-9 shrink-0"
-                data-component="dynwork-nav-icon"
-                data-action={`dynwork-${row.id}`}
-                icon={<Icon name={row.icon} />}
-                state={row.active() ? "pressed" : undefined}
-                onClick={row.open}
-                aria-label={row.label()}
-                aria-current={row.active() ? "page" : undefined}
-              />
-            </Tooltip>
+            // Like the titlebar's own Home and Search buttons. A native title, not the UI Tooltip: that one reaches for the
+            // DOM when imported, which breaks every test that loads this plugin.
+            <IconButton
+              type="button"
+              variant="ghost-muted"
+              size="large"
+              class="!w-9 shrink-0"
+              data-component="dynwork-nav-icon"
+              data-action={`dynwork-${row.id}`}
+              icon={<Icon name={row.icon} />}
+              state={row.active() ? "pressed" : undefined}
+              onClick={row.open}
+              title={row.label()}
+              aria-label={row.label()}
+              aria-current={row.active() ? "page" : undefined}
+            />
           }
         >
           <button
