@@ -21,7 +21,8 @@ Each view owns its folder: `<view>/index.tsx` exports the view component as its 
 (keys start with `<view>.`; `./en.ts` merges them into the plugin's table), and anything else it needs (`demo.ts`,
 components, a CSS file) lives beside them. Tests go in `test/views/<view>/`.
 
-A view renders `ViewShell` from `./shell.tsx` and reads strings with `usePlugin().t(...)`:
+A view renders `ViewShell` from `./shell.tsx`, reads strings with `usePlugin().t(...)` and opens another view with
+`builtinContext(usePlugin()).layout.page(id)` (`layout.page` is not on the public plugin type):
 
 ```tsx
 <ViewShell
@@ -30,7 +31,7 @@ A view renders `ViewShell` from `./shell.tsx` and reads strings with `usePlugin(
   badge={ctx.t("agents.badge")}
   description={ctx.t("agents.description")}
   actions={<Button variant="contrast">{ctx.t("agents.new")}</Button>}
-  nav={{ groups, selected: "agents", select: (id) => ctx.layout.page(id) }}
+  nav={{ groups, selected: "agents", select: (id) => builtinContext(ctx).layout.page(id) }}
   detail={selected() ? <AgentDetail agent={selected()} /> : undefined}
   detailTitle={selected()?.name}
   onCloseDetail={() => setSelected(undefined)}

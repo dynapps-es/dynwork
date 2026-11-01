@@ -6,6 +6,7 @@ import { RoutineDetail } from "./detail"
 import { RoutineList } from "./list"
 import { NewRoutine } from "./new-routine"
 import { createRoutines, pickSelected } from "./store"
+import { demoAgents } from "../agents/demo"
 import { createViewLayout, ViewShell } from "../shell"
 import "./routines.css"
 
@@ -59,7 +60,7 @@ export default function RoutinesView() {
         groups: [
           {
             label: ctx.t("routines.nav.farm"),
-            items: [{ id: "agents", label: ctx.t("routines.nav.agents"), icon: "mcp", count: 6 }],
+            items: [{ id: "agents", label: ctx.t("routines.nav.agents"), icon: "mcp", count: demoAgents().length }],
           },
           {
             label: ctx.t("routines.nav.mac"),

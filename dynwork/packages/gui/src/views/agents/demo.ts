@@ -1,5 +1,7 @@
 // The Agents view's built-in demo data, ported from the November 2026 vision mockup. Nothing here is fetched.
 
+import { demoRoutines } from "../routines/demo"
+
 export type AgentStatus = "running" | "queued" | "idle" | "failed"
 
 export type RunStatus = "running" | "queued" | "succeeded" | "failed" | "cancelled"
@@ -102,7 +104,7 @@ export const timezone = "Europe/Madrid"
 export const instance = "Dynapps"
 
 /** How many routines the demo Routines view lists as on: the count beside "Routines" in the sub-navigation. */
-export const routinesOn = 3
+export const routinesOn = demoRoutines.filter((routine) => routine.enabled).length
 
 export const farm = { host: "farm-dev.ai.dyncloud.es", user: "dev@dynapps.test" }
 
