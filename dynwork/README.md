@@ -536,6 +536,28 @@ else:
   queued, and nothing is enrolled for it. Receipts acknowledged before this change carry no receipt id and get no
   bindings until their next receipt.
 
+### Heartbeat
+
+Like the bridge's proxy (`proxy/heartbeat/mod.rs`), main (`gui/src/sync/heartbeat.ts`) reports this install as online
+every 30 s while the active account is signed in: `POST <instance>/v1/bridge/heartbeat` with its JWT and
+`{session_id, bridge_version, os, hostname, last_activity_at, forwarded_total, tokens_in_total, tokens_out_total,
+release_version, state}`. The first goes one interval after start, and nothing is sent while nobody is signed in.
+
+- `session_id` is the session the JWT was minted for (the PAT exchange's `x-session-id`, replayed on every renewal):
+  0.76 refuses any other with `401` `session_mismatch`. A refused heartbeat mints a JWT once more and is sent again.
+- `bridge_version` is `0.76.0`, the bridge protocol DynWork speaks (`SpConsumer.bridgeVersion`), checked against the
+  instance's floor; `release_version` is DynWork's own version; `os` is the bridge's name for it (`macos`, `windows`,
+  `linux`); `hostname` the machine's; `state` is always `active` (DynWork has no paused state).
+- The totals come from DynWork's own service, where the model calls are (`server-plugin/src/usage.ts`,
+  `dynwork.sync/usage {instance}`): every answer of the instance's gateway counts as forwarded and a successful one is
+  the last activity; each step's tokens add up, prompt tokens with cache reads and writes, output with reasoning, as the
+  gateway's OpenAI-shaped answer counts them. Title and compaction calls count as calls but not as tokens: OpenCode
+  keeps their tokens in an event plugins do not receive. The totals start at zero when an instance is applied and when
+  the service starts, as a new bridge session's do. The bridge's proxy reads tokens only from Anthropic answers, so for
+  OpenCode on OpenAI-family models it reports none.
+- A failure is logged once until it recovers, and an answer that this version is unsupported or outside the instance's
+  release window is logged once while it lasts; DynWork does not stage a bridge release as the bridge does.
+
 ## Patch guard
 
 ```bash

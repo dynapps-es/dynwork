@@ -9,6 +9,7 @@ import { DynWorkMapping } from "./mapping"
 import { DynWorkShell } from "./shell"
 import { DynWorkSkills } from "./skills"
 import { DynWorkTelemetry } from "./telemetry"
+import { DynWorkUsage } from "./usage"
 
 // DynWork's server plugin. Main pushes the active instance's manifest, gateway models, plugin bundle files and JWT over
 // `dynwork.sync`, and the plugin adds its MCP servers and `systemprompt` provider to the service in memory, and writes
@@ -44,6 +45,10 @@ export const Definition = Rpc.define({
     device: {
       input: Schema.toStandardSchemaV1(DynWorkSync.Device),
       output: Schema.toStandardSchemaV1(DynWorkSync.TokenAccepted),
+    },
+    usage: {
+      input: Schema.toStandardSchemaV1(DynWorkSync.UsageOf),
+      output: Schema.toStandardSchemaV1(DynWorkSync.Usage),
     },
   },
   events: {
@@ -81,6 +86,10 @@ interface Store {
   readonly bound: Set<string>
   /** Publishes `session` for main; set by the Location that registered the RPC last. */
   emit: ((session: string) => void) | undefined
+  /** The gateway calls and tokens counted for the instance applied, which main reports in its heartbeat. */
+  usage: DynWorkUsage.Usage | undefined
+  /** Usage events already counted: every Location's activation sees the same service events. */
+  readonly counted: Set<string>
 }
 
 // The service activates the plugin once per Location, and each activation imports the module afresh (local plugin
@@ -94,11 +103,16 @@ const store: Store = Object.assign(slot.__dynworkSync ?? {}, {
   reloads: slot.__dynworkSync?.reloads ?? new Set<Effect.Effect<void>>(),
   mcpReloads: slot.__dynworkSync?.mcpReloads ?? new Set<Effect.Effect<void>>(),
   hooks: slot.__dynworkSync?.hooks ?? DynWorkTelemetry.hooks(),
-  sessions: slot.__dynworkSync?.sessions ?? { directories: new Map<string, string>(), prompts: new Map<string, string>() },
+  sessions: slot.__dynworkSync?.sessions ?? {
+    directories: new Map<string, string>(),
+    prompts: new Map<string, string>(),
+  },
   reported: slot.__dynworkSync?.reported ?? new Set<string>(),
   device: slot.__dynworkSync?.device,
   bound: slot.__dynworkSync?.bound ?? new Set<string>(),
   emit: slot.__dynworkSync?.emit,
+  usage: slot.__dynworkSync?.usage,
+  counted: slot.__dynworkSync?.counted ?? new Set<string>(),
 })
 slot.__dynworkSync = store
 
@@ -251,10 +265,16 @@ export default Plugin.define({
             }
             const telemetry = DynWorkTelemetry.target(input)
             // The device credential belongs to the instance it was enrolled with: another one never receives it.
-            if (store.current?.input.instance.key !== input.instance.key || store.current.input.instance.url !== input.instance.url)
+            if (
+              store.current?.input.instance.key !== input.instance.key ||
+              store.current.input.instance.url !== input.instance.url
+            )
               store.device = undefined
             // A hook client and tokens of another instance are never sent to this one.
             if (store.current?.telemetry?.base !== telemetry?.base) Object.assign(store.hooks, DynWorkTelemetry.hooks())
+            // Another instance starts its totals at zero, as a new bridge session does.
+            if (store.usage?.instance !== DynWorkUsage.id(input.instance))
+              store.usage = DynWorkUsage.start(input.instance)
             store.current = { input, mapped: next, provided: DynWorkGateway.provider(input), telemetry }
             DynWorkGateway.push(store.tokens, { jwt: input.jwt, expiresAt: input.expiresAt })
             yield* reloadAll
@@ -272,6 +292,7 @@ export default Plugin.define({
             DynWorkGateway.push(store.tokens, undefined)
             Object.assign(store.hooks, DynWorkTelemetry.hooks())
             store.device = undefined
+            store.usage = undefined
             if (configDir) {
               yield* Effect.promise(() => DynWorkInstructions.write(configDir, undefined))
               yield* Effect.promise(() => DynWorkSkills.write(configDir, undefined))
@@ -318,6 +339,7 @@ export default Plugin.define({
             store.device = input.credential
             return { accepted: true }
           }),
+        usage: (input) => Effect.sync(() => DynWorkUsage.report(store.usage, input.instance)),
         inspect: (input) =>
           Effect.gen(function* () {
             const current = store.current
@@ -456,6 +478,31 @@ export default Plugin.define({
           )
         }),
       { providerID: DynWorkGateway.providerID },
+    )
+
+    // What the bridge's proxy counts for its heartbeat (`DynWorkUsage`): each answer of the instance's gateway, and the
+    // tokens of every step. While an instance is applied its gateway is the only provider, so every step is its own.
+    // Title and compaction calls count as calls; OpenCode keeps their tokens in an event plugins do not receive.
+    yield* ctx.session.hook(
+      "http.response",
+      (event) =>
+        Effect.sync(() => {
+          if (store.usage && store.current?.provided) DynWorkUsage.call(store.usage, event.response.ok, Date.now())
+        }),
+      { providerID: DynWorkGateway.providerID },
+    )
+    yield* ctx.event.subscribe({ types: ["session.step.ended", "session.step.failed"] }).pipe(
+      Stream.runForEach((event) =>
+        Effect.sync(() => {
+          const tokens = event.data.tokens
+          const id = event.id ?? `${event.data.sessionID}:${event.data.assistantMessageID}:${event.type}`
+          if (!tokens || store.counted.has(id)) return
+          store.counted.add(id)
+          bounded(store.counted)
+          if (store.usage && store.current?.provided) DynWorkUsage.tokens(store.usage, tokens)
+        }),
+      ),
+      Effect.forkScoped({ startImmediately: true }),
     )
   }),
 })

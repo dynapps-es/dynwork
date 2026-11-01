@@ -6,8 +6,8 @@ import type { Publication } from "./schema"
 // The device-authenticated consumer API of systemprompt 0.76, as the systemprompt bridge uses it to deliver a skill's
 // runtime files (`feedback/{enrol,transport,readback}.rs`): self-enrolment with the user's JWT gives an `sp_device_`
 // credential; with it, each skill publication's installation plan (its bundle for one host) is read and, once the
-// files are on disk and read back, a receipt is posted. Nothing is stored or logged here, and no error carries a
-// credential.
+// files are on disk and read back, a receipt is posted. The bridge's heartbeat goes with the JWT too. Nothing is stored
+// or logged here, and no error carries a credential.
 
 /** The host the plans are asked for: OpenCode in the instance's `EvaluatorClient` vocabulary (kebab-case). */
 export const host = "open-code"
@@ -119,6 +119,45 @@ export const enrol = Effect.fn("SpConsumer.enrol")(function* (
     method: "POST",
     url: `${yield* base(baseUrl)}/v1/bridge/device`,
     endpoint: "POST /v1/bridge/device",
+    bearer: jwt,
+    body: input,
+    limit: 4096,
+  })
+})
+
+/** The bridge protocol DynWork speaks, the `bridge_version` of its heartbeat: the instance checks it against its floor. */
+export const bridgeVersion = "0.76.0"
+
+/** `BridgeHeartbeatRequest`: the bridge's liveness report, every 30 seconds while signed in. */
+export type Heartbeat = {
+  /** The session of the JWT it is sent with: the instance refuses any other. */
+  readonly session_id: string
+  readonly bridge_version: string
+  /** The bridge's `std::env::consts::OS`: `macos`, `windows` or `linux`. */
+  readonly os: string
+  readonly hostname: string
+  /** RFC 3339, or null before the first successful model call. */
+  readonly last_activity_at: string | null
+  readonly forwarded_total: number
+  readonly tokens_in_total: number
+  readonly tokens_out_total: number
+  readonly release_version: string
+  readonly state: "active" | "disabled"
+}
+
+export const HeartbeatAnswer = Schema.Struct({
+  min_bridge_version: Schema.String,
+  compatible: Schema.Boolean,
+  window_status: Schema.optional(Schema.Literals(["below", "within", "above", "unknown"])),
+})
+export type HeartbeatAnswer = typeof HeartbeatAnswer.Type
+
+/** Reports this install as online (`POST /v1/bridge/heartbeat`, the user's JWT), as the bridge does every 30 seconds. */
+export const heartbeat = Effect.fn("SpConsumer.heartbeat")(function* (baseUrl: string, jwt: string, input: Heartbeat) {
+  return yield* call(HeartbeatAnswer, {
+    method: "POST",
+    url: `${yield* base(baseUrl)}/v1/bridge/heartbeat`,
+    endpoint: "POST /v1/bridge/heartbeat",
     bearer: jwt,
     body: input,
     limit: 4096,
