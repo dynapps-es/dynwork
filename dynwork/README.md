@@ -6,32 +6,48 @@ the next tag.
 
 ## Layout
 
-| Path | Contents |
-| --- | --- |
-| `PATCHES.md` | Every upstream file we modify, why, and the risk on upstream updates |
-| `packages/branding` | `@dynwork/branding`: the prod app identity (`src/identity.ts`) that the desktop package reads |
-| `packages/branding/logo` | `wordmark.svg`: "dynwork" outlined, in `currentColor`. `lockup.svg`: the Dynapps symbol in its gradient left of the wordmark |
-| `packages/build` | `@dynwork/build`: the build seam. `src/vite.ts` exports `DynWorkVite`, the aliases and plugins that swap the theme and the logos, which `packages/desktop/electron.vite.config.ts` spreads into its main and renderer plugins. `test/vite.test.ts` fails when an upstream specifier, module or export a swap relies on moves |
-| `script/patches.ts` | The patch guard (`bun dynwork/script/patches.ts`, logic in `packages/build/src/patches.ts`). `UPSTREAM` holds the upstream tag the stack sits on |
-| `script/sync-upstream.ts` | The upstream sync (logic in `packages/build/src/sync.ts`): rebases the stack onto a newer upstream ref in a throwaway worktree, checks it and writes a report. See "Syncing with upstream" |
-| `script/sp-local.ts`, `test/sp-local` | The local systemprompt harness (see "Local systemprompt instances") |
-| `packages/sp-client` | `@dynwork/sp-client`: the clean-room systemprompt 0.76 client, Effect and `fetch`, no OpenCode dependency. `SpClient` has `discover`, `deviceLinkUrl` and `parseCallback`, `exchangeCode`, `mintJwt` and `withJwt` (re-mints once on a refused JWT), `publicKey` and `fingerprint` (trust on first use), `manifest` (ed25519 over the JCS payload, ETag and 304), `profile`, `models` and `whoami`, and the errors `Unauthorized`, `RateLimited`, `Unreachable`, `SignatureInvalid`, `KeyChanged`, `Incompatible` and `Protocol`. It stores and logs no credential. `src/jcs.ts` is RFC 8785. `PROTOCOL.md` is the contract as observed (device link, code exchange, PAT to JWT, manifest, profile, models, error mapping). `bun test` runs the fake-instance tests; `SP_LOCAL_ENV=../../test/sp-local/.env.local bun test` adds the live ones against the local instances |
-| `packages/gui` | `@dynwork/gui`: DynWork's own screens and main-process helpers. `src/signin`: the sign-in gate the desktop shows until the device is signed in. `src/service.ts`: the layout of DynWork's own background service (see "Background service"). `src/accounts`: the `dynwork` built-in GUI plugin that holds the systemprompt accounts in main (see "Accounts") |
-| `packages/branding/src` | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark |
-| `packages/branding/theme` | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json` |
+| Path                                  | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PATCHES.md`                          | Every upstream file we modify, why, and the risk on upstream updates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `packages/branding`                   | `@dynwork/branding`: the prod app identity (`src/identity.ts`) that the desktop package reads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `packages/branding/logo`              | `wordmark.svg`: "dynwork" outlined, in `currentColor`. `lockup.svg`: the Dynapps symbol in its gradient left of the wordmark                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `packages/build`                      | `@dynwork/build`: the build seam. `src/vite.ts` exports `DynWorkVite`, the aliases and plugins that swap the theme and the logos, which `packages/desktop/electron.vite.config.ts` spreads into its main and renderer plugins. `test/vite.test.ts` fails when an upstream specifier, module or export a swap relies on moves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `script/patches.ts`                   | The patch guard (`bun dynwork/script/patches.ts`, logic in `packages/build/src/patches.ts`). `UPSTREAM` holds the upstream tag the stack sits on                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `script/sync-upstream.ts`             | The upstream sync (logic in `packages/build/src/sync.ts`): rebases the stack onto a newer upstream ref in a throwaway worktree, checks it and writes a report. See "Syncing with upstream"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `script/sp-local.ts`, `test/sp-local` | The local systemprompt harness (see "Local systemprompt instances")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `packages/sp-client`                  | `@dynwork/sp-client`: the clean-room systemprompt 0.76 client, Effect and `fetch`, no OpenCode dependency. `SpClient` has `discover`, `deviceLinkUrl` and `parseCallback`, `exchangeCode`, `mintJwt` and `withJwt` (re-mints once on a refused JWT), `publicKey` and `fingerprint` (trust on first use), `manifest` (ed25519 over the JCS payload, ETag and 304), `profile`, `models` and `whoami`, and the errors `Unauthorized`, `RateLimited`, `Unreachable`, `SignatureInvalid`, `KeyChanged`, `Incompatible` and `Protocol`. It stores and logs no credential. `src/jcs.ts` is RFC 8785. `PROTOCOL.md` is the contract as observed (device link, code exchange, PAT to JWT, manifest, profile, models, error mapping). `bun test` runs the fake-instance tests; `SP_LOCAL_ENV=../../test/sp-local/.env.local bun test` adds the live ones against the local instances |
+| `packages/gui`                        | `@dynwork/gui`: DynWork's own screens and main-process helpers. `src/signin`: the sign-in gate the desktop shows until the device is signed in. `src/service.ts`: the layout of DynWork's own background service (see "Background service"). `src/accounts`: the `dynwork` built-in GUI plugin that holds the systemprompt accounts in main (see "Accounts")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `packages/branding/src`               | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `packages/branding/theme`             | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ## Sign-in
 
-The desktop shows a full-window sign-in screen until this device is signed in to a systemprompt instance
-(`packages/gui/src/signin`, mounted by `desktop-app.tsx`, see `PATCHES.md`). It is a visual mock for now: every remote
-step goes through `SignInAccounts.Interface`, and `SignInAccounts.mock()` answers each one after a short delay, with no
-network. Real systemprompt auth will implement the same interface.
+The desktop shows a full-window sign-in screen until a systemprompt instance is signed in and active
+(`packages/gui/src/signin`, mounted by `desktop-app.tsx`, see `PATCHES.md`). It runs on the real accounts
+(see "Accounts"): `SignInReal.create` implements `SignInAccounts.Interface` over the `dynwork.accounts` Ipc client that
+`connection()` hands out, and `SignInAccounts.mock()` stays for tests and stories. No call of the interface rejects; a
+failure is an answer the screen maps to its copy (`copy.ts`, `failure`).
+
+- Step 1: the URL is checked as you type (`probe`: discovery plus health), with its own message for a malformed URL, an
+  instance that does not answer and an address that is not a supported systemprompt. "Sign in with your browser" opens
+  the instance's device-link page and waits on the loopback listener, with Cancel. "Use a personal access token
+  instead" takes a PAT or a one-time code; "Get a one-time code from your instance" opens the instance's device-link
+  page without a redirect, which shows the code to paste. Failures (declined, expired, refused token, unreachable, rate
+  limited, unsupported instance, no OS secure storage) show under the control that started the sign-in.
+- Step 2: the signed-in instances, the one just signed in first and preselected, with the skill, agent and MCP server
+  counts of its first manifest (`summary`, verified against the manifest key the account holds). Finish activates the
+  chosen instance. The "Finishing setup" progress is a stub of about 0.8 s until the sync engine reports the first
+  sync.
+- "Keep me signed in on this device" unchecked means the PAT is never stored: main keeps it sealed in memory for this
+  run (so the JWT is still renewed) and the account is signed out on the next launch.
+- Visibility follows main's state, not a renderer flag: the screen shows while no signed-in account is active, stays up
+  until Finish has faded it out, and comes back when the active account signs out. Until main's first snapshot a plain
+  cover keeps the shell from showing. The old `dynwork-signin` storage key is removed on startup.
 
 The screen sits under the startup splash, so it appears when the splash fades and the shell keeps loading underneath.
-Finishing stores the `dynwork-signin` key (a small JSON with the URL and the chosen instance) in the renderer's
-`localStorage`, or in `sessionStorage` when "Keep me signed in on this device" is off, and fades the screen out.
-Removing the key shows the screen again on the next launch. While it shows, the gate keeps focus and every keydown
-to itself, so app shortcuts do not act on the hidden shell. All copy lives in `copy.ts`.
+While it shows, the gate keeps focus and every keydown to itself, so app shortcuts do not act on the hidden shell.
+`bun dynwork/script/smoke.ts <png> oc-2 light signin-pat` signs in through it with alpha's PAT (see "Local systemprompt
+instances"), reloads, and checks that the PAT is nowhere in the profile as plaintext.
 
 ## Accounts
 
@@ -41,7 +57,10 @@ DynWork's systemprompt accounts live in the main process, in the `dynwork` built
 personal access token, a pasted one-time code, or the browser device link (`loopback.ts`: one listener on
 `127.0.0.1`, a random port, one answer, the `state` checked, 10 minutes, the system browser opened with
 `shell.openExternal`). Windows reach it through the `dynwork.accounts` Ipc (`contract.ts`); the window entry
-(`renderer.ts`) hands its live client to the sign-in gate, which renders outside the plugin host.
+(`renderer.ts`) hands its live client to the sign-in gate, which renders outside the plugin host. `ipc.ts` is the Ipc
+over the service: a sign-in that fails answers with its kind (`unreachable`, `refused`, `rate-limited`, `incompatible`,
+`insecure`, `failed`) instead of rejecting, since a rejection reaches a window as plain text; `summary(id)` counts the
+account's first manifest.
 
 Where secrets live:
 
@@ -72,12 +91,12 @@ never the one OpenCode.app uses. `DynWorkService.layout` (`packages/gui/src/serv
 `background-service.ts` and `sidecar-probe.ts` (see `PATCHES.md`) everything that service keeps, all under
 `<userData>/service`:
 
-| What | Where |
-| --- | --- |
-| Registration file (url, pid, version, private password) | `state/opencode/service.json`, through `XDG_STATE_HOME=<userData>/service/state` |
-| Config dir (`OPENCODE_CONFIG_DIR`), also the service's own `service.json` settings | `config` |
-| Database (`OPENCODE_DB`) | `opencode.db` |
-| Port | `127.0.0.1:17495` (`DynWorkIdentity.servicePort`, `0x4457`), never OpenCode's `0xC0DE` |
+| What                                                                               | Where                                                                                  |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Registration file (url, pid, version, private password)                            | `state/opencode/service.json`, through `XDG_STATE_HOME=<userData>/service/state`       |
+| Config dir (`OPENCODE_CONFIG_DIR`), also the service's own `service.json` settings | `config`                                                                               |
+| Database (`OPENCODE_DB`)                                                           | `opencode.db`                                                                          |
+| Port                                                                               | `127.0.0.1:17495` (`DynWorkIdentity.servicePort`, `0x4457`), never OpenCode's `0xC0DE` |
 
 DynWork only looks for its service at that registration file, so it never adopts, stops or replaces OpenCode.app's
 service, whatever its version, and OpenCode.app never finds DynWork's. Before the service starts, main drops every
@@ -162,11 +181,11 @@ ascender is also 148 px: a 243.5 px symbol centred 190 px left of the "d" and 91
 
 The desktop build (`packages/build`) swaps three upstream modules for the components in `src/` (see `PATCHES.md`):
 
-| Upstream | DynWork |
-| --- | --- |
-| `@opencode/ui/logo` `Mark`, `Splash` | `src/logo.tsx`: the Dynapps symbol in its brand gradient (the pulsing startup splash, the side panel placeholder) |
-| `@opencode/ui/logo` `Logo` | `src/logo.tsx`: the wordmark in `--icon-base` (the error page) |
-| `@opencode/ui/wordmark` `Wordmark` | `src/wordmark.tsx`: the wordmark with upstream's outline, fade and muted modes (the first-launch splash draws it, the server connect screen) |
+| Upstream                                        | DynWork                                                                                                                                                 |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@opencode/ui/logo` `Mark`, `Splash`            | `src/logo.tsx`: the Dynapps symbol in its brand gradient (the pulsing startup splash, the side panel placeholder)                                       |
+| `@opencode/ui/logo` `Logo`                      | `src/logo.tsx`: the wordmark in `--icon-base` (the error page)                                                                                          |
+| `@opencode/ui/wordmark` `Wordmark`              | `src/wordmark.tsx`: the wordmark with upstream's outline, fade and muted modes (the first-launch splash draws it, the server connect screen)            |
 | `new-session/wordmark.tsx` `NewSessionWordmark` | `src/new-session-wordmark.tsx`: the wordmark at rest, in the place and opacity of upstream's; the lodger, pin board and brick breaker easter egg is off |
 
 Tailwind only scans upstream folders, so these components style themselves with SVG attributes, inline styles and

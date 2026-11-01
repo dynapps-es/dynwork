@@ -42,6 +42,8 @@ export const Probe = Schema.Union([
     version: Schema.optional(Schema.String),
     /** Sign-in modes the instance offers (`pat`, `session`, ...). */
     modes: Schema.Array(Schema.String),
+    /** The instance's device-link page without a redirect: it shows a one-time code to paste into `signInToken`. */
+    deviceLink: Schema.String,
   }),
   Schema.Struct({
     reachable: Schema.Literal(false),
@@ -51,9 +53,33 @@ export const Probe = Schema.Union([
 ])
 export type Probe = typeof Probe.Type
 
-/** How a sign-in ended. Failures (unreachable instance, refused token, no secure storage) reject instead. */
-export const SignIn = Schema.Literals(["signed-in", "cancelled", "denied", "expired"])
+/**
+ * How a sign-in ended. The failures name what went wrong without carrying the client's error, which would reach the
+ * window as plain text: `unreachable` (no answer), `refused` (token or code rejected), `rate-limited`,
+ * `incompatible` (not a supported instance), `insecure` (no OS secure storage) and `failed` (anything else).
+ */
+export const SignIn = Schema.Literals([
+  "signed-in",
+  "cancelled",
+  "denied",
+  "expired",
+  "unreachable",
+  "refused",
+  "rate-limited",
+  "incompatible",
+  "insecure",
+  "failed",
+])
 export type SignIn = typeof SignIn.Type
+
+export const Summary = Schema.Struct({
+  skills: Schema.Number,
+  agents: Schema.Number,
+  servers: Schema.Number,
+  /** The user's first role on the instance, when the manifest names one. */
+  role: Schema.optional(Schema.String),
+})
+export type Summary = typeof Summary.Type
 
 /**
  * DynWork's systemprompt accounts, held by the main process: the instances, the active one, and sign-in. PATs are
@@ -71,11 +97,23 @@ export const Accounts = Ipc.define({
     probe: { input: Schema.String, output: Probe },
     /**
      * Signs in through the system browser: opens the instance's device-link page and waits up to 10 minutes on a
-     * loopback listener for the answer. A second call cancels the first.
+     * loopback listener for the answer. A second call cancels the first. `keep` false (default true) keeps the PAT
+     * out of the store: the account stays signed in until the app quits.
      */
-    signInBrowser: { input: Schema.String, output: SignIn },
-    /** Signs in with a personal access token, or with a one-time code copied from the device-link page. */
-    signInToken: { input: Schema.Struct({ url: Schema.String, token: Schema.String }), output: SignIn },
+    signInBrowser: {
+      input: Schema.Struct({ url: Schema.String, keep: Schema.optional(Schema.Boolean) }),
+      output: SignIn,
+    },
+    /**
+     * Signs in with a personal access token, or with a one-time code copied from the device-link page. `keep` as in
+     * `signInBrowser`.
+     */
+    signInToken: {
+      input: Schema.Struct({ url: Schema.String, token: Schema.String, keep: Schema.optional(Schema.Boolean) }),
+      output: SignIn,
+    },
+    /** What the signed-in account's first manifest holds. Rejects when the account has no served manifest key. */
+    summary: { input: Schema.String, output: Summary },
     /** Ends the pending browser sign-in, which then resolves as `cancelled`. */
     cancel: {},
     /** Makes a signed-in account the active one. */

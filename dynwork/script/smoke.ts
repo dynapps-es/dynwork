@@ -12,10 +12,14 @@
 // screen: new-session shoots that screen, applying the theme live, and first-launch shoots the first-launch splash when
 // its wordmark has drawn, before any theme preference can be stored.
 //
-// A fresh profile opens on the DynWork sign-in screen. home stores the signed-in flag and reloads, new-session signs in
-// through the screen, since a reload would leave the new session. The signin views shoot the screen itself: signin at
-// step 1, signin-choose at step 2, signin-finalizing while it syncs and signin-done the app once it has faded out. A
-// width in CSS pixels shoots the window at that width, for example 800 for the stacked layout.
+// A fresh profile opens on the DynWork sign-in screen, which only the local systemprompt alpha instance (see
+// `bun dynwork/script/sp-local.ts check`) can get past: every view but signin and first-launch signs in through the
+// screen with alpha's personal access token, read from dynwork/test/sp-local/.env.local and never printed. home does so
+// and reloads, which must not bring the screen back; new-session signs in without a reload, since a reload would leave
+// the new session. The signin views shoot the screen itself: signin at step 1, signin-choose at step 2,
+// signin-finalizing while it syncs and signin-done the app once it has faded out. signin-pat signs in, reloads, checks
+// the account in the app's storage (the PAT only as ciphertext) and reports who is signed in. A width in CSS pixels
+// shoots the window at that width, for example 800 for the stacked layout.
 //
 // The profile follows packages/desktop/script/bench-startup.ts: its own home, userData, XDG directories, database,
 // config and service registration, a private service port and none of the developer's OPENCODE_* variables. It never
@@ -49,12 +53,10 @@ const view = args[3] ?? "home"
 
 const width = args[4] ? Number(args[4]) : undefined
 
-const signInViews = ["signin", "signin-choose", "signin-finalizing", "signin-done"]
+const signInViews = ["signin", "signin-choose", "signin-finalizing", "signin-done", "signin-pat"]
 
-const signedIn = JSON.stringify({
-  url: "https://sp.dynapps.es",
-  instance: { id: "dynapps", name: "Dynapps", host: "sp.dynapps.es" },
-})
+// Alpha's URL and PAT; read only by the views that sign in.
+const alpha = view === "signin" || view === "first-launch" ? undefined : await localAlpha()
 
 // Stands in for an OPENCODE_CONFIG_CONTENT exported by the login shell, which DynWork's service must never see.
 const shellConfig = JSON.stringify({ username: "dynwork-smoke-shell-config" })
@@ -102,7 +104,11 @@ const env = {
 
 const foreign = withForeign ? await startForeign() : undefined
 
-const app = Bun.spawn([exe, `--remote-debugging-port=${cdpPort}`], { env, stdio: ["ignore", "ignore", "ignore"] })
+// The mock keychain keeps safeStorage off the developer's login Keychain: the profile seals its PAT with a throwaway key.
+const app = Bun.spawn([exe, `--remote-debugging-port=${cdpPort}`, "--use-mock-keychain"], {
+  env,
+  stdio: ["ignore", "ignore", "ignore"],
+})
 
 console.log(`smoke: pid ${app.pid}, root ${root}, cdp ${cdpPort}`)
 
@@ -134,6 +140,8 @@ async function run() {
   if (width)
     await cdp.send("Emulation.setDeviceMetricsOverride", { width, height: 0, deviceScaleFactor: 0, mobile: false })
 
+  if (view === "signin-pat") return signInPat(cdp)
+
   if (signInViews.includes(view)) return signIn(cdp)
 
   const shell = () =>
@@ -161,11 +169,9 @@ async function run() {
       throw new Error(`${error.message}; the window shows: ${seen}`)
     })
 
-  // The shell loads under the sign-in screen. home stores the signed-in flag for the reload below; the new session
-  // would not survive a reload, so that view signs in through the screen.
-  if (view === "new-session") await submitSignIn(cdp, "signin-done")
-
-  if (view === "home") await cdp.value(`localStorage.setItem("dynwork-signin", ${JSON.stringify(signedIn)})`)
+  // The shell loads under the sign-in screen. Both views sign in through it; home reloads below, which must not bring
+  // it back, and the new session would not survive a reload.
+  await submitSignIn(cdp, "signin-done")
 
   if (themeID && colorScheme) {
     await cdp.value(
@@ -233,9 +239,10 @@ async function signIn(cdp: Awaited<ReturnType<typeof connect>>) {
   return shoot(cdp)
 }
 
-// Types a valid instance URL, waits for the green status and presses Enter, then Enter again on Finish, the way a
-// keyboard user would, and stops at the given step.
+// Types alpha's URL, waits for the green status, opens the token field, types alpha's PAT and presses Enter, then Enter
+// again on Finish, the way a keyboard user would, and stops at the given step.
 async function submitSignIn(cdp: Awaited<ReturnType<typeof connect>>, until: string) {
+  if (!alpha) throw new Error("This view signs in, and alpha is not configured")
   const enter = async () => {
     for (const type of ["keyDown", "keyUp"])
       await cdp.send("Input.dispatchKeyEvent", {
@@ -250,17 +257,100 @@ async function submitSignIn(cdp: Awaited<ReturnType<typeof connect>>, until: str
 
   await waitFor("the instance URL field", async () => seen("#dynwork-signin-url"), 60_000)
   await cdp.value(`document.querySelector("#dynwork-signin-url").focus()`)
-  await cdp.send("Input.insertText", { text: "https://sp.dynapps.es" })
-  await waitFor("a reachable instance URL", async () => seen('[data-slot="signin-status"][data-tone="valid"]'), 5_000)
+  await cdp.send("Input.insertText", { text: alpha.url })
+  await waitFor("a reachable instance URL", async () => seen('[data-slot="signin-status"][data-tone="valid"]'), 10_000)
+  await cdp.value(`document.querySelector('[data-slot="signin-token-toggle"]').click()`)
+  await waitFor("the token field", async () => seen("#dynwork-signin-token"), 5_000)
+  await cdp.value(`document.querySelector("#dynwork-signin-token").focus()`)
+  await cdp.send("Input.insertText", { text: alpha.pat })
   await enter()
-  await waitFor("the instance list", async () => seen('[data-slot="signin-instances"]'), 5_000)
+  await waitFor("the instance list", async () => seen('[data-slot="signin-instances"]'), 15_000).catch(
+    async (error: Error) => {
+      const alert = await cdp.value<string>(`document.querySelector('[data-slot="signin-error"]')?.textContent ?? ""`)
+      throw new Error(`${error.message}${alert ? `; the screen says: ${alert}` : ""}`)
+    },
+  )
 
   if (until === "signin-choose") return Bun.sleep(300)
   await enter()
-  await waitFor("the finalizing state", async () => seen('[data-slot="signin-finalizing"]'), 5_000)
+  await waitFor("the finalizing state", async () => seen('[data-slot="signin-finalizing"]'), 5_000, 25)
 
-  if (until === "signin-finalizing") return Bun.sleep(700)
+  if (until === "signin-finalizing") return
   await waitFor("the sign-in screen to fade out", async () => !(await seen('[data-component="dynwork-signin"]')), 5_000)
+}
+
+// Signs in with the PAT, reloads and checks that the screen stays away, then reads the account back from the app's
+// storage: the instance, the user, and the PAT only sealed.
+async function signInPat(cdp: Awaited<ReturnType<typeof connect>>) {
+  await waitFor(
+    "the sign-in screen",
+    async () =>
+      cdp.value<boolean>(
+        `!!document.querySelector('[data-component="dynwork-signin"]') && !document.querySelector('[data-component="startup-overlay"]')`,
+      ),
+    90_000,
+  )
+  await submitSignIn(cdp, "signin-done")
+  await cdp.send("Page.reload")
+  await Bun.sleep(1000)
+  await waitFor(
+    "the app shell",
+    async () =>
+      cdp.value<boolean>(
+        `!!document.querySelector('#root [data-titlebar-tab-link], #root [data-action="vertical-tabs-home"], #root [data-action="home-new-session"], #root [data-action="home-add-project-row"]')`,
+      ),
+    60_000,
+  )
+  await Bun.sleep(1500)
+
+  if (
+    await cdp.value<boolean>(
+      `!!document.querySelector('[data-component="dynwork-signin"], [data-component="dynwork-signin-cover"]')`,
+    )
+  )
+    throw new Error("The sign-in screen came back after the reload")
+
+  const shot = await shoot(cdp)
+
+  return { ...shot, signedIn: await storedAccount() }
+}
+
+// The account as the app stored it. `bun:sqlite` reads the plugin storage of the profile's desktop database.
+async function storedAccount() {
+  if (!alpha) throw new Error("alpha is not configured")
+  // The PAT must be nowhere in the profile as plaintext: the desktop database, the service database, config, logs.
+  const files = [...new Bun.Glob("**/*").scanSync({ cwd: root, absolute: true, dot: true, onlyFiles: true })]
+  const found = (
+    await Promise.all(
+      files.map(async (file) => {
+        const bytes = await Bun.file(file)
+          .bytes()
+          .catch(() => new Uint8Array())
+        const text = Buffer.from(bytes).toString("latin1")
+
+        if (text.includes(alpha.pat)) throw new Error(`The PAT is in plaintext in ${file}`)
+
+        return text.includes('"patCipher"') ? [{ file, text }] : []
+      }),
+    )
+  ).flat()
+  const account = found.flatMap((entry) => {
+    const start = entry.text.indexOf('{"accounts"')
+
+    return start < 0 ? [] : [entry.text.slice(start, entry.text.indexOf("}]", start) + 2)]
+  })[0]
+
+  if (!account) throw new Error(`No stored account found in ${files.length} files`)
+
+  const user = /"user":"([^"]+)"/.exec(account)?.[1]
+  const label = /"label":"([^"]+)"/.exec(account)?.[1]
+  const sealed = /"patCipher":"([^"]+)"/.exec(account)?.[1]
+
+  if (!sealed) throw new Error("The stored account has no sealed PAT")
+
+  console.log(`smoke: signed in as ${user} on alpha (${label}) ${alpha.url}`)
+
+  return { user, label, url: alpha.url, patStored: "ciphertext only", plaintextInProfile: false }
 }
 
 async function shoot(cdp: Awaited<ReturnType<typeof connect>>) {
@@ -505,14 +595,14 @@ async function targets() {
     .catch(() => [])
 }
 
-async function waitFor<T>(what: string, check: () => Promise<T | undefined | false>, timeout: number) {
+async function waitFor<T>(what: string, check: () => Promise<T | undefined | false>, timeout: number, every = 250) {
   const deadline = Date.now() + timeout
 
   while (Date.now() < deadline) {
     const value = await check().catch(() => undefined)
 
     if (value) return value
-    await Bun.sleep(250)
+    await Bun.sleep(every)
   }
 
   throw new Error(`Timed out waiting for ${what}`)
@@ -543,4 +633,20 @@ async function connect(url: string) {
       (await send("Runtime.evaluate", { expression, returnByValue: true })).result?.result?.value as T,
     close: () => ws.close(),
   }
+}
+
+// Alpha's URL and PAT from the local harness' generated environment.
+async function localAlpha() {
+  const env = await Bun.file(path.join(repo, "dynwork/test/sp-local/.env.local"))
+    .text()
+    .catch(() => {
+      throw new Error("dynwork/test/sp-local/.env.local is missing: run `bun dynwork/script/sp-local.ts up`")
+    })
+  const read = (name: string) => new RegExp(`^${name}=(.*)$`, "m").exec(env)?.[1]?.trim()
+  const url = read("SP_ALPHA_URL")
+  const pat = read("SP_ALPHA_PAT")
+
+  if (!url || !pat) throw new Error("SP_ALPHA_URL or SP_ALPHA_PAT is missing from the local harness' environment")
+
+  return { url, pat }
 }

@@ -3,6 +3,7 @@ import { safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
 import { DynWorkAccounts } from "./accounts"
 import { Accounts } from "./contract"
+import { AccountsIpc } from "./ipc"
 
 const setup: Plugin.MainSetup = (ctx) => {
   const provider: { changed: () => void } = { changed: () => {} }
@@ -15,19 +16,7 @@ const setup: Plugin.MainSetup = (ctx) => {
   })
   ctx.onCleanup(accounts.dispose)
 
-  const ipc = ctx.provide(Accounts, {
-    state: () => accounts.state(),
-    list: () => accounts.list(),
-    add: (url) => accounts.add(url),
-    probe: (url) => accounts.probe(url),
-    signInBrowser: (url, caller) => accounts.signInBrowser(url, caller.signal),
-    signInToken: (input) => accounts.signInToken(input),
-    cancel: () => accounts.cancel(),
-    activate: (id) => accounts.activate(id),
-    signOut: (id) => accounts.signOut(id),
-    remove: (id) => accounts.remove(id),
-    trust: (input) => accounts.trust(input),
-  })
+  const ipc = ctx.provide(Accounts, AccountsIpc.implementation(accounts))
   provider.changed = () => ipc.changed()
 }
 

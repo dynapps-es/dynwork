@@ -3,7 +3,7 @@ import type { IpcClient, Live, Plugin } from "@opencode/plugin/gui"
 import { Accounts } from "./contract"
 import type definition from "./index"
 
-type Client = IpcClient<(typeof Accounts)["spec"]>
+export type Client = IpcClient<(typeof Accounts)["spec"]>
 
 // The sign-in gate renders outside the plugin host, so it cannot `ctx.use` the Ipc itself. The window entry hands it
 // the live client: `connection()` is the Ipc's `Live` state while this window's entry runs, else undefined.

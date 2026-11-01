@@ -80,6 +80,9 @@ type Session = SpClient.Session & { cipher: string; timer?: ReturnType<typeof se
 
 export function make(options: Options) {
   const sessions = new Map<string, Session>()
+  // Ciphertext of the PAT of an account signed in without "keep me signed in": sealed like the stored ones, but kept
+  // only for this process, so it never reaches the store and the account is signed out on the next launch.
+  const volatile = new Map<string, string>()
   const minting = new Map<string, Promise<Session>>()
   const browser: { url?: string; cancel?: () => void } = {}
   // After dispose, nothing in flight may arm a timer or open a browser
@@ -91,6 +94,8 @@ export function make(options: Options) {
     options.changed()
   }
   const find = (id: string) => read().accounts.find((account) => account.id === id)
+  const cipherOf = (account: Stored | undefined) =>
+    account === undefined ? undefined : (account.patCipher ?? volatile.get(account.id))
 
   const view = (account: Stored): Account => {
     const pending = account.offeredKey
@@ -100,7 +105,7 @@ export function make(options: Options) {
       url: account.url,
       user: account.user,
       org: account.org,
-      status: account.patCipher === undefined ? "signedOut" : "signedIn",
+      status: cipherOf(account) === undefined ? "signedOut" : "signedIn",
       active: read().active === account.id,
       fingerprint: pending === undefined ? account.keyFingerprint : SpClient.fingerprint(pending),
       trusted: pending === undefined && account.keyFingerprint !== undefined,
@@ -116,14 +121,19 @@ export function make(options: Options) {
     minting.delete(id)
   }
 
+  const forget = (id: string) => {
+    drop(id)
+    volatile.delete(id)
+  }
+
   // The next active account when `id` leaves: the first other signed-in one, else none.
   const successor = (store: Store, id: string) =>
     store.active !== id
       ? store.active
-      : store.accounts.find((account) => account.id !== id && account.patCipher !== undefined)?.id
+      : store.accounts.find((account) => account.id !== id && cipherOf(account) !== undefined)?.id
 
   const signOut = (id: string) => {
-    drop(id)
+    forget(id)
     const store = read()
     write({
       active: successor(store, id),
@@ -132,7 +142,7 @@ export function make(options: Options) {
   }
 
   const remove = (id: string) => {
-    drop(id)
+    forget(id)
     const store = read()
     write({ active: successor(store, id), accounts: store.accounts.filter((account) => account.id !== id) })
   }
@@ -167,7 +177,7 @@ export function make(options: Options) {
 
   const mintOnce = async (id: string) => {
     const account = find(id)
-    const cipher = account?.patCipher
+    const cipher = cipherOf(account)
     if (account === undefined || cipher === undefined) throw new NotSignedIn({ id })
     const pat = decrypt(options.secure, cipher)
     // The OS may open it later (a locked keyring, a denied prompt): keep the ciphertext, only the instance can sign out
@@ -175,11 +185,11 @@ export function make(options: Options) {
     const session = await Effect.runPromise(
       SpClient.mintJwt(account.url, pat, { sessionId: sessions.get(id)?.sessionId }),
     ).catch((error) => {
-      if (error instanceof SpClient.Unauthorized && find(id)?.patCipher === cipher) signOut(id)
+      if (error instanceof SpClient.Unauthorized && cipherOf(find(id)) === cipher) signOut(id)
       throw error
     })
     // Signed out, removed or signed in again while the request ran: this JWT belongs to nobody.
-    if (find(id)?.patCipher !== cipher) throw new NotSignedIn({ id })
+    if (cipherOf(find(id)) !== cipher) throw new NotSignedIn({ id })
     clearTimeout(sessions.get(id)?.timer)
     const live = { ...session, cipher }
     schedule(id, live)
@@ -189,7 +199,7 @@ export function make(options: Options) {
   // A JWT for the account, minted on demand. For main code only (gateway, sync); never sent to a window.
   const jwt = async (id: string) => {
     const session = sessions.get(id)
-    if (session !== undefined && session.cipher === find(id)?.patCipher && session.expiresAt - 60_000 > Date.now())
+    if (session !== undefined && session.cipher === cipherOf(find(id)) && session.expiresAt - 60_000 > Date.now())
       return session.token
     return (await mint(id)).token
   }
@@ -206,7 +216,7 @@ export function make(options: Options) {
   }
 
   // The PAT is good: it mints, so it is stored and the account is signed in.
-  const complete = async (instance: SpClient.Instance, pat: string) => {
+  const complete = async (instance: SpClient.Instance, pat: string, keep: boolean) => {
     const session = await Effect.runPromise(SpClient.mintJwt(instance.baseUrl, pat))
     const details = await Promise.all([
       optional(SpClient.whoami(instance.baseUrl, session.token)),
@@ -222,10 +232,12 @@ export function make(options: Options) {
       label: label(instance),
       user: details[0]?.email ?? details[0]?.display_name ?? known?.user,
       org: details[1]?.organization_uuid ?? known?.org,
-      patCipher: cipher,
+      patCipher: keep ? cipher : undefined,
       ...(details[2] === undefined ? {} : { offeredKey: details[2].key === known?.key ? undefined : details[2].key }),
     }
     drop(id)
+    if (keep) volatile.delete(id)
+    else volatile.set(id, cipher)
     schedule(id, { ...session, cipher })
     write({
       active: store.active ?? id,
@@ -240,19 +252,20 @@ export function make(options: Options) {
     if (!options.secure.isEncryptionAvailable()) throw new SecureStorageUnavailable()
   }
 
-  const signInToken = async (input: { url: string; token: string }) => {
+  const signInToken = async (input: { url: string; token: string; keep?: boolean }) => {
     requireSecureStorage()
     const instance = await Effect.runPromise(SpClient.discover(input.url))
     const token = input.token.trim()
-    if (!SpClient.isCode(token)) return complete(instance, token)
+    if (!SpClient.isCode(token)) return complete(instance, token, input.keep !== false)
     return complete(
       instance,
       await Effect.runPromise(SpClient.exchangeCode(instance.baseUrl, token, options.deviceName)),
+      input.keep !== false,
     )
   }
 
   // `signal` is the calling window's: closing it, or a second sign-in, or `cancel`, ends this one at any step.
-  const signInBrowser = async (url: string, signal?: AbortSignal): Promise<SignIn> => {
+  const signInBrowser = async (url: string, signal?: AbortSignal, keep = true): Promise<SignIn> => {
     requireSecureStorage()
     browser.cancel?.()
     const attempt = { cancelled: false, stop: () => {} }
@@ -276,6 +289,7 @@ export function make(options: Options) {
     return complete(
       outcome.instance,
       await Effect.runPromise(SpClient.exchangeCode(outcome.instance.baseUrl, outcome.answer.code, options.deviceName)),
+      keep,
     )
   }
 
@@ -310,6 +324,7 @@ export function make(options: Options) {
       label: label(result.success),
       version: result.success.version,
       modes: result.success.modes,
+      deviceLink: new URL(result.success.deviceLinkPath, result.success.baseUrl).href,
     }
   }
 
@@ -329,7 +344,7 @@ export function make(options: Options) {
   }
 
   const activate = (id: string) => {
-    if (find(id)?.patCipher === undefined) throw new NotSignedIn({ id })
+    if (cipherOf(find(id)) === undefined) throw new NotSignedIn({ id })
     write({ ...read(), active: id })
   }
 
@@ -358,10 +373,29 @@ export function make(options: Options) {
     })
   }
 
+  // What the first manifest holds, for the sign-in screen's instance list. The signature is checked against the key
+  // the account pinned, else the one it was offered, so the counts only describe the catalog the instance served.
+  const summary = async (id: string) => {
+    const account = find(id)
+    const key = account?.key ?? account?.offeredKey
+    if (account === undefined || key === undefined) throw new NotSignedIn({ id })
+    const result = await withJwt(id, (token) =>
+      Effect.runPromise(SpClient.manifest(account.url, token, { key, fresh: true })),
+    )
+    if (result._tag !== "Manifest") throw new NotSignedIn({ id })
+    return {
+      skills: result.manifest.skills.length,
+      agents: result.manifest.agents.length,
+      servers: result.manifest.managed_mcp_servers.length,
+      role: result.manifest.user?.roles?.[0],
+    }
+  }
+
   const dispose = () => {
     life.disposed = true
     browser.cancel?.()
     ;[...sessions.keys()].forEach(drop)
+    volatile.clear()
   }
 
   return {
@@ -377,6 +411,7 @@ export function make(options: Options) {
     remove,
     trust,
     offerKey,
+    summary,
     active: () => read().active,
     jwt,
     withJwt,

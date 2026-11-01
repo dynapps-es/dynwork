@@ -4,22 +4,40 @@ export type Instance = {
   id: string
   name: string
   host: string
-  role: string
+  // The user's role on the instance, when its manifest names one
+  role?: string
   skills: number
   agents: number
   servers: number
 }
 
-export type Probe = { reachable: true; host: string } | { reachable: false }
+export type Probe =
+  // `login` is the instance's page that shows a one-time code to paste into the token field
+  { reachable: true; host: string; login?: string } | { reachable: false; reason: Problem }
 
-export type SignIn = "signed-in" | "cancelled"
+// Why an instance URL does not work: not an http(s) URL, no answer, or an answer that is not a supported systemprompt.
+export type Problem = "format" | "unreachable" | "incompatible"
 
-// The remote side of the sign-in screen. The mock below stands in for systemprompt until real auth lands behind the
-// same calls.
+// Why a sign-in failed, as the Ipc names it.
+export type Failure =
+  | "denied"
+  | "expired"
+  | "unreachable"
+  | "refused"
+  | "rate-limited"
+  | "incompatible"
+  | "insecure"
+  | "failed"
+
+export type SignIn = "signed-in" | "cancelled" | Failure
+
+// The remote side of the sign-in screen. `SignInReal.create` implements it over the `dynwork.accounts` Ipc; the mock
+// below stands in for it in tests and stories. No call rejects: a failure is an answer.
 export interface Interface {
   probe(url: string): Promise<Probe>
-  signInBrowser(url: string): Promise<SignIn>
-  signInToken(url: string, token: string): Promise<SignIn>
+  // `keep` false keeps the personal access token out of the store: the account is signed out on the next launch.
+  signInBrowser(url: string, keep: boolean): Promise<SignIn>
+  signInToken(url: string, token: string, keep: boolean): Promise<SignIn>
   // Ends a pending browser sign-in, which then resolves as cancelled.
   cancel(): void
   instances(): Promise<Instance[]>
@@ -55,7 +73,7 @@ export function mock(): Interface {
       await wait(600)
       const parsed = parseURL(url)
 
-      return parsed ? { reachable: true, host: parsed.host } : { reachable: false }
+      return parsed ? { reachable: true, host: parsed.host } : { reachable: false, reason: "format" }
     },
     signInBrowser: () =>
       new Promise((resolve) => {

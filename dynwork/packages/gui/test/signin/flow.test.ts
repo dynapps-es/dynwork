@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test"
-import { SignInAccounts } from "../src/signin/accounts"
-import { SignInFlag } from "../src/signin/flag"
-import { SignInFlow } from "../src/signin/flow"
+import { SignInAccounts } from "../../src/signin/accounts"
+import { SignInFlow } from "../../src/signin/flow"
 
 beforeEach(() => {
   jest.useFakeTimers()
@@ -163,30 +162,127 @@ describe("sign in", () => {
 })
 
 describe("finish", () => {
-  test.each([
-    { keep: true, kept: localStorage, dropped: sessionStorage },
-    { keep: false, kept: sessionStorage, dropped: localStorage },
-  ])("syncs the selected instance, then stores the flag (keep $keep)", async (row) => {
+  test("syncs the selected instance and finishes", async () => {
     const flow = await connected()
 
-    flow.keep(row.keep)
     void flow.signInBrowser()
     await elapse(2025)
     flow.select("demo")
-    expect(SignInFlag.signedIn()).toBe(false)
     void flow.finish()
     expect(flow.state.step).toBe("finalizing")
     await elapse(750)
     expect(flow.state.synced).toBe(3)
-    expect(SignInFlag.signedIn()).toBe(false)
+    expect(flow.state.step).toBe("finalizing")
     await elapse(775)
     expect(flow.state.synced).toBe(6)
     expect(flow.state.step).toBe("done")
-    expect(SignInFlag.signedIn()).toBe(true)
-    expect(row.dropped.getItem("dynwork-signin")).toBeNull()
-    expect(JSON.parse(row.kept.getItem("dynwork-signin") ?? "")).toEqual({
-      url: "https://sp.example.com",
-      instance: { id: "demo", name: "Demo", host: "demo.sp.dynapps.es" },
+  })
+
+  test("leaves nothing in the renderer's storage", async () => {
+    const flow = await connected()
+
+    void flow.signInBrowser()
+    await elapse(2025)
+    void flow.finish()
+    await elapse(1600)
+    expect(flow.state.step).toBe("done")
+    expect(localStorage.length + sessionStorage.length).toBe(0)
+  })
+})
+
+// A mock whose sign-in answers are chosen by the test, and that records what the flow asked.
+function scripted(answer: SignInAccounts.SignIn) {
+  const calls: unknown[][] = []
+  const accounts: SignInAccounts.Interface = {
+    ...SignInAccounts.mock(),
+    probe: async () => ({ reachable: true, host: "sp.example.com", login: "https://sp.example.com/device" }),
+    signInBrowser: async (...args) => (calls.push(["browser", ...args]), answer),
+    signInToken: async (...args) => (calls.push(["token", ...args]), answer),
+  }
+
+  return { accounts, calls }
+}
+
+async function settled(accounts: SignInAccounts.Interface) {
+  const flow = SignInFlow.create(accounts)
+
+  flow.input("https://sp.example.com")
+  await flow.settle()
+  await elapse(500)
+
+  return flow
+}
+
+describe("keep me signed in", () => {
+  test.each([true, false])("passes keep=%p to both sign-ins", async (keep) => {
+    const browser = scripted("cancelled")
+    const flow = await settled(browser.accounts)
+
+    flow.keep(keep)
+    await flow.signInBrowser()
+    flow.token(" sp-live-1 ")
+    await flow.signInToken()
+    expect(browser.calls).toEqual([
+      ["browser", "https://sp.example.com", keep],
+      ["token", "https://sp.example.com", "sp-live-1", keep],
+    ])
+  })
+})
+
+describe("failed sign-ins", () => {
+  test.each([
+    "denied",
+    "expired",
+    "unreachable",
+    "refused",
+    "rate-limited",
+    "incompatible",
+    "insecure",
+    "failed",
+  ] as const)("the browser sign-in answering %s shows it and stays on step 1", async (kind) => {
+    const flow = await settled(scripted(kind).accounts)
+
+    await flow.signInBrowser()
+    expect(flow.state.error).toEqual({ from: "browser", kind })
+    expect(flow.state.pending).toBeUndefined()
+    expect(flow.state.step).toBe("connect")
+  })
+
+  test("a refused token shows under the token field, and typing clears it", async () => {
+    const flow = await settled(scripted("refused").accounts)
+
+    flow.token("sp-live-bad")
+    await flow.signInToken()
+    expect(flow.state.error).toEqual({ from: "token", kind: "refused" })
+    expect(flow.state.pending).toBeUndefined()
+    flow.token("sp-live-bad2")
+    expect(flow.state.error).toBeUndefined()
+  })
+
+  test("a new attempt clears the previous failure", async () => {
+    const answers = ["denied", "cancelled"] as const
+    const calls = { count: 0 }
+    const flow = await settled({
+      ...scripted("failed").accounts,
+      signInBrowser: async () => answers[calls.count++] ?? "cancelled",
     })
+
+    await flow.signInBrowser()
+    expect(flow.state.error?.kind).toBe("denied")
+    void flow.signInBrowser()
+    expect(flow.state.error).toBeUndefined()
+  })
+
+  test("the instance's login page and the problem come from the probe", async () => {
+    const flow = await settled(scripted("failed").accounts)
+
+    expect(flow.state.login).toBe("https://sp.example.com/device")
+    const down = await settled({
+      ...scripted("failed").accounts,
+      probe: async () => ({ reachable: false, reason: "unreachable" }),
+    })
+    expect(down.state.status).toBe("invalid")
+    expect(down.state.problem).toBe("unreachable")
+    expect(down.state.login).toBeUndefined()
   })
 })

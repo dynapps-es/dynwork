@@ -445,3 +445,11 @@
     }
   }
 }
+
+/* Holds the window until the accounts answer for the first time, so the shell does not show for a moment. */
+[data-component="dynwork-signin-cover"] {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--v2-background-bg-base);
+}
