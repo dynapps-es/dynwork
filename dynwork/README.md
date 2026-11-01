@@ -17,6 +17,7 @@ the next tag.
 | `script/sp-local.ts`, `test/sp-local` | The local systemprompt harness (see "Local systemprompt instances")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `packages/sp-client`                  | `@dynwork/sp-client`: the clean-room systemprompt 0.76 client, Effect and `fetch`, no OpenCode dependency. `SpClient` has `discover`, `deviceLinkUrl` and `parseCallback`, `exchangeCode`, `mintJwt` and `withJwt` (re-mints once on a refused JWT), `publicKey` and `fingerprint` (trust on first use), `manifest` (ed25519 over the JCS payload, ETag and 304), `profile`, `models` and `whoami`, and the errors `Unauthorized`, `RateLimited`, `Unreachable`, `SignatureInvalid`, `KeyChanged`, `Incompatible` and `Protocol`. It stores and logs no credential. `src/jcs.ts` is RFC 8785. `PROTOCOL.md` is the contract as observed (device link, code exchange, PAT to JWT, manifest, profile, models, error mapping). `bun test` runs the fake-instance tests; `SP_LOCAL_ENV=../../test/sp-local/.env.local bun test` adds the live ones against the local instances |
 | `packages/gui`                        | `@dynwork/gui`: DynWork's own screens and main-process helpers. `src/signin`: the sign-in gate the desktop shows until the device is signed in. `src/service.ts`: the layout of DynWork's own background service (see "Background service"). `src/accounts`: the `dynwork` built-in GUI plugin that holds the systemprompt accounts in main (see "Accounts")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `packages/server-plugin`              | `@dynwork/server-plugin`: the OpenCode server plugin DynWork's own service loads. It holds the active instance's content in memory (see "Server plugin"). `src/contract.ts` is the RPC contract and `src/client.ts` the caller main uses (only `effect`, so main can bundle them); `src/mapping.ts` turns a manifest into OpenCode items; `src/shell.ts` restores the user's XDG values in tool shells. `bun test` runs the mapping and contract tests and a live test against a real `opencode serve`                                                                                                                                                                                                                                                                                                                                                                     |
 | `packages/branding/src`               | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `packages/branding/theme`             | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
@@ -102,15 +103,54 @@ DynWork only looks for its service at that registration file, so it never adopts
 service, whatever its version, and OpenCode.app never finds DynWork's. Before the service starts, main drops every
 `OPENCODE_CONFIG*` variable the login shell exported (`DynWorkService.isolate`), so the user's own OpenCode config
 (`~/.config/opencode`, `OPENCODE_CONFIG`, `OPENCODE_CONFIG_CONTENT`) never configures it. `layout` takes an optional
-config object that reaches the service as `OPENCODE_CONFIG_CONTENT`: the extension point for DynWork's server plugin.
-Dev, beta and local builds keep upstream's shared service.
+config object merged into the service's `OPENCODE_CONFIG_CONTENT`, which always loads DynWork's server plugin from the
+app's resources (see "Server plugin"). The other variables of the user's OpenCode setup that would steer the service
+are dropped too (`DynWorkService.inherited`): `OPENCODE_CLI_CONFIG_CONTENT`, the console key `OPENCODE_API_KEY`, the
+models catalog (`OPENCODE_MODELS_URL`, `OPENCODE_MODELS_PATH`, `OPENCODE_DISABLE_MODELS_FETCH`,
+`OPENCODE_DISABLE_FREE_MODELS`), `OPENCODE_DB`, the server passwords, `OPENCODE_SIMULATE`, and the switches that change
+which skills and project config it reads (`OPENCODE_DISABLE_PROJECT_CONFIG`, `OPENCODE_DISABLE_CLAUDE_CODE*`). Desktop's
+own variables (`OPENCODE_DESKTOP_*`, `OPENCODE_DISABLE_EMBEDDED_WEB_UI`, `OPENCODE_CLIENT`), native helper paths,
+logging and performance switches stay. Dev, beta and local builds keep upstream's shared service and load no plugin.
 
 The service's data dir (`XDG_DATA_HOME`: logs, snapshots, worktrees, tool output, artifacts) is userData itself, so
 its logs land in `<userData>/opencode/log`, where the desktop's debug-log export already looks. Since the data dir is
 DynWork's own, a new DynWork database never imports OpenCode.app's legacy `auth.json` provider
 keys. Still shared with OpenCode.app: the cache dir; the service also still reads skills from `~/.claude` and
-`~/.agents`, like any OpenCode service. Shells the service runs see `XDG_STATE_HOME` and `XDG_DATA_HOME` under
-DynWork's userData.
+`~/.agents`, like any OpenCode service. Shells the service runs get the user's own `XDG_STATE_HOME` and `XDG_DATA_HOME`
+back (unset when the user had not set them): main passes them as `DYNWORK_SHELL_ENV` and the server plugin restores
+them in its `shell` `create.before` hook, unless a session environment set its own value.
+
+## Server plugin
+
+`@dynwork/server-plugin` (`packages/server-plugin`, plugin id `dynwork`) gives DynWork's service the active instance's
+content without writing it anywhere. The prod build ships its `package.json` and `src` as the extra resource
+`dynwork-server-plugin` next to the app archive, and `DynWorkService.layout` adds that directory to the service's
+`OPENCODE_CONFIG_CONTENT` `plugins`. It imports only `effect` and `@opencode/plugin/effect`, which the service
+provides, so the directory needs no dependencies.
+
+Data flow: main (the sync engine, through `accounts/sync.ts`) verifies the manifest with `@dynwork/sp-client`, then
+calls `POST /api/rpc/dynwork.sync/apply` on the sidecar endpoint with `{instance: {key, url}, manifest, jwt,
+expiresAt}`, or `dynwork.sync/clear` on sign-out. The plugin maps the manifest once, keeps the result and the JWT in
+process memory only, and rebuilds the skills, agents, MCP servers and models of every Location it runs in before it
+answers with the counts. The service activates the plugin per Location and re-imports it for each, so that state lives
+in one process-wide slot; the RPC reaches whichever Location main calls. Each `apply` replaces everything of the
+previous instance and `clear` removes it, because the transforms rebuild from the current state every time. `key` is a
+slug of the account label (`DynWorkSyncMain.key`): the prefix of every id, so instance content never replaces the
+user's own items. A failed call reports only the HTTP status and the RPC error type, never the service's message, which
+may quote the input.
+
+| Manifest                               | OpenCode                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skills[]` with inline body            | `ctx.skill.transform`: embedded `Skill.Info` with id `<key>-<id>` and the virtual path `dynwork://<key>/skills/<id>`                                                                                                                                                                                                                                      |
+| `agents[]` (not disabled)              | `ctx.agent.transform`: sub-agent `<key>-<id>` with the display name, description and `system_prompt`. The instance's provider and model are not mapped yet (phase 11 brings the gateway)                                                                                                                                                                  |
+| `managed_mcp_servers[]`                | `ctx.mcp.transform`: remote server `<key>-<id>`, `oauth: false`. Only a server on the instance's own origin gets `Authorization: Bearer <jwt>`; any other keeps its declared headers only, and plain HTTP is accepted only on loopback                                                                                                                    |
+| `rules[]`                              | `ctx.session.hook("context")`: one system part per model call, rules sorted by id and capped at 24,000 characters. Chosen over the Session instruction entries, which are stored per Session: the system part is rebuilt on every step, so it never piles up, compaction cannot summarize it away, and a switch applies to every Session at the next step |
+| `marketplaces[].opencode.cli_defaults` | `default_agent` (an instance agent) becomes the default agent and selectable as primary; `model` (`provider/model`) becomes the default model when the service has it                                                                                                                                                                                     |
+
+Entries are kept only when they target OpenCode (`hosts` empty or with `opencode`/`opencode-cli`, and the same for the
+manifest's `enabled_hosts`), and only when their id is plain (`[A-Za-z0-9][A-Za-z0-9._-]*`, 64 at most). The mapping is
+pure and total, since a transform that throws disables the whole plugin. Manifest plugins, commands and hooks are not
+applied.
 
 ## Patch guard
 

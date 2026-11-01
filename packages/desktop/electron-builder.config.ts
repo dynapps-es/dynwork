@@ -259,6 +259,15 @@ export function getConfig() {
         productName: DynWorkIdentity.name,
         artifactName: DynWorkIdentity.artifactPrefix + "-${os}-${arch}.${ext}",
         protocols: { name: DynWorkIdentity.name, schemes: [DynWorkIdentity.scheme] },
+        // DynWork's own service loads its server plugin from here (`DynWorkService.layout`).
+        extraResources: [
+          ...[base.extraResources ?? []].flat(),
+          {
+            from: "../../dynwork/packages/server-plugin",
+            to: "dynwork-server-plugin",
+            filter: ["package.json", "src/**/*"],
+          },
+        ],
         // DynWork ships the ICNS only: compiling an Icon Composer package needs actool, which comes with full Xcode.
         mac: { ...base.mac, icon: "resources/icons/icon.icns" },
         dmg: { icon: "resources/icons/icon.icns" },

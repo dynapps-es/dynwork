@@ -16,10 +16,12 @@
     "./accounts": "./src/accounts/index.ts",
     "./accounts/contract": "./src/accounts/contract.ts",
     "./accounts/main": "./src/accounts/main.ts",
-    "./accounts/renderer": "./src/accounts/renderer.ts"
+    "./accounts/renderer": "./src/accounts/renderer.ts",
+    "./accounts/sync": "./src/accounts/sync.ts"
   },
   "dependencies": {
     "@dynwork/branding": "workspace:*",
+    "@dynwork/server-plugin": "workspace:*",
     "@dynwork/sp-client": "workspace:*",
     "@opencode/plugin": "workspace:*",
     "@opencode/ui": "workspace:*",

@@ -7,7 +7,13 @@ import { Service } from "@opencode/client/service"
 
 const userData = "/profiles/es.dynapps.dynwork"
 
-const app = (isPackaged: boolean) => ({ isPackaged, getPath: () => userData })
+const resources = "/Applications/DynWork.app/Contents/Resources"
+
+const app = (isPackaged: boolean) => ({
+  isPackaged,
+  getPath: () => userData,
+  getAppPath: () => `${resources}/app.asar`,
+})
 
 // Where DynWork's service registers, listens and keeps its config and database. A change moves the service away from
 // the profile, onto OpenCode's port, or back into the files OpenCode.app shares with every other client.
@@ -24,6 +30,8 @@ test.each([
         XDG_DATA_HOME: "/profiles/es.dynapps.dynwork",
         OPENCODE_CONFIG_DIR: "/profiles/es.dynapps.dynwork/service/config",
         OPENCODE_DB: "/profiles/es.dynapps.dynwork/service/opencode.db",
+        OPENCODE_CONFIG_CONTENT: `{"plugins":["${resources}/dynwork-server-plugin"]}`,
+        DYNWORK_SHELL_ENV: '{"XDG_STATE_HOME":"/home/user/.local/state","XDG_DATA_HOME":null}',
       },
     },
   },
@@ -32,13 +40,31 @@ test.each([
   { build: "packaged dev", channel: "dev", packaged: true, expected: undefined },
   { build: "local", channel: "local", packaged: false, expected: undefined },
 ])("the $build build runs the service layout of its channel", (row) => {
+  process.env.XDG_STATE_HOME = "/home/user/.local/state"
+  delete process.env.XDG_DATA_HOME
   expect(DynWorkService.layout(row.channel, app(row.packaged))).toEqual(row.expected)
 })
 
-test("the prod layout hands DynWork's own server config to the service", () => {
-  expect(
-    DynWorkService.layout("prod", app(true), { plugins: ["/dynwork/server-plugin"] })?.env.OPENCODE_CONFIG_CONTENT,
-  ).toBe('{"plugins":["/dynwork/server-plugin"]}')
+test("the prod layout merges more server config, and a caller's plugins add to DynWork's", () => {
+  const content = (config: Record<string, unknown>) =>
+    JSON.parse(DynWorkService.layout("prod", app(true), config)?.env.OPENCODE_CONFIG_CONTENT ?? "{}")
+  expect(content({ username: "dynwork" })).toEqual({
+    username: "dynwork",
+    plugins: [`${resources}/dynwork-server-plugin`],
+  })
+  expect(content({ plugins: ["/extra"] }).plugins).toEqual(["/extra", `${resources}/dynwork-server-plugin`])
+})
+
+// The prod electron-builder config ships the plugin directory under the name the layout loads it from.
+test("the desktop build ships the server plugin where the layout looks for it", async () => {
+  const { getConfig } = await import("../../../electron-builder.config")
+  process.env.OPENCODE_CHANNEL = "prod"
+  const shipped = getConfig().extraResources
+  expect(shipped).toContainEqual({
+    from: "../../dynwork/packages/server-plugin",
+    to: DynWorkService.plugin,
+    filter: ["package.json", "src/**/*"],
+  })
 })
 
 const inherited = { ...process.env }
@@ -50,15 +76,20 @@ afterEach(() => {
 
 // The variables a login shell exported reach the service through main's environment. Spawns the service through the
 // real client, with a stand-in for the CLI that registers where XDG_STATE_HOME says and records what it inherited.
-test("the prod service never inherits the login shell's OpenCode config", async () => {
+test("the prod service never inherits the login shell's OpenCode setup", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "dynwork-service-"))
-  const own = DynWorkService.layout("prod", { isPackaged: true, getPath: () => root })
+  delete process.env.XDG_STATE_HOME
+  delete process.env.XDG_DATA_HOME
+  const own = DynWorkService.layout("prod", { isPackaged: true, getPath: () => root, getAppPath: () => "/r/app.asar" })
   if (!own) throw new Error("No prod layout")
   Object.assign(process.env, {
     OPENCODE_CONFIG: "/shell/opencode.json",
     OPENCODE_CONFIG_CONTENT: '{"username":"shell"}',
     OPENCODE_CONFIG_DIR: "/shell/config",
     OPENCODE_CLIENT: "desktop",
+    ...Object.fromEntries(DynWorkService.inherited.map((key) => [key, "shell"])),
+    OPENCODE_DISABLE_EMBEDDED_WEB_UI: "true",
+    OPENCODE_DESKTOP_SERVER_CHANNEL: "prod",
   })
 
   DynWorkService.isolate(process.env)
@@ -78,7 +109,11 @@ test("the prod service never inherits the login shell's OpenCode config", async 
     OPENCODE_DB: path.join(root, "service/opencode.db"),
     XDG_STATE_HOME: path.join(root, "service/state"),
     XDG_DATA_HOME: root,
+    OPENCODE_CONFIG_CONTENT: '{"plugins":["/r/dynwork-server-plugin"]}',
     OPENCODE_CLIENT: "desktop",
+    OPENCODE_DISABLE_EMBEDDED_WEB_UI: "true",
+    OPENCODE_DESKTOP_SERVER_CHANNEL: "prod",
+    DYNWORK_SHELL_ENV: '{"XDG_STATE_HOME":null,"XDG_DATA_HOME":null}',
   })
 })
 
@@ -91,7 +126,7 @@ const server = Bun.serve({
   fetch: () => Response.json({ version: "fixture", pid: process.pid }),
 })
 const env = Object.fromEntries(
-  Object.entries(process.env).filter((entry) => /^(OPENCODE_(CONFIG|DB|CLIENT)|XDG_(STATE|DATA)_HOME)/.test(entry[0])),
+  Object.entries(process.env).filter((entry) => /^(OPENCODE_|DYNWORK_|XDG_(STATE|DATA)_HOME)/.test(entry[0])),
 )
 await Bun.write(
   process.env.XDG_STATE_HOME + "/opencode/service.json",

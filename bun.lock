@@ -57,6 +57,7 @@
       "version": "2.2.5",
       "dependencies": {
         "@dynwork/branding": "workspace:*",
+        "@dynwork/server-plugin": "workspace:*",
         "@dynwork/sp-client": "workspace:*",
         "@opencode/plugin": "workspace:*",
         "@opencode/ui": "workspace:*",
@@ -69,6 +70,19 @@
         "@types/bun": "catalog:",
         "@typescript/native": "catalog:",
         "electron": "44.9.1",
+      },
+    },
+    "dynwork/packages/server-plugin": {
+      "name": "@dynwork/server-plugin",
+      "version": "2.2.5",
+      "dependencies": {
+        "@opencode/plugin": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@typescript/native": "catalog:",
       },
     },
     "dynwork/packages/sp-client": {
@@ -1595,6 +1609,8 @@
     "@dynwork/build": ["@dynwork/build@workspace:dynwork/packages/build"],
 
     "@dynwork/gui": ["@dynwork/gui@workspace:dynwork/packages/gui"],
+
+    "@dynwork/server-plugin": ["@dynwork/server-plugin@workspace:dynwork/packages/server-plugin"],
 
     "@dynwork/sp-client": ["@dynwork/sp-client@workspace:dynwork/packages/sp-client"],
 

@@ -1,3 +1,4 @@
+import { uptime } from "node:process"
 import { afterAll, afterEach, beforeAll, describe, expect, jest, setSystemTime, test } from "bun:test"
 import { Effect } from "effect"
 import { SpClient } from "@dynwork/sp-client"
@@ -70,15 +71,20 @@ describe("account sessions", () => {
     await until(() => mints(fake) === before + 1)
     // The fake applied the 503 when it recorded the request, so the next mint succeeds.
     fake.state.override = undefined
-    // The 503 lands in real time, so the clock moves in 100 ms steps until the retry goes out.
+    // The 503 lands in real time while the test clock stands still (zero-delay timers still run, for Effect's
+    // scheduler); a loopback answer takes far less than 300 ms.
+    const landed = uptime() + 0.3
     await until(() => {
-      if (mints(fake) === before + 2) return true
-      jest.advanceTimersByTime(100)
-      return false
+      jest.advanceTimersByTime(0)
+      return uptime() > landed
     })
-    const waited = Date.now() - (start + ttl * 0.8)
-    expect(waited).toBeGreaterThanOrEqual(DynWorkAccounts.retryAfter)
-    expect(waited).toBeLessThan(DynWorkAccounts.retryAfter + 5_000)
+    jest.advanceTimersByTime(DynWorkAccounts.retryAfter - 1)
+    expect(mints(fake)).toBe(before + 1)
+    jest.advanceTimersByTime(1)
+    await until(() => {
+      jest.advanceTimersByTime(0)
+      return mints(fake) === before + 2
+    })
     expect(context.accounts.list()[0]?.status).toBe("signedIn")
     context.accounts.dispose()
   })
