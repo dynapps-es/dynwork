@@ -48,6 +48,10 @@ export const expected = {
   },
 } as const satisfies Record<Instance, Record<"skills" | "agents" | "mcp" | "rules", readonly string[]>>
 
+// What prod serves to a user who changed nothing: both OpenCode packagings. Claude Code and Claude Desktop are opt-in
+// there (`default_enabled: false`), Codex and Hermes are off; `content/host-catalog` makes the instances do the same.
+export const openCodeHosts = ["opencode", "opencode-cli"]
+
 const fixtureFile = path.join(dir, "fixtures", "device-link.json")
 
 const repo = path.resolve(import.meta.dir, "../..")
@@ -138,13 +142,14 @@ export function truncate(secret: string) {
   return `${secret.slice(0, 12)}…`
 }
 
-type Entry = { id?: string; name?: string }
+type Entry = { id?: string; name?: string; hosts?: string[] }
 
 export type Manifest = {
   skills: Entry[]
   agents: Entry[]
   managed_mcp_servers: Entry[]
   rules?: Entry[]
+  enabled_hosts?: string[]
 }
 
 export function manifestIds(manifest: Manifest) {
@@ -160,10 +165,16 @@ export function manifestIds(manifest: Manifest) {
 // Ids the instance should deliver but does not.
 export function missing(instance: Instance, manifest: Manifest) {
   const have = manifestIds(manifest)
-  return (["skills", "agents", "mcp", "rules"] as const).flatMap((group) => {
+  const absent = (["skills", "agents", "mcp", "rules"] as const).flatMap((group) => {
     const wanted: readonly string[] = expected[instance][group]
     return wanted.filter((id) => !have[group].includes(id)).map((id) => `${group}/${id}`)
   })
+  // A rule reaches a host only when its `hosts` name it, so the host catalog is part of what the instance must serve.
+  const unaimed = (manifest.rules ?? [])
+    .filter((rule) => !openCodeHosts.every((host) => rule.hosts?.includes(host)))
+    .map((rule) => `rules/${rule.id ?? rule.name} hosts`)
+  const hostsOk = JSON.stringify([...(manifest.enabled_hosts ?? [])].sort()) === JSON.stringify([...openCodeHosts].sort())
+  return [...absent, ...unaimed, ...(hostsOk ? [] : ["enabled_hosts"])]
 }
 
 // The envelope carries a JCS string and an ed25519 signature over its exact bytes; the key is the raw 32 bytes in base64.
@@ -327,7 +338,7 @@ async function seedInstance(instance: Instance) {
 // `admin agents create`. The server reads its services tree at boot, so it restarts once the declarations are applied.
 async function loadContent(instance: Instance, base: string, pat: string) {
   const agent = expected[instance].agents[0]
-  await sh(instance, "rm -rf /tmp/content /tmp/out && mkdir -p /tmp/content")
+  await sh(instance, "rm -rf /tmp/content /tmp/out && mkdir -p /tmp/content", "root")
   await compose("cp", `${path.join(dir, "content", instance)}/.`, `${instance}:/tmp/content`)
   await cli(instance, "core", "marketplace", "import", "--from", "/tmp/content", "--into", "/tmp/out", "--strict")
   if ((await shExit(instance, `test -f /app/services/agents/${agent}.yaml`)) !== 0) {
@@ -367,11 +378,27 @@ async function loadContent(instance: Instance, base: string, pat: string) {
       ),
     ].join("\n"),
   )
+  await loadHostCatalog(instance)
   await cli(instance, "admin", "config", "apply", "--reason", "sp-local seed")
   await compose("restart", instance)
   await waitReady(instance)
   const stillMissing = await missingContent(instance, base, pat)
   if (stillMissing.length > 0) throw new Error(`${instance}: the manifest still lacks ${stillMissing.join(", ")}`)
+}
+
+// The image ships a catalog entry per host and none for Claude Code, and "absent from the catalog" means enabled. Prod's
+// two Claude entries (`default_enabled: false`) are copied from dynwork-config, so the manifest serves OpenCode only.
+async function loadHostCatalog(instance: Instance) {
+  await sh(instance, "rm -rf /tmp/external_agents && mkdir -p /tmp/external_agents", "root")
+  await compose("cp", `${path.join(dir, "content", "host-catalog", "external_agents")}/.`, `${instance}:/tmp/external_agents`)
+  await sh(
+    instance,
+    [
+      "set -e",
+      "cp /tmp/external_agents/*.yaml /app/services/external_agents/",
+      "grep -q -F -e '- ../external_agents/claude_code.yaml' /app/services/config/config.yaml || sed -i 's|^includes:|includes:\\n  - ../external_agents/claude_code.yaml|' /app/services/config/config.yaml",
+    ].join("\n"),
+  )
 }
 
 async function check() {
@@ -1010,8 +1037,9 @@ async function cli(instance: Instance, ...args: string[]) {
   return result.stdout.toString()
 }
 
-async function sh(instance: Instance, script: string) {
-  const result = await compose("exec", "-T", instance, "sh", "-c", script).nothrow()
+// `compose cp` writes as root, so clearing a directory that an earlier run copied into needs root too.
+async function sh(instance: Instance, script: string, user = "app") {
+  const result = await compose("exec", "-T", "-u", user, instance, "sh", "-c", script).nothrow()
   if (result.exitCode !== 0) throw new Error(`${instance}: ${script.split("\n")[0]} failed\n${result.stderr.toString().slice(-600)}`)
 }
 
@@ -1040,14 +1068,20 @@ export async function exchangePat(base: string, pat: string) {
   return body
 }
 
-async function missingContent(instance: Instance, base: string, pat: string) {
+// The signed manifest of the instance's user, as the bridge fetches it (a PAT becomes a JWT first).
+export async function fetchManifest(base: string, pat: string): Promise<Manifest | undefined> {
   const session = await exchangePat(base, pat)
-  if (session === undefined) return ["a JWT"]
+  if (session === undefined) return undefined
   const response = await fetch(`${base}/v1/bridge/manifest`, {
     headers: { authorization: `Bearer ${session.token}`, "cache-control": "no-cache" },
   })
   const envelope: { payload: string } = JSON.parse(await response.text())
-  return missing(instance, JSON.parse(envelope.payload))
+  return JSON.parse(envelope.payload)
+}
+
+async function missingContent(instance: Instance, base: string, pat: string) {
+  const manifest = await fetchManifest(base, pat)
+  return manifest === undefined ? ["a JWT"] : missing(instance, manifest)
 }
 
 async function loadEnv(): Promise<Record<string, string>> {

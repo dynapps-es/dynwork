@@ -1,0 +1,50 @@
+# Claude Desktop — external-agent (super-agent) catalog entry.
+#
+# Distinct from A2A agents under services/agents/. External agents are native
+# apps and CLI tools that run off our infrastructure and point their inference
+# endpoint at this gateway.
+#
+# Opt-in: enabled with default_enabled: false, so the claude-desktop host is in
+# the manifest only of users who turn it on in their bridge (a
+# bridge_user_host_prefs row). For everyone else nothing changes: no Claude
+# Desktop / Cowork configuration is written on their laptop. Turning it on
+# routes that person's whole Claude Desktop (chat, Cowork, its Code tab)
+# through this gateway; their terminal Claude Code is a separate host
+# (claude_code.yaml, disabled) and keeps their own account.
+#
+# enabled: false would remove the host for everyone. Deleting this file would
+# make it enabled for EVERYONE: absent from the catalog means enabled by
+# default.
+
+external_agents:
+  claude_desktop:
+    id: claude_desktop
+    display_name: "Claude Desktop"
+    kind: desktop_app
+    enabled: true
+    default_enabled: false
+    description: "Anthropic's native macOS/Windows desktop app for Claude. Routes inference through this gateway."
+    platforms: [macos, windows]
+    docs_url: "https://claude.ai/download"
+    desktop_policy:
+      schema_version: 1
+      settings:
+        modelPrefer1mContext: true
+        alwaysStartWithDefaultModel: true
+        modelDiscoveryEnabled: false
+        toolSearchEnabled: true
+        disableAutoUpdates: false
+        autoUpdaterEnforcementHours: 72
+        configRecheckIntervalMinutes: 2
+        relaunchEnforcementHours: 24
+        mcpToolTimeoutSec: 300
+        inferenceStreamIdleTimeoutSec: 300
+        chatAdvancedFileAnalysisEnabled: true
+        disableBundledSkills: false
+        builtinToolPolicy:
+          WebSearch: allow
+          WebFetch: allow
+        deploymentDisplayName: Dynapps
+        otlpDesktopLogLevel: info
+        otlpTracesEnabled: true
+        otlpContentCapture: []
