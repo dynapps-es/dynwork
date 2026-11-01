@@ -116,6 +116,9 @@ Where secrets live:
   manifest key and its fingerprint. Without OS encryption (`safeStorage.isEncryptionAvailable()` false) no sign-in
   starts. A ciphertext the OS cannot open right now (a locked keyring, a denied Keychain prompt) is kept and the call
   fails with `SecureStorageUnavailable`; only the instance refusing the PAT signs the account out.
+- The device credential (`sp_device_...`, from enrolling this install for skill runtime files, see "Skill runtime
+  files") is stored the same way, as `safeStorage` ciphertext in the account's `device` entry beside the receipts
+  outbox, and decrypted only for a consumer call. Signing out forgets it and the outbox.
 - JWTs exist only in main memory. Each is renewed at 80 % of its lifetime; a failed renewal is tried again every 30 s
   while it holds. A refused JWT is minted again once; a refused PAT signs the account out. Main code (gateway, sync)
   gets one through `jwt(id)`, `session(id, fresh)` (with its expiry; `fresh` mints even while the held one is valid)
@@ -176,6 +179,10 @@ no-cache`; polls, focus and activation let the instance answer from its memo, li
   answered with `session(id)`, or with a fresh mint when the reason is `rejected`; `rejected` signs the account out.
   When the event stream ends (the service stopped or restarted), the engine follows it again after 1 s and applies the
   instance again; a `token` the plugin refuses means the same. Event handlers never throw.
+
+- After a poll that applied (or the first of a loop, or one after a capture left something pending), and once the
+  status is `synced`, the engine delivers the skills' runtime files (`src/sync/runtime.ts`, see "Skill runtime files").
+  It runs inside the poll, so polls still never overlap, and its failures never change the status.
 
 Statuses, in `State.sync` and as the Ipc's `sync` event: `{status: "idle"}`, `{status: "syncing", account}`,
 `{status: "synced", account, at, counts: {skills, agents, mcp, rules, warnings?}}` and `{status: "error", account, kind,
@@ -354,8 +361,8 @@ With a config dir the skills are files, exactly as the bridge writes them into O
   that left the manifest is removed with its directory, and a manifest with no skills (or a host that is no longer
   enabled, or `clear`) removes every directory the ledger lists and the ledger. A directory the ledger does not list,
   such as a skill the user wrote, is never touched. A corrupt ledger fails the `apply` instead of being read as empty.
-- Only `SKILL.md` and the ledger are written, so files placed beside a skill (phase 07's `references/`, `config.yaml`) stay
-  while the skill stays, and go with its directory when it leaves.
+- Only `SKILL.md` and the ledger are written, so the runtime files placed beside a skill (`references/`, `config.yaml`,
+  see "Skill runtime files") stay while the skill stays, and go with its directory when it leaves.
 
 Files are written through a temporary file and a rename, only when their content changes. OpenCode scans `skills/`
 and watches it, a missing one included, so the skills show in every Location about 100 ms after `apply` without a
@@ -397,6 +404,37 @@ plugin, the `dynwork` theme, the ledger, the `policies` and the `cli.json` theme
 
 The `dynwork-common` plugin's `session-header.js` targets the bridge's proxy port, so it is inert in DynWork's service;
 it is projected anyway, like the bridge. Without `OPENCODE_CONFIG_DIR` none of this is written.
+
+### Skill runtime files
+
+A skill's `references/*`, `config.yaml` and other files are not in the manifest: a skill with a `publication` has a
+bundle, which the bridge installs as an enrolled device and reports with a receipt (`feedback_capture`, `feedback/*`).
+DynWork does the same, main and plugin each doing their half (`gui/src/sync/runtime.ts`, `server-plugin/src/skills.ts`;
+the wire contract is section 10 of `packages/sp-client/PROTOCOL.md`, spoken by `SpConsumer` in `@dynwork/sp-client`:
+`enrol`, `plan`, `post`, and `receipt`, which builds one from a readback):
+
+- Enrolment: the first capture for an account posts `POST /v1/bridge/device` with the user's JWT and the bridge's
+  fingerprint (this install's id and the manifest's user), labelled with the device name, and keeps the credential
+  sealed with the account (see "Accounts"). It is used for that user only; another user enrols again. A refused
+  enrolment is tried again after 2 s, doubling up to an hour, never on every poll.
+- Each skill with a `publication` that reaches OpenCode (an OpenCode host enabled, `hosts` empty or naming one) gets its
+  plan (`?host=open-code`) with the device credential, unless the outbox holds a receipt for that exact publication and
+  the plugin finds its files still on disk (`inspect`; after a switch away and back they are gone and are written again).
+- The plugin's `materialize` writes the plan's files into that skill's directory, only for a skill it wrote for the
+  instance applied and only in a config dir of its own (else `missing` or `unsupported`): through a temporary file and a
+  rename, mode 0644 or 0755, never through a symbolic link, refusing a plan without `SKILL.md`, with a duplicate or with
+  a path that leaves the directory (`invalid`). `.systemprompt-runtime.json` (mode 0600, compact JSON) lists them, and
+  what the previous plan listed and this one does not is removed. Every file is read back (digest, size, mode); the plan's
+  own `SKILL.md` too, after which the projected one is restored, as the bridge's next sync does. OpenCode's scan skips
+  the hidden `.systemprompt-source` copy, so each skill is listed once.
+- Main checks the readback against the plan and the canonical files against their copies, as the bridge's `verify`
+  does, and queues the receipt in the account's outbox (one per installation and publication; a newer generation
+  supersedes the older). Pending receipts are posted before the installations and after them: acknowledged, refused for
+  good (`409`, `400`, `403`, `404`, `422`) or tried again after 2^attempts s, at most an hour. A refused device credential
+  forgets the device, so the next capture enrols again.
+- Budgets are the bridge's: 30 s for installations (none started with less than 2 s left), 10 s for each delivery. A
+  failed installation waits like a receipt. Failures are never a sync error: the capture runs again on the next poll
+  until nothing is left.
 
 ### Model calls through the gateway
 

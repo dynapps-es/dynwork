@@ -42,6 +42,18 @@ export function make(endpoints: ServerEndpoints) {
     token: (input: { readonly account: Account; readonly jwt: string; readonly expiresAt: number }) =>
       client.token({ instance: instance(input.account), jwt: input.jwt, expiresAt: input.expiresAt }),
     clear: client.clear,
+    /** Writes a skill's runtime files beside its SKILL.md in the service and reads them back. */
+    materialize: (input: {
+      readonly account: Account
+      readonly skill: string
+      readonly files: ReadonlyArray<DynWorkSync.RuntimeFile>
+    }) => client.materialize({ instance: instance(input.account), skill: input.skill, files: input.files }),
+    /** Whether the runtime files a receipt recorded for a skill are still there. */
+    inspect: (input: {
+      readonly account: Account
+      readonly skill: string
+      readonly files: ReadonlyArray<DynWorkSync.Recorded>
+    }) => client.inspect({ instance: instance(input.account), skill: input.skill, files: input.files }),
     /**
      * Follows the plugin's events until `signal` aborts or the service closes the stream. On `refresh` with reason
      * `rejected` the gateway refused the JWT the plugin holds, so main mints a new one instead of handing out its

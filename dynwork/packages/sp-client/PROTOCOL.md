@@ -175,6 +175,35 @@ unknown, and a `404` on `/v1/auth/bridge/capabilities` (instances before 0.76) m
 | discovery `contract` other than `"1"`, manifest schema above 1                                                                                                              | `Incompatible`                                                                                                                          |
 | any other status, a `3xx` (never followed, so a bearer never leaves the origin), a body that does not decode (with the field path), a discovery path that leaves the origin | `Protocol`                                                                                                                              |
 
+## 10. Skill runtime files: the consumer API (`SpConsumer`)
+
+A skill's runtime files (`config.yaml`, `references/*`, the `.systemprompt-source/<revision>/` copy) are not in the
+manifest. A skill with a `publication` (`{publication_id, resource_id, revision_id, generation, bundle_digest}`) has a
+bundle the systemprompt bridge fetches as an enrolled device. Unlike the sections above, the requests follow the
+bridge's code (`bin/bridge/src/feedback/{enrol,transport,readback}.rs`, read for the bridge-parity plan); every answer
+below was observed on the local 0.76 instance (`test/fixtures/consumer.json`):
+
+| Call                                                                                         | Credential            | Answer                                                                                                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/bridge/device` `{fingerprint, label}`                                              | the user's JWT        | `200 {device_id, consumer_id, credential}`, the credential `sp_device_` plus 72 characters. The same fingerprint is the same `device_id`; each call issues a new credential                                                                    |
+| `GET /api/v1/consumer/resources/{resource}/publications/{publication}/bundle?host=open-code` | the device credential | `200` the installation plan: the publication's ids, `host`, `canonical_files` (`{revision_id, path, digest, bytes, executable, content_check, mode_check}`) and `runtime_files` (`{path, bytes, executable}`, `bytes` an array of byte values) |
+| `POST /api/v1/consumer/receipts` (`ConsumerReceiptRequest`)                                  | the device credential | `200 {receipt_id, acknowledgement, acknowledged_at, fully_verified}`; `acknowledgement` is `accepted`, then `identical_retry` with the same `receipt_id` for the same receipt                                                                  |
+
+- The fingerprint is the bridge's: hex SHA-256 of `systemprompt-bridge-device/v1\n<install id>\n<user id>`.
+  DynWork's install id is a random UUID kept with its accounts.
+- `host` is the instance's `EvaluatorClient` in kebab-case: OpenCode is `open-code`. `opencode` answers `400` "Invalid
+  request body, query or path parameters".
+- The consumer routes answer problem documents (`{type, title, status, detail}`): a JWT or an unknown credential on
+  them is `401` "Valid enrolled-device authentication is required". The client maps them like the rest (`401`
+  `Unauthorized`, `429` `RateLimited`, `5xx` and no answer within 20 s `Unreachable`, anything else `Protocol` with its
+  status). A plan whose ids, generation or digest differ from the manifest's publication is a `Protocol` error.
+- Each plan's runtime files are the bundle's files at their own paths, a copy of each under
+  `.systemprompt-source/<revision>/`, and a `SKILL.md` rendered for the host (`name: "alpha-notes"` quoted, unlike the
+  bridge's projection).
+- The receipt reports every runtime file as read back from disk (`digest` SHA-256 hex, `bytes`, `executable`,
+  `content_check`, `mode_check`), and each canonical file checked against its `.systemprompt-source` copy.
+  `SpConsumer.receipt` builds it and refuses a readback that does not match the plan, as the bridge's `verify` does.
+
 ## Not observed
 
 - What an expired code answers (expected the `401` above; the CLI cannot mint a short-lived code and waiting 600 s was

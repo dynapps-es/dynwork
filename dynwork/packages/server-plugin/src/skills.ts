@@ -1,6 +1,6 @@
 export * as DynWorkSkills from "./skills"
 
-import { mkdir, rename, rm } from "node:fs/promises"
+import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { Option, Schema } from "effect"
 import type { DynWorkSync } from "./contract"
@@ -208,4 +208,158 @@ async function replace(file: string, content: string) {
   const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${crypto.randomUUID()}.tmp`)
   await Bun.write(temporary, content)
   await rename(temporary, file)
+}
+
+// A skill's runtime files (`references/*`, `config.yaml`, `.systemprompt-source/<revision>/...`) come from its
+// publication bundle, which main reads with the device credential. They are written beside the projected `SKILL.md` as
+// the bridge's `feedback/readback.rs` does: modes 0644 or 0755, a sidecar listing them, files a previous plan listed and
+// this one does not removed, then every file read back for the receipt. The skill's directory stays the projection's:
+// it goes with the skill, runtime files included.
+
+const sidecarName = ".systemprompt-runtime.json"
+const sidecarLimit = 1024 * 1024
+const planLimit = 24 * 1024 * 1024
+
+type Planned = { readonly path: string; readonly bytes: Buffer; readonly executable: boolean }
+
+/**
+ * Writes `files` into the directory of `skill`, when the projection wrote one for it, and reads them back. The plan's
+ * own `SKILL.md` is written and read back like the bridge does, then the projected one is restored, as the bridge's next
+ * sync does: the projection owns that file.
+ */
+export async function install(
+  directory: string,
+  projection: Projection | undefined,
+  skill: string,
+  files: ReadonlyArray<DynWorkSync.RuntimeFile>,
+): Promise<DynWorkSync.Materialized> {
+  const owned = projection?.files.find((file) => file.dir === kebab(skill))
+  const root = owned && path.join(directory, "skills", owned.dir)
+  if (!owned || !root || !(await Bun.file(path.join(root, "SKILL.md")).exists()))
+    return { outcome: "missing", files: [] }
+  const plan = files.map((file) => ({
+    path: file.path,
+    bytes: Buffer.from(file.content, "base64"),
+    executable: file.executable,
+  }))
+  const previous = await listed(root)
+  if (!validPlan(plan) || previous === undefined) return { outcome: "invalid", files: [] }
+  const stale = previous.filter((entry) => !plan.some((file) => file.path === entry))
+  const targets = await Promise.all([...plan.map((file) => file.path), ...stale].map((entry) => target(root, entry)))
+  if (targets.some((entry) => entry === undefined)) return { outcome: "invalid", files: [] }
+  await Promise.all(plan.map((file) => store(path.join(root, file.path), file.bytes, file.executable ? 0o755 : 0o644)))
+  await Promise.all(stale.map((entry) => rm(path.join(root, entry), { force: true })))
+  await store(path.join(root, sidecarName), Buffer.from(JSON.stringify(plan.map((file) => file.path))), 0o600)
+  const readback = await Promise.all(plan.map((file) => readBack(path.join(root, file.path), file)))
+  await replace(path.join(root, "SKILL.md"), owned.markdown)
+  return { outcome: "written", files: readback }
+}
+
+/**
+ * Whether the files a receipt recorded for `skill` are still on disk as written, so they need no new plan. `SKILL.md`
+ * is not compared: the projection rewrote it.
+ */
+export async function inspect(
+  directory: string,
+  projection: Projection | undefined,
+  skill: string,
+  files: ReadonlyArray<DynWorkSync.Recorded>,
+) {
+  const owned = projection?.files.find((file) => file.dir === kebab(skill))
+  if (!owned) return false
+  const root = path.join(directory, "skills", owned.dir)
+  const checks = await Promise.all(
+    files
+      .filter((file) => file.path !== "SKILL.md")
+      .map(async (file) => {
+        const found = validPath(file.path) ? await target(root, file.path) : undefined
+        if (found === undefined) return false
+        const read = await readBack(path.join(root, file.path), {
+          path: file.path,
+          bytes: Buffer.alloc(0),
+          executable: file.executable,
+        })
+        return read.digest === file.digest && read.bytes === file.bytes && read.mode !== "mismatch"
+      }),
+  )
+  return checks.every(Boolean)
+}
+
+// The bridge's `validate_plan`: some files and not too many, each path once and relative, at most 24 MiB, and SKILL.md.
+function validPlan(plan: ReadonlyArray<Planned>) {
+  const paths = new Set(plan.map((file) => file.path))
+  return (
+    plan.length > 0 &&
+    plan.length <= 8192 &&
+    paths.size === plan.length &&
+    paths.has("SKILL.md") &&
+    plan.every((file) => validPath(file.path)) &&
+    plan.reduce((total, file) => total + file.bytes.length, 0) <= planLimit
+  )
+}
+
+// The instance's `validate_relative_path`: no separator but `/`, no drive or NUL, no empty, `.` or `..` segment.
+function validPath(relative: string) {
+  return (
+    relative.length > 0 &&
+    relative.length <= 4096 &&
+    !/[\\:\0]/.test(relative) &&
+    relative.split("/").every((part) => part !== "" && part !== "." && part !== "..")
+  )
+}
+
+// The paths the previous plan wrote; undefined when the sidecar is not one the plugin could have written.
+async function listed(root: string) {
+  const source = Bun.file(path.join(root, sidecarName))
+  if (!(await source.exists())) return []
+  if (source.size > sidecarLimit) return undefined
+  const paths = decodeSidecar(await source.text())
+  if (paths._tag === "None" || !paths.value.every(validPath)) return undefined
+  return paths.value
+}
+
+const decodeSidecar = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Array(Schema.String)))
+
+// The bridge's `safe_target`: undefined when the directory or any segment below it is a symbolic link.
+async function target(root: string, relative: string) {
+  const segments = relative.split("/").map((_, index, parts) => path.join(root, ...parts.slice(0, index + 1)))
+  const links = await Promise.all(
+    [root, ...segments].map((entry) =>
+      lstat(entry).then(
+        (info) => info.isSymbolicLink(),
+        () => false,
+      ),
+    ),
+  )
+  return links.some(Boolean) ? undefined : path.join(root, relative)
+}
+
+// Written through a hidden temporary file and a rename, with its mode set before it appears.
+async function store(file: string, bytes: Buffer, mode: number) {
+  await mkdir(path.dirname(file), { recursive: true })
+  const temporary = path.join(path.dirname(file), `.${path.basename(file)}.${crypto.randomUUID()}.tmp`)
+  await writeFile(temporary, bytes)
+  await chmod(temporary, mode)
+  await rename(temporary, file)
+}
+
+// What is on disk now: its digest and size, whether it holds the planned bytes, and whether its mode is the planned
+// one (unavailable without POSIX modes).
+async function readBack(file: string, planned: Planned): Promise<DynWorkSync.Readback> {
+  const info = await lstat(file).catch(() => undefined)
+  const bytes = info?.isFile() ? await readFile(file) : Buffer.alloc(0)
+  const expected = planned.executable ? 0o755 : 0o644
+  return {
+    path: planned.path,
+    digest: new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
+    bytes: bytes.length,
+    executable: planned.executable,
+    content: info?.isFile() && bytes.equals(planned.bytes) ? "verified" : "mismatch",
+    mode:
+      process.platform === "win32"
+        ? "unavailable"
+        : info?.isFile() && (info.mode & 0o7777) === expected
+          ? "verified"
+          : "mismatch",
+  }
 }

@@ -32,6 +32,14 @@ export const Definition = Rpc.define({
       input: Schema.toStandardSchemaV1(DynWorkSync.Token),
       output: Schema.toStandardSchemaV1(DynWorkSync.TokenAccepted),
     },
+    materialize: {
+      input: Schema.toStandardSchemaV1(DynWorkSync.Materialize),
+      output: Schema.toStandardSchemaV1(DynWorkSync.Materialized),
+    },
+    inspect: {
+      input: Schema.toStandardSchemaV1(DynWorkSync.Inspect),
+      output: Schema.toStandardSchemaV1(DynWorkSync.Inspected),
+    },
   },
   events: {
     refresh: { schema: Schema.toStandardSchemaV1(DynWorkSync.Refresh) },
@@ -222,6 +230,33 @@ export default Plugin.define({
             current.mapped = next
             if (reconnect) yield* everywhere(store.mcpReloads)
             return { accepted: true }
+          }),
+        // A skill's runtime files, which main reads from its publication bundle, go beside the SKILL.md `apply` wrote.
+        // Only for the instance applied, and only in a config dir of the service's own.
+        materialize: (input) =>
+          Effect.gen(function* () {
+            const current = store.current
+            if (!configDir) return { outcome: "unsupported" as const, files: [] }
+            if (current?.input.instance.key !== input.instance.key || current.input.instance.url !== input.instance.url)
+              return { outcome: "missing" as const, files: [] }
+            return yield* Effect.promise(() =>
+              DynWorkSkills.install(configDir, current.mapped.skillFiles, input.skill, input.files),
+            )
+          }),
+        inspect: (input) =>
+          Effect.gen(function* () {
+            const current = store.current
+            if (
+              !configDir ||
+              current?.input.instance.key !== input.instance.key ||
+              current.input.instance.url !== input.instance.url
+            )
+              return { intact: false }
+            return {
+              intact: yield* Effect.promise(() =>
+                DynWorkSkills.inspect(configDir, current.mapped.skillFiles, input.skill, input.files),
+              ),
+            }
           }),
       })
       .pipe(Effect.orDie)

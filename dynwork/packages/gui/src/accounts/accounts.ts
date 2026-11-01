@@ -2,12 +2,33 @@ export * as DynWorkAccounts from "./accounts"
 
 import { randomBytes, randomUUID } from "node:crypto"
 import { Effect, Schema } from "effect"
-import { SpClient } from "@dynwork/sp-client"
+import { SpClient, SpConsumer } from "@dynwork/sp-client"
 import type { Account, Probe, SignIn, State } from "./contract"
 import { Loopback } from "./loopback"
 
 // Where secrets live: the PAT only as `safeStorage` ciphertext in the plugin's main storage, decrypted for the moment
 // a JWT is minted; JWTs only in this module's memory. Neither ever reaches a window, a log or the OpenCode database.
+
+// A receipt of skill runtime files on its way to the instance, as the bridge's outbox keeps it: `pending` until the
+// instance acknowledges it, retried from `next` (epoch ms); `conflict` and `rejected` are never retried.
+export const Receipt = Schema.Struct({
+  receipt: SpConsumer.Receipt,
+  state: Schema.Literals(["pending", "acknowledged", "conflict", "rejected"]),
+  attempts: Schema.Number,
+  next: Schema.Number,
+})
+export type Receipt = typeof Receipt.Type
+
+// The device this install enrolled for the account's user (`POST /v1/bridge/device`). Its credential is sealed like the
+// PAT; `installation` names this install in its receipts.
+export const Device = Schema.Struct({
+  id: Schema.String,
+  consumer: Schema.String,
+  installation: Schema.String,
+  cipher: Schema.String,
+  receipts: Schema.Array(Receipt),
+})
+export type Device = typeof Device.Type
 
 export const Stored = Schema.Struct({
   id: Schema.String,
@@ -26,6 +47,7 @@ export const Stored = Schema.Struct({
   offeredKey: Schema.optional(Schema.String),
   // The `manifest_version` of the last manifest the sync fully applied for this instance: the next one must be newer
   manifestVersion: Schema.optional(Schema.String),
+  device: Schema.optional(Device),
   addedAt: Schema.Number,
 })
 export type Stored = typeof Stored.Type
@@ -33,6 +55,8 @@ export type Stored = typeof Stored.Type
 export const Store = Schema.Struct({
   accounts: Schema.Array(Stored),
   active: Schema.optional(Schema.String),
+  // This install's durable id, from which the device fingerprint of each user is derived
+  install: Schema.optional(Schema.String),
 })
 export type Store = typeof Store.Type
 
@@ -144,7 +168,9 @@ export function make(options: Options) {
     const store = read()
     write({
       active: successor(store, id),
-      accounts: store.accounts.map((account) => (account.id === id ? { ...account, patCipher: undefined } : account)),
+      accounts: store.accounts.map((account) =>
+        account.id === id ? { ...account, patCipher: undefined, device: undefined } : account,
+      ),
     })
   }
 
@@ -399,6 +425,65 @@ export function make(options: Options) {
     })
   }
 
+  // Saves a change to one account's device that no window shows, without announcing it.
+  const saveDevice = (id: string, device: Device | undefined, install = read().install) => {
+    const store = read()
+    options.store.set({
+      ...store,
+      install,
+      accounts: store.accounts.map((account) => (account.id === id ? { ...account, device } : account)),
+    })
+  }
+
+  // The device credential of the account's `userId`, enrolling this install first when it holds none for that user,
+  // like the bridge's self-enrolment. For main code only (skill runtime files); never sent to a window.
+  const device = async (id: string, userId: string) => {
+    const account = find(id)
+    const held = account?.device
+    if (account === undefined || cipherOf(account) === undefined) throw new NotSignedIn({ id })
+    if (held !== undefined && held.consumer === userId) {
+      const credential = decrypt(options.secure, held.cipher)
+      if (credential === undefined) throw new SecureStorageUnavailable()
+      return { ...held, credential }
+    }
+    requireSecureStorage()
+    const install = read().install ?? randomUUID()
+    const enrolment = await withJwt(id, (token) =>
+      Effect.runPromise(
+        SpConsumer.enrol(account.url, token, {
+          fingerprint: SpConsumer.fingerprint(install, userId),
+          label: options.deviceName,
+        }),
+      ),
+    )
+    if (cipherOf(find(id)) === undefined) throw new NotSignedIn({ id })
+    if (enrolment.consumer_id !== userId)
+      throw new SpClient.Protocol({
+        endpoint: "POST /v1/bridge/device",
+        message: "the device was enrolled for another user",
+      })
+    // Enrolled again as the same device: its installation and receipts carry on
+    const same = held?.id === enrolment.device_id && held.consumer === enrolment.consumer_id
+    const next: Device = {
+      id: enrolment.device_id,
+      consumer: enrolment.consumer_id,
+      installation: same ? held.installation : randomUUID(),
+      cipher: options.secure.encryptString(enrolment.credential).toString("base64"),
+      receipts: same ? held.receipts : [],
+    }
+    saveDevice(id, next, install)
+    return { ...next, credential: enrolment.credential }
+  }
+
+  // The instance refused the device credential: the next capture enrols again.
+  const forgetDevice = (id: string) => saveDevice(id, undefined)
+
+  // Records the receipts outbox of the account's device.
+  const receipts = (id: string, entries: ReadonlyArray<Receipt>) => {
+    const held = find(id)?.device
+    if (held !== undefined) saveDevice(id, { ...held, receipts: entries })
+  }
+
   // What the first manifest holds, for the sign-in screen's instance list. The signature is checked against the key
   // the account pinned, else the one it was offered, so the counts only describe the catalog the instance served.
   const summary = async (id: string) => {
@@ -438,6 +523,9 @@ export function make(options: Options) {
     trust,
     offerKey,
     applied,
+    device,
+    forgetDevice,
+    receipts,
     summary,
     active: () => read().active,
     // The stored entry, for main code (the sync engine reads the pinned key and the user id)

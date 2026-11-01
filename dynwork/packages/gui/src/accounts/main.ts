@@ -2,6 +2,7 @@ import { hostname } from "node:os"
 import { app, safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
 import { DynWorkSyncEngine } from "../sync/engine"
+import { DynWorkRuntime } from "../sync/runtime"
 import { DynWorkAccounts } from "./accounts"
 import { Accounts, type SyncStatus } from "./contract"
 import { AccountsIpc } from "./ipc"
@@ -27,9 +28,11 @@ const setup: Plugin.MainSetup = (ctx) => {
   ctx.onCleanup(accounts.dispose)
 
   const focused = () => ctx.windows.list().some((window) => window.isFocused())
+  const plugin = DynWorkSyncMain.make(ctx.serverEndpoints)
   const sync = DynWorkSyncEngine.make({
     accounts,
-    plugin: DynWorkSyncMain.make(ctx.serverEndpoints),
+    plugin,
+    runtime: DynWorkRuntime.make({ accounts, plugin }),
     focused: focused(),
     changed: (status) => {
       provider.changed()

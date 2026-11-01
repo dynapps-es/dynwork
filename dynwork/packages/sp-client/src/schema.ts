@@ -57,6 +57,15 @@ const Rule = Schema.Struct({
   tags: Schema.optional(Strings),
 })
 
+export const Publication = Schema.Struct({
+  publication_id: Schema.String,
+  resource_id: Schema.String,
+  revision_id: Schema.String,
+  generation: Schema.Int,
+  bundle_digest: Schema.String,
+})
+export type Publication = typeof Publication.Type
+
 const Skill = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -71,6 +80,8 @@ const Skill = Schema.Struct({
   plugins: Schema.optional(Strings),
   tags: Schema.optional(Strings),
   frontmatter: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  // The signed publication whose bundle carries the skill's runtime files (`references/*`, `config.yaml`)
+  publication: Schema.optional(Publication),
 })
 
 const Agent = Schema.Struct({

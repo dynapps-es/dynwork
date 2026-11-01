@@ -58,6 +58,20 @@ export function make(endpoint: () => Endpoint | undefined) {
         if (accepted._tag === "None") throw new Failed("token", 200, "invalid_output")
         return accepted.value.accepted
       }),
+    /** Writes a skill's runtime files beside its SKILL.md and reads them back. */
+    materialize: (input: DynWorkSync.Materialize) =>
+      call("materialize", input).then((output) => {
+        const written = decodeMaterialized(output)
+        if (written._tag === "None") throw new Failed("materialize", 200, "invalid_output")
+        return written.value
+      }),
+    /** Whether the runtime files a receipt recorded are still on disk as written. */
+    inspect: (input: DynWorkSync.Inspect) =>
+      call("inspect", input).then((output) => {
+        const inspected = decodeInspected(output)
+        if (inspected._tag === "None") throw new Failed("inspect", 200, "invalid_output")
+        return inspected.value.intact
+      }),
     /**
      * Follows the plugin's `refresh` and `rejected` events until `signal` aborts or the service closes the stream
      * (it stopped or restarted), when the promise settles and the caller subscribes again. Events published while
@@ -123,6 +137,8 @@ function dispatch(frame: string, handlers: Handlers) {
 
 const decodeApplied = Schema.decodeUnknownOption(DynWorkSync.Applied)
 const decodeAccepted = Schema.decodeUnknownOption(DynWorkSync.TokenAccepted)
+const decodeMaterialized = Schema.decodeUnknownOption(DynWorkSync.Materialized)
+const decodeInspected = Schema.decodeUnknownOption(DynWorkSync.Inspected)
 const decodeError = Schema.decodeUnknownOption(Schema.Struct({ type: Schema.String }))
 const decodeOutput = Schema.decodeUnknownOption(Schema.Struct({ output: Schema.optional(Schema.Unknown) }))
 

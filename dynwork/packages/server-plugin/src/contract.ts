@@ -167,3 +167,64 @@ export const Applied = Schema.Struct({
 export type Applied = typeof Applied.Type
 
 export const Empty = Schema.Struct({})
+
+/** One file of a skill publication's bundle (`ConsumerInstallationPlan.runtime_files`), its bytes in base64. */
+export const RuntimeFile = Schema.Struct({
+  path: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
+  content: Schema.String,
+  executable: Schema.Boolean,
+})
+export type RuntimeFile = typeof RuntimeFile.Type
+
+/** The runtime files of one skill of the instance applied, written beside its `SKILL.md`. */
+export const Materialize = Schema.Struct({
+  instance: Instance,
+  /** The skill's manifest id; its directory is the projection's. */
+  skill: Schema.String,
+  files: Schema.Array(RuntimeFile),
+})
+export type Materialize = typeof Materialize.Type
+
+const Check = Schema.Literals(["verified", "mismatch", "unavailable"])
+
+/** A file as it was read back from disk after writing: what the instance's receipt reports. */
+export const Readback = Schema.Struct({
+  path: Schema.String,
+  /** SHA-256 of the bytes read, lowercase hex. */
+  digest: Schema.String,
+  bytes: Schema.Number,
+  executable: Schema.Boolean,
+  content: Check,
+  mode: Check,
+})
+export type Readback = typeof Readback.Type
+
+/**
+ * `written` with every file read back; `unsupported` when the service has no config dir of its own (nothing is
+ * written there); `missing` when the skill is not one the plugin wrote for the instance applied; `invalid` when the
+ * files are not a plan the bridge would install (no `SKILL.md`, a path leaving the directory, a duplicate, a link).
+ */
+export const Materialized = Schema.Struct({
+  outcome: Schema.Literals(["written", "unsupported", "missing", "invalid"]),
+  files: Schema.Array(Readback),
+})
+export type Materialized = typeof Materialized.Type
+
+/** A runtime file a receipt recorded. */
+export const Recorded = Schema.Struct({
+  path: Schema.String,
+  digest: Schema.String,
+  bytes: Schema.Number,
+  executable: Schema.Boolean,
+})
+export type Recorded = typeof Recorded.Type
+
+/** Whether the files a receipt recorded for a skill are still on disk as written. */
+export const Inspect = Schema.Struct({
+  instance: Instance,
+  skill: Schema.String,
+  files: Schema.Array(Recorded),
+})
+export type Inspect = typeof Inspect.Type
+
+export const Inspected = Schema.Struct({ intact: Schema.Boolean })

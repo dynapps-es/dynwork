@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, rm, stat, symlink } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import type { DynWorkSync } from "../src/contract"
@@ -240,5 +240,153 @@ describe("write", () => {
     await Bun.write(ledger, JSON.stringify({ version: "x", ids: ["../escape"] }))
     await expect(DynWorkSkills.write(root, undefined)).rejects.toThrow("is corrupt")
     expect(await tree(root)).toEqual(["skills/.systemprompt-managed.json", "skills/one/SKILL.md"])
+  })
+})
+
+const consumer: {
+  plans: Record<string, { runtime_files: Array<{ path: string; bytes: number[]; executable: boolean }> }>
+} = await Bun.file(path.join(import.meta.dir, "../../sp-client/test/fixtures/consumer.json")).json()
+
+// A skill's runtime files from its publication bundle, as the bridge's `readback::materialize` writes them beside the
+// SKILL.md the projection wrote: the plan observed on the local harness for `alpha_notes`.
+describe("runtime files", () => {
+  const roots: string[] = []
+  afterEach(() => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))))
+  const planned = async (id = "alpha_notes") =>
+    consumer.plans[id]?.runtime_files.map((file) => ({
+      path: file.path,
+      content: Buffer.from(file.bytes).toString("base64"),
+      executable: file.executable,
+    })) ?? []
+  const file = (path: string, text: string, executable = false) => ({
+    path,
+    content: Buffer.from(text).toString("base64"),
+    executable,
+  })
+  const setup = async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "dynwork-runtime-"))
+    roots.push(root)
+    const projection = DynWorkMapping.map(apply()).skillFiles
+    await DynWorkSkills.write(root, projection)
+    return { root, projection, dir: path.join(root, "skills", "alpha-notes") }
+  }
+  const mode = async (file: string) => (await stat(file)).mode & 0o777
+
+  test("writes every file beside SKILL.md with the bridge's modes and sidecar, reads them back, keeps our SKILL.md", async () => {
+    const { root, projection, dir } = await setup()
+    const projected = await Bun.file(path.join(dir, "SKILL.md")).text()
+    const files = [...(await planned()), file("scripts/run.sh", "#!/bin/sh\necho ok\n", true)]
+    const result = await DynWorkSkills.install(root, projection, "alpha_notes", files)
+    expect(result.outcome).toBe("written")
+    expect(result.files.map((entry) => [entry.path, entry.content, entry.mode])).toEqual(
+      files.map((entry) => [entry.path, "verified", "verified"]),
+    )
+    const config = result.files.find((entry) => entry.path === "config.yaml")
+    expect(config?.digest).toBe(
+      new Bun.CryptoHasher("sha256").update(await Bun.file(path.join(dir, "config.yaml")).bytes()).digest("hex"),
+    )
+    expect(await Bun.file(path.join(dir, "config.yaml")).text()).toStartWith("id: alpha_notes\n")
+    expect(await mode(path.join(dir, "config.yaml"))).toBe(0o644)
+    expect(await mode(path.join(dir, "scripts/run.sh"))).toBe(0o755)
+    // The sidecar is the bridge's: compact JSON of the paths, mode 0600
+    expect(await Bun.file(path.join(dir, ".systemprompt-runtime.json")).text()).toBe(
+      JSON.stringify(files.map((entry) => entry.path)),
+    )
+    expect(await mode(path.join(dir, ".systemprompt-runtime.json"))).toBe(0o600)
+    // The bundle's SKILL.md was read back, then the projected one restored, as the bridge's next sync does
+    expect(result.files.find((entry) => entry.path === "SKILL.md")?.bytes).not.toBe(projected.length)
+    expect(await Bun.file(path.join(dir, "SKILL.md")).text()).toBe(projected)
+  })
+
+  test("a new plan prunes what the previous one listed and no longer does, and nothing else", async () => {
+    const { root, projection, dir } = await setup()
+    await DynWorkSkills.install(root, projection, "alpha_notes", [
+      ...(await planned()),
+      file("references/old.md", "old"),
+    ])
+    await Bun.write(path.join(dir, "notes-of-the-user.md"), "mine")
+    const second = await DynWorkSkills.install(root, projection, "alpha_notes", [
+      ...(await planned()),
+      file("references/new.md", "new"),
+    ])
+    expect(second.outcome).toBe("written")
+    expect(await Bun.file(path.join(dir, "references/old.md")).exists()).toBe(false)
+    expect(await Bun.file(path.join(dir, "references/new.md")).text()).toBe("new")
+    expect(await Bun.file(path.join(dir, "notes-of-the-user.md")).text()).toBe("mine")
+  })
+
+  test("runtime files survive the projection's rewrites and go with the skill's directory", async () => {
+    const { root, projection, dir } = await setup()
+    await DynWorkSkills.install(root, projection, "alpha_notes", [...(await planned()), file("references/a.md", "a")])
+    await DynWorkSkills.write(
+      root,
+      DynWorkMapping.map(
+        apply({
+          ...alpha,
+          skills: alpha.skills.map((entry) => ({ ...entry, instructions: `${entry.instructions}\nmore` })),
+        }),
+      ).skillFiles,
+    )
+    expect(await Bun.file(path.join(dir, "references/a.md")).text()).toBe("a")
+    expect(await Bun.file(path.join(dir, ".systemprompt-runtime.json")).exists()).toBe(true)
+    await DynWorkSkills.write(root, undefined)
+    expect(await readdir(path.join(root, "skills"))).toEqual([])
+  })
+
+  test("refuses a plan without SKILL.md, a path that leaves the directory, a duplicate, and an unmanaged skill", async () => {
+    const { root, projection, dir } = await setup()
+    const base = await planned()
+    expect(
+      (
+        await DynWorkSkills.install(
+          root,
+          projection,
+          "alpha_notes",
+          base.filter((entry) => entry.path !== "SKILL.md"),
+        )
+      ).outcome,
+    ).toBe("invalid")
+    expect(
+      (await DynWorkSkills.install(root, projection, "alpha_notes", [...base, file("../escape.md", "x")])).outcome,
+    ).toBe("invalid")
+    expect(
+      (await DynWorkSkills.install(root, projection, "alpha_notes", [...base, file("a/./b.md", "x")])).outcome,
+    ).toBe("invalid")
+    expect(
+      (await DynWorkSkills.install(root, projection, "alpha_notes", [...base, file("config.yaml", "again")])).outcome,
+    ).toBe("invalid")
+    expect((await DynWorkSkills.install(root, projection, "not_in_manifest", base)).outcome).toBe("missing")
+    expect((await DynWorkSkills.install(root, undefined, "alpha_notes", base)).outcome).toBe("missing")
+    expect(await Bun.file(path.join(root, "skills", "escape.md")).exists()).toBe(false)
+    expect(await Bun.file(path.join(dir, ".systemprompt-runtime.json")).exists()).toBe(false)
+  })
+
+  test("never writes through a symbolic link", async () => {
+    const { root, projection, dir } = await setup()
+    const outside = await mkdtemp(path.join(tmpdir(), "dynwork-outside-"))
+    roots.push(outside)
+    await symlink(outside, path.join(dir, "references"))
+    const result = await DynWorkSkills.install(root, projection, "alpha_notes", [
+      ...(await planned()),
+      file("references/x.md", "x"),
+    ])
+    expect(result.outcome).toBe("invalid")
+    expect(await readdir(outside)).toEqual([])
+  })
+
+  test("inspect: the files a receipt recorded are still there, SKILL.md aside since the projection owns it", async () => {
+    const { root, projection, dir } = await setup()
+    const result = await DynWorkSkills.install(root, projection, "alpha_notes", await planned())
+    const recorded = result.files.map((entry) => ({
+      path: entry.path,
+      digest: entry.digest,
+      bytes: entry.bytes,
+      executable: entry.executable,
+    }))
+    expect(await DynWorkSkills.inspect(root, projection, "alpha_notes", recorded)).toBe(true)
+    await Bun.write(path.join(dir, "config.yaml"), "changed")
+    expect(await DynWorkSkills.inspect(root, projection, "alpha_notes", recorded)).toBe(false)
+    await rm(dir, { recursive: true })
+    expect(await DynWorkSkills.inspect(root, projection, "alpha_notes", recorded)).toBe(false)
   })
 })

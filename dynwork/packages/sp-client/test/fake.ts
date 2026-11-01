@@ -2,6 +2,7 @@ import { createHash, generateKeyPairSync, randomBytes, sign } from "node:crypto"
 import { Jcs } from "../src/jcs"
 import deviceLink from "../../../test/sp-local/fixtures/device-link.json"
 import alpha from "./fixtures/alpha.json"
+import consumer from "./fixtures/consumer.json"
 
 // A systemprompt 0.76 instance in miniature, answering with the bodies observed on the local harness: the device-link
 // capture (`test/sp-local/fixtures/device-link.json`) and `fixtures/alpha.json`. Credentials are random
@@ -37,6 +38,12 @@ export function startFake() {
     codes: new Set<string>(),
     pats: new Set<string>(),
     jwts: new Set<string>(),
+    // Device credentials the instance issued, with the device each enrols, and the device of each fingerprint
+    devices: new Map<string, { device_id: string; consumer_id: string }>(),
+    fingerprints: new Map<string, string>(),
+    // Plans served by publication id: the ones observed on the local harness for alpha's skills
+    plans: structuredClone(consumer.plans) as Record<string, (typeof consumer.plans)["alpha_notes"]>,
+    receipts: [] as Array<{ key: string; receipt_id: string; body: string }>,
     requests: [] as Recorded[],
     // Plugin bundle files by `<plugin>/<path>`, served at `/v1/bridge/plugins/<plugin>/<path>`
     files: {} as Record<string, Uint8Array | string>,
@@ -110,6 +117,15 @@ export function startFake() {
         },
       })
     }
+    if (route === "POST /v1/bridge/device" && signedIn) {
+      const input = JSON.parse(body) as { fingerprint: string; label: string }
+      const device = state.fingerprints.get(input.fingerprint) ?? crypto.randomUUID()
+      state.fingerprints.set(input.fingerprint, device)
+      const credential = `sp_device_${randomBytes(36).toString("hex")}`
+      state.devices.set(credential, { device_id: device, consumer_id: alpha.whoami.body.user_id })
+      return Response.json({ ...consumer.enrol.body, device_id: device, credential })
+    }
+    if (path.startsWith("/api/v1/consumer/")) return consumerRoute(request, path, body, bearer)
     if (!signedIn) return Response.json(alpha.rejected_jwt.body, { status: 401 })
     if (route === "GET /v1/bridge/profile") return Response.json(alpha.profile.body)
     if (route === "GET /v1/models") return Response.json(alpha.models.body)
@@ -132,6 +148,36 @@ export function startFake() {
       )
     }
     return Response.json({ code: "not_found", message: "no route" }, { status: 404 })
+  }
+
+  // The device-authenticated consumer API: plans by publication, receipts acknowledged once and then as retries.
+  const consumerRoute = (request: Request, path: string, body: string, bearer: string | undefined) => {
+    if (bearer === undefined || !state.devices.has(bearer))
+      return Response.json(consumer.unauthorized.body, { status: 401 })
+    const bundle = /^\/api\/v1\/consumer\/resources\/([^/]+)\/publications\/([^/]+)\/bundle$/.exec(path)
+    if (request.method === "GET" && bundle) {
+      if (new URL(request.url).searchParams.get("host") !== "open-code")
+        return Response.json(consumer.bad_host.body, { status: 400 })
+      const plan = Object.values(state.plans).find(
+        (entry) => entry.resource_id === bundle[1] && entry.publication_id === bundle[2],
+      )
+      return plan ? Response.json(plan) : Response.json({ title: "Not Found", status: 404 }, { status: 404 })
+    }
+    if (request.method === "POST" && path === "/api/v1/consumer/receipts") {
+      const input = JSON.parse(body) as { installation_id: string; publication_id: string; observed_at: string }
+      const key = `${input.installation_id}:${input.publication_id}`
+      const same = state.receipts.find((entry) => entry.key === key)
+      const content = JSON.stringify({ ...input, observed_at: undefined })
+      if (same && same.body !== content) return Response.json({ title: "Conflict", status: 409 }, { status: 409 })
+      const receipt_id = same?.receipt_id ?? crypto.randomUUID()
+      if (!same) state.receipts.push({ key, receipt_id, body: content })
+      return Response.json({
+        ...consumer.receipt.accepted.body,
+        receipt_id,
+        acknowledgement: same ? "identical_retry" : "accepted",
+      })
+    }
+    return Response.json({ title: "Not Found", status: 404 }, { status: 404 })
   }
 
   return {

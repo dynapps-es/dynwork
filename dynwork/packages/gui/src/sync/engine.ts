@@ -9,6 +9,7 @@ import { DynWorkAccounts } from "../accounts/accounts"
 import type { Counts, SyncError, SyncStatus } from "../accounts/contract"
 import { DynWorkSyncMain } from "../accounts/sync"
 import { DynWorkBundleFiles } from "./bundles"
+import type { DynWorkRuntime } from "./runtime"
 
 // The live sync (decision D4): one loop, for the active instance only, polls its signed manifest with the last ETag
 // and pushes the verified content to DynWork's service only when it changed. The plugin replaces the instance's whole
@@ -38,6 +39,8 @@ export type Options = {
   focused: boolean
   /** Called after every change of `status()`. */
   changed: (status: SyncStatus) => void
+  /** Delivers the skills' runtime files after an apply; without it they are not delivered. */
+  runtime?: Pick<DynWorkRuntime.Runtime, "capture">
 }
 
 /** The bridge's tolerance for a manifest's `not_before` against the local clock. */
@@ -78,6 +81,8 @@ type Loop = {
   sent?: string
   // The plugin bundle files fetched for this account, kept by digest across polls
   readonly bundles: ReturnType<typeof DynWorkBundleFiles.make>
+  // Whether the skills' runtime files are all delivered for what the plugin holds: false until a capture says so
+  captured: boolean
 }
 
 export function make(options: Options) {
@@ -150,6 +155,7 @@ export function make(options: Options) {
       again: false,
       fresh: false,
       failures: 0,
+      captured: false,
       bundles: DynWorkBundleFiles.make(accounts),
     }
     current.loop = started
@@ -247,11 +253,19 @@ export function make(options: Options) {
       loop.pushed = digest
       loop.counts = counts
       loop.sent = session.token
+      loop.captured = false
     }
     // Fully applied: the next manifest must be newer than this one
     if (loop.version !== undefined) accounts.applied(loop.id, loop.version)
     loop.version = undefined
     set({ status: "synced", account: loop.id, at: Date.now(), counts: loop.counts ?? empty })
+    // After the status, so a slow instance never holds it; within the poll, so polls still never overlap. Its
+    // failures are warnings: the next poll tries what is left.
+    if (options.runtime === undefined || loop.captured) return
+    const outcome = await options.runtime
+      .capture({ id: loop.id, account: loop.account, manifest }, serial)
+      .catch(() => undefined)
+    loop.captured = outcome !== undefined && outcome.remaining === 0 && !outcome.undelivered
   }
 
   // The user's models: on activate and every `profileInterval`. A failure keeps what was read before.
