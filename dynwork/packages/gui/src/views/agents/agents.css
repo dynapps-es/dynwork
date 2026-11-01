@@ -1,0 +1,549 @@
+/* The Agents view and its New agent dialog. Tailwind does not scan dynwork/, so they style themselves with the theme's
+   v2 tokens. The shell (`../shell.css`) owns the frame, the header and the primary button inside the view. */
+
+[data-component="dynwork-view"][data-view="agents"] {
+  [data-faint] {
+    color: var(--v2-text-text-faint);
+  }
+
+  [data-mono],
+  [data-slot="agents-slug"] {
+    font-family: var(--v2-font-family-code);
+    font-size: 12px;
+  }
+
+  [data-slot="agents-slug"] {
+    color: var(--v2-text-text-faint);
+  }
+
+  /* Filters: a segmented control with counts. */
+  [data-slot="agents-filters"] {
+    display: flex;
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 2px;
+    gap: 2px;
+    overflow-x: auto;
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-02);
+  }
+
+  [data-slot="agents-filter"] {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding-inline: 10px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--v2-text-text-muted);
+    white-space: nowrap;
+
+    &:is(:hover, :focus-visible) {
+      color: var(--v2-text-text-base);
+      outline: none;
+    }
+
+    &[data-state="pressed"] {
+      border-color: var(--v2-border-border-muted);
+      background: var(--v2-background-bg-base);
+      color: var(--v2-text-text-base);
+    }
+  }
+
+  [data-slot="agents-count"] {
+    color: var(--v2-text-text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The table. Its columns follow its own width, so it holds in every layout and beside the detail pane. */
+  [data-slot="agents-list"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px;
+    container-type: inline-size;
+    border-radius: 10px;
+    background: var(--v2-background-bg-layer-02);
+  }
+
+  [data-row] {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) 104px 96px;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+  }
+
+  [data-slot="agents-head"] {
+    padding-block: 4px;
+    color: var(--v2-text-text-faint);
+    font-size: 12px;
+  }
+
+  [data-slot="agents-row"] {
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    text-align: start;
+
+    &:is(:hover, :focus-visible) {
+      background: var(--v2-overlay-simple-overlay-hover);
+      outline: none;
+    }
+
+    &[data-state="pressed"] {
+      border-color: var(--v2-border-border-muted);
+      background: var(--v2-background-bg-base);
+    }
+  }
+
+  @container (max-width: 520px) {
+    [data-row] {
+      grid-template-columns: 20px minmax(0, 1fr) 84px;
+    }
+
+    [data-slot="agents-instance"] {
+      display: none;
+    }
+  }
+
+  [data-slot="agents-empty"] {
+    margin: 0;
+    padding: 16px 12px;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="agents-name"] {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  [data-slot="agents-title"] {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+
+    > :first-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  [data-slot="agents-task"] {
+    overflow: hidden;
+    color: var(--v2-text-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-tone="danger"] {
+    color: var(--v2-state-fg-danger);
+  }
+
+  [data-meta] {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  [data-slot="agents-state"] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  [data-slot="agents-spinner"] {
+    color: var(--v2-state-fg-info);
+  }
+
+  [data-slot="agents-dot"] {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--v2-icon-icon-faint);
+
+    &[data-tone="success"] {
+      background: var(--v2-state-fg-success);
+    }
+
+    &[data-tone="warning"] {
+      background: var(--v2-state-fg-warning);
+    }
+
+    &[data-tone="danger"] {
+      background: var(--v2-state-fg-danger);
+    }
+  }
+
+  [data-slot="agents-tag"] {
+    flex: none;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: var(--v2-background-bg-layer-03);
+    color: var(--v2-text-text-muted);
+    font-size: 11px;
+    line-height: 18px;
+    white-space: nowrap;
+
+    &[data-tone="warning"] {
+      background: var(--v2-state-bg-warning);
+      color: var(--v2-state-fg-warning);
+    }
+
+    &[data-tone="danger"] {
+      background: var(--v2-state-bg-danger);
+      color: var(--v2-state-fg-danger);
+    }
+
+    &[data-tone="success"] {
+      background: var(--v2-state-bg-success);
+      color: var(--v2-state-fg-success);
+    }
+  }
+
+  [data-slot="agents-tag"]:not([data-tone]) {
+    background: var(--v2-state-bg-info);
+    color: var(--v2-state-fg-info);
+  }
+
+  /* The sub-navigation's footer. */
+  [data-slot="agents-farm-status"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow-wrap: anywhere;
+  }
+
+  [data-slot="agents-connected"] {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--v2-text-text-base);
+  }
+
+  /* The detail pane. */
+  [data-slot="agents-detail"] {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  [data-slot="agents-detail-head"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  [data-slot="agents-detail-title"] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  [data-slot="agents-detail-name"] {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 15px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="agents-actions"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  [data-slot="agents-more"] {
+    position: relative;
+  }
+
+  [data-slot="agents-menu"] {
+    position: absolute;
+    inset: 100% auto auto 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    min-width: 160px;
+    margin-top: 4px;
+    padding: 4px;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 8px;
+    background: var(--v2-background-bg-base);
+    box-shadow: var(--v2-elevation-raised);
+
+    button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      height: 28px;
+      padding-inline: 8px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--v2-text-text-base);
+      text-align: start;
+
+      &:is(:hover, :focus-visible) {
+        background: var(--v2-overlay-simple-overlay-hover);
+        outline: none;
+      }
+    }
+  }
+
+  [data-slot="agents-tabs"] {
+    display: flex;
+    gap: 16px;
+    border-bottom: 1px solid var(--v2-border-border-muted);
+  }
+
+  [data-slot="agents-tab"] {
+    height: 32px;
+    margin-bottom: -1px;
+    padding: 0;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--v2-text-text-muted);
+
+    &:is(:hover, :focus-visible) {
+      color: var(--v2-text-text-base);
+      outline: none;
+    }
+
+    &[data-state="pressed"] {
+      border-bottom-color: var(--v2-text-text-base);
+      color: var(--v2-text-text-base);
+    }
+  }
+
+  [data-slot="agents-kv"] {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 10px 16px;
+    margin: 0;
+
+    dt {
+      color: var(--v2-text-text-muted);
+    }
+
+    dd {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  [data-slot="agents-log"] {
+    margin: 0;
+    padding: 12px;
+    max-height: 360px;
+    overflow: auto;
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-02);
+    font-family: var(--v2-font-family-code);
+    font-size: 12px;
+    line-height: 18px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  [data-slot="agents-log-time"] {
+    color: var(--v2-text-text-faint);
+  }
+
+  [data-slot="agents-log-line"] {
+    &[data-level="warn"] {
+      color: var(--v2-state-fg-warning);
+    }
+
+    &[data-level="error"] {
+      color: var(--v2-state-fg-danger);
+    }
+  }
+
+  [data-slot="agents-caret"] {
+    display: inline-block;
+    width: 6px;
+    height: 12px;
+    background: var(--v2-text-text-muted);
+    animation: dynwork-agents-blink 1s steps(2, start) infinite;
+  }
+
+  [data-slot="agents-runs"] {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  [data-slot="agents-run"] {
+    display: grid;
+    grid-template-columns: 20px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
+
+  [data-slot="agents-run-text"] {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  [data-slot="agents-link"] {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--v2-text-text-accent);
+    font-weight: 530;
+
+    &:is(:hover, :focus-visible) {
+      color: var(--v2-text-text-accent-hover);
+      outline: none;
+    }
+  }
+
+  [data-slot="agents-notice"] {
+    display: flex;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-02);
+    color: var(--v2-text-text-muted);
+  }
+}
+
+@keyframes dynwork-agents-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="agents-caret"] {
+    animation: none;
+  }
+}
+
+/* The New agent dialog renders in the host's dialog layer, outside the view: it carries the brand primary itself. */
+[data-component="dynwork-agents-form"] {
+  --dynwork-primary: #050543;
+  --dynwork-primary-hover: color-mix(in srgb, var(--dynwork-primary), white 16%);
+  --dynwork-primary-pressed: color-mix(in srgb, var(--dynwork-primary), black 40%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
+
+  [data-component="button-v2"][data-variant="contrast"] {
+    background: var(--dynwork-primary);
+    color: #fff;
+    text-shadow: none;
+  }
+
+  [data-component="button-v2"][data-variant="contrast"]:is(:hover, [data-state="hover"]):not(:disabled) {
+    background: var(--dynwork-primary-hover);
+  }
+
+  [data-component="button-v2"][data-variant="contrast"]:is(:active, [data-state="pressed"]):not(:disabled) {
+    background: var(--dynwork-primary-pressed);
+  }
+
+  [data-slot="agents-field"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+
+    > span {
+      font-weight: 500;
+    }
+
+    small {
+      color: var(--v2-text-text-muted);
+      font-size: 12px;
+      line-height: 16px;
+    }
+  }
+
+  [data-slot="agents-pair"] {
+    display: flex;
+    gap: 12px;
+  }
+
+  select {
+    height: 32px;
+    padding-inline: 8px;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 8px;
+    background: var(--v2-background-bg-base);
+    color: var(--v2-text-text-base);
+    font: inherit;
+  }
+
+  [data-slot="agents-segments"] {
+    display: flex;
+    padding: 2px;
+    gap: 2px;
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-02);
+
+    button {
+      flex: 1;
+      height: 28px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--v2-text-text-muted);
+
+      &[data-state="pressed"] {
+        border-color: var(--v2-border-border-muted);
+        background: var(--v2-background-bg-base);
+        color: var(--v2-text-text-base);
+      }
+    }
+  }
+
+  [data-slot="agents-notice"] {
+    display: flex;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-02);
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="agents-error"] {
+    margin: 0;
+    color: var(--v2-state-fg-danger);
+  }
+
+  [data-slot="agents-form-actions"] {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+}
+
+:root[data-color-scheme="dark"] [data-component="dynwork-agents-form"] {
+  --dynwork-primary: #951cf3;
+  --dynwork-primary-hover: color-mix(in srgb, var(--dynwork-primary), white 14%);
+  --dynwork-primary-pressed: color-mix(in srgb, var(--dynwork-primary), black 18%);
+}
+
+@media (max-width: 767px) {
+  [data-component="dynwork-agents-form"] [data-slot="agents-pair"] {
+    flex-direction: column;
+  }
+}
