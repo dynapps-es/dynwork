@@ -12,6 +12,7 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./bundles": "./src/bundles.ts",
     "./contract": "./src/contract.ts",
     "./client": "./src/client.ts",
     "./mapping": "./src/mapping.ts",

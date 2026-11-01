@@ -46,7 +46,7 @@ systemprompt instance ──HTTPS──▶ Electron main (dynwork GUI plugin)
   /v1 gateway ◀─────────┐                 │ RPC dynwork.sync/apply|token|clear (service password, loopback)
                         │                 ▼
                         └──── DynWork's OpenCode service (own port, DB, config, state)
-                              server plugin: skills, sub-agents, remote MCP, rules, provider `systemprompt`
+                              server plugin: skills and bundle files, remote MCP, rules, provider `systemprompt`
                               model calls carry the JWT, pinned to the instance gateway
 Windows (renderer) ◀── dynwork.accounts Ipc: accounts without secrets, sync status
 ```
@@ -116,6 +116,12 @@ Where secrets live:
   manifest key and its fingerprint. Without OS encryption (`safeStorage.isEncryptionAvailable()` false) no sign-in
   starts. A ciphertext the OS cannot open right now (a locked keyring, a denied Keychain prompt) is kept and the call
   fails with `SecureStorageUnavailable`; only the instance refusing the PAT signs the account out.
+- The device credential (`sp_device_...`, from enrolling this install for skill runtime files, see "Skill runtime
+  files") is stored the same way, as `safeStorage` ciphertext in the account's `device` entry beside the receipts
+  outbox, and decrypted only for a consumer call and for the governance events: each capture pushes it to DynWork's
+  own service with `dynwork.sync/device`, where the server plugin holds it in memory only (never written, logged or
+  in a window) to add it to its track calls (see "Governance telemetry"). A refused credential is taken back from the
+  service; signing out (`clear`) or applying another instance drops it there. Signing out forgets it and the outbox.
 - JWTs exist only in main memory. Each is renewed at 80 % of its lifetime; a failed renewal is tried again every 30 s
   while it holds. A refused JWT is minted again once; a refused PAT signs the account out. Main code (gateway, sync)
   gets one through `jwt(id)`, `session(id, fresh)` (with its expiry; `fresh` mints even while the held one is valid)
@@ -135,7 +141,7 @@ account joins the list and stays inactive until you make it active.
 A manifest key waits for the user: the first key an instance offers ("New key") and a rotated one ("Key changed", shown
 with the pinned and the offered fingerprints) stop at "Trust this key" / "Trust new key", which pins exactly the
 fingerprint on screen. The sign-in screen never trusts a key. The active instance's section lists what it synced,
-including its rules, which reach every session's system context.
+including its rules, which reach every session's system context through the service's global `AGENTS.md`.
 
 The titlebar pill (a `TitlebarItem`) shows the active instance; its icon says how the sync stands (synced, syncing,
 needs attention). It grows to its label on hover, and a click opens a small dialog to switch instance, Sync now, or go
@@ -153,10 +159,14 @@ one loop, for the active signed-in account only (decision D4), and pushes its co
 - Cadence: the first poll at once; then every 30 s ± 20 % while a DynWork window has focus, every 5 min while none
   has; at once when a window gains focus, when an account is activated and on `syncNow`. Polls never overlap: one asked
   for while another runs follows it once.
-- Each poll reads the manifest with the last ETag (`If-None-Match`, `Cache-Control: no-cache`). The signature is checked
-  against the pinned key, else the one offered at sign-in. A manifest for another user than the one `whoami` named at
-  sign-in, or with an `issued_at` older than the newest applied in this process, is refused (`invalid`) and its ETag is
-  not kept.
+- Each poll reads the manifest with the last ETag (`If-None-Match`). Only `syncNow` ("Sync now") adds `Cache-Control:
+no-cache`; polls, focus and activation let the instance answer from its memo, like the bridge's scheduled sync. The
+  signature is checked against the pinned key, else the one offered at sign-in. A 200 is then accepted under the
+  bridge's rules, and refused (`invalid`, ETag not kept) when it is another user's than the one `whoami` named at
+  sign-in, when its `manifest_version` (`<RFC3339>-<hex>`, ordered by timestamp then suffix) is not strictly newer than
+  the last one fully applied for that account (`replay`; persisted with the account, so it survives restarts), when it
+  does not parse (`version`), or when its `not_before` is more than 5 min from now (`skew`). A 304 skips both checks:
+  its stored manifest is as old as its first acceptance. `issued_at` is not checked, as in the bridge.
 - The content the plugin reads is digested entry by entry (kind, id, digest of the entry, sorted), with the profile and
   the models catalog. `apply` runs only when that changes: a 304 or a re-signed copy of the same content pushes nothing.
   The plugin replaces the instance's whole namespace on each `apply` (design point 3: whole-namespace replace).
@@ -173,9 +183,15 @@ one loop, for the active signed-in account only (decision D4), and pushes its co
   When the event stream ends (the service stopped or restarted), the engine follows it again after 1 s and applies the
   instance again; a `token` the plugin refuses means the same. Event handlers never throw.
 
+- After a poll that applied (or the first of a loop, or one after a capture left something pending), and once the
+  status is `synced`, the engine delivers the skills' runtime files (`src/sync/runtime.ts`, see "Skill runtime files").
+  It runs inside the poll, so polls still never overlap, and its failures never change the status.
+
 Statuses, in `State.sync` and as the Ipc's `sync` event: `{status: "idle"}`, `{status: "syncing", account}`,
-`{status: "synced", account, at, counts: {skills, agents, mcp, rules}}` and `{status: "error", account, kind, at}`, with
-`kind` one of `unreachable`, `rate-limited`, `refused`, `key-changed`, `invalid`, `insecure` and `service`.
+`{status: "synced", account, at, counts: {skills, agents, mcp, rules, warnings?}}` and `{status: "error", account, kind,
+at}`, with `kind` one of `unreachable`, `rate-limited`, `refused`, `key-changed`, `invalid`, `insecure` and `service`.
+`warnings` lists what the service left out, such as a plugin bundle file that does not match the manifest; no window
+shows it yet.
 `bun test test/sync` in `packages/gui` drives the engine on fake timers against the fake instance.
 
 ## Demo views
@@ -261,34 +277,167 @@ them in its `shell` `create.before` hook, unless a session environment set its o
 ## Server plugin
 
 `@dynwork/server-plugin` (`packages/server-plugin`, plugin id `dynwork`) gives DynWork's service the active instance's
-content without writing it anywhere. The prod build ships its `package.json` and `src` as the extra resource
-`dynwork-server-plugin` next to the app archive, and `DynWorkService.layout` adds that directory to the service's
-`OPENCODE_CONFIG_CONTENT` `plugins`. It imports only `effect` and `@opencode/plugin/effect`, which the service
-provides, so the directory needs no dependencies.
+content without writing anything but the rules block of the service's own global `AGENTS.md`, its managed skill and
+plugin bundle files, and the bridge's keys in its `opencode.json` and `cli.json`. The prod build ships its
+`package.json` and `src` as the extra resource `dynwork-server-plugin` next to the app archive, and
+`DynWorkService.layout` adds that directory to the service's `OPENCODE_CONFIG_CONTENT` `plugins`. It imports only
+`effect` and `@opencode/plugin/effect`, which the service provides, so the directory needs no dependencies.
 
 Data flow: main (the sync engine, through `accounts/sync.ts`) verifies the manifest with `@dynwork/sp-client`, then
 calls `POST /api/rpc/dynwork.sync/apply` on the sidecar endpoint with `{instance: {key, url}, manifest, jwt,
 expiresAt}`, or `dynwork.sync/clear` on sign-out. The plugin maps the manifest once, keeps the result and the JWT in
-process memory only, and rebuilds the skills, agents, MCP servers and models of every Location it runs in before it
-answers with the counts. The service activates the plugin per Location and re-imports it for each, so that state lives
-in one process-wide slot; the RPC reaches whichever Location main calls. Each `apply` replaces everything of the
-previous instance and `clear` removes it, because the transforms rebuild from the current state every time. `key` is a
-slug of the account label (`DynWorkSyncMain.key`): the prefix of every id, so instance content never replaces the
-user's own items. A failed call reports only the HTTP status and the RPC error type, never the service's message, which
-may quote the input.
+process memory only, writes the rules into `AGENTS.md` and the skills into `skills/` (below), and rebuilds the agents,
+MCP servers and models of every Location it runs in before it answers with the counts. The service activates the plugin per Location and
+re-imports it for each, so that state lives in one process-wide slot; the RPC reaches whichever Location main calls.
+Each `apply` replaces everything of the previous instance and `clear` removes it, because the transforms rebuild from
+the current state every time. `key` is a slug of the account label (`DynWorkSyncMain.key`): the prefix of every id, so
+instance content never replaces the user's own items. A failed call reports only the HTTP status and the RPC error
+type, never the service's message, which may quote the input.
 
-| Manifest                               | OpenCode                                                                                                                                                                                                                                                                                                                                                  |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `skills[]` with inline body            | `ctx.skill.transform`: embedded `Skill.Info` with id `<key>-<id>` and the virtual path `dynwork://<key>/skills/<id>`                                                                                                                                                                                                                                      |
-| `agents[]` (not disabled)              | `ctx.agent.transform`: sub-agent `<key>-<id>` with the display name, description and `system_prompt`. An agent whose `model` the gateway serves runs on `systemprompt/<model>`; any other uses the Session's model                                                                                                                                        |
-| `managed_mcp_servers[]`                | `ctx.mcp.transform`: remote server `<key>-<id>`, `oauth: false`. Only a server on the instance's own origin gets `Authorization: Bearer <jwt>`; any other keeps its declared headers only, and plain HTTP is accepted only on loopback                                                                                                                    |
-| `rules[]`                              | `ctx.session.hook("context")`: one system part per model call, rules sorted by id and capped at 24,000 characters. Chosen over the Session instruction entries, which are stored per Session: the system part is rebuilt on every step, so it never piles up, compaction cannot summarize it away, and a switch applies to every Session at the next step |
-| `marketplaces[].opencode.cli_defaults` | `default_agent` (an instance agent) becomes the default agent and selectable as primary; `model` (`provider/model`) becomes the default model when the service has it                                                                                                                                                                                     |
+| Manifest                               | OpenCode                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skills[]` with inline body            | Files `<OPENCODE_CONFIG_DIR>/skills/<kebab(id)>/SKILL.md` with a ledger, as the bridge writes them (see "Skills on disk"). Without a config dir: `ctx.skill.transform`, embedded `Skill.Info` with id `<key>-<id>` and the virtual path `dynwork://<key>/skills/<id>`                                                                                                                                          |
+| `agents[]`                             | Not used, like the bridge: agents come from the plugin bundles                                                                                                                                                                                                                                                                                                                                                 |
+| `plugins[].files[]`                    | Bundle agents, OpenCode plugins and pinned themes as files in the config dir, digest-checked, with a ledger (see "Plugin bundle files")                                                                                                                                                                                                                                                                        |
+| `managed_mcp_servers[]`                | `ctx.mcp.transform`: remote server named from its `name` with the bridge's slug (lowercase, `[a-z0-9_]`, other runs to `-`; `dynbrain`, not `<key>-<id>`), `oauth: false`. Only a server on the instance's own origin gets `Authorization: Bearer <jwt>`; any other keeps its declared headers only, and plain HTTP is accepted only on loopback. A user server of the same name is replaced by the instance's |
+| `rules[]`                              | A managed block in the service's global `AGENTS.md` (`<OPENCODE_CONFIG_DIR>/AGENTS.md`), described below                                                                                                                                                                                                                                                                                                       |
+| `marketplaces[].opencode.cli_defaults` | Every key into `<OPENCODE_CONFIG_DIR>/opencode.json` where the user has not set it (see "Plugin bundle files"). Without a config dir only `model` (`provider/model`), the default model when the service has it                                                                                                                                                                                                 |
 
 Entries are kept only when they target OpenCode (`hosts` empty or with `opencode`/`opencode-cli`, and the same for the
-manifest's `enabled_hosts`), and only when their id is plain (`[A-Za-z0-9][A-Za-z0-9._-]*`, 64 at most). The mapping is
-pure and total, since a transform that throws disables the whole plugin. Manifest plugins, commands and hooks are not
-applied.
+manifest's `enabled_hosts`, where an absent list is an empty one and clears the host, like the bridge; rules need an OpenCode host, see below), and only when their id is plain (`[A-Za-z0-9][A-Za-z0-9._-]*`, 64 at most). The mapping is
+pure and total, since a transform that throws disables the whole plugin. Manifest commands and hooks are not applied.
+
+### Rules in AGENTS.md
+
+The rules become the managed block of the global `AGENTS.md` in the service's config dir, which OpenCode loads into
+every Session's instructions. The block is byte for byte the one the systemprompt bridge writes into OpenCode's
+(`src/instructions.ts`, checked against a file the bridge wrote), markers included, so a block the bridge left is
+replaced too:
+
+```
+<!-- systemprompt:begin (managed by the bridge; edits are replaced) -->
+
+## <rule name>
+
+<rule instructions, trimmed>
+
+## <next rule name>
+
+<its instructions>
+
+<!-- systemprompt:end -->
+```
+
+Only rules whose `hosts` name `opencode` or `opencode-cli` are written (unlike skills, a rule with no `hosts` reaches no
+host), sorted by id; a rule with empty instructions keeps its heading. The block is never cut: one over 24,000
+characters, past which OpenCode stops reading, is written in full and logged as a warning. `apply` cuts any block out of
+the file and appends the new one after what the user wrote, a switch replaces it and `clear` removes it; a file left
+empty is deleted. The plugin writes through a temporary file and a rename, and only when the content changes, and a
+failed write fails the `apply`, so main tries again. OpenCode watches the file and reloads it by itself about 100 ms
+after the change (`apply` does not wait for that): a new Session starts with the current rules, and an open one hears
+of the change at its next step, like any edit of `AGENTS.md`. With the service's file watcher off
+(`OPENCODE_DISABLE_FILEWATCHER`), the change waits for the next start of the service.
+
+The plugin writes only when `OPENCODE_CONFIG_DIR` is set, as `DynWorkService.layout` does for the packaged prod build,
+whose config dir is DynWork's alone. A service without it reads the user's own config dir, which the plugin never
+touches: there the rules go into the system context of each model call through `ctx.session.hook("context")` instead.
+The block outlives the service process: a sign-out while the service is down leaves it in place until the next `apply`
+or `clear`.
+
+### Skills on disk
+
+With a config dir the skills are files, exactly as the bridge writes them into OpenCode's config
+(`src/skills.ts`, a port of `integration/managed_skills.rs`; the output was compared byte for byte with the nine
+`SKILL.md` files and the ledger version the bridge wrote for prod):
+
+- `skills/<dir>/SKILL.md`, `<dir>` being the id lowercased with every run of other characters turned into one `-`, at most
+  64 characters (`who_am_i` is `who-am-i`). OpenCode takes the skill's id and its name from the directory and the front
+  matter, and the front matter's `name` must match the directory, so it is always set to it. Two skills that share a
+  directory, or an id that cannot name one, are not written and logged as a warning; the first stays.
+- A body without front matter gets `name`, `description` (double-quoted when it holds `:` or `#` or starts with a YAML
+  indicator, escaping only `"`; an empty one is written as `""`, where the bridge's bare `description:` would make OpenCode
+  skip the skill) and the manifest's own front matter keys, sorted, minus the ones the platform owns (`name`, `title`,
+  `description`, `tags`, `category`, `display_category`, `hosts`), then a blank line and the body. A body that has front
+  matter keeps its keys and only has its `name` replaced. The file always ends in a newline.
+- `skills/.systemprompt-managed.json` is the ledger: `{version, ids, marketplaces}`, `version` the first 16 hex digits of the
+  SHA-256 of every `<dir>\0<file>\0`, `ids` the directories written, `marketplaces` the manifest's marketplace ids. A skill
+  that left the manifest is removed with its directory, and a manifest with no skills (or a host that is no longer
+  enabled, or `clear`) removes every directory the ledger lists and the ledger. A directory the ledger does not list,
+  such as a skill the user wrote, is never touched. A corrupt ledger fails the `apply` instead of being read as empty.
+- Only `SKILL.md` and the ledger are written, so the runtime files placed beside a skill (`references/`, `config.yaml`,
+  see "Skill runtime files") stay while the skill stays, and go with its directory when it leaves.
+
+Files are written through a temporary file and a rename, only when their content changes. OpenCode scans `skills/`
+and watches it, a missing one included, so the skills show in every Location about 100 ms after `apply` without a
+reload; each is listed once, from the file, because the plugin adds no in-memory copy in this mode. Without
+`OPENCODE_CONFIG_DIR` nothing is written and the skills are added in memory as before. The manifest's `frontmatter`
+is rendered with `serde_yaml`'s layout (two-space indent, sequences under a key at the key's own indent, sorted keys) from
+the way that library is known to write it; no manifest of prod carries one, so unlike the rest it is not checked
+against bridge output.
+
+### Plugin bundle files
+
+With a config dir the plugin also writes what the bridge projects from each manifest plugin's bundle
+(`src/bundles.ts` and `src/config.ts`, ports of `managed_resources/{content,owned,config_json}.rs` and
+`install/merge.rs`; compared byte for byte with what the bridge left in prod's `~/.config/opencode`: the session header
+plugin, the `dynwork` theme, the ledger, the `policies` and the `cli.json` theme):
+
+- Main fetches only the files OpenCode gets (`DynWorkBundles.wanted`), with the account's JWT, from
+  `GET /v1/bridge/plugins/{plugin}/{path}` (`SpPlugins.file`, `gui/src/sync/bundles.ts`), keeps them by digest so an
+  unchanged file is not downloaded again, and passes them base64 in `apply`'s `files`. A file the instance does not
+  serve is left out; an unreachable instance fails the poll, which is tried again.
+- The plugin writes a file only when its bytes have the SHA-256 the signed manifest gives it, and only to one of these
+  paths, one file deep: a bundle's `agents/<name>.md` becomes `agents/<name>.md` with `mode: subagent` put first in its
+  front matter (front matter added when there is none); `hosts/opencode/plugins/<file>.{js,ts}` becomes
+  `plugins/<plugin>-<file>`, which OpenCode loads and reloads by itself; `hosts/opencode/themes/<name>.json` becomes
+  `themes/<name>.json` when a marketplace's `opencode.themes` pins that digest, and `hosts/opencode/desktop-themes/<name>.json`
+  becomes `desktop-themes/<name>.json`. Plugins go in id order and the first one to ship a path verified takes it. A
+  file not delivered or not matching is skipped and reported in `apply`'s `warnings`, which the sync status carries.
+- `.systemprompt-owned.json` (`{files}`, sorted, two-space JSON without a final newline) lists what was written; the next
+  `apply` removes what it lists and no longer projects, and an empty set, a host that is no longer enabled or `clear`
+  removes everything listed and the ledger. A ledger that is not JSON or names any other path fails the `apply`.
+- `opencode.json`: while an instance is applied, the bridge's `policies` (deny `provider.use` `*`, allow `systemprompt`)
+  go ahead of the user's own, so a provider declared in a config `providers` table is blocked too and the lock holds with
+  no gateway model; `clear` takes them away, and the file with them when nothing else is left. Every key of the
+  marketplaces' `cli_defaults` (the first marketplace winning a key) is set where the user has not set it, and never
+  removed; a V1 top-level `theme` naming a marketplace theme is removed. The file is rewritten owner-only, every other
+  key kept; one that is not a JSON object fails the `apply` instead of being overwritten.
+- `cli.json`: `theme: {name, mode?}` from the first marketplace whose `default_theme` names one of its themes, when that
+  theme's file was projected and the user has chosen no theme; never removed.
+
+The `dynwork-common` plugin's `session-header.js` targets the bridge's proxy port, so it is inert in DynWork's service;
+it is projected anyway, like the bridge. Without `OPENCODE_CONFIG_DIR` none of this is written.
+
+### Skill runtime files
+
+A skill's `references/*`, `config.yaml` and other files are not in the manifest: a skill with a `publication` has a
+bundle, which the bridge installs as an enrolled device and reports with a receipt (`feedback_capture`, `feedback/*`).
+DynWork does the same, main and plugin each doing their half (`gui/src/sync/runtime.ts`, `server-plugin/src/skills.ts`;
+the wire contract is section 10 of `packages/sp-client/PROTOCOL.md`, spoken by `SpConsumer` in `@dynwork/sp-client`:
+`enrol`, `plan`, `post`, and `receipt`, which builds one from a readback):
+
+- Enrolment: the first capture for an account posts `POST /v1/bridge/device` with the user's JWT and the bridge's
+  fingerprint (this install's id and the manifest's user), labelled with the device name, and keeps the credential
+  sealed with the account (see "Accounts"). It is used for that user only; another user enrols again. A refused
+  enrolment is tried again after 2 s, doubling up to an hour, never on every poll.
+- Each skill with a `publication` that reaches OpenCode (an OpenCode host enabled, `hosts` empty or naming one) gets its
+  plan (`?host=open-code`) with the device credential, unless the outbox holds a receipt for that exact publication and
+  the plugin finds its files still on disk (`inspect`; after a switch away and back they are gone and are written again).
+- The plugin's `materialize` writes the plan's files into that skill's directory, only for a skill it wrote for the
+  instance applied and only in a config dir of its own (else `missing` or `unsupported`): through a temporary file and a
+  rename, mode 0644 or 0755, never through a symbolic link, refusing a plan without `SKILL.md`, with a duplicate or with
+  a path that leaves the directory (`invalid`). `.systemprompt-runtime.json` (mode 0600, compact JSON) lists them, and
+  what the previous plan listed and this one does not is removed. Every file is read back (digest, size, mode); the plan's
+  own `SKILL.md` too, after which the projected one is restored, as the bridge's next sync does. OpenCode's scan skips
+  the hidden `.systemprompt-source` copy, so each skill is listed once.
+- Main checks the readback against the plan and the canonical files against their copies, as the bridge's `verify`
+  does, and queues the receipt in the account's outbox (one per installation and publication; a newer generation
+  supersedes the older). Pending receipts are posted before the installations and after them: acknowledged, refused for
+  good (`409`, `400`, `403`, `404`, `422`) or tried again after 2^attempts s, at most an hour. A refused device credential
+  forgets the device, so the next capture enrols again.
+- Budgets are the bridge's: 30 s for installations (none started with less than 2 s left), 10 s for each delivery. A
+  failed installation waits like a receipt. Failures are never a sync error: the capture runs again on the next poll
+  until nothing is left.
 
 ### Model calls through the gateway
 
@@ -301,6 +450,17 @@ ids, so a user's model choice survives syncs and switches. A model whose provide
 `@opencode/ai/providers/openai-compatible` (`/v1/chat/completions`). The base URL is the account's URL plus `/v1`,
 never the profile's `inference_gateway_base_url` (the instance's internal address), and plain HTTP only on loopback.
 The profile's `default_model` (without a `[1m]`-style suffix) becomes the default model only while no default is set.
+
+Each model also carries the client families its provider is served to (`clients`), and the manifest's
+`host_model_protocols` entry for DynWork's host (`opencode`, else `opencode-cli`) keeps only the models served to one of
+its families, on `/v1/messages` when `claude` is among them, else on `/v1/chat/completions`. Without an entry, like the
+bridge (`HostClients::for_host`), OpenCode's own family `openai` is the filter, so models served only to Claude clients
+(Claude Desktop's aliases) are not listed. Every call carries the families as `x-inference-protocol`, as the bridge's
+provider headers do. Like the bridge's `policies` (deny `provider.use *`, allow `systemprompt`), while an instance with a
+gateway is applied the same transform removes every other provider first, OpenCode's free one included, and every
+provider reload runs it again, so a provider connected meanwhile is not offered either; `clear` brings them all back. An
+apply without gateway models (no profile, or a filter that selects none) locks nothing. Providers declared in a config
+file's `providers` table are added by OpenCode's config plugin, which runs after external plugins, so they stay.
 
 The JWT is never part of the provider, a credential row or the database (decision T6). `ctx.session.hook("model.request",
 …, {providerID: "systemprompt"})` adds `authorization: Bearer <jwt>` and `x-systemprompt-client: opencode` to every
@@ -319,6 +479,61 @@ changed by the user's config never receives the JWT. Freshness:
 - Main follows both events with `DynWorkSyncMain.make(...).listen(handlers, signal)` (`GET /api/event?types=…` on the
   sidecar); events published while nobody listens are lost and the call just gives up after its wait. On `rejected`
   reasons main must mint a new JWT rather than hand out its cached one.
+
+### Governance telemetry
+
+When some manifest plugin has `hooks.governance` (the first one; the bridge writes its `systemprompt-hooks.js` for the
+same one), OpenCode is an enabled host and the instance URL may receive the JWT, the plugin reports what the bridge's
+OpenCode hooks plugin reports (`server-plugin/src/telemetry.ts`, from `integration/opencode/managed_resources/` and
+`proxy/forward/{hook,body}.rs`). Without such a plugin nothing is sent. What DynWork sends to the instance, and nothing
+else:
+
+- `POST <instance>/api/public/hooks/track?plugin_id=<governance plugin>`, JSON, with `x-systemprompt-host: opencode`
+  and `x-ingestion-event-id` (the event's id, else a random UUID, as the bridge's proxy adds one). Every body has
+  `hook_event_name`, `session_id` (the v5 UUID of the Session id under the bridge's namespace
+  `7c1f5b6e-3a2d-4e8f-9b0c-2d6a1e4f8c73`), `native_session_id` (OpenCode's `ses_…` id), `cwd` (the Session's directory)
+  and `native_host: "opencode"`:
+  - `SessionStart` on `session.created` and `SessionEnd` on `session.deleted`, with `event_id` (the event's id);
+  - `Stop` when a Session finishes model work with no pending input (`experimental.idle`; OpenCode 2 publishes no
+    `session.idle`, which the bridge listens to), with `event_id`;
+  - `UserPromptSubmit` once per new user message (the `context` hook, before each step), with `prompt` (its text parts)
+    and `prompt_id` (the message id);
+  - `PostToolUse` for every tool completion, with `tool_name`, `tool_input` (the call's whole input; `{name}` for the
+    skill tool), `tool_use_id` and `tool_response: {title, output, metadata}`, the output whole, as the bridge sends it
+    (the instance bounds and scans it). A skill use adds `skill_ref: "<owner plugin>:<skill directory>"`
+    (`opencode:<directory>` for a skill no plugin ships). OpenCode 2's skill tool takes `{id}`; the bridge's template
+    reads `name` and so reports no skill use there, DynWork reads the id.
+- Track takes a hook token, not the user's JWT (the 0.76 harness answers `401` to the JWT). Like the bridge's proxy
+  (`auth/plugin_oauth`), the plugin provisions the user's hook client with `POST /v1/auth/bridge/oauth-client`
+  (`Bearer <jwt>`), mints one token per plugin with `client_credentials` (`scope: hook:govern hook:track`,
+  `audience: hook`, `plugin_id`) at the advertised token endpoint, only on the instance's own origin, and keeps it until
+  5 min before it expires (30 days on 0.76). Client secret and tokens live in the service's memory only; a restart, a
+  switch or a sign-out drops them. The client is one per user and provisioning rotates its secret: a mint refused with
+  `401` (another DynWork or bridge of the same user rotated it) provisions once more, as the bridge does. Tokens already
+  minted stay valid.
+- Every call times out after 5 s; failures are dropped, never retried, and never hold up or fail a step.
+- Model calls on the `systemprompt` provider carry `metadata.user_id: {"session_id": "<v5 UUID>"}` in the body (kept
+  when the body already has one), where the bridge's proxy moves its plugin's `x-opencode-session`, so the gateway lands
+  the call on the same context as the events; `x-opencode-session` is dropped, as the proxy drops it. Only while
+  governance telemetry is on, like the bridge, whose stamp lives in the hooks plugin. OpenCode's own `X-Session-Id`
+  still goes: 0.76 keeps a session id it did not issue as the client's, it does not reject it.
+- Device evidence, as the bridge's proxy forwards a hook when enrolled (`feedback/hooks.rs`): once main holds the
+  account's device (see "Skill runtime files") and pushed it (`dynwork.sync/device {instance, credential}`, refused for
+  any instance but the one applied), every track call carries `x-systemprompt-device-credential: <sp_device_…>` and
+  `x-systemprompt-host: open-code` (the evaluator client kind; 0.76 answers `opencode` there with `400` "Invalid
+  device host") instead of `opencode`. The credential goes to track only, never to the OAuth client or token routes.
+  Without a device the calls go as before, and the instance records the events without one.
+- Session bindings, as the bridge's proxy queues each hook's session and its outbox posts it (`proxy/forward/hook.rs`,
+  `feedback/{outbox_sessions,sync}.rs`): the first event of a Session sent with the evidence publishes
+  `rpc.dynwork.sync.session {instance, session}` (the v5 UUID). Main (`DynWorkRuntime.bind`) queues it on every receipt
+  of the newest generation of each resource in the device's outbox and posts `POST /api/v1/consumer/session-bindings
+  {receipt_id, host: "open-code", session_id}` with the device credential for each acknowledged, fully verified receipt
+  (the receipt id comes from its acknowledgement). Each binding is `bound`, `refused` for good (`400`, `403`, `404`,
+  `409`, `422`; 0.76 answers `403` for a receipt it does not hold for the device) or left `pending` with the receipt's
+  backoff, posted again by the next capture, which is not done while one waits. A failure goes on with the next receipt,
+  like the bridge. They are kept with the receipts (at most 256 per receipt). Without an enrolled device nothing is
+  queued, and nothing is enrolled for it. Receipts acknowledged before this change carry no receipt id and get no
+  bindings until their next receipt.
 
 ## Patch guard
 

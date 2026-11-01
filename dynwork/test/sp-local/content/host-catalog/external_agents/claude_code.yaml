@@ -1,0 +1,24 @@
+# Claude Code CLI — external-agent catalog entry (host id `claude-code`).
+#
+# Opt-in: enabled with default_enabled: false, so the claude-code host is in
+# the bridge manifest only of users who turn it on (a bridge_user_host_prefs
+# row, set with dynwork-host.sh from the bridge downloads). For them the bridge
+# writes ANTHROPIC_BASE_URL and apiKeyHelper into ~/.claude/settings.json and
+# mirrors the org marketplaces into ~/.claude: every Claude Code session goes
+# to this gateway (DeepSeek behind the claude-* aliases of ai/models.yaml), not
+# to their Anthropic account. Everyone else keeps their own Claude Code.
+#
+# enabled: false would remove the host for everyone. Unlike the other hosts,
+# upstream ships no file for it, and absent from the catalog means enabled by
+# default: deleting this file would turn Claude Code on for EVERYONE.
+
+external_agents:
+  claude_code:
+    id: claude_code
+    display_name: "Claude Code"
+    kind: cli_tool
+    enabled: true
+    default_enabled: false
+    description: "Anthropic's Claude Code CLI. Opt-in: routes the sessions of those who turn it on through this gateway."
+    platforms: [macos, windows, linux]
+    docs_url: "https://docs.claude.com/en/docs/claude-code"

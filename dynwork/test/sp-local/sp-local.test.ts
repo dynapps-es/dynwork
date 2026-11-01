@@ -4,6 +4,7 @@ import {
   cardField,
   describeBody,
   expected,
+  fetchManifest,
   fixtureChanges,
   formatEnv,
   freePort,
@@ -11,6 +12,7 @@ import {
   leaks,
   manifestIds,
   missing,
+  openCodeHosts,
   parseEnv,
   redactUrl,
   scrubText,
@@ -69,7 +71,8 @@ describe("manifest content", () => {
     skills: [{ id: "alpha_notes" }, { id: "alpha_review" }, { id: "who_am_i" }],
     agents: [{ id: "alpha_helper" }],
     managed_mcp_servers: [{ id: "alpha-docs" }],
-    rules: [{ id: "alpha_conventions" }],
+    rules: [{ id: "alpha_conventions", hosts: ["opencode", "opencode-cli"] }],
+    enabled_hosts: ["opencode", "opencode-cli"],
   }
 
   test("an instance with everything seeded misses nothing", () => {
@@ -79,6 +82,17 @@ describe("manifest content", () => {
   test("names what is missing, and an instance never satisfies the other one", () => {
     expect(missing("alpha", { ...full, agents: [], rules: undefined })).toEqual(["agents/alpha_helper", "rules/alpha_conventions"])
     expect(missing("beta", full)).toHaveLength(Object.values(expected.beta).flat().length)
+  })
+
+  test("a rule that names no OpenCode packaging reaches no host, so the instance still misses its catalog", () => {
+    expect(missing("alpha", { ...full, rules: [{ id: "alpha_conventions" }] })).toEqual(["rules/alpha_conventions hosts"])
+    expect(missing("alpha", { ...full, rules: [{ id: "alpha_conventions", hosts: ["opencode"] }] })).toEqual(["rules/alpha_conventions hosts"])
+  })
+
+  test("serves OpenCode and nothing else as the enabled hosts, in any order", () => {
+    expect(missing("alpha", { ...full, enabled_hosts: ["opencode-cli", "opencode"] })).toEqual([])
+    expect(missing("alpha", { ...full, enabled_hosts: [...openCodeHosts, "claude-code"] })).toEqual(["enabled_hosts"])
+    expect(missing("alpha", { ...full, enabled_hosts: undefined })).toEqual(["enabled_hosts"])
   })
 
   test("falls back to the name when an entry has no id", () => {
@@ -188,5 +202,27 @@ describe("capture fixture", () => {
   test("finds a run's secrets in a text, ignoring empty and short values", () => {
     expect(leaks(`{"pat":"sp-live-0123456789ab.secret"}`, ["sp-live-0123456789ab.secret", "", "abc"])).toEqual(["sp-live-0123456789ab.secret"])
     expect(leaks(`{"pat":"<pat>"}`, ["sp-live-0123456789ab.secret"])).toEqual([])
+  })
+})
+
+// Against the running instances: `up` and `seed` first, then SP_LOCAL_ENV=.env.local bun test sp-local.test.ts.
+describe.skipIf(process.env.SP_LOCAL_ENV === undefined)("host catalog of the running instances", () => {
+  const instances = ["alpha", "beta"] as const
+
+  async function liveManifest(instance: (typeof instances)[number]) {
+    const env = parseEnv(await Bun.file(process.env.SP_LOCAL_ENV ?? "").text())
+    const manifest = await fetchManifest(env[`SP_${instance.toUpperCase()}_URL`] ?? "", env[`SP_${instance.toUpperCase()}_PAT`] ?? "")
+    if (manifest === undefined) throw new Error(`${instance} did not exchange its PAT, run seed`)
+    return manifest
+  }
+
+  test.each(instances)("%s rules name both OpenCode packagings", async (instance) => {
+    const manifest = await liveManifest(instance)
+    expect(manifest.rules?.map((rule) => rule.id)).toEqual([...expected[instance].rules])
+    manifest.rules?.forEach((rule) => expect(rule.hosts).toEqual(openCodeHosts))
+  })
+
+  test.each(instances)("%s enables the OpenCode hosts and no other", async (instance) => {
+    expect([...((await liveManifest(instance)).enabled_hosts ?? [])].sort()).toEqual([...openCodeHosts].sort())
   })
 })

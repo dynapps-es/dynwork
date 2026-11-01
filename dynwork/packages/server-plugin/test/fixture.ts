@@ -7,7 +7,17 @@ const captured: { manifest: { payload: unknown } } = await Bun.file(
   path.join(import.meta.dir, "../../sp-client/test/fixtures/alpha.json"),
 ).json()
 
-export const alpha = Schema.decodeUnknownSync(DynWorkSync.Manifest)(captured.manifest.payload)
+const decoded = Schema.decodeUnknownSync(DynWorkSync.Manifest)(captured.manifest.payload)
+
+// The local harness has no host catalog, so its rules name no host and would reach none; an instance's rules name the
+// hosts it serves, as prod's name both OpenCode packagings.
+// Without `host_model_protocols` OpenCode lists only `openai` models, like the bridge; the tests' gateways serve Claude
+// models too, so the fixture lets both families through.
+export const alpha = {
+  ...decoded,
+  rules: decoded.rules.map((rule) => ({ ...rule, hosts: ["opencode", "opencode-cli"] })),
+  host_model_protocols: { opencode: ["claude", "openai"] },
+}
 
 export const jwt = "eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJkZXYifQ.c2lnbmF0dXJl"
 

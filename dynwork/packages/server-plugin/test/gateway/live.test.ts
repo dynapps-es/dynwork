@@ -12,7 +12,13 @@ const token = (name: string) => `eyJhbGciOiJSUzI1NiJ9.${btoa(name).replace(/=+$/
 
 // The gateway accepts only the tokens in `valid`, like the instance accepts only live JWTs.
 const valid = new Set<string>()
-const calls: Array<{ path: string; authorization: string | null; client: string | null; apiKey: string | null }> = []
+const calls: Array<{
+  path: string
+  authorization: string | null
+  client: string | null
+  protocol: string | null
+  apiKey: string | null
+}> = []
 // The instance's MCP route records the JWT OpenCode connects with.
 const mcp: string[] = []
 const gateway = Bun.serve({
@@ -27,6 +33,7 @@ const gateway = Bun.serve({
       path,
       authorization,
       client: request.headers.get("x-systemprompt-client"),
+      protocol: request.headers.get("x-inference-protocol"),
       apiKey: request.headers.get("x-api-key"),
     })
     if (!valid.has(authorization?.replace(/^Bearer /, "") ?? ""))
@@ -72,7 +79,6 @@ const models = [
 ] satisfies DynWorkSync.Gateway["models"]
 const manifest = {
   ...alpha,
-  agents: alpha.agents.map((agent) => ({ ...agent, model: "claude-haiku-5-5" })),
   managed_mcp_servers: [{ id: "routed", name: "routed", url: `${gateway.url.origin}/api/v1/mcp/routed/mcp` }],
 }
 const hour = () => Date.now() + 3_600_000
@@ -161,12 +167,6 @@ test("the instance's models appear as the systemprompt provider", async () => {
     ["claude-haiku-5-5", "Claude Haiku 5.5"],
     ["claude-sonnet-5-5", "Claude Sonnet 5.5"],
   ])
-  // An instance agent whose model the gateway serves runs on it.
-  const agent: { data: { model?: { providerID: string; id: string } } } = await service.get(
-    "/api/agent/alpha-alpha_helper",
-    project,
-  )
-  expect(agent.data.model).toEqual({ providerID: "systemprompt", id: "claude-haiku-5-5" })
 }, 30_000)
 
 test("a step calls the instance's /v1/messages with the JWT and the client header", async () => {
@@ -179,6 +179,7 @@ test("a step calls the instance's /v1/messages with the JWT and the client heade
       path: "/v1/messages",
       authorization: `Bearer ${token("one")}`,
       client: "opencode",
+      protocol: "claude,openai",
       apiKey: null,
     })
   const database = await Bun.file(service.database).arrayBuffer()

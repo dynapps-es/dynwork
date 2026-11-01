@@ -9,7 +9,8 @@ import path from "node:path"
 const cli = path.join(import.meta.dir, "../../../../packages/cli")
 const transpilerCache = path.join(tmpdir(), "opencode-test-transpiler-cache")
 
-export async function boot(extra: Record<string, string> = {}, config: Record<string, unknown> = {}) {
+// An `extra` value of undefined removes the variable, such as OPENCODE_CONFIG_DIR.
+export async function boot(extra: Record<string, string | undefined> = {}, config: Record<string, unknown> = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "dynwork-server-plugin-"))
   const plugin = path.join(root, "dynwork-server-plugin")
   await mkdir(plugin)
@@ -22,23 +23,25 @@ export async function boot(extra: Record<string, string> = {}, config: Record<st
     [process.execPath, "run", "src/index.ts", "serve", "--hostname", "127.0.0.1", "--port", "0"],
     {
       cwd: cli,
-      env: {
-        ...Object.fromEntries(Object.entries(process.env).filter((entry) => !entry[0].startsWith("OPENCODE_"))),
-        BUN_RUNTIME_TRANSPILER_CACHE_PATH: transpilerCache,
-        HOME: root,
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...config, plugins: [plugin] }),
-        OPENCODE_CONFIG_DIR: path.join(root, "config"),
-        OPENCODE_DB: path.join(root, "opencode.db"),
-        OPENCODE_DISABLE_FILEWATCHER: "true",
-        OPENCODE_DISABLE_MODELS_FETCH: "true",
-        OPENCODE_PASSWORD: password,
-        OPENCODE_TEST_HOME: root,
-        XDG_CACHE_HOME: path.join(root, "cache"),
-        XDG_CONFIG_HOME: path.join(root, "xdg-config"),
-        XDG_DATA_HOME: path.join(root, "data"),
-        XDG_STATE_HOME: path.join(root, "state"),
-        ...extra,
-      },
+      env: Object.fromEntries(
+        Object.entries({
+          ...Object.fromEntries(Object.entries(process.env).filter((entry) => !entry[0].startsWith("OPENCODE_"))),
+          BUN_RUNTIME_TRANSPILER_CACHE_PATH: transpilerCache,
+          HOME: root,
+          OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...config, plugins: [plugin] }),
+          OPENCODE_CONFIG_DIR: path.join(root, "config"),
+          OPENCODE_DB: path.join(root, "opencode.db"),
+          OPENCODE_DISABLE_FILEWATCHER: "true",
+          OPENCODE_DISABLE_MODELS_FETCH: "true",
+          OPENCODE_PASSWORD: password,
+          OPENCODE_TEST_HOME: root,
+          XDG_CACHE_HOME: path.join(root, "cache"),
+          XDG_CONFIG_HOME: path.join(root, "xdg-config"),
+          XDG_DATA_HOME: path.join(root, "data"),
+          XDG_STATE_HOME: path.join(root, "state"),
+          ...extra,
+        }).filter((entry) => entry[1] !== undefined),
+      ),
       stdout: "pipe",
       stderr: "pipe",
     },
@@ -55,6 +58,8 @@ export async function boot(extra: Record<string, string> = {}, config: Record<st
     url,
     headers,
     database: path.join(root, "opencode.db"),
+    /** OPENCODE_CONFIG_DIR as booted, where DynWork's service keeps its global AGENTS.md. */
+    config: path.join(root, "config"),
     get: async (route: string, directory: string) => {
       const response = await fetch(`${url}${route}?location[directory]=${encodeURIComponent(directory)}`, { headers })
       if (!response.ok) throw new Error(`GET ${route}: ${response.status} ${await response.text()}`)

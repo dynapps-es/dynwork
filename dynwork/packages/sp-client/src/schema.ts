@@ -57,6 +57,15 @@ const Rule = Schema.Struct({
   tags: Schema.optional(Strings),
 })
 
+export const Publication = Schema.Struct({
+  publication_id: Schema.String,
+  resource_id: Schema.String,
+  revision_id: Schema.String,
+  generation: Schema.Int,
+  bundle_digest: Schema.String,
+})
+export type Publication = typeof Publication.Type
+
 const Skill = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -71,6 +80,8 @@ const Skill = Schema.Struct({
   plugins: Schema.optional(Strings),
   tags: Schema.optional(Strings),
   frontmatter: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  // The signed publication whose bundle carries the skill's runtime files (`references/*`, `config.yaml`)
+  publication: Schema.optional(Publication),
 })
 
 const Agent = Schema.Struct({
@@ -101,6 +112,14 @@ const McpServer = Schema.Struct({
 const Plugin = Schema.Struct({
   id: Schema.String,
   version: Schema.optional(Schema.String),
+  /** Which hook families the plugin owns; DynWork's server plugin reports governance events for `governance`. */
+  hooks: Schema.optional(
+    Schema.Struct({
+      governance: Schema.optional(Schema.Boolean),
+      judge: Schema.optional(Schema.Boolean),
+      comms: Schema.optional(Schema.Boolean),
+    }),
+  ),
   sha256: Schema.optional(Schema.String),
   files: Schema.optional(
     Schema.Array(Schema.Struct({ path: Schema.String, sha256: Schema.String, size: Schema.optional(Schema.Number) })),
@@ -138,6 +157,7 @@ export const Manifest = Schema.Struct({
   plugins: Schema.Array(Plugin),
   marketplaces: Schema.optional(Schema.Array(Marketplace)),
   enabled_hosts: Schema.optional(Strings),
+  host_model_protocols: Schema.optional(Schema.Record(Schema.String, Strings)),
   revocations: Schema.optional(Strings),
   branding: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   desktop_policy: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import type { Plugin } from "@opencode/plugin/effect"
-import { Effect } from "effect"
+import { Effect, Stream } from "effect"
 import plugin, { Definition } from "../src/index"
 import { DynWorkShell } from "../src/shell"
 import { apply } from "./fixture"
@@ -34,6 +34,13 @@ function record() {
     model: domain("model"),
     session: { hook: hook("session") },
     shell: { hook: hook("shell") },
+    tool: { hook: hook("tool") },
+    event: {
+      subscribe: (input: { types: string[] }) => {
+        used.push(`event.subscribe(${input.types.join(",")})`)
+        return Stream.empty
+      },
+    },
     rpc: {
       register: (definition: { id: string }, implementation: typeof handlers) => {
         used.push(`rpc.register(${definition.id})`)
@@ -57,11 +64,10 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
   await Effect.runPromise(Effect.scoped(plugin.effect(recorded.ctx)))
   expect(plugin.id).toBe("dynwork")
   expect(Definition.id).toBe("dynwork.sync")
-  expect(Object.keys(Definition.methods)).toEqual(["apply", "clear", "token"])
-  expect(Object.keys(Definition.events)).toEqual(["refresh", "rejected"])
+  expect(Object.keys(Definition.methods)).toEqual(["apply", "clear", "token", "materialize", "inspect", "device"])
+  expect(Object.keys(Definition.events)).toEqual(["refresh", "rejected", "session"])
   expect(recorded.used).toEqual([
     "skill.transform",
-    "agent.transform",
     "mcp.transform",
     "provider.transform",
     "model.transform",
@@ -70,6 +76,10 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
     "rpc.register(dynwork.sync)",
     "session.hook(model.request)",
     "session.hook(retry)",
+    "event.subscribe(session.created,session.deleted)",
+    "session.hook(experimental.idle)",
+    "tool.hook(execute.after)",
+    "session.hook(http.request)",
   ])
 })
 
@@ -88,26 +98,19 @@ test("apply fills every transform and the system prompt, and clear empties them"
         yield* plugin.effect(recorded.ctx)
         const run = () => {
           const added: unknown[] = []
-          const agents: Record<string, Record<string, unknown>> = {}
           const mcp: Record<string, unknown> = {}
-          const defaults: unknown[] = []
           recorded.transforms.skill?.({ add: (skill: unknown) => added.push(skill) } as never)
-          recorded.transforms.agent?.({
-            update: (id: string, update: (info: Record<string, unknown>) => void) => update((agents[id] ??= {})),
-            default: (id: string) => defaults.push(id),
-          } as never)
           recorded.transforms.mcp?.({ set: (name: string, config: unknown) => (mcp[name] = config) } as never)
-          const event = { system: [] as unknown[] }
+          // The alpha manifest owns governance: the hook also reads the step's messages for a new prompt.
+          const event = { system: [] as unknown[], messages: [], sessionID: "ses_contract" }
           return Effect.as(recorded.hooks["session.context"]?.(event as never) ?? Effect.void, {
             added,
-            agents,
             mcp,
-            defaults,
             system: event.system,
           })
         }
 
-        expect(yield* recorded.handlers.apply!(apply())).toEqual({ skills: 3, agents: 1, mcp: 1, rules: 1 })
+        expect(yield* recorded.handlers.apply!(apply())).toEqual({ skills: 3, agents: 0, mcp: 1, rules: 1 })
         expect(recorded.used.filter((name) => name.endsWith(".reload"))).toEqual([
           "skill.reload",
           "agent.reload",
@@ -117,13 +120,12 @@ test("apply fills every transform and the system prompt, and clear empties them"
         ])
         const filled = yield* run()
         expect(filled.added).toHaveLength(3)
-        expect(filled.agents["alpha-alpha_helper"]).toMatchObject({ name: "alpha helper", mode: "subagent" })
-        expect(Object.keys(filled.mcp)).toEqual(["alpha-alpha-docs"])
+        expect(Object.keys(filled.mcp)).toEqual(["alpha-docs"])
         expect(filled.system).toEqual([{ type: "text", text: expect.stringContaining("# Alpha conventions") }])
 
         expect(yield* recorded.handlers.clear!()).toEqual({})
         const cleared = yield* run()
-        expect(cleared).toEqual({ added: [], agents: {}, mcp: {}, defaults: [], system: [] })
+        expect(cleared).toEqual({ added: [], mcp: {}, system: [] })
       }),
     ),
   )
