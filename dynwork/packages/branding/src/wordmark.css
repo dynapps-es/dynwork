@@ -1,0 +1,4 @@
+/* Upstream lifts the muted wordmark's 0.6 opacity in dark mode. */
+[data-color-scheme="dark"] [data-slot="dynwork-wordmark-muted"] {
+  opacity: 1;
+}

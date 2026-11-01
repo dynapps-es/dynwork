@@ -3,6 +3,9 @@
   "extends": "@tsconfig/bun/tsconfig.json",
   "compilerOptions": {
     "types": ["bun"],
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
     "noUnusedLocals": true,
     "noEmit": true
   },

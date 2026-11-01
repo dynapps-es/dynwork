@@ -24,6 +24,31 @@ const defaultTheme = {
   replacement: fileURLToPath(new URL("../../dynwork/packages/branding/theme/dynapps.json", import.meta.url)),
 }
 
+// DynWork logos: the renderer's logo and wordmark modules, and the new session's easter-egg wordmark, which view.tsx
+// imports by a relative path, come from the branding package with the same exports.
+const logos = [
+  {
+    find: /^@opencode\/ui\/logo$/,
+    replacement: fileURLToPath(new URL("../../dynwork/packages/branding/src/logo.tsx", import.meta.url)),
+  },
+  {
+    find: /^@opencode\/ui\/wordmark$/,
+    replacement: fileURLToPath(new URL("../../dynwork/packages/branding/src/wordmark.tsx", import.meta.url)),
+  },
+]
+
+const newSessionView = fileURLToPath(new URL("../app/src/new-session/view.tsx", import.meta.url))
+
+const newSessionWordmark: Plugin = {
+  name: "dynwork:new-session-wordmark",
+  enforce: "pre",
+  resolveId(source, importer) {
+    if (source !== "./wordmark" || importer !== newSessionView) return undefined
+
+    return fileURLToPath(new URL("../../dynwork/packages/branding/src/new-session-wordmark.tsx", import.meta.url))
+  },
+}
+
 // Every module the entry reaches through static imports lands in one chunk. Automatic splitting
 // otherwise fragments the initial graph into ~50 files shared with lazy routes, and each file costs
 // the renderer a main-thread request round trip through the main process before first paint.
@@ -122,7 +147,7 @@ export default defineConfig(async ({ command }) => {
     },
     renderer: {
       resolve: {
-        alias: [defaultTheme],
+        alias: [defaultTheme, ...logos],
       },
       experimental: {
         bundledDev: true,
@@ -136,7 +161,7 @@ export default defineConfig(async ({ command }) => {
           command === "serve" && process.env.OPENCODE_TEST_ONBOARDING === "1",
         ),
       },
-      plugins: [pickerPlugin(), appPlugin, initialChunk],
+      plugins: [newSessionWordmark, pickerPlugin(), appPlugin, initialChunk],
       publicDir: "../../../app/public",
       root: "src/renderer",
       build: {

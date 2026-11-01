@@ -30,6 +30,9 @@
     "dynwork/packages/branding": {
       "name": "@dynwork/branding",
       "version": "2.2.5",
+      "dependencies": {
+        "solid-js": "catalog:",
+      },
       "devDependencies": {
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",

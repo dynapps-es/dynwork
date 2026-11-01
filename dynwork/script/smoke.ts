@@ -2,11 +2,15 @@
 // Launches the installed DynWork in an isolated profile, waits for its window, takes a screenshot and reads the
 // theme background colors over CDP, then stops the processes it started.
 //
-//   bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark]
+//   bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [home|new-session|first-launch]
 //
 // The screenshot defaults to plans/done/2026-10-dynwork-pilot/docs/smoke.png. With a theme id and a color scheme the
 // script stores them as the app's theme preference and reloads before it reads the colors, for example
 // `bun dynwork/script/smoke.ts /tmp/deep.png oc-2-deep dark`.
+//
+// The view defaults to home. new-session and first-launch start as a fresh install, which opens on the new session
+// screen: new-session shoots that screen, applying the theme live, and first-launch shoots the first-launch splash when
+// its wordmark has drawn, before any theme preference can be stored.
 //
 // The profile follows packages/desktop/script/bench-startup.ts: its own home, userData, XDG directories, database,
 // config and service registration, a private service port and none of the developer's OPENCODE_* variables. It never
@@ -26,6 +30,8 @@ const themeID = process.argv[3]
 
 const colorScheme = process.argv[4]
 
+const view = process.argv[5] ?? "home"
+
 const root = await mkdtemp(path.join(tmpdir(), "dynwork-smoke-"))
 
 const config = path.join(root, "config/opencode")
@@ -41,7 +47,10 @@ await mkdir(config, { recursive: true })
 // The service would otherwise listen on the channel's default port, which the developer's own service holds.
 await Bun.write(path.join(config, "service.json"), JSON.stringify({ port: await freePort() }))
 
-await Bun.write(path.join(root, "desktop/opencode.settings"), JSON.stringify({ firstLaunchOnboardingComplete: true }))
+await Bun.write(
+  path.join(root, "desktop/opencode.settings"),
+  JSON.stringify({ firstLaunchOnboardingComplete: view === "home" }),
+)
 
 const env = {
   ...Object.fromEntries(Object.entries(process.env).filter((entry) => !/^(OPENCODE_|OTEL_|SENTRY_)/.test(entry[0]))),
@@ -78,6 +87,8 @@ async function run() {
 
   const cdp = await connect(page)
 
+  if (view === "first-launch") return firstLaunch(cdp)
+
   const shell = () =>
     waitFor(
       "the app shell",
@@ -93,14 +104,35 @@ async function run() {
 
   await shell()
 
+  if (view === "new-session")
+    await waitFor(
+      "the new session wordmark",
+      async () => cdp.value<boolean>(`!!document.querySelector('[data-component="new-session-wordmark"]')`),
+      15_000,
+    ).catch(async (error: Error) => {
+      const seen = await cdp.value<string>(`location.href + " | " + document.body.innerText.slice(0, 300)`)
+      throw new Error(`${error.message}; the window shows: ${seen}`)
+    })
+
   if (themeID && colorScheme) {
     await cdp.value(
       `localStorage.setItem("opencode-theme-id", ${JSON.stringify(themeID)}); localStorage.setItem("opencode-color-scheme", ${JSON.stringify(colorScheme)})`,
     )
-    await cdp.send("Page.reload")
-    // The old document stays alive for a moment after the reload call.
-    await Bun.sleep(1000)
-    await shell()
+
+    // A fresh install opens on the new session only once, so that view takes the theme live through the storage
+    // events the theme context listens to; a reload would land on home.
+    if (view === "new-session")
+      await cdp.value(
+        `[["opencode-theme-id", ${JSON.stringify(themeID)}], ["opencode-color-scheme", ${JSON.stringify(colorScheme)}]].forEach((entry) => window.dispatchEvent(new StorageEvent("storage", { key: entry[0], newValue: entry[1] })))`,
+      )
+
+    if (view !== "new-session") {
+      await cdp.send("Page.reload")
+      // The old document stays alive for a moment after the reload call.
+      await Bun.sleep(1000)
+      await shell()
+    }
+
     await waitFor(
       `theme ${themeID}`,
       async () => (await cdp.value<string>("document.documentElement.dataset.theme")) === themeID,
@@ -128,6 +160,39 @@ async function run() {
   cdp.close()
 
   return { screenshot, colors }
+}
+
+// The splash covers the window only until the app is ready, so it is caught as soon as it renders and shot when the
+// letters finish drawing (the draw takes one second).
+async function firstLaunch(cdp: Awaited<ReturnType<typeof connect>>) {
+  await waitFor(
+    "the first-launch splash",
+    async () => cdp.value<boolean>(`!!document.querySelector('[data-component="first-launch-splash"]')`),
+    30_000,
+  )
+
+  const drawn = await cdp.send("Runtime.evaluate", {
+    expression: `Promise.race([
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => animation.animationName === "first-launch-wordmark-draw")
+          .map((animation) => animation.finished),
+      ).then((all) => all.length),
+      new Promise((resolve) => setTimeout(() => resolve(0), 3000)),
+    ])`,
+    awaitPromise: true,
+    returnByValue: true,
+  })
+
+  const shot = await cdp.send("Page.captureScreenshot", { format: "png" })
+
+  const visible = await cdp.value<boolean>(`!!document.querySelector('[data-component="first-launch-splash"]')`)
+
+  await Bun.write(screenshot, Buffer.from(shot.result.data, "base64"))
+  cdp.close()
+
+  return { screenshot, drawn: drawn.result?.result?.value, visible }
 }
 
 // Stops only what this run started: the app, its children and the background service it registered in the profile.
