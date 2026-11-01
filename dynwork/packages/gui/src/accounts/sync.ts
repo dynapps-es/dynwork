@@ -63,6 +63,8 @@ export function make(endpoints: ServerEndpoints) {
       readonly skill: string
       readonly files: ReadonlyArray<DynWorkSync.Recorded>
     }) => client.inspect({ instance: instance(input.account), skill: input.skill, files: input.files }),
+    /** What the service counted for the account's instance (gateway calls, tokens, last activity), for the heartbeat. */
+    usage: (input: { readonly account: Account }) => client.usage({ instance: instance(input.account) }),
     /**
      * Follows the plugin's events until `signal` aborts or the service closes the stream. On `refresh` with reason
      * `rejected` the gateway refused the JWT the plugin holds, so main mints a new one instead of handing out its

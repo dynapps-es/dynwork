@@ -65,8 +65,37 @@ describe.skipIf(envPath === undefined)("live consumer API on alpha", () => {
       expect(again.receipt_id).toBe(first.receipt_id)
       // A Session the governance events reported, bound to the receipt as the bridge's outbox binds it
       const session = crypto.randomUUID()
-      const bound = await run(SpConsumer.bind(base, device.credential, { receipt_id: first.receipt_id, session_id: session }))
-      expect(await run(SpConsumer.bind(base, device.credential, { receipt_id: first.receipt_id, session_id: session }))).toEqual(bound)
+      const bound = await run(
+        SpConsumer.bind(base, device.credential, { receipt_id: first.receipt_id, session_id: session }),
+      )
+      expect(
+        await run(SpConsumer.bind(base, device.credential, { receipt_id: first.receipt_id, session_id: session })),
+      ).toEqual(bound)
     }
+  })
+
+  test("the heartbeat with the JWT's session is accepted, and one naming another session is refused", async () => {
+    const session = await run(SpClient.mintJwt(base, env.SP_ALPHA_PAT ?? ""))
+    const report = (session_id: string): SpConsumer.Heartbeat => ({
+      session_id,
+      bridge_version: SpConsumer.bridgeVersion,
+      os: "macos",
+      hostname: "dynwork-sp-client-test",
+      last_activity_at: new Date().toISOString(),
+      forwarded_total: 1,
+      tokens_in_total: 10,
+      tokens_out_total: 2,
+      release_version: "0.0.0-test",
+      state: "active",
+    })
+    expect(session.sessionId).toStartWith("sess_")
+    expect(await run(SpConsumer.heartbeat(base, session.token, report(session.sessionId ?? "")))).toMatchObject({
+      compatible: true,
+    })
+    expect(
+      await Effect.runPromise(
+        Effect.flip(SpConsumer.heartbeat(base, session.token, report("sess_00000000-0000-0000-0000-000000000000"))),
+      ),
+    ).toBeInstanceOf(SpClient.Unauthorized)
   })
 })

@@ -5,8 +5,9 @@ import { alpha } from "../fixture"
 import { boot, until } from "../service"
 
 // The `systemprompt` provider in a real OpenCode service, with real Session steps against a fake gateway that answers
-// like the instance's `/v1/messages`: the JWT and client header on every call, renewal, one recovery from a refusal,
-// sign-out after a second one, an expired JWT never sent, and the provider replaced on switch and gone on clear.
+// like the instance's `/v1/messages`: the JWT and client header on every call, the calls and tokens counted for the
+// heartbeat, renewal, one recovery from a refusal, sign-out after a second one, an expired JWT never sent, and the
+// provider replaced on switch and gone on clear.
 
 const token = (name: string) => `eyJhbGciOiJSUzI1NiJ9.${btoa(name).replace(/=+$/, "")}.c2ln`
 
@@ -186,6 +187,27 @@ test("a step calls the instance's /v1/messages with the JWT and the client heade
   expect(Buffer.from(database).includes(token("one"))).toBe(false)
 }, 30_000)
 
+test("each gateway call and the tokens of its step are counted for the instance applied, for the heartbeat", async () => {
+  const before = await client.usage({ instance })
+  calls.length = 0
+  const started = Date.now()
+  await step()
+  // Each step is one call, answered with 1 input token and 1 output token.
+  const after = await until(
+    () => client.usage({ instance }),
+    (usage) => usage.tokens_out >= before.tokens_out + calls.length,
+  )
+  expect(after.forwarded - before.forwarded).toBe(calls.length)
+  expect(after.tokens_in - before.tokens_in).toBe(calls.length)
+  expect(after.tokens_out - before.tokens_out).toBe(calls.length)
+  expect(after.last_activity).toBeGreaterThanOrEqual(started)
+  expect(await client.usage({ instance: { key: "beta", url: instance.url } })).toEqual({
+    forwarded: 0,
+    tokens_in: 0,
+    tokens_out: 0,
+  })
+}, 30_000)
+
 test("after a renewal the old JWT is never sent again", async () => {
   valid.add(token("two"))
   expect(await client.token({ instance, jwt: token("two"), expiresAt: hour() })).toBe(true)
@@ -273,7 +295,19 @@ test("switching replaces the provider and clearing removes it", async () => {
     return listed.data.filter((model) => model.providerID === "systemprompt").map((model) => model.id)
   }
   expect(await ids()).toEqual(["claude-opus-5-5"])
+  // Another instance counts from zero
+  expect(await client.usage({ instance: { key: "beta", url: gateway.url.origin } })).toEqual({
+    forwarded: 0,
+    tokens_in: 0,
+    tokens_out: 0,
+  })
+  expect((await client.usage({ instance })).forwarded).toBe(0)
   await client.clear()
+  expect(await client.usage({ instance: { key: "beta", url: gateway.url.origin } })).toEqual({
+    forwarded: 0,
+    tokens_in: 0,
+    tokens_out: 0,
+  })
   expect(await until(ids, (value) => value.length === 0)).toEqual([])
   const response = await fetch(
     `${service.url}/api/provider/systemprompt?location[directory]=${encodeURIComponent(project)}`,

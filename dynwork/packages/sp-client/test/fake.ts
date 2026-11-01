@@ -38,6 +38,9 @@ export function startFake() {
     codes: new Set<string>(),
     pats: new Set<string>(),
     jwts: new Set<string>(),
+    // The session each JWT was minted for, which a heartbeat must name
+    sessions: new Map<string, string>(),
+    heartbeats: [] as Array<Record<string, unknown>>,
     // Device credentials the instance issued, with the device each enrols, and the device of each fingerprint
     devices: new Map<string, { device_id: string; consumer_id: string }>(),
     fingerprints: new Map<string, string>(),
@@ -107,15 +110,14 @@ export function startFake() {
       if (bearer === undefined || !state.pats.has(bearer))
         return Response.json(deviceLink.experiments.revoked_pat.pat_to_jwt_after_revoke.body, { status: 401 })
       const token = `eyJ${randomBytes(24).toString("hex")}`
+      const session = request.headers.get("x-session-id") ?? `sess_${randomBytes(8).toString("hex")}`
       state.jwts.add(token)
+      state.sessions.set(token, session)
       return Response.json({
         ...deviceLink.round_trip.pat_to_jwt.body,
         token,
         device_token: `eyJ${randomBytes(24).toString("hex")}`,
-        headers: {
-          ...deviceLink.round_trip.pat_to_jwt.body.headers,
-          "x-session-id": request.headers.get("x-session-id") ?? `sess_${randomBytes(8).toString("hex")}`,
-        },
+        headers: { ...deviceLink.round_trip.pat_to_jwt.body.headers, "x-session-id": session },
       })
     }
     if (route === "POST /v1/bridge/device" && signedIn) {
@@ -129,6 +131,26 @@ export function startFake() {
     if (path.startsWith("/api/v1/consumer/")) return consumerRoute(request, path, body, bearer)
     if (!signedIn) return Response.json(alpha.rejected_jwt.body, { status: 401 })
     if (route === "GET /v1/bridge/profile") return Response.json(alpha.profile.body)
+    // As 0.76 answers it (`bridge_heartbeat.rs`): the session must be the JWT's, the version at least 0.28.0
+    if (route === "POST /v1/bridge/heartbeat") {
+      const input = JSON.parse(body) as Record<string, unknown>
+      if (input.session_id !== state.sessions.get(bearer ?? ""))
+        return Response.json(
+          {
+            code: "unauthorized",
+            message: "heartbeat session_id must match the authenticated session",
+            error_key: "session_mismatch",
+          },
+          { status: 401 },
+        )
+      state.heartbeats.push(input)
+      const [major = 0, minor = 0] = String(input.bridge_version).split(".").map(Number)
+      return Response.json({
+        min_bridge_version: "0.28.0",
+        compatible: major > 0 || minor >= 28,
+        window_status: "within",
+      })
+    }
     if (route === "GET /v1/models") return Response.json(alpha.models.body)
     if (route === "GET /v1/bridge/whoami") return Response.json(alpha.whoami.body)
     if (request.method === "GET" && path.startsWith("/v1/bridge/plugins/")) {
@@ -185,13 +207,20 @@ export function startFake() {
   // Session bindings as 0.76 answers them (phase 08b probe): an unknown device credential or a receipt this device did
   // not post is 403, a host that is not an evaluator client kind 422, the same binding again the same answer.
   const binding = (body: string, bearer: string | undefined) => {
-    const forbidden = { type: "about:blank", title: "Forbidden", status: 403, detail: "Consumer evidence is unavailable to this identity" }
-    if (bearer === undefined || !bearer.startsWith("sp_device_")) return Response.json(consumer.unauthorized.body, { status: 401 })
+    const forbidden = {
+      type: "about:blank",
+      title: "Forbidden",
+      status: 403,
+      detail: "Consumer evidence is unavailable to this identity",
+    }
+    if (bearer === undefined || !bearer.startsWith("sp_device_"))
+      return Response.json(consumer.unauthorized.body, { status: 401 })
     if (!state.devices.has(bearer)) return Response.json(forbidden, { status: 403 })
     const input = JSON.parse(body) as { receipt_id: string; host: string; session_id: string }
     if (input.host !== "open-code")
       return Response.json({ type: "about:blank", title: "Unprocessable Entity", status: 422 }, { status: 422 })
-    if (!state.receipts.some((entry) => entry.receipt_id === input.receipt_id)) return Response.json(forbidden, { status: 403 })
+    if (!state.receipts.some((entry) => entry.receipt_id === input.receipt_id))
+      return Response.json(forbidden, { status: 403 })
     const key = `${input.receipt_id}:${input.session_id}`
     const bound = state.bindings.get(key) ?? { id: crypto.randomUUID(), bound_at: new Date().toISOString() }
     state.bindings.set(key, bound)

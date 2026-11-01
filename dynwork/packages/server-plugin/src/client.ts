@@ -79,6 +79,13 @@ export function make(endpoint: () => Endpoint | undefined) {
         if (inspected._tag === "None") throw new Failed("inspect", 200, "invalid_output")
         return inspected.value.intact
       }),
+    /** What the service counted for the instance, for the heartbeat; zeros when it holds another instance. */
+    usage: (input: DynWorkSync.UsageOf) =>
+      call("usage", input).then((output) => {
+        const usage = decodeUsage(output)
+        if (usage._tag === "None") throw new Failed("usage", 200, "invalid_output")
+        return usage.value
+      }),
     /**
      * Follows the plugin's `refresh`, `rejected` and `session` events until `signal` aborts or the service closes the stream
      * (it stopped or restarted), when the promise settles and the caller subscribes again. Events published while
@@ -87,7 +94,9 @@ export function make(endpoint: () => Endpoint | undefined) {
     listen: async (handlers: Handlers, signal: AbortSignal) => {
       const server = endpoint()
       if (!server) throw new Failed("events", 0)
-      const types = (["refresh", "rejected", "session"] as const).map((name) => `types=rpc.${DynWorkSync.id}.${name}`).join("&")
+      const types = (["refresh", "rejected", "session"] as const)
+        .map((name) => `types=rpc.${DynWorkSync.id}.${name}`)
+        .join("&")
       const response = await fetch(`${server.url.replace(/\/+$/, "")}/api/event?${types}`, {
         headers: { ...server.headers, accept: "text/event-stream" },
         redirect: "error",
@@ -152,6 +161,7 @@ const decodeApplied = Schema.decodeUnknownOption(DynWorkSync.Applied)
 const decodeAccepted = Schema.decodeUnknownOption(DynWorkSync.TokenAccepted)
 const decodeMaterialized = Schema.decodeUnknownOption(DynWorkSync.Materialized)
 const decodeInspected = Schema.decodeUnknownOption(DynWorkSync.Inspected)
+const decodeUsage = Schema.decodeUnknownOption(DynWorkSync.Usage)
 const decodeError = Schema.decodeUnknownOption(Schema.Struct({ type: Schema.String }))
 const decodeOutput = Schema.decodeUnknownOption(Schema.Struct({ output: Schema.optional(Schema.Unknown) }))
 

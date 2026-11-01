@@ -74,6 +74,40 @@ describe("enrol", () => {
   })
 })
 
+describe("heartbeat", () => {
+  const report = (session_id: string): SpConsumer.Heartbeat => ({
+    session_id,
+    bridge_version: SpConsumer.bridgeVersion,
+    os: "macos",
+    hostname: "studio",
+    last_activity_at: null,
+    forwarded_total: 3,
+    tokens_in_total: 120,
+    tokens_out_total: 40,
+    release_version: "1.0.0",
+    state: "active",
+  })
+
+  test("posts the report with the JWT and reads whether the instance supports this bridge version", async () => {
+    const session = await run(SpClient.mintJwt(fake.url, fake.issuePat()))
+    const answer = await run(SpConsumer.heartbeat(fake.url, session.token, report(session.sessionId ?? "")))
+    expect(answer).toEqual({ min_bridge_version: "0.28.0", compatible: true, window_status: "within" })
+    const request = fake.state.requests.find((entry) => entry.path === "/v1/bridge/heartbeat")
+    expect(request?.headers.authorization).toBe(`Bearer ${session.token}`)
+    expect(JSON.parse(request?.body ?? "")).toEqual(report(session.sessionId ?? ""))
+  })
+
+  test("a session that is not the JWT's, or a refused JWT, is Unauthorized", async () => {
+    const session = await run(SpClient.mintJwt(fake.url, fake.issuePat()))
+    expect(await failure(SpConsumer.heartbeat(fake.url, session.token, report("sess_other")))).toBeInstanceOf(
+      SpClient.Unauthorized,
+    )
+    expect(await failure(SpConsumer.heartbeat(fake.url, fake.staleJwt(), report("sess_other")))).toBeInstanceOf(
+      SpClient.Unauthorized,
+    )
+  })
+})
+
 describe("plan", () => {
   test("reads the publication's bundle for open-code with the device credential, bytes as bytes", async () => {
     const device = await enrolled()
@@ -170,19 +204,33 @@ describe("bind", () => {
     if (!("receipt" in built)) throw new Error("mismatch")
     const acknowledged = await run(SpConsumer.post(fake.url, device.credential, built.receipt))
     const session = "5de1b7f7-3c8e-5c6a-9885-2317b386feb1"
-    const first = await run(SpConsumer.bind(fake.url, device.credential, { receipt_id: acknowledged.receipt_id, session_id: session }))
-    const again = await run(SpConsumer.bind(fake.url, device.credential, { receipt_id: acknowledged.receipt_id, session_id: session }))
+    const first = await run(
+      SpConsumer.bind(fake.url, device.credential, { receipt_id: acknowledged.receipt_id, session_id: session }),
+    )
+    const again = await run(
+      SpConsumer.bind(fake.url, device.credential, { receipt_id: acknowledged.receipt_id, session_id: session }),
+    )
     expect(again).toEqual(first)
     const sent = fake.state.requests.findLast((request) => request.path === "/api/v1/consumer/session-bindings")
-    expect(JSON.parse(sent?.body ?? "")).toEqual({ receipt_id: acknowledged.receipt_id, host: "open-code", session_id: session })
+    expect(JSON.parse(sent?.body ?? "")).toEqual({
+      receipt_id: acknowledged.receipt_id,
+      host: "open-code",
+      session_id: session,
+    })
     expect(sent?.headers.authorization).toBe(`Bearer ${device.credential}`)
     // A receipt the instance does not hold for this device: refused for good (403 on 0.76)
-    const unknown = await failure(SpConsumer.bind(fake.url, device.credential, { receipt_id: crypto.randomUUID(), session_id: session }))
+    const unknown = await failure(
+      SpConsumer.bind(fake.url, device.credential, { receipt_id: crypto.randomUUID(), session_id: session }),
+    )
     expect(unknown).toBeInstanceOf(SpClient.Protocol)
     expect(unknown instanceof SpClient.Protocol && unknown.status).toBe(403)
     // An unknown device credential is 403 there too, unlike the other consumer routes; a JWT is 401
-    const stranger = await failure(SpConsumer.bind(fake.url, "sp_device_unknown", { receipt_id: acknowledged.receipt_id, session_id: session }))
+    const stranger = await failure(
+      SpConsumer.bind(fake.url, "sp_device_unknown", { receipt_id: acknowledged.receipt_id, session_id: session }),
+    )
     expect(stranger instanceof SpClient.Protocol && stranger.status).toBe(403)
-    expect(await failure(SpConsumer.bind(fake.url, "eyJ.jwt", { receipt_id: acknowledged.receipt_id, session_id: session }))).toBeInstanceOf(SpClient.Unauthorized)
+    expect(
+      await failure(SpConsumer.bind(fake.url, "eyJ.jwt", { receipt_id: acknowledged.receipt_id, session_id: session })),
+    ).toBeInstanceOf(SpClient.Unauthorized)
   })
 })

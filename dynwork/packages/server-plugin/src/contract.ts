@@ -249,3 +249,21 @@ export const Inspect = Schema.Struct({
 export type Inspect = typeof Inspect.Type
 
 export const Inspected = Schema.Struct({ intact: Schema.Boolean })
+
+/** Asks for what the service counted for the instance applied. */
+export const UsageOf = Schema.Struct({ instance: Instance })
+export type UsageOf = typeof UsageOf.Type
+
+/**
+ * What the service counted since the instance was applied, the totals of the bridge proxy's heartbeat: `forwarded`
+ * calls to the instance's gateway, `tokens_in` (every prompt token: uncached, cache reads and writes) and `tokens_out`
+ * (output and reasoning) of their steps, and `last_activity` (ms since the epoch) of the last call the gateway
+ * answered with success. All zero, without `last_activity`, for any other instance.
+ */
+export const Usage = Schema.Struct({
+  forwarded: Schema.Number,
+  tokens_in: Schema.Number,
+  tokens_out: Schema.Number,
+  last_activity: Schema.optional(Schema.Number),
+})
+export type Usage = typeof Usage.Type
