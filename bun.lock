@@ -39,6 +39,19 @@
         "@typescript/native": "catalog:",
       },
     },
+    "dynwork/packages/build": {
+      "name": "@dynwork/build",
+      "version": "2.2.5",
+      "dependencies": {
+        "@dynwork/branding": "workspace:*",
+      },
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@typescript/native": "catalog:",
+        "vite": "8.2.4",
+      },
+    },
     "dynwork/packages/gui": {
       "name": "@dynwork/gui",
       "version": "2.2.5",
@@ -352,6 +365,7 @@
       "devDependencies": {
         "@brendonovich/vite-plugin-opencode": "0.1.3",
         "@dynwork/branding": "workspace:*",
+        "@dynwork/build": "workspace:*",
         "@dynwork/gui": "workspace:*",
         "@effect/platform-node": "catalog:",
         "@lydell/node-pty": "catalog:",
@@ -1560,6 +1574,8 @@
     "@drizzle-team/brocli": ["@drizzle-team/brocli@0.12.0", "", {}, "sha512-mlUE+rZ8CatQekLhnaiN91Iemdd+e2gFKooGlnRB3oPTL3VghLfX24dx7HrzMNeC1JrIB/0kpsfyty3f5HNfxQ=="],
 
     "@dynwork/branding": ["@dynwork/branding@workspace:dynwork/packages/branding"],
+
+    "@dynwork/build": ["@dynwork/build@workspace:dynwork/packages/build"],
 
     "@dynwork/gui": ["@dynwork/gui@workspace:dynwork/packages/gui"],
 

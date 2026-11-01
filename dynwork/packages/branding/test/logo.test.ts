@@ -2,13 +2,7 @@ import { describe, expect, test } from "bun:test"
 import path from "node:path"
 import { DynWorkOutline } from "../src/outline"
 
-const repo = path.join(import.meta.dir, "..", "..", "..", "..")
-
 const branding = path.join(import.meta.dir, "..")
-
-const transpiler = new Bun.Transpiler({ loader: "tsx" })
-
-const scan = async (file: string) => transpiler.scan(await Bun.file(path.join(repo, file)).text())
 
 const wordmarkSvg = await Bun.file(path.join(branding, "logo", "wordmark.svg")).text()
 
@@ -30,36 +24,6 @@ const box = (d: string) => {
     bottom: Math.max(...all.map((point) => point.y)),
   }
 }
-
-describe("swapped modules", () => {
-  // electron.vite.config.ts points these upstream modules at ours; a missing export would break the renderer build.
-  test.each([
-    { upstream: "packages/ui/src/components/logo.tsx", ours: "dynwork/packages/branding/src/logo.tsx" },
-    {
-      upstream: "packages/ui/src/typography/wordmark/wordmark.tsx",
-      ours: "dynwork/packages/branding/src/wordmark.tsx",
-    },
-    {
-      upstream: "packages/app/src/new-session/wordmark.tsx",
-      ours: "dynwork/packages/branding/src/new-session-wordmark.tsx",
-    },
-  ])("$ours exports everything $upstream does", async (row) => {
-    const upstream = await scan(row.upstream)
-    const ours = await scan(row.ours)
-
-    expect(upstream.exports.length).toBeGreaterThan(0)
-    expect(ours.exports).toEqual(expect.arrayContaining(upstream.exports))
-  })
-
-  // The aliases and the view.tsx redirect match these exact specifiers; if upstream renames one, the swap goes silent.
-  test.each([
-    { importer: "packages/desktop/src/renderer/startup/splash.tsx", specifier: "@opencode/ui/logo" },
-    { importer: "packages/desktop/src/renderer/startup/splash.tsx", specifier: "@opencode/ui/wordmark" },
-    { importer: "packages/app/src/new-session/view.tsx", specifier: "./wordmark" },
-  ])("$importer still imports $specifier", async (row) => {
-    expect((await scan(row.importer)).imports.map((item) => item.path)).toContain(row.specifier)
-  })
-})
 
 describe("wordmark", () => {
   test("is outlined letters with no text or font", () => {
