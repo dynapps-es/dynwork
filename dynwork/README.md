@@ -13,6 +13,7 @@ the next tag.
 | `packages/branding/logo` | `wordmark.svg`: "dynwork" outlined, in `currentColor`. `lockup.svg`: the Dynapps symbol in its gradient left of the wordmark |
 | `packages/build` | `@dynwork/build`: the build seam. `src/vite.ts` exports `DynWorkVite`, the aliases and plugins that swap the theme and the logos, which `packages/desktop/electron.vite.config.ts` spreads into its main and renderer plugins. `test/vite.test.ts` fails when an upstream specifier, module or export a swap relies on moves |
 | `script/patches.ts` | The patch guard (`bun dynwork/script/patches.ts`, logic in `packages/build/src/patches.ts`). `UPSTREAM` holds the upstream tag the stack sits on |
+| `script/sync-upstream.ts` | The upstream sync (logic in `packages/build/src/sync.ts`): rebases the stack onto a newer upstream ref in a throwaway worktree, checks it and writes a report. See "Syncing with upstream" |
 | `packages/gui` | `@dynwork/gui`: DynWork's own screens. `src/signin`: the sign-in gate the desktop shows until the device is signed in |
 | `packages/branding/src` | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark |
 | `packages/branding/theme` | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json` |
@@ -46,11 +47,27 @@ tests and typechecks of every `dynwork/packages/*`; upstream's own workflows are
 ## Syncing with upstream
 
 ```bash
-git fetch upstream --tags
-git rebase --onto <new-tag> <old-tag> main
-echo <new-tag> > dynwork/UPSTREAM
-git range-diff <old-tag>..<old-main> <new-tag>..main
+bun dynwork/script/sync-upstream.ts <target-ref> [--report <path>] [--from <ref>] [--no-build] [--quick] [--keep]
 ```
+
+The sync script (logic in `packages/build/src/sync.ts`) runs `git fetch upstream --tags`, adds a detached worktree of
+`--from` (default `main`) under the system temp dir and runs `git rebase --onto <target-ref> $(cat dynwork/UPSTREAM)`
+there. It never pushes, never moves a branch (the rebase runs on a detached HEAD with `rebase.updateRefs` off) and never
+touches this checkout. On a conflict it records the conflicted files and the DynWork commit that hit them, then aborts.
+On a clean rebase it writes the target to the worktree's `dynwork/UPSTREAM` (committed when the target is a tag, the
+target's commit hash and uncommitted otherwise, so the guard measures the stack against its new base), installs with
+the npmjs.org registry, and runs the patch guard, `bun run test` and `bun run typecheck` in every `dynwork/packages/*`,
+the desktop typecheck and the desktop bundle (`electron-vite build`, nothing packed, installed or launched).
+
+It prints a Markdown report, or writes it to `--report`: target, base, source, the per-step results with timings, the
+output of failed steps, the patch guard table, the stack and the `git range-diff` of the old stack against the rebased
+one. Exit codes: 0 green, 2 conflicts, 1 a check failed. `--no-build` skips the desktop bundle, `--quick` runs only the
+rebase and the patch guard, `--no-fetch` skips the fetch, and `--keep` keeps the worktree, whose path is in the report;
+otherwise it is removed.
+
+Production follows upstream tags; any ref works for a rehearsal (`bun dynwork/script/sync-upstream.ts upstream/dev`).
+When the report is green on a tag, the kept worktree's `HEAD` is the new `main`: review the range-diff, then move `main`
+there by hand.
 
 ## Icons
 

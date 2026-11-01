@@ -12,7 +12,8 @@
   },
   "exports": {
     "./vite": "./src/vite.ts",
-    "./patches": "./src/patches.ts"
+    "./patches": "./src/patches.ts",
+    "./sync": "./src/sync.ts"
   },
   "dependencies": {
     "@dynwork/branding": "workspace:*"
