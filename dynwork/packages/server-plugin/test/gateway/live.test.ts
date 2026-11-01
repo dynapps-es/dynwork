@@ -12,7 +12,13 @@ const token = (name: string) => `eyJhbGciOiJSUzI1NiJ9.${btoa(name).replace(/=+$/
 
 // The gateway accepts only the tokens in `valid`, like the instance accepts only live JWTs.
 const valid = new Set<string>()
-const calls: Array<{ path: string; authorization: string | null; client: string | null; apiKey: string | null }> = []
+const calls: Array<{
+  path: string
+  authorization: string | null
+  client: string | null
+  protocol: string | null
+  apiKey: string | null
+}> = []
 // The instance's MCP route records the JWT OpenCode connects with.
 const mcp: string[] = []
 const gateway = Bun.serve({
@@ -27,6 +33,7 @@ const gateway = Bun.serve({
       path,
       authorization,
       client: request.headers.get("x-systemprompt-client"),
+      protocol: request.headers.get("x-inference-protocol"),
       apiKey: request.headers.get("x-api-key"),
     })
     if (!valid.has(authorization?.replace(/^Bearer /, "") ?? ""))
@@ -179,6 +186,7 @@ test("a step calls the instance's /v1/messages with the JWT and the client heade
       path: "/v1/messages",
       authorization: `Bearer ${token("one")}`,
       client: "opencode",
+      protocol: "claude,openai",
       apiKey: null,
     })
   const database = await Bun.file(service.database).arrayBuffer()

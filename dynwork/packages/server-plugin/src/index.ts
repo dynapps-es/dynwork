@@ -229,12 +229,17 @@ export default Plugin.define({
           if (!provided) return
           const jwt = yield* DynWorkGateway.authorize(store.tokens, events, event.sessionID)
           Object.keys(event.headers)
-            .filter((name) => ["authorization", "x-api-key", "x-systemprompt-client"].includes(name.toLowerCase()))
+            .filter((name) =>
+              ["authorization", "x-api-key", "x-systemprompt-client", "x-inference-protocol"].includes(
+                name.toLowerCase(),
+              ),
+            )
             .forEach((name) => delete event.headers[name])
           // authorize may wait for main: a switch or sign-out meanwhile leaves a JWT that is not this gateway's, so the
           // call goes without one and the retry hook picks up the instance that is current then.
           if (jwt && store.current?.provided === provided) event.headers.authorization = `Bearer ${jwt}`
           event.headers["x-systemprompt-client"] = DynWorkGateway.client
+          event.headers["x-inference-protocol"] = provided.protocols
           event.baseURL = provided.baseURL
         }),
       { providerID: DynWorkGateway.providerID },

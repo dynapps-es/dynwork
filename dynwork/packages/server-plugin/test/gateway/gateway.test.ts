@@ -100,8 +100,18 @@ describe("provider", () => {
         String(model.id),
         model.package === DynWorkGateway.packages.chat ? "chat" : "messages",
       ])
-    // Without an entry for DynWork's host, every family it can call.
-    expect(listed({ ...alpha, host_model_protocols: { "claude-code": ["claude"] } })).toEqual([
+    // Without an entry for DynWork's host, OpenCode's own family, like the bridge: Claude-only models stay out.
+    const openai = [
+      ["both-x", "chat"],
+      ["gpt-x", "chat"],
+      ["legacy-chat", "chat"],
+    ]
+    expect(listed({ ...alpha, host_model_protocols: { "claude-code": ["claude"] } })).toEqual(openai)
+    expect(listed({ ...alpha, host_model_protocols: undefined })).toEqual(openai)
+    expect(
+      DynWorkGateway.provider(apply({ ...alpha, host_model_protocols: undefined }, { gateway: mixed }))?.protocols,
+    ).toBe("openai")
+    expect(listed(alpha)).toEqual([
       ["claude-x", "messages"],
       ["both-x", "messages"],
       ["gpt-x", "chat"],
@@ -126,9 +136,9 @@ describe("provider", () => {
       ["legacy-messages", "messages"],
     ])
     // A filter that selects no model leaves no provider, so nothing is locked to an empty gateway.
-    expect(DynWorkGateway.provider(apply({ ...alpha, host_model_protocols: { opencode: [] } }, { gateway: mixed }))).toBe(
-      undefined,
-    )
+    expect(
+      DynWorkGateway.provider(apply({ ...alpha, host_model_protocols: { opencode: [] } }, { gateway: mixed })),
+    ).toBe(undefined)
   })
 
   test("the contract refuses model ids that are not plain ids", () => {

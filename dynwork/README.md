@@ -154,7 +154,7 @@ one loop, for the active signed-in account only (decision D4), and pushes its co
   has; at once when a window gains focus, when an account is activated and on `syncNow`. Polls never overlap: one asked
   for while another runs follows it once.
 - Each poll reads the manifest with the last ETag (`If-None-Match`). Only `syncNow` ("Sync now") adds `Cache-Control:
-  no-cache`; polls, focus and activation let the instance answer from its memo, like the bridge's scheduled sync. The
+no-cache`; polls, focus and activation let the instance answer from its memo, like the bridge's scheduled sync. The
   signature is checked against the pinned key, else the one offered at sign-in. A 200 is then accepted under the
   bridge's rules, and refused (`invalid`, ETag not kept) when it is another user's than the one `whoami` named at
   sign-in, when its `manifest_version` (`<RFC3339>-<hex>`, ordered by timestamp then suffix) is not strictly newer than
@@ -281,13 +281,13 @@ the current state every time. `key` is a slug of the account label (`DynWorkSync
 instance content never replaces the user's own items. A failed call reports only the HTTP status and the RPC error
 type, never the service's message, which may quote the input.
 
-| Manifest                               | OpenCode                                                                                                                                                                                                                               |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `skills[]` with inline body            | `ctx.skill.transform`: embedded `Skill.Info` with id `<key>-<id>` and the virtual path `dynwork://<key>/skills/<id>`                                                                                                                   |
-| `agents[]` (not disabled)              | `ctx.agent.transform`: sub-agent `<key>-<id>` with the display name, description and `system_prompt`. An agent whose `model` the gateway serves runs on `systemprompt/<model>`; any other uses the Session's model                     |
+| Manifest                               | OpenCode                                                                                                                                                                                                                                                                                                                                                                                                       |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skills[]` with inline body            | `ctx.skill.transform`: embedded `Skill.Info` with id `<key>-<id>` and the virtual path `dynwork://<key>/skills/<id>`                                                                                                                                                                                                                                                                                           |
+| `agents[]` (not disabled)              | `ctx.agent.transform`: sub-agent `<key>-<id>` with the display name, description and `system_prompt`. An agent whose `model` the gateway serves runs on `systemprompt/<model>`; any other uses the Session's model                                                                                                                                                                                             |
 | `managed_mcp_servers[]`                | `ctx.mcp.transform`: remote server named from its `name` with the bridge's slug (lowercase, `[a-z0-9_]`, other runs to `-`; `dynbrain`, not `<key>-<id>`), `oauth: false`. Only a server on the instance's own origin gets `Authorization: Bearer <jwt>`; any other keeps its declared headers only, and plain HTTP is accepted only on loopback. A user server of the same name is replaced by the instance's |
-| `rules[]`                              | A managed block in the service's global `AGENTS.md` (`<OPENCODE_CONFIG_DIR>/AGENTS.md`), described below                                                                                                                               |
-| `marketplaces[].opencode.cli_defaults` | `default_agent` (an instance agent) becomes the default agent and selectable as primary; `model` (`provider/model`) becomes the default model when the service has it                                                                  |
+| `rules[]`                              | A managed block in the service's global `AGENTS.md` (`<OPENCODE_CONFIG_DIR>/AGENTS.md`), described below                                                                                                                                                                                                                                                                                                       |
+| `marketplaces[].opencode.cli_defaults` | `default_agent` (an instance agent) becomes the default agent and selectable as primary; `model` (`provider/model`) becomes the default model when the service has it                                                                                                                                                                                                                                          |
 
 Entries are kept only when they target OpenCode (`hosts` empty or with `opencode`/`opencode-cli`, and the same for the
 manifest's `enabled_hosts`, where an absent list is an empty one and clears the host, like the bridge; rules need an OpenCode host, see below), and only when their id is plain (`[A-Za-z0-9][A-Za-z0-9._-]*`, 64 at most). The mapping is
@@ -345,9 +345,10 @@ The profile's `default_model` (without a `[1m]`-style suffix) becomes the defaul
 
 Each model also carries the client families its provider is served to (`clients`), and the manifest's
 `host_model_protocols` entry for DynWork's host (`opencode`, else `opencode-cli`) keeps only the models served to one of
-its families, on `/v1/messages` when `claude` is among them, else on `/v1/chat/completions`. Without an entry every
-family DynWork can call is listed (the bridge defaults to `openai`, because its OpenCode provider speaks only Chat
-Completions). Like the bridge's `policies` (deny `provider.use *`, allow `systemprompt`), while an instance with a
+its families, on `/v1/messages` when `claude` is among them, else on `/v1/chat/completions`. Without an entry, like the
+bridge (`HostClients::for_host`), OpenCode's own family `openai` is the filter, so models served only to Claude clients
+(Claude Desktop's aliases) are not listed. Every call carries the families as `x-inference-protocol`, as the bridge's
+provider headers do. Like the bridge's `policies` (deny `provider.use *`, allow `systemprompt`), while an instance with a
 gateway is applied the same transform removes every other provider first, OpenCode's free one included, and every
 provider reload runs it again, so a provider connected meanwhile is not offered either; `clear` brings them all back. An
 apply without gateway models (no profile, or a filter that selects none) locks nothing. Providers declared in a config
