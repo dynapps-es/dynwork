@@ -1,0 +1,414 @@
+/* The Routines view (`./index.tsx`). Tailwind does not scan dynwork/, so it styles itself with the theme's v2 tokens
+   under the shell's `[data-view="routines"]`, and its dialog under its own component. */
+
+[data-component="dynwork-view"][data-view="routines"] {
+  /* The service banner and the list share the mockup's raised layer. */
+  [data-slot="routines-service"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 20px;
+    border-radius: 10px;
+    background: var(--v2-background-bg-layer-01);
+
+    > div {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    p {
+      margin: 0;
+      color: var(--v2-text-text-muted);
+    }
+  }
+
+  [data-slot="routines-service-title"] {
+    font-weight: 530;
+  }
+
+  [data-slot="routines-list"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px;
+    border-radius: 10px;
+    background: var(--v2-background-bg-layer-01);
+  }
+
+  [data-slot="routines-list"] [data-part="row"] {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr) minmax(0, 170px) minmax(0, 120px);
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+  }
+
+  [data-slot="routines-head"] {
+    color: var(--v2-text-text-faint);
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  [data-slot="routines-row"] {
+    border-radius: 8px;
+    cursor: pointer;
+
+    &:is(:hover, :focus-visible) {
+      background: var(--v2-overlay-simple-overlay-hover);
+      outline: none;
+    }
+
+    &[data-selected] {
+      background: var(--v2-background-bg-base);
+      box-shadow: var(--v2-elevation-raised);
+    }
+  }
+
+  [data-slot="routines-name"],
+  [data-slot="routines-when"],
+  [data-slot="routines-last-col"] {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  [data-slot="routines-title"] {
+    overflow: hidden;
+    font-weight: 530;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="routines-sub"] {
+    overflow: hidden;
+    color: var(--v2-text-text-faint);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="routines-when"] > span:first-child {
+    white-space: nowrap;
+  }
+
+  /* The switch is the routine's own state, so it follows the brand color like the primary buttons. */
+  [data-slot="routines-toggle"] [data-slot="switch-control"][data-checked],
+  [data-slot="routines-toggle"] [data-checked] [data-slot="switch-control"] {
+    background: var(--dynwork-primary);
+    border-color: var(--dynwork-primary);
+  }
+
+  [data-slot="routines-state"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+
+    &::before {
+      content: "";
+      flex: none;
+      width: 8px;
+      height: 8px;
+      border-radius: 9999px;
+      background: var(--v2-icon-icon-faint);
+    }
+
+    &[data-state="succeeded"]::before {
+      background: var(--v2-state-fg-success);
+    }
+
+    &[data-state="failed"]::before {
+      background: var(--v2-state-fg-danger);
+    }
+
+    &[data-state="missed"]::before,
+    &[data-state="running"]::before {
+      background: var(--v2-state-fg-warning);
+    }
+  }
+
+  [data-slot="routine-tag"] {
+    padding: 0 6px;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 16px;
+    color: var(--v2-text-text-muted);
+    white-space: nowrap;
+
+    &[data-tone="success"] {
+      border-color: var(--v2-state-border-success);
+      background: var(--v2-state-bg-success);
+      color: var(--v2-state-fg-success);
+    }
+  }
+
+  [data-slot="view-subnav-footer"] > span::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-inline-end: 6px;
+    border-radius: 9999px;
+    background: var(--v2-state-fg-success);
+    vertical-align: 1px;
+  }
+
+  /* Detail pane. */
+  [data-component="dynwork-routine-detail"] {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  [data-slot="routine-head"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  [data-slot="routine-title-row"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  [data-slot="routine-title"] {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    overflow: hidden;
+    font-size: 15px;
+    line-height: 20px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="routine-actions"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  [data-slot="routine-facts"] {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 10px 12px;
+    margin: 0;
+
+    dt {
+      color: var(--v2-text-text-faint);
+    }
+
+    dd {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  [data-slot="routine-path"] {
+    font-family: var(--font-family-mono, ui-monospace, monospace);
+    font-size: 12px;
+  }
+
+  [data-slot="routine-section"] {
+    margin: 4px 0 0;
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 600;
+  }
+
+  [data-slot="routine-runs"] {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  [data-slot="routine-run"] {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 0;
+    border-top: 1px solid var(--v2-border-border-muted);
+
+    &:first-child {
+      border-top: 0;
+    }
+  }
+
+  [data-slot="routine-run-text"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+
+    [data-slot="routines-sub"] {
+      overflow: visible;
+      white-space: normal;
+    }
+  }
+
+  [data-slot="routine-run-mark"] {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 6px;
+    border-radius: 9999px;
+    background: var(--v2-icon-icon-faint);
+
+    &[data-state="succeeded"] {
+      background: var(--v2-state-fg-success);
+    }
+
+    &[data-state="failed"] {
+      background: var(--v2-state-fg-danger);
+    }
+
+    &[data-state="missed"] {
+      background: var(--v2-state-fg-warning);
+    }
+
+    &[data-state="running"] {
+      background: var(--v2-state-fg-warning);
+      animation: dynwork-routine-pulse 1s ease-in-out infinite;
+    }
+  }
+
+  [data-slot="routine-run-link"] {
+    color: var(--dynwork-primary);
+    white-space: nowrap;
+  }
+}
+
+@keyframes dynwork-routine-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-slot="routine-run-mark"][data-state="running"] {
+    animation: none;
+  }
+}
+
+/* The run link is a violet on dark; the primary tone on light is Midnight, which reads as plain text, so it keeps the
+   link color of the mockup. */
+:root:not([data-color-scheme="dark"]) [data-view="routines"] [data-slot="routine-run-link"] {
+  color: var(--v2-text-text-base);
+  text-decoration: underline;
+}
+
+/* Medium and narrow: the list drops the last-result column. */
+[data-component="dynwork-view"][data-view="routines"]:not([data-layout="wide"]) {
+  [data-slot="routines-list"] [data-part="row"] {
+    grid-template-columns: 44px minmax(0, 1fr) minmax(0, 150px);
+  }
+
+  [data-slot="routines-last-col"] {
+    display: none;
+  }
+}
+
+/* A wide window with the detail open: room for the last result is tight, so it tightens first. */
+[data-component="dynwork-view"][data-view="routines"][data-layout="wide"]
+  [data-slot="routines-list"]
+  [data-part="row"] {
+  grid-template-columns: 44px minmax(0, 1fr) minmax(0, 150px) minmax(0, 110px);
+}
+
+/* The New routine dialog renders outside the view, so it carries its own brand color and layout. */
+[data-component="dynwork-new-routine"] {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: min(440px, 80vw);
+
+  [data-slot="new-routine-field"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  label,
+  [data-slot="new-routine-label"] {
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 530;
+  }
+
+  [data-component="text-input-v2"] {
+    width: 100%;
+    height: 40px;
+  }
+
+  [data-slot="new-routine-pair"] {
+    display: flex;
+    gap: 12px;
+  }
+
+  [data-slot="new-routine-select"] {
+    height: 40px;
+    padding-inline: 8px;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 8px;
+    background: var(--v2-background-bg-base);
+    color: var(--v2-text-text-base);
+    font: inherit;
+  }
+
+  [data-slot="new-routine-days"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  [data-slot="new-routine-day"] {
+    height: 28px;
+    padding-inline: 10px;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--v2-text-text-base);
+
+    &[aria-pressed="true"] {
+      border-color: var(--dynwork-primary);
+      background: var(--dynwork-primary);
+      color: #fff;
+    }
+  }
+}
+
+/* The brand color, as the shell defines it for views: Midnight on light, Unicorn Violet on dark. The dialog's footer is
+   not inside the form, so both carry it. */
+:is([data-component="dynwork-new-routine"], [data-slot="dialog-footer"]:has(button[form="dynwork-new-routine"])) {
+  --dynwork-primary: #050543;
+  --dynwork-primary-hover: color-mix(in srgb, var(--dynwork-primary), white 16%);
+  --dynwork-primary-pressed: color-mix(in srgb, var(--dynwork-primary), black 40%);
+}
+
+:root[data-color-scheme="dark"]
+  :is([data-component="dynwork-new-routine"], [data-slot="dialog-footer"]:has(button[form="dynwork-new-routine"])) {
+  --dynwork-primary: #951cf3;
+  --dynwork-primary-hover: color-mix(in srgb, var(--dynwork-primary), white 14%);
+  --dynwork-primary-pressed: color-mix(in srgb, var(--dynwork-primary), black 18%);
+}
+
+[data-slot="dialog-footer"] button[form="dynwork-new-routine"][data-variant="contrast"] {
+  background: var(--dynwork-primary);
+  color: #fff;
+  text-shadow: none;
+
+  &:hover:not(:disabled) {
+    background: var(--dynwork-primary-hover);
+  }
+
+  &:active:not(:disabled) {
+    background: var(--dynwork-primary-pressed);
+  }
+}

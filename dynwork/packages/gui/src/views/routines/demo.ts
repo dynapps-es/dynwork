@@ -1,0 +1,73 @@
+import type { Routine } from "./store"
+
+/** The built-in routines the view starts with: the mockup's data. Nothing here is read from a server. */
+export const demoRoutines: readonly Routine[] = [
+  {
+    id: "standup",
+    name: "Morning stand-up notes",
+    prompt: "Draft today's stand-up notes from yesterday's sessions and my calendar, and keep them under ten lines.",
+    skill: "standup-facilitator",
+    folder: "~/Dynapps/dynwork",
+    agent: "build",
+    model: "Claude Sonnet",
+    schedule: { repeat: "weekdays", time: "08:45", days: [] },
+    next: "Tomorrow 08:45",
+    enabled: true,
+    history: [
+      { id: "standup-4", state: "succeeded", when: "Today 08:45", note: "1 min 12 s" },
+      { id: "standup-3", state: "succeeded", when: "Mon 3 Nov 08:45", note: "58 s" },
+      {
+        id: "standup-2",
+        state: "missed",
+        when: "Fri 31 Oct 08:45",
+        note: "Missed while DynWork was closed. Ran at 09:12 when it opened.",
+      },
+      { id: "standup-1", state: "succeeded", when: "Thu 30 Oct 08:45", note: "1 min 4 s" },
+    ],
+  },
+  {
+    id: "tests",
+    name: "Nightly test sweep",
+    prompt: "Run the unit tests in packages/app and summarise failures",
+    folder: "~/Dynapps/dynwork",
+    agent: "build",
+    model: "Claude Sonnet",
+    schedule: { repeat: "daily", time: "23:00", days: [] },
+    next: "Today 23:00",
+    enabled: true,
+    history: [
+      { id: "tests-3", state: "failed", when: "Yesterday 23:00", note: "Found 2 failing tests in tabs.test.ts" },
+      { id: "tests-2", state: "succeeded", when: "Sun 2 Nov 23:00", note: "4 min 30 s" },
+      { id: "tests-1", state: "succeeded", when: "Sat 1 Nov 23:00", note: "4 min 12 s" },
+    ],
+  },
+  {
+    id: "timesheet",
+    name: "Friday timesheet draft",
+    prompt: "Draft my timesheet for the week from my sessions and meetings, and list what is missing.",
+    skill: "timesheet-report",
+    folder: "",
+    agent: "plan",
+    model: "Claude Haiku",
+    schedule: { repeat: "weekly", time: "16:00", days: [5] },
+    next: "Fri 7 Nov 16:00",
+    enabled: true,
+    history: [
+      { id: "timesheet-2", state: "succeeded", when: "Fri 31 Oct 16:00", note: "2 min 3 s" },
+      { id: "timesheet-1", state: "succeeded", when: "Fri 24 Oct 16:00", note: "1 min 47 s" },
+    ],
+  },
+  {
+    id: "brain-inbox",
+    name: "Brain inbox tidy",
+    prompt: "Go through the weekly documentation queue and sort what is waiting for review.",
+    skill: "dynbrain-weekly-queue",
+    folder: "~/Dynapps/brain-handbook",
+    agent: "build",
+    model: "Claude Sonnet",
+    schedule: { repeat: "weekly", time: "09:00", days: [1] },
+    next: "Off",
+    enabled: false,
+    history: [{ id: "brain-inbox-1", state: "succeeded", when: "Mon 13 Oct 09:00", note: "3 min 21 s" }],
+  },
+]
