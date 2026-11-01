@@ -1,4 +1,4 @@
-import { Agent, Plugin, Rpc } from "@opencode/plugin/effect"
+import { Agent, Model, Plugin, Rpc } from "@opencode/plugin/effect"
 import { Effect, Exit, Schema } from "effect"
 import { DynWorkSync } from "./contract"
 import { DynWorkGateway } from "./gateway"
@@ -110,6 +110,7 @@ export default Plugin.define({
           info.description = agent.description
           info.system = agent.system
           info.mode = agent.mode
+          if (agent.model) info.model = { providerID: DynWorkGateway.providerID, id: Model.ID.make(agent.model) }
         })
       const id = mapped().defaults.agent
       if (id) editor.default(id)

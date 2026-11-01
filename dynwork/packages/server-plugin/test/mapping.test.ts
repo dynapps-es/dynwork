@@ -172,3 +172,26 @@ describe("cli_defaults", () => {
     expect(withDefaults("not an object").defaults).toEqual({})
   })
 })
+
+describe("agent models", () => {
+  const gateway = { label: "Alpha", models: [{ id: "claude-opus-5-5", api: "messages" as const }] }
+  const agents = [
+    { id: "served", name: "served", model: "claude-opus-5-5" },
+    { id: "unserved", name: "unserved", model: "gpt-9" },
+    { id: "none", name: "none" },
+  ]
+
+  test("an agent whose model the gateway serves runs on it; any other keeps the Session's model", () => {
+    const mapped = DynWorkMapping.map(apply({ ...alpha, agents }, { gateway }))
+    expect(mapped.agents.map((agent) => [agent.id, agent.model])).toEqual([
+      ["alpha-served", "claude-opus-5-5"],
+      ["alpha-unserved", undefined],
+      ["alpha-none", undefined],
+    ])
+  })
+
+  test("without a gateway no agent names a model", () => {
+    const mapped = DynWorkMapping.map(apply({ ...alpha, agents }))
+    expect(mapped.agents.every((agent) => agent.model === undefined)).toBe(true)
+  })
+})

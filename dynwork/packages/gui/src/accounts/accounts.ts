@@ -14,6 +14,8 @@ export const Stored = Schema.Struct({
   url: Schema.String,
   label: Schema.String,
   user: Schema.optional(Schema.String),
+  // The instance's id of the signed-in user (`whoami`): a manifest for anyone else is refused
+  userId: Schema.optional(Schema.String),
   org: Schema.optional(Schema.String),
   // base64 of `safeStorage.encryptString(pat)`; absent while signed out
   patCipher: Schema.optional(Schema.String),
@@ -50,6 +52,8 @@ export type Options = {
   deviceName: string
   // Called after every change of `state()`
   changed: () => void
+  // Called with every JWT minted for an account: at sign-in, at each renewal and at each forced re-mint
+  renewed?: (id: string, session: { token: string; expiresAt: number }) => void
 }
 
 // The account has no PAT: never signed in, signed out or removed.
@@ -113,7 +117,7 @@ export function make(options: Options) {
   }
 
   const list = () => read().accounts.map(view)
-  const state = (): State => ({ accounts: list(), signingIn: browser.url })
+  const state = (): Omit<State, "sync"> => ({ accounts: list(), signingIn: browser.url })
 
   const drop = (id: string) => {
     clearTimeout(sessions.get(id)?.timer)
@@ -193,16 +197,21 @@ export function make(options: Options) {
     clearTimeout(sessions.get(id)?.timer)
     const live = { ...session, cipher }
     schedule(id, live)
+    options.renewed?.(id, live)
     return live
   }
 
-  // A JWT for the account, minted on demand. For main code only (gateway, sync); never sent to a window.
-  const jwt = async (id: string) => {
-    const session = sessions.get(id)
-    if (session !== undefined && session.cipher === cipherOf(find(id)) && session.expiresAt - 60_000 > Date.now())
-      return session.token
-    return (await mint(id)).token
+  // The account's JWT and its expiry, minted on demand; `fresh` mints a new one even while the held one is valid (the
+  // gateway refused it). For main code only (gateway, sync); never sent to a window.
+  const session = async (id: string, fresh = false) => {
+    const held = sessions.get(id)
+    if (!fresh && held !== undefined && held.cipher === cipherOf(find(id)) && held.expiresAt - 60_000 > Date.now())
+      return { token: held.token, expiresAt: held.expiresAt }
+    const minted = await mint(id)
+    return { token: minted.token, expiresAt: minted.expiresAt }
   }
+
+  const jwt = async (id: string) => (await session(id)).token
 
   // Runs `use` with the account's JWT. When the instance refuses it, mints once more and retries once; a PAT the
   // instance refuses signs the account out.
@@ -231,6 +240,7 @@ export function make(options: Options) {
       ...(known ?? { id, url: instance.baseUrl, addedAt: Date.now() }),
       label: label(instance),
       user: details[0]?.email ?? details[0]?.display_name ?? known?.user,
+      userId: details[0]?.user_id ?? known?.userId,
       org: details[1]?.organization_uuid ?? known?.org,
       patCipher: keep ? cipher : undefined,
       ...(details[2] === undefined ? {} : { offeredKey: details[2].key === known?.key ? undefined : details[2].key }),
@@ -239,6 +249,7 @@ export function make(options: Options) {
     if (keep) volatile.delete(id)
     else volatile.set(id, cipher)
     schedule(id, { ...session, cipher })
+    options.renewed?.(id, session)
     write({
       active: store.active ?? id,
       accounts: known
@@ -413,7 +424,10 @@ export function make(options: Options) {
     offerKey,
     summary,
     active: () => read().active,
+    // The stored entry, for main code (the sync engine reads the pinned key and the user id)
+    stored: find,
     jwt,
+    session,
     withJwt,
     dispose,
   }

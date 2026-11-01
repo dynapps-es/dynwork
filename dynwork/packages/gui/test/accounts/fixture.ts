@@ -41,7 +41,13 @@ export function fakeSecure(available = true) {
 
 export function setup(
   fake: Fake,
-  options?: { open?: (url: string) => Promise<void>; secure?: ReturnType<typeof fakeSecure> },
+  options?: {
+    open?: (url: string) => Promise<void>
+    secure?: ReturnType<typeof fakeSecure>
+    // Main's wiring of the sync engine, when a test runs one
+    changed?: () => void
+    renewed?: DynWorkAccounts.Options["renewed"]
+  },
 ) {
   const store = memoryStore()
   const secure = options?.secure ?? fakeSecure()
@@ -51,7 +57,11 @@ export function setup(
     secure,
     open: options?.open ?? (async () => {}),
     deviceName: "DynWork test",
-    changed: () => events.changed++,
+    changed: () => {
+      events.changed++
+      options?.changed?.()
+    },
+    renewed: options?.renewed,
   })
   return { accounts, store, secure, events }
 }

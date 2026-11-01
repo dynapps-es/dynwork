@@ -19,6 +19,8 @@ export interface Agent {
   readonly name: string
   readonly description?: string
   readonly system?: string
+  /** A gateway model id: the agent runs on `systemprompt/<model>`. Absent when the gateway does not serve it. */
+  readonly model?: string
   /** Instance agents are sub-agents; the one `cli_defaults` names is also selectable as the primary agent. */
   readonly mode: "subagent" | "all"
 }
@@ -48,6 +50,7 @@ export function map(input: DynWorkSync.Apply): Mapped {
   const defaultAgent = unique(manifest.agents).find(
     (agent) => agent.enabled !== false && (agent.id === settings.agent || agent.name === settings.agent),
   )
+  const served = new Set(input.gateway?.models.map((model) => model.id))
   const rules = unique(manifest.rules)
     .filter((rule) => applies(rule.hosts) && rule.instructions?.trim())
     .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
@@ -72,6 +75,7 @@ export function map(input: DynWorkSync.Apply): Mapped {
         name: agent.display_name || agent.name,
         description: agent.description,
         system: agent.system_prompt,
+        ...(agent.model && served.has(agent.model) ? { model: agent.model } : {}),
         mode: agent.id === defaultAgent?.id ? "all" : "subagent",
       })),
     mcp: unique(manifest.managed_mcp_servers).flatMap((server) =>

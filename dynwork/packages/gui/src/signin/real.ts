@@ -1,13 +1,17 @@
 export * as SignInReal from "./real"
 
+import type { SyncStatus } from "../accounts/contract"
 import type { Client } from "../accounts/renderer"
 import { SignInAccounts } from "./accounts"
 
 // The part of the Ipc client the screen calls.
 export type Accounts = Pick<
   Client,
-  "probe" | "signInBrowser" | "signInToken" | "cancel" | "list" | "summary" | "activate"
+  "probe" | "signInBrowser" | "signInToken" | "cancel" | "list" | "summary" | "activate" | "state" | "on"
 >
+
+// The finalizing step waits this long at most for the first sync; the app opens either way.
+export const firstSync = 20_000
 
 // The screen's remote side over the `dynwork.accounts` Ipc. No call rejects: a failed Ipc call reads as a failed
 // sign-in, an unreachable instance or empty counts, so the flow never waits on a promise that will not settle.
@@ -48,13 +52,22 @@ export function create(accounts: Accounts): SignInAccounts.Interface {
           }),
       )
     },
+    // Activating starts the sync engine on the instance: the step ends at its first sync, or its first failure.
     finish: async (instance, progress) => {
-      await accounts.activate(instance.id).catch(() => undefined)
-      // STUB until phase 12 (live sync) reports the first sync: walk the skill count quickly so the state shows.
-      for (const synced of Array.from({ length: instance.skills }, (_, index) => index + 1)) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 800 / instance.skills))
-        progress(synced)
+      const first = Promise.withResolvers<void>()
+      const settle = (status: SyncStatus | undefined) => {
+        if (status === undefined || status.status === "idle" || status.account !== instance.id) return
+        if (status.status === "synced") progress(status.counts.skills)
+        if (status.status !== "syncing") first.resolve()
       }
+      const stop = accounts.on("sync", settle)
+      const timer = setTimeout(first.resolve, firstSync)
+      await accounts.activate(instance.id).catch(() => undefined)
+      // Already active and synced: no new status will come
+      settle(accounts.state()?.sync)
+      await first.promise
+      clearTimeout(timer)
+      stop()
     },
   }
 }

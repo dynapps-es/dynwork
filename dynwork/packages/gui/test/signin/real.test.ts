@@ -1,6 +1,8 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test"
 import { DynWorkAccounts } from "../../src/accounts/accounts"
+import type { SyncStatus } from "../../src/accounts/contract"
 import { AccountsIpc } from "../../src/accounts/ipc"
+import { DynWorkSyncEngine } from "../../src/sync/engine"
 import { SignInFlow } from "../../src/signin/flow"
 import { SignInReal } from "../../src/signin/real"
 import { setup, startFake, until, type Fake } from "../accounts/fixture"
@@ -15,12 +17,40 @@ afterAll(() => {
   alpha.stop()
 })
 
+const engines: DynWorkSyncEngine.Engine[] = []
+
+afterEach(() => {
+  engines.splice(0).forEach((engine) => engine.dispose())
+})
+
+// The service side of the sync: takes every apply and reports what the manifest holds.
+const plugin: DynWorkSyncEngine.Plugin = {
+  apply: async (input) => ({
+    skills: input.manifest.skills.length,
+    agents: input.manifest.agents.length,
+    mcp: input.manifest.managed_mcp_servers.length,
+    rules: input.manifest.rules.length,
+  }),
+  token: async () => true,
+  clear: async () => {},
+  listen: (_, signal) => new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true })),
+}
+
 // The Ipc client a window gets, over the real accounts service and the real Ipc implementation, without Electron.
-function windowClient(accounts: DynWorkAccounts.Accounts): SignInReal.Accounts {
-  const impl = AccountsIpc.implementation(accounts)
+function windowClient(
+  accounts: DynWorkAccounts.Accounts,
+  engine: DynWorkSyncEngine.Engine,
+  listeners: Set<(status: SyncStatus) => void>,
+): SignInReal.Accounts {
+  const impl = AccountsIpc.implementation(accounts, engine)
   const caller = { window: 1, signal: new AbortController().signal }
 
   return {
+    state: () => impl.state(caller.window),
+    on: (_, listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
     probe: async (url) => impl.probe(url, caller),
     signInBrowser: async (input) => impl.signInBrowser(input, caller),
     signInToken: async (input) => impl.signInToken(input, caller),
@@ -31,11 +61,26 @@ function windowClient(accounts: DynWorkAccounts.Accounts): SignInReal.Accounts {
   }
 }
 
-function screen(options?: Parameters<typeof setup>[1]) {
-  const context = setup(alpha, options)
-  const flow = SignInFlow.create(SignInReal.create(windowClient(context.accounts)))
+// The accounts, the sync engine and the window client wired as main and the window entry wire them.
+function screen(options?: Parameters<typeof setup>[1], instance = alpha) {
+  const hooks: { engine?: DynWorkSyncEngine.Engine } = {}
+  const listeners = new Set<(status: SyncStatus) => void>()
+  const context = setup(instance, {
+    ...options,
+    changed: () => hooks.engine?.update(),
+    renewed: (id, session) => hooks.engine?.renewed(id, session),
+  })
+  const engine = DynWorkSyncEngine.make({
+    accounts: context.accounts,
+    plugin,
+    focused: true,
+    changed: (status) => listeners.forEach((listener) => listener(status)),
+  })
+  hooks.engine = engine
+  engines.push(engine)
+  const flow = SignInFlow.create(SignInReal.create(windowClient(context.accounts, engine, listeners)))
 
-  return { ...context, flow }
+  return { ...context, flow, engine }
 }
 
 async function connect(flow: ReturnType<typeof screen>["flow"], url = alpha.url) {
@@ -76,8 +121,8 @@ describe("step 1 on the real accounts", () => {
   test("a server that answers with something that is not systemprompt reads as not supported", async () => {
     const fake = startFake()
     fake.state.override = { status: 200, body: { hello: "world" } }
-    const context = setup(fake)
-    const flow = SignInFlow.create(SignInReal.create(windowClient(context.accounts)))
+    const context = screen(undefined, fake)
+    const flow = context.flow
 
     flow.input(fake.url)
     await flow.settle()

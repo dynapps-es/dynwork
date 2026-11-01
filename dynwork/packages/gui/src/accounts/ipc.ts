@@ -2,14 +2,18 @@ export * as AccountsIpc from "./ipc"
 
 import { SpClient } from "@dynwork/sp-client"
 import type { IpcImpl } from "@opencode/plugin/gui/main"
+import type { DynWorkSyncEngine } from "../sync/engine"
 import { DynWorkAccounts } from "./accounts"
 import type { Accounts, SignIn } from "./contract"
 
 // The `dynwork.accounts` Ipc over a main-process accounts service. A sign-in that fails answers with its kind instead
 // of rejecting: the Ipc would turn a rejection into plain text, and the window picks its own copy per kind.
-export function implementation(accounts: DynWorkAccounts.Accounts): IpcImpl<(typeof Accounts)["spec"]> {
+export function implementation(
+  accounts: DynWorkAccounts.Accounts,
+  engine: Pick<DynWorkSyncEngine.Engine, "status" | "now">,
+): IpcImpl<(typeof Accounts)["spec"]> {
   return {
-    state: () => accounts.state(),
+    state: () => ({ ...accounts.state(), sync: engine.status() }),
     list: () => accounts.list(),
     add: (url) => accounts.add(url),
     probe: (url) => accounts.probe(url),
@@ -21,6 +25,7 @@ export function implementation(accounts: DynWorkAccounts.Accounts): IpcImpl<(typ
     signOut: (id) => accounts.signOut(id),
     remove: (id) => accounts.remove(id),
     trust: (input) => accounts.trust(input),
+    syncNow: () => engine.now(),
   }
 }
 

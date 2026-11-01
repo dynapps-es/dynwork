@@ -33,6 +33,8 @@ const Agent = Schema.Struct({
   display_name: Schema.optional(Schema.String),
   description: Schema.optional(Schema.String),
   enabled: Schema.optional(Schema.Boolean),
+  /** The instance's model id for the agent; it runs on the gateway when the gateway serves that model. */
+  model: Schema.optional(Schema.String),
   system_prompt: Schema.optional(Schema.String),
 })
 

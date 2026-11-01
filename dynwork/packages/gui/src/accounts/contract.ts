@@ -24,11 +24,48 @@ export const Account = Schema.Struct({
 })
 export type Account = typeof Account.Type
 
+/** What the service holds of the active instance after a sync. */
+export const Counts = Schema.Struct({
+  skills: Schema.Number,
+  agents: Schema.Number,
+  mcp: Schema.Number,
+  rules: Schema.Number,
+})
+export type Counts = typeof Counts.Type
+
+/**
+ * Why the last sync of the active instance failed: `unreachable` (no answer or a 5xx), `rate-limited`, `refused` (the
+ * instance refused the credential), `key-changed` (the instance signs with a key the user has not trusted; sync stops
+ * until `trust`), `invalid` (a manifest that does not verify, decode, belong to the user or is older than the last
+ * one), `insecure` (the OS secure store does not open the PAT right now) and `service` (DynWork's own service did not
+ * take it).
+ */
+export const SyncError = Schema.Literals([
+  "unreachable",
+  "rate-limited",
+  "refused",
+  "key-changed",
+  "invalid",
+  "insecure",
+  "service",
+])
+export type SyncError = typeof SyncError.Type
+
+/** The live sync of the active instance. `at` is epoch milliseconds. */
+export const SyncStatus = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("idle") }),
+  Schema.Struct({ status: Schema.Literal("syncing"), account: Schema.String }),
+  Schema.Struct({ status: Schema.Literal("synced"), account: Schema.String, at: Schema.Number, counts: Counts }),
+  Schema.Struct({ status: Schema.Literal("error"), account: Schema.String, kind: SyncError, at: Schema.Number }),
+])
+export type SyncStatus = typeof SyncStatus.Type
+
 /** What main pushes to every window after each change. */
 export const State = Schema.Struct({
   accounts: Schema.Array(Account),
   /** The base URL of the browser sign-in in progress, if any. */
   signingIn: Schema.optional(Schema.String),
+  sync: SyncStatus,
 })
 export type State = typeof State.Type
 
@@ -88,6 +125,10 @@ export type Summary = typeof Summary.Type
 export const Accounts = Ipc.define({
   id: "dynwork.accounts",
   state: State,
+  events: {
+    /** Every change of `State.sync`, as it happens. */
+    sync: SyncStatus,
+  },
   methods: {
     /** Every known account, as in `state`. */
     list: { output: Schema.Array(Account) },
@@ -124,5 +165,7 @@ export const Accounts = Ipc.define({
     remove: { input: Schema.String },
     /** Pins the offered manifest key, if it still has the fingerprint the user compared. */
     trust: { input: Schema.Struct({ id: Schema.String, fingerprint: Schema.String }) },
+    /** Polls the active instance's manifest now. */
+    syncNow: {},
   },
 })

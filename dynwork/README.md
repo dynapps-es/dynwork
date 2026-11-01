@@ -37,8 +37,8 @@ failure is an answer the screen maps to its copy (`copy.ts`, `failure`).
   limited, unsupported instance, no OS secure storage) show under the control that started the sign-in.
 - Step 2: the signed-in instances, the one just signed in first and preselected, with the skill, agent and MCP server
   counts of its first manifest (`summary`, verified against the manifest key the account holds). Finish activates the
-  chosen instance. The "Finishing setup" progress is a stub of about 0.8 s until the sync engine reports the first
-  sync.
+  chosen instance. "Finishing setup" waits for the sync engine's first status for that instance (the `sync` event):
+  `synced` shows its skill count, an error ends the step too, and it gives up after 20 s; the app opens either way.
 - "Keep me signed in on this device" unchecked means the PAT is never stored: main keeps it sealed in memory for this
   run (so the JWT is still renewed) and the account is signed out on the next launch.
 - Visibility follows main's state, not a renderer flag: the screen shows while no signed-in account is active, stays up
@@ -71,10 +71,45 @@ Where secrets live:
   starts. A ciphertext the OS no longer opens signs the account out.
 - JWTs exist only in main memory. Each is renewed at 80 % of its lifetime; a failed renewal is tried again every 30 s
   while it holds. A refused JWT is minted again once; a refused PAT signs the account out. Main code (gateway, sync)
-  gets one through `jwt(id)` or `withJwt(id, use)`.
+  gets one through `jwt(id)`, `session(id, fresh)` (with its expiry; `fresh` mints even while the held one is valid)
+  or `withJwt(id, use)`, and hears of every JWT minted through the `renewed` option.
 - Windows see `{id, label, url, user, org, status, active, fingerprint, trusted}` and never a PAT, JWT or code.
   Nothing goes into OpenCode's `credential` table or the service's database.
 - Signing out forgets the PAT locally; the token stays in the user's list on the instance until revoked there.
+
+### Live sync
+
+`DynWorkSyncEngine.make` (`packages/gui/src/sync/engine.ts`, one per process, started by the accounts main entry) runs
+one loop, for the active signed-in account only (decision D4), and pushes its content to DynWork's service through
+`accounts/sync.ts` (`dynwork.sync/apply`, `token`, `clear`):
+
+- Cadence: the first poll at once; then every 30 s ± 20 % while a DynWork window has focus, every 5 min while none
+  has; at once when a window gains focus, when an account is activated and on `syncNow`. Polls never overlap: one asked
+  for while another runs follows it once.
+- Each poll reads the manifest with the last ETag (`If-None-Match`, `Cache-Control: no-cache`). The signature is checked
+  against the pinned key, else the one offered at sign-in. A manifest for another user than the one `whoami` named at
+  sign-in, or with an `issued_at` older than the newest applied in this process, is refused (`invalid`) and its ETag is
+  not kept.
+- The content the plugin reads is digested entry by entry (kind, id, digest of the entry, sorted), with the profile and
+  the models catalog. `apply` runs only when that changes: a 304 or a re-signed copy of the same content pushes nothing.
+  The plugin replaces the instance's whole namespace on each `apply` (design point 3: whole-namespace replace).
+- The profile and the `/v1/models` catalog are read when the loop starts and again every 30 min; a failed read keeps
+  the previous ones.
+- Failures are statuses, never exceptions. `unreachable` and `rate-limited` back off 30 s, 1, 2, 4 min, capped at 5
+  (at least the instance's `Retry-After`); `service` (DynWork's service did not take the call) retries after 2 s,
+  doubling up to the poll interval; the others wait one poll interval. `key-changed` records the served key with
+  `offerKey` and stops the loop, keeping what the service holds, until the user `trust`s that key.
+- Switching to another account stops the previous loop, clears the service and syncs the new one at once; signing out
+  clears it. The same account with a newly trusted key keeps its content until the next apply.
+- Every JWT the accounts mint for the active account is pushed with `token` once. The plugin's `refresh` event is
+  answered with `session(id)`, or with a fresh mint when the reason is `rejected`; `rejected` signs the account out.
+  When the event stream ends (the service stopped or restarted), the engine follows it again after 1 s and applies the
+  instance again; a `token` the plugin refuses means the same. Event handlers never throw.
+
+Statuses, in `State.sync` and as the Ipc's `sync` event: `{status: "idle"}`, `{status: "syncing", account}`,
+`{status: "synced", account, at, counts: {skills, agents, mcp, rules}}` and `{status: "error", account, kind, at}`, with
+`kind` one of `unreachable`, `rate-limited`, `refused`, `key-changed`, `invalid`, `insecure` and `service`.
+`bun test test/sync` in `packages/gui` drives the engine on fake timers against the fake instance.
 
 ## Local systemprompt instances
 
@@ -142,7 +177,7 @@ may quote the input.
 | Manifest                               | OpenCode                                                                                                                                                                                                                                                                                                                                                  |
 | -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `skills[]` with inline body            | `ctx.skill.transform`: embedded `Skill.Info` with id `<key>-<id>` and the virtual path `dynwork://<key>/skills/<id>`                                                                                                                                                                                                                                      |
-| `agents[]` (not disabled)              | `ctx.agent.transform`: sub-agent `<key>-<id>` with the display name, description and `system_prompt`. The instance's provider and model are not mapped yet: agents use the Session's model (open: map them to `systemprompt/<model>`)                                                                                                                     |
+| `agents[]` (not disabled)              | `ctx.agent.transform`: sub-agent `<key>-<id>` with the display name, description and `system_prompt`. An agent whose `model` the gateway serves runs on `systemprompt/<model>`; any other uses the Session's model                                                                                                                                        |
 | `managed_mcp_servers[]`                | `ctx.mcp.transform`: remote server `<key>-<id>`, `oauth: false`. Only a server on the instance's own origin gets `Authorization: Bearer <jwt>`; any other keeps its declared headers only, and plain HTTP is accepted only on loopback                                                                                                                    |
 | `rules[]`                              | `ctx.session.hook("context")`: one system part per model call, rules sorted by id and capped at 24,000 characters. Chosen over the Session instruction entries, which are stored per Session: the system part is rebuilt on every step, so it never piles up, compaction cannot summarize it away, and a switch applies to every Session at the next step |
 | `marketplaces[].opencode.cli_defaults` | `default_agent` (an instance agent) becomes the default agent and selectable as primary; `model` (`provider/model`) becomes the default model when the service has it                                                                                                                                                                                     |
