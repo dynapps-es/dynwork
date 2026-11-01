@@ -1,0 +1,15 @@
+mcp_servers:
+  beta-docs:
+    server_type: external
+    endpoint: http://127.0.0.1:9/beta-docs/mcp
+    enabled: true
+    tool_policy: allow
+    display_in_web: false
+    removable: true
+    description: Placeholder documentation server of the local beta instance (nothing listens there)
+    oauth:
+      required: false
+      scopes:
+      - user
+      audience: mcp
+      client_id: null

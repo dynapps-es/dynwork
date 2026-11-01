@@ -1,0 +1,6 @@
+schema: 1
+plugin:
+  category: development
+  enabled: true
+  mcp_servers: { source: explicit, include: [beta-docs] }
+  agents: { source: explicit, include: [beta_helper] }

@@ -14,6 +14,7 @@ the next tag.
 | `packages/build` | `@dynwork/build`: the build seam. `src/vite.ts` exports `DynWorkVite`, the aliases and plugins that swap the theme and the logos, which `packages/desktop/electron.vite.config.ts` spreads into its main and renderer plugins. `test/vite.test.ts` fails when an upstream specifier, module or export a swap relies on moves |
 | `script/patches.ts` | The patch guard (`bun dynwork/script/patches.ts`, logic in `packages/build/src/patches.ts`). `UPSTREAM` holds the upstream tag the stack sits on |
 | `script/sync-upstream.ts` | The upstream sync (logic in `packages/build/src/sync.ts`): rebases the stack onto a newer upstream ref in a throwaway worktree, checks it and writes a report. See "Syncing with upstream" |
+| `script/sp-local.ts`, `test/sp-local` | The local systemprompt harness (see "Local systemprompt instances") |
 | `packages/gui` | `@dynwork/gui`: DynWork's own screens and main-process helpers. `src/signin`: the sign-in gate the desktop shows until the device is signed in. `src/service.ts`: the layout of DynWork's own background service (see "Background service") |
 | `packages/branding/src` | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark |
 | `packages/branding/theme` | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json` |
@@ -30,6 +31,13 @@ Finishing stores the `dynwork-signin` key (a small JSON with the URL and the cho
 `localStorage`, or in `sessionStorage` when "Keep me signed in on this device" is off, and fades the screen out.
 Removing the key shows the screen again on the next launch. While it shows, the gate keeps focus and every keydown
 to itself, so app shortcuts do not act on the hidden shell. All copy lives in `copy.ts`.
+
+## Local systemprompt instances
+
+`bun dynwork/script/sp-local.ts up|seed|check|status|code|down` runs two disposable systemprompt 0.76 instances in Docker
+(alpha and beta, loopback only, seeded with a user, a PAT, an exchange code and content) so DynWork can be tested against
+real servers without touching a Dynapps environment. Setup, what the image needs and the seeded content are in
+`test/sp-local/README.md`; the generated secrets stay in the gitignored `test/sp-local/.env.local`.
 
 ## Background service
 
