@@ -36,13 +36,11 @@ export default function AgentsView() {
         groups: [
           {
             label: ctx.t("agents.nav.farm"),
-            items: [
-              { id: "agents", label: ctx.t("agents.nav.agents"), icon: "cube", count: model.state.agents.length },
-            ],
+            items: [{ id: "agents", label: ctx.t("agents.nav.agents"), icon: "mcp", count: model.state.agents.length }],
           },
           {
             label: ctx.t("agents.nav.mac"),
-            items: [{ id: "routines", label: ctx.t("agents.nav.routines"), icon: "refresh", count: routinesOn }],
+            items: [{ id: "routines", label: ctx.t("agents.nav.routines"), icon: "task", count: routinesOn }],
           },
         ],
         selected: "agents",

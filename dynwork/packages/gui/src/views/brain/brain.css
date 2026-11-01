@@ -369,6 +369,15 @@
       font-weight: 600;
     }
 
+    /* The host's reset strips list markers. */
+    ul {
+      list-style: disc;
+    }
+
+    ol {
+      list-style: decimal;
+    }
+
     ul,
     ol {
       padding-inline-start: 20px;
