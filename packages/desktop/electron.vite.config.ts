@@ -1,4 +1,4 @@
-import { fileURLToPath } from "node:url"
+import { DynWorkVite } from "@dynwork/build/vite"
 import { defineConfig } from "electron-vite"
 import type { Plugin } from "vite"
 import { BetaNotes } from "./script/beta-notes"
@@ -16,38 +16,6 @@ function resolveChannel() {
 }
 
 const appPlugin = (await import("@opencode/app/vite")).default
-
-// DynWork ships its Dynapps theme under the bundled default's id, so the main and renderer imports of oc-2.json
-// (static and import.meta.glob) load it and every upstream "oc-2" default path keeps working unchanged.
-const defaultTheme = {
-  find: /^(?:.*\/)?themes\/oc-2\.json$/,
-  replacement: fileURLToPath(new URL("../../dynwork/packages/branding/theme/dynapps.json", import.meta.url)),
-}
-
-// DynWork logos: the renderer's logo and wordmark modules, and the new session's easter-egg wordmark, which view.tsx
-// imports by a relative path, come from the branding package with the same exports.
-const logos = [
-  {
-    find: /^@opencode\/ui\/logo$/,
-    replacement: fileURLToPath(new URL("../../dynwork/packages/branding/src/logo.tsx", import.meta.url)),
-  },
-  {
-    find: /^@opencode\/ui\/wordmark$/,
-    replacement: fileURLToPath(new URL("../../dynwork/packages/branding/src/wordmark.tsx", import.meta.url)),
-  },
-]
-
-const newSessionView = fileURLToPath(new URL("../app/src/new-session/view.tsx", import.meta.url))
-
-const newSessionWordmark: Plugin = {
-  name: "dynwork:new-session-wordmark",
-  enforce: "pre",
-  resolveId(source, importer) {
-    if (source !== "./wordmark" || importer !== newSessionView) return undefined
-
-    return fileURLToPath(new URL("../../dynwork/packages/branding/src/new-session-wordmark.tsx", import.meta.url))
-  },
-}
 
 // Every module the entry reaches through static imports lands in one chunk. Automatic splitting
 // otherwise fragments the initial graph into ~50 files shared with lazy routes, and each file costs
@@ -83,7 +51,6 @@ export default defineConfig(async ({ command }) => {
   return {
     main: {
       resolve: {
-        alias: [defaultTheme],
         dedupe: ["effect"],
       },
       define: {
@@ -108,6 +75,7 @@ export default defineConfig(async ({ command }) => {
         },
       },
       plugins: [
+        ...DynWorkVite.main(),
         {
           name: "opencode:node-pty-narrower",
           enforce: "pre",
@@ -146,9 +114,6 @@ export default defineConfig(async ({ command }) => {
       },
     },
     renderer: {
-      resolve: {
-        alias: [defaultTheme, ...logos],
-      },
       experimental: {
         bundledDev: true,
       },
@@ -161,7 +126,7 @@ export default defineConfig(async ({ command }) => {
           command === "serve" && process.env.OPENCODE_TEST_ONBOARDING === "1",
         ),
       },
-      plugins: [newSessionWordmark, pickerPlugin(), appPlugin, initialChunk],
+      plugins: [...DynWorkVite.renderer(), pickerPlugin(), appPlugin, initialChunk],
       publicDir: "../../../app/public",
       root: "src/renderer",
       build: {

@@ -1,0 +1,9 @@
+schema: 1
+marketplace:
+  visibility: private
+  enabled: true
+  access:
+    default_included: true
+    roles: [user]
+  mcp_servers: { source: explicit, include: [alpha-docs] }
+  agents: { source: explicit, include: [alpha_helper] }

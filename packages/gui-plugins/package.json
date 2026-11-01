@@ -21,6 +21,7 @@
     "@betteroffice/fonts": "0.4.0",
     "@betteroffice/pptx": "0.2.0",
     "@betteroffice/xlsx": "0.3.0",
+    "@dynwork/gui": "workspace:*",
     "@effect/platform-node": "catalog:",
     "@kobalte/core": "catalog:",
     "@opencode/client": "workspace:*",

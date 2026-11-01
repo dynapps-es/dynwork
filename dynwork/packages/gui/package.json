@@ -11,17 +11,28 @@
     "test": "bun test"
   },
   "exports": {
-    "./signin": "./src/signin/index.ts"
+    "./signin": "./src/signin/index.ts",
+    "./service": "./src/service.ts",
+    "./accounts": "./src/accounts/index.ts",
+    "./accounts/contract": "./src/accounts/contract.ts",
+    "./accounts/main": "./src/accounts/main.ts",
+    "./accounts/renderer": "./src/accounts/renderer.ts",
+    "./accounts/sync": "./src/accounts/sync.ts"
   },
   "dependencies": {
     "@dynwork/branding": "workspace:*",
+    "@dynwork/server-plugin": "workspace:*",
+    "@dynwork/sp-client": "workspace:*",
+    "@opencode/plugin": "workspace:*",
     "@opencode/ui": "workspace:*",
+    "effect": "catalog:",
     "solid-js": "catalog:"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "20.0.11",
     "@tsconfig/node22": "catalog:",
     "@types/bun": "catalog:",
-    "@typescript/native": "catalog:"
+    "@typescript/native": "catalog:",
+    "electron": "44.9.1"
   }
 }

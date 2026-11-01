@@ -1,0 +1,63 @@
+name: dynwork
+
+# The fork's only workflow: DynWork's own checks. Upstream's workflows are disabled on this fork (dynwork/PATCHES.md).
+on:
+  push:
+    branches: [main, sp-auth-sync]
+  pull_request:
+    branches: [main, sp-auth-sync]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUN_CONFIG_REGISTRY: https://registry.npmjs.org/
+
+jobs:
+  check:
+    name: patch guard and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      # The patch guard diffs HEAD against the upstream tag in dynwork/UPSTREAM; the fork does not carry upstream's tags.
+      - name: Fetch the upstream tag
+        run: |
+          TAG=$(cat dynwork/UPSTREAM)
+          git fetch --no-tags --depth=1 https://github.com/anomalyco/opencode.git "refs/tags/${TAG}:refs/tags/${TAG}"
+
+      # Bun is pinned by the root packageManager, like upstream's setup-bun action.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Patch guard
+        run: bun dynwork/script/patches.ts
+
+      - name: DynWork packages
+        run: |
+          for dir in dynwork/packages/*/; do
+            echo "::group::${dir}"
+            (cd "$dir" && bun test && bun typecheck) || exit 1
+            echo "::endgroup::"
+          done
+
+      - name: Desktop typecheck
+        run: bun typecheck
+        working-directory: packages/desktop
+
+      # The service layout contract lives next to the desktop service it patches.
+      - name: Desktop service tests
+        run: bun test src/main/service
+        working-directory: packages/desktop

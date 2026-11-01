@@ -1,0 +1,6 @@
+{
+  "name": "alpha-tools",
+  "version": "1.0.0",
+  "description": "Skills, an agent, an MCP server and a rule for the alpha instance.",
+  "author": { "name": "DynWork local harness" }
+}

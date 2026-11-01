@@ -1,0 +1,609 @@
+{
+  "captured_at": "2026-11-01T09:04:16.030Z",
+  "instance": {
+    "image": "ghcr.io/systempromptio/systemprompt-dynapps:0.76.0",
+    "discovery": {
+      "status": 200,
+      "body": {
+        "contract": "1",
+        "device_link_path": "/bridge-auth/device-link",
+        "identity_path": "/api/public/bridge/whoami",
+        "branding": {
+          "display_name": "Dynapps"
+        },
+        "enabled_hosts": [
+          "claude-code",
+          "claude-desktop",
+          "opencode",
+          "opencode-cli"
+        ]
+      }
+    },
+    "core_default_path": {
+      "path": "/bridge/device-link",
+      "status": 404
+    }
+  },
+  "login_gate": {
+    "unauthenticated": {
+      "status": 307,
+      "location": "/admin/login?redirect=/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb"
+    },
+    "login_page": {
+      "url": "<instance>/admin/login?redirect=/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb",
+      "sign_in_controls": [
+        "Sign in with Microsoft"
+      ],
+      "sso_href": "/admin/auth/entra/start?redirect=/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb",
+      "notes": [
+        "Your Dynapps Entra ID account is the only sign-in.",
+        "Development instance: run just dev-login <user> and open the printed link."
+      ]
+    },
+    "sso_start": {
+      "status": 303,
+      "location_host": "login.microsoftonline.com"
+    },
+    "just_in_image": false
+  },
+  "development_login": {
+    "admin_login": "unavailable: Microsoft Entra only, and the local instance has a dummy Entra secret",
+    "method": "passkey on the core OAuth authorize page, then the OAuth JWT as a bearer on the instance origin",
+    "passkey_setup_link": "http://localhost:8080/auth/link-passkey?token=<redacted>",
+    "passkey_registration": {
+      "127.0.0.1": "This is an invalid domain.",
+      "localhost": "Passkey registered successfully! You can now sign in with your passkey."
+    },
+    "oauth_client_registration": {
+      "status": 201,
+      "body": {
+        "application_type": "<string>",
+        "client_id": "<string>",
+        "client_id_issued_at": "<timestamp>",
+        "client_name": "<string>",
+        "grant_types": [
+          "<string>"
+        ],
+        "redirect_uris": [
+          "<string>"
+        ],
+        "registration_access_token": "<string>",
+        "registration_client_uri": "<string>",
+        "response_types": [
+          "<string>"
+        ],
+        "scope": "user",
+        "token_endpoint_auth_method": "<string>"
+      }
+    },
+    "authorize_callback_query": [
+      "code",
+      "client_id",
+      "state",
+      "iss"
+    ],
+    "state_returned": true,
+    "cookies_after_sign_in": [],
+    "token": {
+      "status": 200,
+      "body": {
+        "access_token": "<jwt>",
+        "expires_in": 2592000,
+        "refresh_token": "<string>",
+        "scope": "user",
+        "token_type": "Bearer"
+      }
+    },
+    "jwt_claims": {
+      "names": [
+        "aud",
+        "auth_time",
+        "client_id",
+        "email",
+        "exp",
+        "iat",
+        "iss",
+        "jti",
+        "nbf",
+        "rate_limit_tier",
+        "roles",
+        "scope",
+        "session_id",
+        "sub",
+        "token_type",
+        "user_type",
+        "username"
+      ],
+      "aud": [
+        "web",
+        "api",
+        "a2a",
+        "mcp"
+      ]
+    }
+  },
+  "round_trip": {
+    "consent": {
+      "url": "<instance>/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb",
+      "title": "Authorise a device",
+      "lede": "A local helper is asking to sign in as you. Approving issues a personal access token that stays valid until you revoke it.",
+      "facts": {
+        "Account": "dev@dynapps.test",
+        "Helper": "127.0.0.1:<port>",
+        "Code valid for": "600 seconds"
+      },
+      "note": "Only approve if you started sp-bridge-auth yourself.",
+      "forms": [
+        {
+          "action": "/bridge-auth/device-link/approve",
+          "method": "POST",
+          "fields": [
+            "redirect"
+          ],
+          "button": "Allow"
+        },
+        {
+          "action": "/bridge-auth/device-link/deny",
+          "method": "POST",
+          "fields": [
+            "redirect"
+          ],
+          "button": "Deny"
+        }
+      ],
+      "commands": []
+    },
+    "approve": [
+      {
+        "section": "round-trip",
+        "method": "POST",
+        "url": "<instance>/bridge-auth/device-link/approve",
+        "status": 303,
+        "location": "http://127.0.0.1:<port>/cb?code=<redacted>",
+        "form": [
+          "redirect"
+        ]
+      }
+    ],
+    "callback": {
+      "method": "GET",
+      "path": "/cb",
+      "query": [
+        "code"
+      ],
+      "code_format": "64 lowercase hex characters",
+      "request_headers": [
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "cache-control",
+        "connection",
+        "host",
+        "pragma",
+        "referer",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "sec-fetch-dest",
+        "sec-fetch-mode",
+        "sec-fetch-site",
+        "sec-fetch-user",
+        "upgrade-insecure-requests",
+        "user-agent"
+      ],
+      "referer": "<instance>/",
+      "carries_bearer": false
+    },
+    "session_pat": {
+      "request": [
+        "code",
+        "device_name"
+      ],
+      "status": 200,
+      "body": {
+        "pat": "<pat>"
+      }
+    },
+    "pat_to_jwt": {
+      "status": 200,
+      "body": {
+        "device_token": "<jwt>",
+        "headers": {
+          "x-call-source": "<string>",
+          "x-client-id": "sp_bridge",
+          "x-policy-version": "<string>",
+          "x-session-id": "<string>",
+          "x-trace-id": "<string>",
+          "x-user-id": "<string>"
+        },
+        "token": "<jwt>",
+        "ttl": 3600
+      }
+    },
+    "second_use": {
+      "status": 401,
+      "body": {
+        "code": "unauthorized",
+        "message": "exchange code invalid, expired, or already consumed",
+        "timestamp": "<timestamp>"
+      }
+    }
+  },
+  "experiments": {
+    "redirects": [
+      {
+        "redirect": "http://127.0.0.1:<port>/cb",
+        "page": 200,
+        "title": "Authorise a device",
+        "approve": 303,
+        "location": "http://127.0.0.1:<port>/cb?code=<redacted>"
+      },
+      {
+        "redirect": "http://localhost:<port>/cb",
+        "page": 200,
+        "title": "Authorise a device",
+        "approve": 303,
+        "location": "http://localhost:<port>/cb?code=<redacted>"
+      },
+      {
+        "redirect": "http://127.0.0.1:<port>/any/path",
+        "page": 200,
+        "title": "Authorise a device",
+        "approve": 303,
+        "location": "http://127.0.0.1:<port>/any/path?code=<redacted>"
+      },
+      {
+        "redirect": "http://127.0.0.1:<port>",
+        "page": 200,
+        "title": "Authorise a device",
+        "approve": 303,
+        "location": "http://127.0.0.1:<port>/?code=<redacted>"
+      },
+      {
+        "redirect": "http://127.0.0.1:1/cb",
+        "page": 200,
+        "title": "Authorise a device",
+        "approve": 303,
+        "location": "http://127.0.0.1:1/cb?code=<redacted>"
+      },
+      {
+        "redirect": "http://127.0.0.1:0/cb",
+        "page": 200,
+        "title": "Authorise a device",
+        "approve": 303,
+        "location": "http://127.0.0.1:0/cb?code=<redacted>"
+      },
+      {
+        "redirect": "http://127.0.0.1:65536/cb",
+        "page": 400,
+        "title": "Invalid redirect",
+        "approve": 400
+      },
+      {
+        "redirect": "http://127.0.0.1/cb",
+        "page": 400,
+        "title": "Invalid redirect",
+        "approve": 400
+      },
+      {
+        "redirect": "http://[::1]:<port>/cb",
+        "page": 400,
+        "title": "Invalid redirect",
+        "approve": 400
+      },
+      {
+        "redirect": "https://127.0.0.1:<port>/cb",
+        "page": 400,
+        "title": "Invalid redirect",
+        "approve": 400
+      },
+      {
+        "redirect": "http://127.0.0.2:<port>/cb",
+        "page": 400,
+        "title": "Invalid redirect",
+        "approve": 400
+      },
+      {
+        "redirect": "http://127.0.0.1.evil.example:<port>/cb",
+        "page": 400,
+        "title": "Invalid redirect",
+        "approve": 400
+      },
+      {
+        "redirect": "https://evil.example/cb",
+        "page": 400,
+        "title": "Invalid redirect",
+        "approve": 400
+      },
+      {
+        "redirect": "dynwork://auth/cb",
+        "page": 400,
+        "title": "Invalid redirect",
+        "approve": 400
+      }
+    ],
+    "rejected_page": "Invalid redirect Only http://127.0.0.1:PORT or http://localhost:PORT redirects are accepted. Got: https://evil.example/cb",
+    "instance_hosts": {
+      "browser": "localhost",
+      "http": "127.0.0.1",
+      "both_serve_the_consent_page": true
+    },
+    "state": {
+      "as_page_parameter": {
+        "echoed_in_page": false,
+        "approve_with_state_field": "http://127.0.0.1:<port>/cb?code=<redacted>"
+      },
+      "inside_redirect": {
+        "approve": "http://127.0.0.1:<port>/cb?state=<redacted>&code=<redacted>",
+        "preserved": true
+      }
+    },
+    "deny": {
+      "method": "GET",
+      "callback": "http://127.0.0.1:<port>/cb?error=denied"
+    },
+    "no_redirect": {
+      "prompt": {
+        "url": "<instance>/bridge-auth/device-link",
+        "title": "Authorise a device",
+        "lede": "A command-line helper on another machine is asking to sign in as you. Approving issues a personal access token that stays valid until you revoke it.",
+        "facts": {
+          "Account": "dev@dynapps.test",
+          "Code valid for": "600 seconds"
+        },
+        "note": "Only approve if you started dynapps-bridge login yourself.",
+        "forms": [
+          {
+            "action": "/bridge-auth/device-link/approve",
+            "method": "POST",
+            "fields": [],
+            "button": "Allow"
+          },
+          {
+            "action": "/bridge-auth/device-link/deny",
+            "method": "POST",
+            "fields": [],
+            "button": "Deny"
+          }
+        ],
+        "commands": []
+      },
+      "shown": {
+        "url": "<instance>/bridge-auth/device-link/approve",
+        "title": "Your device code",
+        "lede": "Paste this command into the terminal that asked for a code. It can be used once.",
+        "facts": {
+          "Account": "dev@dynapps.test",
+          "Expires in": "600 seconds"
+        },
+        "note": null,
+        "forms": [],
+        "commands": [
+          "dynapps-bridge login --code <code> --gateway http://localhost:8080",
+          "<code>"
+        ]
+      },
+      "session_pat": {
+        "status": 200,
+        "body": {
+          "pat": "<pat>"
+        }
+      },
+      "pat_to_jwt": {
+        "status": 200
+      }
+    },
+    "session_endpoint": {
+      "request": [
+        "code"
+      ],
+      "status": 200,
+      "body": {
+        "device_token": "<jwt>",
+        "headers": {
+          "x-call-source": "<string>",
+          "x-client-id": "sp_bridge",
+          "x-policy-version": "<string>",
+          "x-session-id": "<string>",
+          "x-trace-id": "<string>",
+          "x-user-id": "<string>"
+        },
+        "token": "<jwt>",
+        "ttl": 3600
+      }
+    },
+    "approve_without_session": {
+      "status": 307,
+      "location": "/admin/login?redirect=/bridge-auth/device-link/approve"
+    },
+    "approve_without_form_body": {
+      "status": 415
+    },
+    "bad_codes": {
+      "empty": {
+        "status": 400,
+        "body": {
+          "code": "bad_request",
+          "message": "missing exchange code",
+          "timestamp": "<timestamp>"
+        }
+      },
+      "unknown": {
+        "status": 401,
+        "body": {
+          "code": "unauthorized",
+          "message": "exchange code invalid, expired, or already consumed",
+          "timestamp": "<timestamp>"
+        }
+      }
+    },
+    "expired_code": {
+      "tested": false,
+      "reason": "`admin bridge issue-code` takes no TTL and the page states 600 s; waiting it out was not worth a 10-minute capture"
+    },
+    "cli_code": {
+      "command": "admin bridge issue-code --user-id <user>",
+      "code_format": "64 lowercase hex characters",
+      "session_pat": 200,
+      "pat_to_jwt": 200,
+      "second_use": {
+        "status": 401,
+        "body": {
+          "code": "unauthorized",
+          "message": "exchange code invalid, expired, or already consumed",
+          "timestamp": "<timestamp>"
+        }
+      }
+    },
+    "revoked_pat": {
+      "pat_named_after_device_name": true,
+      "key_prefix_length": 20,
+      "pat_to_jwt_after_revoke": {
+        "status": 401,
+        "body": {
+          "code": "unauthorized",
+          "message": "Invalid PAT",
+          "timestamp": "<timestamp>"
+        }
+      }
+    }
+  },
+  "requests": [
+    {
+      "section": "login-gate",
+      "method": "GET",
+      "url": "<instance>/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb",
+      "status": 307,
+      "location": "/admin/login?redirect=/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb"
+    },
+    {
+      "section": "login-gate",
+      "method": "GET",
+      "url": "<instance>/admin/login?redirect=/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb",
+      "status": 200
+    },
+    {
+      "section": "development-login",
+      "method": "GET",
+      "url": "<instance>/auth/link-passkey?token=<redacted>",
+      "status": 200
+    },
+    {
+      "section": "development-login",
+      "method": "GET",
+      "url": "<instance>/api/v1/core/oauth/webauthn/link/start?token=<redacted>",
+      "status": 200
+    },
+    {
+      "section": "development-login",
+      "method": "GET",
+      "url": "<instance>/auth/link-passkey?token=<redacted>",
+      "status": 200
+    },
+    {
+      "section": "development-login",
+      "method": "GET",
+      "url": "<instance>/api/v1/core/oauth/webauthn/link/start?token=<redacted>",
+      "status": 200
+    },
+    {
+      "section": "development-login",
+      "method": "POST",
+      "url": "<instance>/api/v1/core/oauth/webauthn/link/finish",
+      "status": 200
+    },
+    {
+      "section": "development-login",
+      "method": "GET",
+      "url": "<instance>/api/v1/core/oauth/authorize?response_type=code&client_id=<redacted>&redirect_uri=<redacted>&scope=user&state=<redacted>&code_challenge=<redacted>&code_challenge_method=S256",
+      "status": 200
+    },
+    {
+      "section": "development-login",
+      "method": "POST",
+      "url": "<instance>/api/v1/core/oauth/webauthn/auth/start?email=<redacted>&oauth_state=<redacted>",
+      "status": 200
+    },
+    {
+      "section": "development-login",
+      "method": "POST",
+      "url": "<instance>/api/v1/core/oauth/webauthn/auth/finish",
+      "status": 200
+    },
+    {
+      "section": "development-login",
+      "method": "GET",
+      "url": "<instance>/api/v1/core/oauth/webauthn/complete?user_id=<redacted>&auth_token=<redacted>&response_type=code&client_id=<redacted>&redirect_uri=<redacted>&scope=user&state=<redacted>&code_challenge=<redacted>&code_challenge_method=S256",
+      "status": 303,
+      "location": "http://127.0.0.1:<port>/oauth?code=<redacted>&client_id=<redacted>&state=<redacted>&iss=<redacted>"
+    },
+    {
+      "section": "development-login",
+      "method": "GET",
+      "url": "http://127.0.0.1:<port>/oauth?code=<redacted>&client_id=<redacted>&state=<redacted>&iss=<redacted>",
+      "status": 200
+    },
+    {
+      "section": "round-trip",
+      "method": "GET",
+      "url": "<instance>/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb",
+      "status": 200
+    },
+    {
+      "section": "round-trip",
+      "method": "POST",
+      "url": "<instance>/bridge-auth/device-link/approve",
+      "status": 303,
+      "location": "http://127.0.0.1:<port>/cb?code=<redacted>",
+      "form": [
+        "redirect"
+      ]
+    },
+    {
+      "section": "round-trip",
+      "method": "GET",
+      "url": "http://127.0.0.1:<port>/cb?code=<redacted>",
+      "status": 200
+    },
+    {
+      "section": "experiments",
+      "method": "GET",
+      "url": "<instance>/bridge-auth/device-link?redirect=https://evil.example/cb",
+      "status": 400
+    },
+    {
+      "section": "deny",
+      "method": "GET",
+      "url": "<instance>/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb",
+      "status": 200
+    },
+    {
+      "section": "deny",
+      "method": "POST",
+      "url": "<instance>/bridge-auth/device-link/deny",
+      "status": 303,
+      "location": "http://127.0.0.1:<port>/cb?error=denied",
+      "form": [
+        "redirect"
+      ]
+    },
+    {
+      "section": "deny",
+      "method": "GET",
+      "url": "http://127.0.0.1:<port>/cb?error=denied",
+      "status": 200
+    },
+    {
+      "section": "no-redirect",
+      "method": "GET",
+      "url": "<instance>/bridge-auth/device-link",
+      "status": 200
+    },
+    {
+      "section": "no-redirect",
+      "method": "POST",
+      "url": "<instance>/bridge-auth/device-link/approve",
+      "status": 200
+    }
+  ]
+}

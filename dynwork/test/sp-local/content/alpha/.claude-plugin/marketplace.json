@@ -1,0 +1,13 @@
+{
+  "name": "alpha-local",
+  "owner": { "name": "DynWork local harness", "email": "dev@dynapps.test" },
+  "metadata": { "description": "Disposable content for the local alpha instance.", "version": "1.0.0" },
+  "plugins": [
+    {
+      "name": "alpha-tools",
+      "source": "./plugins/alpha-tools",
+      "description": "Skills, an agent, an MCP server and a rule for the alpha instance.",
+      "version": "1.0.0"
+    }
+  ]
+}

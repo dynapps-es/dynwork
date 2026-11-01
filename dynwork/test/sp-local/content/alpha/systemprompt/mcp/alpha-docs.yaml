@@ -1,0 +1,15 @@
+mcp_servers:
+  alpha-docs:
+    server_type: external
+    endpoint: http://127.0.0.1:9/alpha-docs/mcp
+    enabled: true
+    tool_policy: allow
+    display_in_web: false
+    removable: true
+    description: Placeholder documentation server of the local alpha instance (nothing listens there)
+    oauth:
+      required: false
+      scopes:
+      - user
+      audience: mcp
+      client_id: null

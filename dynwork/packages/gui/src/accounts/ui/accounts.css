@@ -1,0 +1,288 @@
+/* Tailwind does not scan dynwork/, so the Accounts page, the pill menu and the Add instance dialog style themselves
+   here with the theme's v2 tokens. The settings screen's own classes (header, section, list) come from the host. */
+
+[data-slot="accounts-heading"] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+[data-slot="accounts-description"] {
+  max-width: 42em;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--v2-text-text-muted);
+}
+
+[data-slot="accounts-note"] {
+  font-size: 13px;
+  color: var(--v2-text-text-muted);
+}
+
+[data-component="settings-list"][data-variant="accounts"] {
+  padding-block: 4px;
+}
+
+[data-component="accounts-instance"] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-block: 16px;
+  border-bottom: 0.5px solid var(--v2-border-border-base);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+[data-slot="accounts-instance-main"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+[data-slot="accounts-avatar"] {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--v2-background-bg-accent);
+  color: var(--v2-text-text-contrast);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+[data-component="accounts-instance"]:not([data-active]) [data-slot="accounts-avatar"] {
+  background: var(--v2-background-bg-layer-03);
+  color: var(--v2-text-text-muted);
+}
+
+[data-slot="accounts-instance-copy"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+[data-slot="accounts-instance-name"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 530;
+  color: var(--v2-text-text-base);
+}
+
+[data-slot="accounts-badge"][data-badge="key-changed"],
+[data-slot="accounts-badge"][data-badge="new-key"] {
+  border-color: var(--v2-state-border-warning);
+  background: var(--v2-state-bg-warning);
+  color: var(--v2-state-fg-warning);
+}
+
+[data-slot="accounts-instance-url"] {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--v2-text-text-muted);
+  overflow-wrap: anywhere;
+}
+
+[data-slot="accounts-instance-meta"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-block-start: 4px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--v2-text-text-muted);
+
+  > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  [data-component="icon"] {
+    color: var(--v2-icon-icon-muted);
+  }
+
+  [data-slot="accounts-sync"][data-tone="error"] {
+    color: var(--v2-state-fg-danger);
+  }
+}
+
+[data-slot="accounts-instance-actions"] {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+[data-slot="accounts-key"] {
+  display: flex;
+  gap: 10px;
+  margin-inline-start: 40px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--v2-state-border-warning);
+  background: var(--v2-state-bg-warning);
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
+
+  > [data-component="icon"] {
+    flex: none;
+    margin-block-start: 2px;
+    color: var(--v2-state-fg-warning);
+  }
+}
+
+[data-slot="accounts-key-copy"] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+[data-slot="accounts-key-title"] {
+  display: flex;
+  flex-direction: column;
+  font-weight: 530;
+}
+
+[data-slot="accounts-key-body"] {
+  display: block;
+  font-weight: 440;
+  color: var(--v2-text-text-muted);
+}
+
+[data-slot="accounts-key-prints"] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  > div {
+    display: flex;
+    gap: 8px;
+  }
+
+  dt {
+    width: 4.5em;
+    color: var(--v2-text-text-muted);
+  }
+
+  dd {
+    margin: 0;
+    min-width: 0;
+  }
+}
+
+[data-slot="accounts-fingerprint"] {
+  font-family: var(--v2-font-family-mono, ui-monospace, monospace);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+[data-slot="accounts-key-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-slot="accounts-error"] {
+  margin-inline-start: 40px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--v2-state-fg-danger);
+}
+
+/* The Add instance dialog holds the sign-in screen's connect form. */
+[data-component="dynwork-signin-form"][data-variant="dialog"] {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0 24px 24px;
+  color: var(--v2-text-text-base);
+  font-family: var(--v2-font-family-sans);
+}
+
+/* The pill's menu. */
+[data-component="accounts-pill-menu"] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: min(360px, calc(100vw - 64px));
+  padding: 0 16px 16px;
+}
+
+[data-slot="accounts-pill-list"] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-slot="accounts-pill-item"] {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v2-text-text-base);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: start;
+  cursor: pointer;
+
+  &:hover:not(:disabled) {
+    background: var(--v2-background-bg-layer-02);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--v2-border-border-focus);
+    outline-offset: -2px;
+  }
+
+  &:disabled {
+    cursor: default;
+  }
+
+  &[data-active] [data-slot="accounts-pill-name"]::before {
+    content: "✓ ";
+    color: var(--v2-text-text-muted);
+  }
+}
+
+[data-slot="accounts-pill-name"] {
+  font-weight: 530;
+}
+
+[data-slot="accounts-pill-status"] {
+  font-size: 12px;
+  color: var(--v2-text-text-muted);
+
+  &[data-tone="error"] {
+    color: var(--v2-state-fg-danger);
+  }
+}
+
+[data-slot="accounts-pill-actions"] {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-block-start: 8px;
+  border-block-start: 0.5px solid var(--v2-border-border-base);
+}

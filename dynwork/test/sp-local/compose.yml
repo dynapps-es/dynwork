@@ -1,0 +1,59 @@
+# Two disposable systemprompt 0.76 instances (alpha, beta) on one PostgreSQL 18. Driven by
+# `bun dynwork/script/sp-local.ts`, which writes .env.local before compose reads it. Everything binds to 127.0.0.1.
+name: dynwork-sp-local
+
+x-instance: &instance
+  image: ghcr.io/systempromptio/systemprompt-dynapps:0.76.0
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: "no"
+
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: sp
+      POSTGRES_PASSWORD: ${SP_DB_PASSWORD:?run sp-local.ts up}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sp -d alpha && pg_isready -U sp -d beta"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [sp]
+
+  alpha:
+    <<: *instance
+    environment:
+      DATABASE_URL: postgres://sp:${SP_DB_PASSWORD}@postgres:5432/alpha
+      ANTHROPIC_API_KEY: ${SP_PROVIDER_KEY}
+      # The shipped Entra OIDC config is enabled and refuses to boot without a client secret; the local one is a dummy.
+      ENTRA_OIDC_CLIENT_SECRET: ${SP_ENTRA_SECRET}
+      SYSTEMPROMPT_ADMIN_EMAIL: admin@alpha.dynapps.test
+      EXTERNAL_URL: http://127.0.0.1:${SP_ALPHA_PORT}
+    ports:
+      - "127.0.0.1:${SP_ALPHA_PORT}:8080"
+    networks: [sp]
+
+  beta:
+    <<: *instance
+    environment:
+      DATABASE_URL: postgres://sp:${SP_DB_PASSWORD}@postgres:5432/beta
+      ANTHROPIC_API_KEY: ${SP_PROVIDER_KEY}
+      # The shipped Entra OIDC config is enabled and refuses to boot without a client secret; the local one is a dummy.
+      ENTRA_OIDC_CLIENT_SECRET: ${SP_ENTRA_SECRET}
+      SYSTEMPROMPT_ADMIN_EMAIL: admin@beta.dynapps.test
+      EXTERNAL_URL: http://127.0.0.1:${SP_BETA_PORT}
+    ports:
+      - "127.0.0.1:${SP_BETA_PORT}:8080"
+    networks: [sp]
+
+volumes:
+  pgdata:
+
+networks:
+  sp:

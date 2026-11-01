@@ -1,8 +1,7 @@
 export * as SignInFlow from "./flow"
 
 import { createStore } from "solid-js/store"
-import type { SignInAccounts } from "./accounts"
-import { SignInFlag } from "./flag"
+import { SignInAccounts } from "./accounts"
 
 // "typing" waits for the field to settle; the other statuses are the colored dot under the instance URL.
 export type Status = "empty" | "typing" | "checking" | "valid" | "invalid"
@@ -16,8 +15,15 @@ export function create(accounts: SignInAccounts.Interface) {
   const [state, setState] = createStore({
     step: "connect" as Step,
     url: "",
+    // The typed URL once checked, normalized: the sign-ins and the stored account use it, not what was typed.
+    target: "",
     status: "empty" as Status,
     host: "",
+    // Why the URL is invalid, and the instance's page that shows a one-time code
+    problem: "format" as SignInAccounts.Problem,
+    login: undefined as string | undefined,
+    // The sign-in that failed: it shows under the browser button or under the token field
+    error: undefined as { from: "browser" | "token"; kind: SignInAccounts.Failure } | undefined,
     pending: undefined as "browser" | "token" | undefined,
     keep: true,
     token: "",
@@ -26,6 +32,8 @@ export function create(accounts: SignInAccounts.Interface) {
     selected: "",
     synced: 0,
   })
+  // Each sign-in attempt takes a number; an answer for an attempt that was cancelled or replaced is dropped.
+  const attempts = { current: 0 }
   const timer = { current: undefined as ReturnType<typeof setTimeout> | undefined }
 
   const selected = () => state.instances.find((instance) => instance.id === state.selected)
@@ -35,16 +43,17 @@ export function create(accounts: SignInAccounts.Interface) {
     clearTimeout(timer.current)
     const url = state.url
 
-    if (!url.trim()) return setState({ status: "empty", host: "" })
+    if (!url.trim()) return setState({ status: "empty", host: "", login: undefined })
 
     if (state.status !== "typing") return
     setState("status", "checking")
-    const probe = await accounts.probe(url)
+    const target = SignInAccounts.normalizeURL(url) ?? url.trim()
+    const probe = await accounts.probe(target)
 
     if (state.url !== url) return
 
-    if (!probe.reachable) return setState({ status: "invalid", host: "" })
-    setState({ status: "valid", host: probe.host })
+    if (!probe.reachable) return setState({ status: "invalid", host: "", login: undefined, problem: probe.reason })
+    setState({ status: "valid", target, host: probe.host, login: probe.login })
   }
 
   const enter = async () => {
@@ -58,7 +67,14 @@ export function create(accounts: SignInAccounts.Interface) {
     selected,
     input(url: string) {
       clearTimeout(timer.current)
-      setState({ url, status: url.trim() ? "typing" : "empty", host: "" })
+      setState({
+        url,
+        target: "",
+        status: url.trim() ? "typing" : "empty",
+        host: "",
+        login: undefined,
+        error: undefined,
+      })
 
       if (url.trim()) timer.current = setTimeout(() => void settle(), idle)
     },
@@ -68,35 +84,48 @@ export function create(accounts: SignInAccounts.Interface) {
       if (state.pending) return
 
       if (state.status !== "valid") return settle()
-      setState("pending", "browser")
+      setState({ pending: "browser", error: undefined })
+      const attempt = ++attempts.current
+      const answer = await accounts.signInBrowser(state.target, state.keep)
 
-      if ((await accounts.signInBrowser(state.url)) !== "signed-in") return
+      if (attempt !== attempts.current) return
+
+      if (answer === "cancelled") return setState("pending", undefined)
+      if (answer !== "signed-in") return setState({ pending: undefined, error: { from: "browser", kind: answer } })
       await enter()
     },
     cancel() {
       if (state.pending !== "browser") return
+      attempts.current++
       setState("pending", undefined)
       accounts.cancel()
     },
-    token: (token: string) => setState({ token, tokenError: false }),
+    token: (token: string) => setState({ token, tokenError: false, error: undefined }),
     async signInToken() {
       if (state.pending || state.status !== "valid") return
 
       if (!state.token.trim()) return setState("tokenError", true)
-      setState("pending", "token")
+      setState({ pending: "token", error: undefined })
+      const attempt = ++attempts.current
+      const answer = await accounts.signInToken(state.target, state.token.trim(), state.keep)
 
-      if ((await accounts.signInToken(state.url, state.token.trim())) !== "signed-in") return setState("pending", undefined)
+      if (attempt !== attempts.current) return
+
+      if (answer === "cancelled") return setState("pending", undefined)
+      if (answer !== "signed-in") return setState({ pending: undefined, error: { from: "token", kind: answer } })
       await enter()
     },
     select: (id: string) => setState("selected", id),
-    back: () => setState({ step: "connect", pending: undefined, token: "", tokenError: false }),
+    back() {
+      attempts.current++
+      setState({ step: "connect", pending: undefined, token: "", tokenError: false, error: undefined })
+    },
     async finish() {
       const instance = selected()
 
       if (state.step !== "choose" || !instance) return
       setState({ step: "finalizing", synced: 0 })
       await accounts.finish(instance, (synced) => setState("synced", synced))
-      SignInFlag.store({ url: state.url.trim(), instance, keep: state.keep })
       setState("step", "done")
     },
   }
