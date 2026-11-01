@@ -82,3 +82,21 @@ describe("gate visibility", () => {
     dispose()
   })
 })
+
+describe("cover", () => {
+  test("a window whose accounts answered is ready", () => {
+    expect(SignInVisibility.cover({ known: true, link: "active", waited: true })).toBe("ready")
+  })
+
+  test("it waits while main's accounts may still answer", () => {
+    expect(SignInVisibility.cover({ known: false, link: "pending", waited: false })).toBe("waiting")
+    expect(SignInVisibility.cover({ known: false, link: undefined, waited: false })).toBe("waiting")
+    expect(SignInVisibility.cover({ known: false, link: "active", waited: false })).toBe("waiting")
+  })
+
+  test("it fails when the accounts never answer or their provider is gone", () => {
+    expect(SignInVisibility.cover({ known: false, link: "pending", waited: true })).toBe("failed")
+    expect(SignInVisibility.cover({ known: false, link: "inactive", waited: false })).toBe("failed")
+    expect(SignInVisibility.stall).toBeGreaterThan(5000)
+  })
+})

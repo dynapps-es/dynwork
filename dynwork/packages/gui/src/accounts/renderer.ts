@@ -2,6 +2,7 @@ import { createSignal, onCleanup, type Accessor } from "solid-js"
 import type { IpcClient, Live, Plugin } from "@opencode/plugin/gui"
 import { Accounts } from "./contract"
 import type definition from "./index"
+import { register } from "./ui/register"
 
 export type Client = IpcClient<(typeof Accounts)["spec"]>
 
@@ -18,6 +19,7 @@ const setup: Plugin.Setup<typeof definition> = (ctx) => {
   onCleanup(() => {
     if (current() === live) setCurrent(undefined)
   })
+  register(ctx, live)
 }
 
 export default setup

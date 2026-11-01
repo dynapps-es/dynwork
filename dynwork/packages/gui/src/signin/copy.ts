@@ -12,6 +12,12 @@ export const brand = {
   supportURL: "mailto:soporte@dynapps.es",
 }
 
+// The cover that holds the window until main's accounts answer, when they never do.
+export const cover = {
+  failed: "DynWork could not load your accounts.",
+  retry: "Try again",
+}
+
 export const panel = {
   label: "Sign in to DynWork",
   eyebrow: (version: string, step: number) => `v${version} · Step ${step} of 2`,

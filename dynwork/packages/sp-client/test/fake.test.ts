@@ -38,6 +38,13 @@ describe("discover", () => {
     expect(instance.modes).toEqual([])
   })
 
+  test("an address that answers 404 to the discovery document and the capabilities route is not an instance", async () => {
+    fake.state.discovery = undefined
+    fake.state.override = { path: "/v1/auth/bridge/capabilities", status: 404, body: { message: "not found" } }
+    const error = await fail(SpClient.discover(fake.url))
+    expect(error).toBeInstanceOf(SpClient.Incompatible)
+  })
+
   test("reads the discovery document, the sign-in modes and the version", async () => {
     const instance = await run(SpClient.discover(`${fake.url}/`))
     expect(instance).toEqual({

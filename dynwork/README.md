@@ -77,6 +77,26 @@ Where secrets live:
   Nothing goes into OpenCode's `credential` table or the service's database.
 - Signing out forgets the PAT locally; the token stays in the user's list on the instance until revoked there.
 
+### Managing instances
+
+Settings -> systemprompt (`dynwork/packages/gui/src/accounts/ui/`) lists every instance this device knows: its label,
+URL, user, status, when the active one last synced and what it holds, and the fingerprint of its manifest key. Per
+instance: Make active, Sync now (active only), Sign out and Remove (both ask first), and Sign in again for a signed-out
+one. Add instance opens the sign-in screen's connect form (browser link or personal access token) in a dialog; the
+account joins the list and stays inactive until you make it active.
+
+A manifest key waits for the user: the first key an instance offers ("New key") and a rotated one ("Key changed", shown
+with the pinned and the offered fingerprints) stop at "Trust this key" / "Trust new key", which pins exactly the
+fingerprint on screen. The sign-in screen never trusts a key. The active instance's section lists what it synced,
+including its rules, which reach every session's system context.
+
+The titlebar pill (a `TitlebarItem`) shows the active instance; its icon says how the sync stands (synced, syncing,
+needs attention). It grows to its label on hover, and a click opens a small dialog to switch instance, Sync now, or go
+to the page. `TitlebarItem` has no dot or menu, so the icon and the dialog stand in for the mockup's. Tailwind does not
+scan `dynwork/`: the page, dialog and form style themselves in `accounts/ui/accounts.css` and `signin/connect.css`.
+`bun dynwork/script/smoke.ts <png> oc-2 light accounts` (also `accounts-add` and `accounts-pill`) signs in to alpha,
+adds beta through the dialog and shoots the page.
+
 ### Live sync
 
 `DynWorkSyncEngine.make` (`packages/gui/src/sync/engine.ts`, one per process, started by the accounts main entry) runs

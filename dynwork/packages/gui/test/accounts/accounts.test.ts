@@ -159,7 +159,8 @@ describe("accounts", () => {
     const context = setup(alpha)
     const id = await signIn(context, alpha)
     const served = SpClient.fingerprint(alpha.state.key.public)
-    expect(context.accounts.list()[0]).toMatchObject({ fingerprint: served, trusted: false })
+    // First use: a key is offered and nothing is pinned yet.
+    expect(context.accounts.list()[0]).toMatchObject({ fingerprint: served, pinned: undefined, trusted: false })
     // A fingerprint the user did not compare pins nothing.
     expect(() => context.accounts.trust({ id, fingerprint: "sha256:other" })).toThrow(DynWorkAccounts.NothingToTrust)
     context.accounts.trust({ id, fingerprint: served })
@@ -173,7 +174,12 @@ describe("accounts", () => {
 
     const rotated = beta.state.key.public
     context.accounts.offerKey(id, rotated)
-    expect(context.accounts.list()[0]).toMatchObject({ fingerprint: SpClient.fingerprint(rotated), trusted: false })
+    // A rotation keeps the old key's fingerprint next to the new one, for the user to compare.
+    expect(context.accounts.list()[0]).toMatchObject({
+      fingerprint: SpClient.fingerprint(rotated),
+      pinned: served,
+      trusted: false,
+    })
     context.accounts.trust({ id, fingerprint: SpClient.fingerprint(rotated) })
     expect(context.store.value.accounts[0]?.key).toBe(rotated)
     context.accounts.dispose()

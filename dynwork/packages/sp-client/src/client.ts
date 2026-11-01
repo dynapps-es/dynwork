@@ -69,13 +69,22 @@ export const discover = Effect.fn("SpClient.discover")(function* (baseUrl: strin
   const base = yield* instanceUrl(baseUrl)
   const results = yield* Effect.all([wellKnown(base), capabilities(base), health(base)], { concurrency: 3 })
   const found = results[0]
+  // A server that answers 404 to everything is not a systemprompt instance: without a discovery document the
+  // capabilities route has to have answered.
+  if (found === undefined && results[1] === undefined)
+    return yield* new Incompatible({
+      endpoint: "GET /.well-known/systemprompt-bridge",
+      message: "the address answers neither the discovery document nor the sign-in capabilities",
+      supported: contract,
+      found: "none",
+    })
   if (found === undefined)
     return {
       baseUrl: base,
       discovered: false,
       ...fallback,
       enabledHosts: [],
-      modes: results[1],
+      modes: results[1] ?? [],
       version: results[2],
     } satisfies Instance
   return {
@@ -85,7 +94,7 @@ export const discover = Effect.fn("SpClient.discover")(function* (baseUrl: strin
     identityPath: yield* sameOrigin(base, found.identity_path ?? fallback.identityPath, "identity_path"),
     displayName: found.branding?.display_name,
     enabledHosts: found.enabled_hosts ?? [],
-    modes: results[1],
+    modes: results[1] ?? [],
     version: results[2],
   } satisfies Instance
 })
@@ -290,13 +299,13 @@ const wellKnown = Effect.fnUntraced(function* (base: string) {
   return found
 })
 
-// Instances older than 0.76 have no capabilities route; they sign in with the fallback paths and report no modes.
+// Instances older than 0.76 have no capabilities route: `undefined` says so, and `discover` decides what that means.
 const capabilities = Effect.fnUntraced(function* (base: string) {
   return yield* call(base, Capabilities, { method: "GET", path: "/v1/auth/bridge/capabilities" }).pipe(
     Effect.map((answer): readonly string[] => answer.modes),
     Effect.catchIf(
       (error) => error instanceof Protocol && error.status === 404,
-      () => Effect.succeed([]),
+      () => Effect.succeed(undefined),
     ),
   )
 })

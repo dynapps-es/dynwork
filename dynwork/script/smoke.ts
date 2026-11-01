@@ -55,8 +55,13 @@ const width = args[4] ? Number(args[4]) : undefined
 
 const signInViews = ["signin", "signin-choose", "signin-finalizing", "signin-done", "signin-pat"]
 
+const accountsViews = ["accounts", "accounts-add", "accounts-pill"]
+
 // Alpha's URL and PAT; read only by the views that sign in.
-const alpha = view === "signin" || view === "first-launch" ? undefined : await localAlpha()
+const alpha = view === "signin" || view === "first-launch" ? undefined : await localInstance("ALPHA")
+
+// Beta, added through the dialog by the accounts views.
+const beta = accountsViews.includes(view) ? await localInstance("BETA") : undefined
 
 // Stands in for an OPENCODE_CONFIG_CONTENT exported by the login shell, which DynWork's service must never see.
 const shellConfig = JSON.stringify({ username: "dynwork-smoke-shell-config" })
@@ -186,7 +191,7 @@ async function run() {
       )
   }
 
-  if (view === "home") {
+  if (view === "home" || accountsViews.includes(view)) {
     await cdp.send("Page.reload")
     // The old document stays alive for a moment after the reload call.
     await Bun.sleep(1000)
@@ -202,6 +207,61 @@ async function run() {
 
   if (await cdp.value<boolean>(`!!document.querySelector('[data-component="dynwork-signin"]')`))
     throw new Error("The sign-in screen still covers the app")
+
+  if (accountsViews.includes(view)) return accounts(cdp)
+
+  return shoot(cdp)
+}
+
+// Opens Settings -> systemprompt through the pill's menu, adds beta in the dialog and shoots the page.
+async function accounts(cdp: Awaited<ReturnType<typeof connect>>) {
+  const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
+  const click = (selector: string) => cdp.value(`document.querySelector(${JSON.stringify(selector)}).click()`)
+  const pill = '[data-slot="titlebar-update"] button[aria-label^="systemprompt"]'
+  const openMenu = async () => {
+    await waitFor("the titlebar pill", async () => seen(pill), 30_000)
+    await click(pill)
+    await waitFor("the pill's menu", async () => seen('[data-component="accounts-pill-menu"]'), 5_000)
+  }
+
+  await openMenu()
+  await click('[data-slot="accounts-pill-actions"] > button:last-child')
+  await waitFor("the systemprompt page", async () => seen('[data-action="accounts-add"]'), 10_000)
+  await waitFor("one instance", async () => seen('[data-component="accounts-instance"]'), 10_000)
+
+  // The first key an instance offers waits for the user's trust: pin alpha's, and leave beta's waiting below.
+  await click('[data-component="accounts-instance"] [data-action="accounts-trust"]')
+  await waitFor("the key to be trusted", async () => !(await seen('[data-action="accounts-trust"]')), 10_000)
+
+  await click('[data-action="accounts-add"]')
+
+  if (view === "accounts-add") {
+    await waitFor("the Add instance dialog", async () => seen("#dynwork-signin-url"), 10_000)
+    return shoot(cdp)
+  }
+
+  if (!beta) throw new Error("beta is not configured")
+  await fillConnect(cdp, beta)
+  await pressEnter(cdp)
+  await waitFor(
+    "beta in the list",
+    async () => cdp.value<boolean>(`document.querySelectorAll('[data-component="accounts-instance"]').length === 2`),
+    20_000,
+  ).catch(async (error: Error) => {
+    const alert = await cdp.value<string>(`document.querySelector('[data-slot="signin-error"]')?.textContent ?? ""`)
+    throw new Error(`${error.message}${alert ? `; the dialog says: ${alert}` : ""}`)
+  })
+  await waitFor("the Add instance dialog to close", async () => !(await seen("#dynwork-signin-url")), 5_000)
+  await waitFor(
+    "the active instance's sync",
+    async () => seen('[data-slot="accounts-sync"][data-tone="synced"]'),
+    30_000,
+  )
+
+  if (view === "accounts-pill") {
+    await openMenu()
+    return shoot(cdp)
+  }
 
   return shoot(cdp)
 }
@@ -243,27 +303,10 @@ async function signIn(cdp: Awaited<ReturnType<typeof connect>>) {
 // again on Finish, the way a keyboard user would, and stops at the given step.
 async function submitSignIn(cdp: Awaited<ReturnType<typeof connect>>, until: string) {
   if (!alpha) throw new Error("This view signs in, and alpha is not configured")
-  const enter = async () => {
-    for (const type of ["keyDown", "keyUp"])
-      await cdp.send("Input.dispatchKeyEvent", {
-        type,
-        key: "Enter",
-        code: "Enter",
-        windowsVirtualKeyCode: 13,
-        ...(type === "keyDown" ? { text: "\r" } : {}),
-      })
-  }
   const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
 
-  await waitFor("the instance URL field", async () => seen("#dynwork-signin-url"), 60_000)
-  await cdp.value(`document.querySelector("#dynwork-signin-url").focus()`)
-  await cdp.send("Input.insertText", { text: alpha.url })
-  await waitFor("a reachable instance URL", async () => seen('[data-slot="signin-status"][data-tone="valid"]'), 10_000)
-  await cdp.value(`document.querySelector('[data-slot="signin-token-toggle"]').click()`)
-  await waitFor("the token field", async () => seen("#dynwork-signin-token"), 5_000)
-  await cdp.value(`document.querySelector("#dynwork-signin-token").focus()`)
-  await cdp.send("Input.insertText", { text: alpha.pat })
-  await enter()
+  await fillConnect(cdp, alpha)
+  await pressEnter(cdp)
   await waitFor("the instance list", async () => seen('[data-slot="signin-instances"]'), 15_000).catch(
     async (error: Error) => {
       const alert = await cdp.value<string>(`document.querySelector('[data-slot="signin-error"]')?.textContent ?? ""`)
@@ -272,11 +315,37 @@ async function submitSignIn(cdp: Awaited<ReturnType<typeof connect>>, until: str
   )
 
   if (until === "signin-choose") return Bun.sleep(300)
-  await enter()
+  await pressEnter(cdp)
   await waitFor("the finalizing state", async () => seen('[data-slot="signin-finalizing"]'), 5_000, 25)
 
   if (until === "signin-finalizing") return
   await waitFor("the sign-in screen to fade out", async () => !(await seen('[data-component="dynwork-signin"]')), 5_000)
+}
+
+// Fills the connect form, the sign-in screen's and the Add instance dialog's: types the instance URL, waits for the
+// green status, opens the token field and types the PAT.
+async function fillConnect(cdp: Awaited<ReturnType<typeof connect>>, target: { url: string; pat: string }) {
+  const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
+
+  await waitFor("the instance URL field", async () => seen("#dynwork-signin-url"), 60_000)
+  await cdp.value(`document.querySelector("#dynwork-signin-url").focus()`)
+  await cdp.send("Input.insertText", { text: target.url })
+  await waitFor("a reachable instance URL", async () => seen('[data-slot="signin-status"][data-tone="valid"]'), 10_000)
+  await cdp.value(`document.querySelector('[data-slot="signin-token-toggle"]').click()`)
+  await waitFor("the token field", async () => seen("#dynwork-signin-token"), 5_000)
+  await cdp.value(`document.querySelector("#dynwork-signin-token").focus()`)
+  await cdp.send("Input.insertText", { text: target.pat })
+}
+
+async function pressEnter(cdp: Awaited<ReturnType<typeof connect>>) {
+  for (const type of ["keyDown", "keyUp"])
+    await cdp.send("Input.dispatchKeyEvent", {
+      type,
+      key: "Enter",
+      code: "Enter",
+      windowsVirtualKeyCode: 13,
+      ...(type === "keyDown" ? { text: "\r" } : {}),
+    })
 }
 
 // Signs in with the PAT, reloads and checks that the screen stays away, then reads the account back from the app's
@@ -635,18 +704,18 @@ async function connect(url: string) {
   }
 }
 
-// Alpha's URL and PAT from the local harness' generated environment.
-async function localAlpha() {
+// An instance's URL and PAT from the local harness' generated environment.
+async function localInstance(name: "ALPHA" | "BETA") {
   const env = await Bun.file(path.join(repo, "dynwork/test/sp-local/.env.local"))
     .text()
     .catch(() => {
       throw new Error("dynwork/test/sp-local/.env.local is missing: run `bun dynwork/script/sp-local.ts up`")
     })
-  const read = (name: string) => new RegExp(`^${name}=(.*)$`, "m").exec(env)?.[1]?.trim()
-  const url = read("SP_ALPHA_URL")
-  const pat = read("SP_ALPHA_PAT")
+  const read = (key: string) => new RegExp(`^${key}=(.*)$`, "m").exec(env)?.[1]?.trim()
+  const url = read(`SP_${name}_URL`)
+  const pat = read(`SP_${name}_PAT`)
 
-  if (!url || !pat) throw new Error("SP_ALPHA_URL or SP_ALPHA_PAT is missing from the local harness' environment")
+  if (!url || !pat) throw new Error(`SP_${name}_URL or SP_${name}_PAT is missing from the local harness' environment`)
 
   return { url, pat }
 }

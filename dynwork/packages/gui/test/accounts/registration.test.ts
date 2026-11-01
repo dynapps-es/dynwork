@@ -38,6 +38,9 @@ describe("dynwork built-in", () => {
         used.push(token)
         return live
       },
+      // The settings page and the pill register against these; test/ui/register.test.ts reads what they add.
+      add: () => () => {},
+      layout: {},
     }
     expect(definition).toBeObject()
     const dispose = createRoot((dispose) => {

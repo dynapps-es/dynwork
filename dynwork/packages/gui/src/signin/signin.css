@@ -145,181 +145,6 @@
     color: var(--v2-text-text-muted);
   }
 
-  [data-slot="signin-form"] {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  [data-slot="signin-field"] {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  [data-slot="signin-field"] > label {
-    font-size: 13px;
-    line-height: 20px;
-    font-weight: 530;
-  }
-
-  [data-component="text-input-v2"] {
-    width: 100%;
-    height: 40px;
-  }
-
-  [data-slot="text-input-v2-input"] {
-    font-size: 14px;
-    line-height: 20px;
-  }
-
-  [data-slot="signin-status"] {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12px;
-    line-height: 16px;
-    color: var(--v2-text-text-muted);
-  }
-
-  [data-slot="signin-dot"] {
-    flex: none;
-    width: 8px;
-    height: 8px;
-    border-radius: 9999px;
-    background: var(--v2-icon-icon-faint);
-    transition: background-color 150ms ease-out;
-  }
-
-  [data-tone="checking"] [data-slot="signin-dot"] {
-    background: var(--v2-state-fg-warning);
-  }
-
-  [data-tone="valid"] [data-slot="signin-dot"] {
-    background: var(--v2-state-fg-success);
-  }
-
-  [data-tone="invalid"] {
-    color: var(--v2-state-fg-danger);
-
-    [data-slot="signin-dot"] {
-      background: var(--v2-state-fg-danger);
-    }
-  }
-
-  [data-slot="signin-actions"] {
-    display: flex;
-    gap: 8px;
-
-    [data-component="button-v2"] {
-      height: 40px;
-    }
-
-    [data-component="button-v2"]:first-child {
-      flex: 1;
-    }
-  }
-
-  /* The loader takes the button's text color on the contrast and loading surfaces. */
-  [data-component="button-v2"] [data-component="loader-v2"] {
-    color: currentColor;
-  }
-
-  [data-slot="signin-hint"] {
-    font-size: 12px;
-    line-height: 18px;
-    color: var(--v2-text-text-muted);
-    font-variant-numeric: tabular-nums;
-  }
-
-  [data-slot="signin-actions"] + [data-slot="signin-hint"] {
-    margin-block-start: -8px;
-  }
-
-  [data-slot="signin-error"] {
-    font-size: 12px;
-    line-height: 16px;
-    color: var(--v2-state-fg-danger);
-  }
-
-  [data-component="checkbox"] {
-    gap: 10px;
-
-    [data-slot="checkbox-checkbox-label"] {
-      font-size: 13px;
-      line-height: 20px;
-      color: var(--v2-text-text-base);
-    }
-  }
-
-  [data-slot="signin-token"] {
-    padding-block-start: 20px;
-    border-radius: 0;
-    border-block-start: 1px solid var(--v2-border-border-muted);
-
-    [data-slot="signin-form"] {
-      padding-block-start: 16px;
-    }
-  }
-
-  [data-slot="signin-token-toggle"] {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 0;
-    border: 0;
-    border-radius: 4px;
-    background: transparent;
-    font: inherit;
-    font-size: 13px;
-    line-height: 20px;
-    font-weight: 530;
-    color: var(--v2-text-text-muted);
-    cursor: pointer;
-
-    &:hover {
-      color: var(--v2-text-text-base);
-    }
-
-    &:focus-visible {
-      outline: 2px solid var(--v2-border-border-focus);
-      outline-offset: 2px;
-    }
-
-    [data-slot="icon-svg"] {
-      transition: transform 150ms ease-out;
-    }
-
-    &[aria-expanded="true"] [data-slot="icon-svg"] {
-      transform: rotate(180deg);
-    }
-  }
-
-  [data-slot="signin-token-row"] {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-
-    a {
-      color: var(--v2-text-text-accent);
-    }
-
-    a[href]:hover {
-      color: var(--v2-text-text-accent-hover);
-    }
-
-    a[aria-disabled="true"] {
-      color: var(--v2-text-text-faint);
-      cursor: default;
-    }
-
-    [data-component="button-v2"] {
-      flex: none;
-      height: 36px;
-    }
-  }
-
   /* Instance cards: the whole card selects its radio through the label's cover. */
   [data-slot="signin-instances"] [data-slot="radio-v2-items"] {
     gap: 8px;
@@ -452,4 +277,23 @@
   inset: 0;
   z-index: 90;
   background: var(--v2-background-bg-base);
+}
+
+/* The cover's way out when the accounts never answer. */
+[data-component="dynwork-signin-cover"][data-state="failed"] {
+  display: grid;
+  place-items: center;
+  color: var(--v2-text-text-base);
+  font-family: var(--v2-font-family-sans);
+  -webkit-app-region: drag;
+
+  [data-slot="signin-cover-failed"] {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    font-size: 14px;
+    line-height: 22px;
+    -webkit-app-region: no-drag;
+  }
 }

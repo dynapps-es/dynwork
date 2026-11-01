@@ -122,7 +122,7 @@ describe("accounts store", () => {
     expect(shown).not.toContain(token)
     expect(shown).not.toContain("patCipher")
     expect(Object.keys(context.accounts.list()[0] ?? {}).toSorted()).toEqual(
-      ["active", "fingerprint", "id", "label", "org", "status", "trusted", "url", "user"].toSorted(),
+      ["active", "fingerprint", "id", "label", "org", "pinned", "status", "trusted", "url", "user"].toSorted(),
     )
     context.accounts.dispose()
   })

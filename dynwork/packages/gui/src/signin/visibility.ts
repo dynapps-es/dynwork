@@ -29,3 +29,16 @@ export function create(state: () => State | undefined) {
     },
   }
 }
+
+// How long the plain cover waits for main's accounts to answer before it gives up.
+export const stall = 15_000
+
+// What the window shows before the first snapshot: the plain cover while the accounts may still answer, an error with
+// a retry once they never will, either because their provider is gone or because they took longer than `stall`.
+export function cover(input: { known: boolean; link: "pending" | "active" | "inactive" | undefined; waited: boolean }) {
+  if (input.known) return "ready"
+
+  if (input.link === "inactive" || input.waited) return "failed"
+
+  return "waiting"
+}

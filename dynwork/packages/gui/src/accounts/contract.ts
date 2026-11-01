@@ -19,6 +19,8 @@ export const Account = Schema.Struct({
   active: Schema.Boolean,
   /** SHA-256 fingerprint of the manifest key: the pinned one, or the one served and waiting for `trust`. */
   fingerprint: Schema.optional(Schema.String),
+  /** The pinned key's fingerprint. Next to a `fingerprint` that is not `trusted`, it is the key the instance replaced. */
+  pinned: Schema.optional(Schema.String),
   /** The served key is the pinned one. False until the user trusts it, and again after the instance rotates it. */
   trusted: Schema.Boolean,
 })

@@ -112,6 +112,7 @@ export function make(options: Options) {
       status: cipherOf(account) === undefined ? "signedOut" : "signedIn",
       active: read().active === account.id,
       fingerprint: pending === undefined ? account.keyFingerprint : SpClient.fingerprint(pending),
+      pinned: account.keyFingerprint,
       trusted: pending === undefined && account.keyFingerprint !== undefined,
     }
   }
