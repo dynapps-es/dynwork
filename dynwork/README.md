@@ -12,6 +12,7 @@ the next tag.
 | `packages/branding` | `@dynwork/branding`: the prod app identity (`src/identity.ts`) that the desktop package reads |
 | `packages/branding/logo` | `wordmark.svg`: "dynwork" outlined, in `currentColor`. `lockup.svg`: the Dynapps symbol in its gradient left of the wordmark |
 | `packages/build` | `@dynwork/build`: the build seam. `src/vite.ts` exports `DynWorkVite`, the aliases and plugins that swap the theme and the logos, which `packages/desktop/electron.vite.config.ts` spreads into its main and renderer plugins. `test/vite.test.ts` fails when an upstream specifier, module or export a swap relies on moves |
+| `script/patches.ts` | The patch guard (`bun dynwork/script/patches.ts`, logic in `packages/build/src/patches.ts`). `UPSTREAM` holds the upstream tag the stack sits on |
 | `packages/gui` | `@dynwork/gui`: DynWork's own screens. `src/signin`: the sign-in gate the desktop shows until the device is signed in |
 | `packages/branding/src` | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark |
 | `packages/branding/theme` | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json` |
@@ -29,11 +30,25 @@ Finishing stores the `dynwork-signin` key (a small JSON with the URL and the cho
 Removing the key shows the screen again on the next launch. While it shows, the gate keeps focus and every keydown
 to itself, so app shortcuts do not act on the hidden shell. All copy lives in `copy.ts`.
 
+## Patch guard
+
+```bash
+bun dynwork/script/patches.ts
+```
+
+Compares `HEAD` against the tag in `dynwork/UPSTREAM` (so commit first; the working tree is not read) and prints one
+row per upstream file that differs, outside `dynwork/` and `plans/`. It exits 1 when a changed file has no row in
+`PATCHES.md`, when a row lists a file that no longer differs, or when the modified upstream files change more lines than
+the `Budget:` line of `PATCHES.md` allows. The tag must be in the clone (`git fetch upstream tag v2.2.5`). The `dynwork`
+workflow (`.github/workflows/dynwork.yml`) runs it on every push and pull request to `main` and `sp-auth-sync`, with the
+tests and typechecks of every `dynwork/packages/*`; upstream's own workflows are disabled on the fork.
+
 ## Syncing with upstream
 
 ```bash
 git fetch upstream --tags
 git rebase --onto <new-tag> <old-tag> main
+echo <new-tag> > dynwork/UPSTREAM
 git range-diff <old-tag>..<old-main> <new-tag>..main
 ```
 

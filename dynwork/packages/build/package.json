@@ -11,7 +11,8 @@
     "test": "bun test --timeout 30000"
   },
   "exports": {
-    "./vite": "./src/vite.ts"
+    "./vite": "./src/vite.ts",
+    "./patches": "./src/patches.ts"
   },
   "dependencies": {
     "@dynwork/branding": "workspace:*"
