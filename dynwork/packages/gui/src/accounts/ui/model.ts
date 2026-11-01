@@ -21,6 +21,8 @@ export type Action = "trust" | "sync-now" | "make-active" | "sign-in" | "sign-ou
 
 export type Row = {
   account: Account
+  /** The label to show: the instance's label, followed by its host when another instance has the same label. */
+  name: string
   /** The instance's first letter, for its avatar. */
   initial: string
   host: string
@@ -43,6 +45,7 @@ export function row(account: Account, state: State): Row {
 
   return {
     account,
+    name: name(account, state),
     initial: Array.from(account.label.trim())[0]?.toUpperCase() ?? "?",
     host: host(account.url),
     badges: badges(account, key !== undefined),
@@ -50,6 +53,17 @@ export function row(account: Account, state: State): Row {
     key,
     actions: actions(account, key !== undefined, sync),
   }
+}
+
+/**
+ * The label to show for an account. Instances with the same branding read the same, so a label another known account
+ * also carries gets the host next to it.
+ */
+export function name(account: Account, state: State) {
+  const label = account.label.trim().toLowerCase()
+  const collides = state.accounts.some((other) => other.id !== account.id && other.label.trim().toLowerCase() === label)
+
+  return collides ? `${account.label} (${host(account.url)})` : account.label
 }
 
 /** The active account that is signed in, which the pill shows and the sync follows. */
@@ -102,12 +116,12 @@ export function pill(state: State) {
 
   if (!account) return undefined
   const sync = syncOf(account, state)
-  const key = pending(account)
+  const shown = { account, name: name(account, state), sync }
 
-  if (key || sync.kind === "error") return { account, sync, icon: "circle-exclamation" as const }
-  if (sync.kind === "syncing") return { account, sync, icon: "refresh" as const }
-  if (sync.kind === "synced") return { account, sync, icon: "circle-check" as const }
-  return { account, sync, icon: "server" as const }
+  if (pending(account) || sync.kind === "error") return { ...shown, icon: "circle-exclamation" as const }
+  if (sync.kind === "syncing") return { ...shown, icon: "refresh" as const }
+  if (sync.kind === "synced") return { ...shown, icon: "circle-check" as const }
+  return { ...shown, icon: "server" as const }
 }
 
 function pending(account: Account) {

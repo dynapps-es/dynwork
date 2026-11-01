@@ -140,6 +140,30 @@ against real servers without touching a Dynapps environment. Setup, what the ima
 the browser device link and writes the redacted `test/sp-local/fixtures/device-link.json`; the sign-in contract drawn
 from it is `packages/sp-client/PROTOCOL.md`.
 
+## End to end
+
+```bash
+bun dynwork/script/desktop.ts && bun dynwork/script/e2e-sp.ts [screenshot dir]
+```
+
+`e2e-sp.ts` runs the installed `/Applications/DynWork.app` in an isolated profile (the smoke's, from
+`dynwork/script/desktop-profile.ts`) against the two local instances: `sp-local up/seed/check`; sign in to alpha with
+its PAT on the sign-in screen; add beta in Settings with a one-time code from `admin bridge issue-code` (the
+device-link page's paste flow; the browser link itself needs the instance's Entra login); alpha's skills, agents, MCP
+servers, rule and gateway provider in DynWork's service, read through the service's HTTP API with the credentials of
+the profile's registration; a skill created on alpha with the instance CLI appears within 60 s and leaves within 60 s
+once deleted; switching to beta swaps the content within 5 s; a copy of the app moved into the profile starts, loads the
+server plugin from its own `Contents/Resources` and syncs; signing out of both leaves nothing in the service; and no
+PAT, JWT or code is in plaintext anywhere in the profile, the OpenCode database included. Each step prints what it
+waited for and how long it took; screenshots go to the screenshot dir (default: the plan's `docs/e2e`).
+
+The live-sync steps need a focused DynWork window (the sync polls every 30 s with focus, every 5 min without). macOS
+does not activate an app a background process starts, so the run asks the main process, through its inspector on
+`127.0.0.1` (this run only), to focus the window; when macOS refuses, main gets the focus event a click would give it
+(the window reports focus and the app emits `browser-window-focus`), and the run says which happened. At the end it revokes the PATs DynWork
+minted on the instances, deletes the skill it created, stops only what it started, deletes the profile and runs
+`sp-local check` again. Port 17495 must be free: a DynWork already running its service makes the run fail early.
+
 ## Background service
 
 The packaged prod build runs its own OpenCode background service (`opencode serve --service` from the CLI it bundles),

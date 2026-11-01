@@ -68,6 +68,22 @@ describe("the window entry's contributions", () => {
     view.dispose()
   })
 
+  test("the pill shows the host when another instance has the same label", () => {
+    const view = setup(
+      state(
+        [
+          account({ active: true, url: "http://127.0.0.1:18101" }),
+          account({ id: "beta", url: "http://127.0.0.1:18102" }),
+        ],
+        synced("alpha", Date.now()),
+      ),
+    )
+    const pill = view.added.find((entry) => entry.registry === TitlebarItem)?.item as () => TitlebarItem | undefined
+    expect(pill()?.label).toStartWith("Dynapps (127.0.0.1:18101) · ")
+    expect(pill()?.title).toContain('pill.title|{"label":"Dynapps (127.0.0.1:18101)"}')
+    view.dispose()
+  })
+
   test("clicking the pill opens the instances menu", () => {
     const view = setup(state([account({ active: true })], synced("alpha", Date.now())))
     const pill = view.added.find((entry) => entry.registry === TitlebarItem)?.item as () => TitlebarItem | undefined

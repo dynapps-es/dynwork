@@ -41,11 +41,11 @@ export default function PillMenu(props: {
                     data-slot="accounts-pill-item"
                     data-active={row.account.active ? "" : undefined}
                     aria-current={row.account.active ? "true" : undefined}
-                    aria-label={row.account.active ? undefined : ctx.t("pill.switch", { label: row.account.label })}
+                    aria-label={row.account.active ? undefined : ctx.t("pill.switch", { label: row.name })}
                     disabled={row.account.active}
                     onClick={() => props.switchTo(row.account.id)}
                   >
-                    <span data-slot="accounts-pill-name">{row.account.label}</span>
+                    <span data-slot="accounts-pill-name">{row.name}</span>
                     <span data-slot="accounts-pill-status" data-tone={row.sync.kind}>
                       {row.badges.includes("key-changed") || row.badges.includes("new-key")
                         ? ctx.t(row.badges.includes("key-changed") ? "badge.keyChanged" : "badge.newKey")

@@ -57,6 +57,39 @@ describe("an instance's status", () => {
   })
 })
 
+describe("an instance's name", () => {
+  test("a label no other instance carries reads as is", () => {
+    const rows = AccountsModel.rows(state([account(), account({ id: "beta", label: "Beta" })]))
+    expect(rows.map((row) => row.name)).toEqual(["Dynapps", "Beta"])
+  })
+
+  test("instances with the same label show their host, whatever the case or trailing space", () => {
+    const value = state([
+      account({ active: true, url: "http://127.0.0.1:18101" }),
+      account({ id: "beta", label: "dynapps ", url: "http://127.0.0.1:18102" }),
+      account({ id: "gamma", label: "Gamma", url: "https://gamma.dynapps.test" }),
+    ])
+    expect(AccountsModel.rows(value).map((row) => row.name)).toEqual([
+      "Dynapps (127.0.0.1:18101)",
+      "dynapps  (127.0.0.1:18102)",
+      "Gamma",
+    ])
+    // The titlebar pill names the active instance the same way.
+    expect(AccountsModel.pill(value)?.name).toBe("Dynapps (127.0.0.1:18101)")
+  })
+
+  test("a signed-out instance with the same label still counts as a collision", () => {
+    const value = state([
+      account({ active: true }),
+      account({ id: "old", status: "signedOut", url: "https://old.test" }),
+    ])
+    expect(AccountsModel.rows(value).map((row) => row.name)).toEqual([
+      "Dynapps (sp.dynapps.test)",
+      "Dynapps (old.test)",
+    ])
+  })
+})
+
 describe("the actions an instance offers", () => {
   const actions = (value: ReturnType<typeof account>, status = synced(value.id)) =>
     AccountsModel.rows(state([value], status))[0]?.actions

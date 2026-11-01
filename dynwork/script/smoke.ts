@@ -29,15 +29,28 @@
 // --with-foreign-service plays OpenCode.app: before DynWork starts, an `opencode serve --service` from this checkout,
 // with another version string, registers at the default location of the profile. Once DynWork is ready the smoke checks
 // that the foreign service still runs with the same pid and that DynWork registered its own service under its userData.
-import { mkdir, mkdtemp, rm } from "node:fs/promises"
-import { createServer } from "node:net"
-import { tmpdir } from "node:os"
+import { rm } from "node:fs/promises"
 import path from "node:path"
 import { DynWorkIdentity } from "../packages/branding/src/identity"
-
-const repo = path.resolve(import.meta.dir, "../..")
-
-const exe = "/Applications/DynWork.app/Contents/MacOS/DynWork"
+import {
+  type Cdp,
+  alive,
+  authorization,
+  fillConnect,
+  freePort,
+  health,
+  launch,
+  localInstance,
+  mainWindow,
+  portFree,
+  pressEnter,
+  profile,
+  read,
+  repo,
+  shell,
+  stop,
+  waitFor,
+} from "./desktop-profile"
 
 const args = process.argv.slice(2).filter((arg) => !arg.startsWith("--"))
 
@@ -69,51 +82,27 @@ const shellConfig = JSON.stringify({ username: "dynwork-smoke-shell-config" })
 if (!(await portFree(DynWorkIdentity.servicePort)))
   throw new Error(`Port ${DynWorkIdentity.servicePort} is in use: quit DynWork before running the smoke`)
 
-const root = await mkdtemp(path.join(tmpdir(), "dynwork-smoke-"))
+const target = await profile({
+  prefix: "dynwork-smoke-",
+  onboarded: view !== "new-session" && view !== "first-launch",
+  extra: { OPENCODE_CONFIG_CONTENT: shellConfig },
+})
 
-const config = path.join(root, "config/opencode")
+const root = target.root
 
-// The default registration of the profile, where OpenCode.app's service would register.
-const registration = path.join(root, "state/opencode/service.json")
+const registration = target.registration
 
-// DynWork's own registration, under its userData (`<root>/desktop`, see OPENCODE_DESKTOP_TEST_ROOT).
-const ownRegistration = path.join(root, "desktop/service/state/opencode/service.json")
+const ownRegistration = target.ownRegistration
+
+const env = target.env
 
 const foreignVersion = "0.0.0-foreign"
 
 const cdpPort = await freePort()
 
-for (const dir of ["home", "data", "desktop", "state/opencode"]) await mkdir(path.join(root, dir), { recursive: true })
-
-await mkdir(config, { recursive: true })
-
-// A service using this config dir would otherwise listen on the channel's default port, which the developer's own
-// service holds. DynWork's own service ignores it; the foreign one and a DynWork without its own service use it.
-await Bun.write(path.join(config, "service.json"), JSON.stringify({ port: await freePort() }))
-
-await Bun.write(
-  path.join(root, "desktop/opencode.settings"),
-  JSON.stringify({ firstLaunchOnboardingComplete: view !== "new-session" && view !== "first-launch" }),
-)
-
-const env = {
-  ...Object.fromEntries(Object.entries(process.env).filter((entry) => !/^(OPENCODE_|OTEL_|SENTRY_)/.test(entry[0]))),
-  HOME: path.join(root, "home"),
-  OPENCODE_DESKTOP_TEST_ROOT: root,
-  OPENCODE_DB: path.join(root, "data/opencode.db"),
-  OPENCODE_CONFIG_DIR: config,
-  OPENCODE_CONFIG_CONTENT: shellConfig,
-  // A closed proxy port makes the update check fail at once and offline.
-  HTTPS_PROXY: "http://127.0.0.1:9",
-}
-
 const foreign = withForeign ? await startForeign() : undefined
 
-// The mock keychain keeps safeStorage off the developer's login Keychain: the profile seals its PAT with a throwaway key.
-const app = Bun.spawn([exe, `--remote-debugging-port=${cdpPort}`, "--use-mock-keychain"], {
-  env,
-  stdio: ["ignore", "ignore", "ignore"],
-})
+const app = launch(target, cdpPort)
 
 console.log(`smoke: pid ${app.pid}, root ${root}, cdp ${cdpPort}`)
 
@@ -121,7 +110,7 @@ const result = await run()
   .then(async (value) => ({ ...value, service: await services() }))
   .catch((error: unknown) => error)
 
-await stop()
+await stop(root, [app.pid, ...(foreign ? [foreign.service.pid] : [])], [registration, ownRegistration])
 
 await rm(root, { recursive: true, force: true })
 
@@ -130,15 +119,7 @@ if (result instanceof Error) throw result
 console.log(JSON.stringify(result, null, 2))
 
 async function run() {
-  const page = await waitFor(
-    "the main window",
-    async () =>
-      (await targets()).find((target) => target.type === "page" && target.url.startsWith("oc://"))
-        ?.webSocketDebuggerUrl,
-    90_000,
-  )
-
-  const cdp = await connect(page)
+  const cdp = await mainWindow(cdpPort)
 
   if (view === "first-launch") return firstLaunch(cdp)
 
@@ -149,20 +130,7 @@ async function run() {
 
   if (signInViews.includes(view)) return signIn(cdp)
 
-  const shell = () =>
-    waitFor(
-      "the app shell",
-      async () =>
-        cdp.value<boolean>(
-          `!!document.querySelector('#root [data-titlebar-tab-link], #root [data-action="vertical-tabs-home"], #root [data-action="home-new-session"], #root [data-action="home-add-project-row"]')`,
-        ),
-      60_000,
-    ).catch(async (error: Error) => {
-      const seen = await cdp.value<string>(`location.href + " | " + document.body.innerText.slice(0, 300)`)
-      throw new Error(`${error.message}; the window shows: ${seen}`)
-    })
-
-  await shell()
+  await shell(cdp)
 
   if (view === "new-session")
     await waitFor(
@@ -195,7 +163,7 @@ async function run() {
     await cdp.send("Page.reload")
     // The old document stays alive for a moment after the reload call.
     await Bun.sleep(1000)
-    await shell()
+    await shell(cdp)
   }
 
   if (themeID && colorScheme)
@@ -214,7 +182,7 @@ async function run() {
 }
 
 // Opens Settings -> systemprompt through the pill's menu, adds beta in the dialog and shoots the page.
-async function accounts(cdp: Awaited<ReturnType<typeof connect>>) {
+async function accounts(cdp: Cdp) {
   const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
   const click = (selector: string) => cdp.value(`document.querySelector(${JSON.stringify(selector)}).click()`)
   const pill = '[data-slot="titlebar-update"] button[aria-label^="systemprompt"]'
@@ -241,7 +209,7 @@ async function accounts(cdp: Awaited<ReturnType<typeof connect>>) {
   }
 
   if (!beta) throw new Error("beta is not configured")
-  await fillConnect(cdp, beta)
+  await fillConnect(cdp, { url: beta.url, token: beta.pat })
   await pressEnter(cdp)
   await waitFor(
     "beta in the list",
@@ -267,7 +235,7 @@ async function accounts(cdp: Awaited<ReturnType<typeof connect>>) {
 }
 
 // Shoots the sign-in screen once the startup splash has faded from it, after driving it to the view's step.
-async function signIn(cdp: Awaited<ReturnType<typeof connect>>) {
+async function signIn(cdp: Cdp) {
   const screen = () =>
     waitFor(
       "the sign-in screen",
@@ -301,11 +269,11 @@ async function signIn(cdp: Awaited<ReturnType<typeof connect>>) {
 
 // Types alpha's URL, waits for the green status, opens the token field, types alpha's PAT and presses Enter, then Enter
 // again on Finish, the way a keyboard user would, and stops at the given step.
-async function submitSignIn(cdp: Awaited<ReturnType<typeof connect>>, until: string) {
+async function submitSignIn(cdp: Cdp, until: string) {
   if (!alpha) throw new Error("This view signs in, and alpha is not configured")
   const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
 
-  await fillConnect(cdp, alpha)
+  await fillConnect(cdp, { url: alpha.url, token: alpha.pat })
   await pressEnter(cdp)
   await waitFor("the instance list", async () => seen('[data-slot="signin-instances"]'), 15_000).catch(
     async (error: Error) => {
@@ -322,35 +290,9 @@ async function submitSignIn(cdp: Awaited<ReturnType<typeof connect>>, until: str
   await waitFor("the sign-in screen to fade out", async () => !(await seen('[data-component="dynwork-signin"]')), 5_000)
 }
 
-// Fills the connect form, the sign-in screen's and the Add instance dialog's: types the instance URL, waits for the
-// green status, opens the token field and types the PAT.
-async function fillConnect(cdp: Awaited<ReturnType<typeof connect>>, target: { url: string; pat: string }) {
-  const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
-
-  await waitFor("the instance URL field", async () => seen("#dynwork-signin-url"), 60_000)
-  await cdp.value(`document.querySelector("#dynwork-signin-url").focus()`)
-  await cdp.send("Input.insertText", { text: target.url })
-  await waitFor("a reachable instance URL", async () => seen('[data-slot="signin-status"][data-tone="valid"]'), 10_000)
-  await cdp.value(`document.querySelector('[data-slot="signin-token-toggle"]').click()`)
-  await waitFor("the token field", async () => seen("#dynwork-signin-token"), 5_000)
-  await cdp.value(`document.querySelector("#dynwork-signin-token").focus()`)
-  await cdp.send("Input.insertText", { text: target.pat })
-}
-
-async function pressEnter(cdp: Awaited<ReturnType<typeof connect>>) {
-  for (const type of ["keyDown", "keyUp"])
-    await cdp.send("Input.dispatchKeyEvent", {
-      type,
-      key: "Enter",
-      code: "Enter",
-      windowsVirtualKeyCode: 13,
-      ...(type === "keyDown" ? { text: "\r" } : {}),
-    })
-}
-
 // Signs in with the PAT, reloads and checks that the screen stays away, then reads the account back from the app's
 // storage: the instance, the user, and the PAT only sealed.
-async function signInPat(cdp: Awaited<ReturnType<typeof connect>>) {
+async function signInPat(cdp: Cdp) {
   await waitFor(
     "the sign-in screen",
     async () =>
@@ -362,14 +304,7 @@ async function signInPat(cdp: Awaited<ReturnType<typeof connect>>) {
   await submitSignIn(cdp, "signin-done")
   await cdp.send("Page.reload")
   await Bun.sleep(1000)
-  await waitFor(
-    "the app shell",
-    async () =>
-      cdp.value<boolean>(
-        `!!document.querySelector('#root [data-titlebar-tab-link], #root [data-action="vertical-tabs-home"], #root [data-action="home-new-session"], #root [data-action="home-add-project-row"]')`,
-      ),
-    60_000,
-  )
+  await shell(cdp)
   await Bun.sleep(1500)
 
   if (
@@ -422,7 +357,7 @@ async function storedAccount() {
   return { user, label, url: alpha.url, patStored: "ciphertext only", plaintextInProfile: false }
 }
 
-async function shoot(cdp: Awaited<ReturnType<typeof connect>>) {
+async function shoot(cdp: Cdp) {
   // Let the theme apply and the first paint settle; the timed sign-in steps are shot as they are.
   if (view !== "signin-choose" && view !== "signin-finalizing") await Bun.sleep(2000)
 
@@ -447,7 +382,7 @@ async function shoot(cdp: Awaited<ReturnType<typeof connect>>) {
 
 // The splash covers the window only until the app is ready, so it is caught as soon as it renders and shot when the
 // letters finish drawing (the draw takes one second).
-async function firstLaunch(cdp: Awaited<ReturnType<typeof connect>>) {
+async function firstLaunch(cdp: Cdp) {
   await waitFor(
     "the first-launch splash",
     async () => cdp.value<boolean>(`!!document.querySelector('[data-component="first-launch-splash"]')`),
@@ -578,144 +513,4 @@ async function services() {
   if (own.pid === foreign.info.pid) throw new Error("DynWork adopted the foreign service")
 
   return { dynwork, foreign: { registration, before: foreign.info.pid, after: after.pid, unchanged: true } }
-}
-
-async function read(file: string) {
-  return Bun.file(file)
-    .json()
-    .then((value: { pid: number; url: string; version?: string; password?: string }) => value)
-    .catch(() => undefined)
-}
-
-function authorization(info: { password?: string }) {
-  if (!info.password) return undefined
-
-  return { authorization: `Basic ${Buffer.from(`opencode:${info.password}`).toString("base64")}` }
-}
-
-async function health(info: { url: string; password?: string }) {
-  return fetch(new URL("/api/info", info.url), {
-    headers: authorization(info),
-    signal: AbortSignal.timeout(2000),
-  })
-    .then((response) => response.json() as Promise<{ version?: string; pid?: number }>)
-    .catch(() => undefined)
-}
-
-// Stops only what this run started: the app, its children, the background services registered in the profile and
-// the foreign service.
-async function stop() {
-  const registered = (
-    await Promise.all([registration, ownRegistration].map(async (file) => (await read(file))?.pid))
-  ).filter((pid): pid is number => pid !== undefined)
-
-  const service = (
-    await Promise.all(
-      registered.map(async (pid) =>
-        (await Bun.$`ps -p ${pid} -o command=`.nothrow().text()).includes(root) ? [pid] : [],
-      ),
-    )
-  ).flat()
-
-  const rows = (await Bun.$`ps -eo pid=,ppid=`.text())
-    .trim()
-    .split("\n")
-    .map((line) => line.trim().split(/\s+/).map(Number))
-
-  const tree = new Set([app.pid, ...(foreign ? [foreign.service.pid] : [])])
-
-  for (const _ of rows) for (const row of rows) if (tree.has(row[1])) tree.add(row[0])
-
-  const pids = [...tree, ...service]
-
-  for (const pid of new Set(pids)) if (alive(pid)) process.kill(pid, "SIGTERM")
-  await Bun.sleep(3000)
-  for (const pid of new Set(pids)) if (alive(pid)) process.kill(pid, "SIGKILL")
-  await Bun.sleep(500)
-}
-
-function alive(pid: number) {
-  return Bun.spawnSync(["kill", "-0", String(pid)]).exitCode === 0
-}
-
-async function portFree(port: number) {
-  const server = createServer()
-
-  return new Promise<boolean>((resolve) => {
-    server.once("error", () => resolve(false))
-    server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)))
-  })
-}
-
-async function freePort() {
-  const server = createServer()
-
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
-  const address = server.address()
-  await new Promise((resolve) => server.close(resolve))
-  if (typeof address !== "object" || !address) throw new Error("No free port")
-
-  return address.port
-}
-
-async function targets() {
-  return fetch(`http://127.0.0.1:${cdpPort}/json`)
-    .then((response) => response.json() as Promise<{ type: string; url: string; webSocketDebuggerUrl: string }[]>)
-    .catch(() => [])
-}
-
-async function waitFor<T>(what: string, check: () => Promise<T | undefined | false>, timeout: number, every = 250) {
-  const deadline = Date.now() + timeout
-
-  while (Date.now() < deadline) {
-    const value = await check().catch(() => undefined)
-
-    if (value) return value
-    await Bun.sleep(every)
-  }
-
-  throw new Error(`Timed out waiting for ${what}`)
-}
-
-async function connect(url: string) {
-  const ws = new WebSocket(url)
-  const pending = new Map<number, (message: any) => void>()
-  let id = 0
-
-  await new Promise((resolve) => (ws.onopen = resolve))
-  ws.onmessage = (event) => {
-    const message = JSON.parse(String(event.data))
-
-    pending.get(message.id)?.(message)
-    pending.delete(message.id)
-  }
-
-  const send = (method: string, params: Record<string, unknown> = {}) =>
-    new Promise<any>((resolve) => {
-      pending.set(++id, resolve)
-      ws.send(JSON.stringify({ id, method, params }))
-    })
-
-  return {
-    send,
-    value: async <T>(expression: string) =>
-      (await send("Runtime.evaluate", { expression, returnByValue: true })).result?.result?.value as T,
-    close: () => ws.close(),
-  }
-}
-
-// An instance's URL and PAT from the local harness' generated environment.
-async function localInstance(name: "ALPHA" | "BETA") {
-  const env = await Bun.file(path.join(repo, "dynwork/test/sp-local/.env.local"))
-    .text()
-    .catch(() => {
-      throw new Error("dynwork/test/sp-local/.env.local is missing: run `bun dynwork/script/sp-local.ts up`")
-    })
-  const read = (key: string) => new RegExp(`^${key}=(.*)$`, "m").exec(env)?.[1]?.trim()
-  const url = read(`SP_${name}_URL`)
-  const pat = read(`SP_${name}_PAT`)
-
-  if (!url || !pat) throw new Error(`SP_${name}_URL or SP_${name}_PAT is missing from the local harness' environment`)
-
-  return { url, pat }
 }

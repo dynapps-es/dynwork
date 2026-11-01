@@ -60,8 +60,8 @@ export function register(ctx: SetupContext<typeof definition>, live: Accessor<Li
 
     return {
       id: "systemprompt",
-      label: `${pill.account.label} · ${status}`,
-      title: `${ctx.t("pill.title", { label: pill.account.label })} · ${status}`,
+      label: `${pill.name} · ${status}`,
+      title: `${ctx.t("pill.title", { label: pill.name })} · ${status}`,
       icon: pill.icon,
       run: () => {
         ctx.dialogs.open((dialog) => (

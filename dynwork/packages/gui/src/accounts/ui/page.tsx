@@ -139,7 +139,7 @@ function Instance(props: {
         </span>
         <div data-slot="accounts-instance-copy">
           <div data-slot="accounts-instance-name">
-            <span data-slot="accounts-instance-label">{row().account.label}</span>
+            <span data-slot="accounts-instance-label">{row().name}</span>
             <For each={row().badges}>
               {(value) => (
                 <Badge
@@ -173,7 +173,7 @@ function Instance(props: {
                 data-action={`accounts-${action}`}
                 variant={action === "remove" ? "ghost-danger" : action === "sign-in" ? "neutral" : "ghost"}
                 icon={action === "sync-now" ? "refresh" : action === "remove" ? "trash" : undefined}
-                aria-label={action === "remove" ? ctx.t("remove.label", { label: row().account.label }) : undefined}
+                aria-label={action === "remove" ? ctx.t("remove.label", { label: row().name }) : undefined}
                 disabled={props.busy}
                 onClick={() => props.run(action)}
               >
