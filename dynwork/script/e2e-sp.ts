@@ -17,11 +17,12 @@
 //   7. signing out of both instances leaves no DynWork content in the service;
 //   8. no PAT, JWT or code is in plaintext anywhere in the profile, the OpenCode database included.
 //
-// Screenshots per step go to the screenshot dir (default: the plan's docs/e2e). Every step prints what it waited for
-// and how long it took. At the end the run revokes the PATs DynWork minted on the instances, removes the skill it
-// created, stops only the processes it started, deletes the profile and checks both instances again.
+// Screenshots per step go to the screenshot dir (default: `dynwork-e2e-shots` in the system temp dir). Every step
+// prints what it waited for and how long it took. At the end the run revokes the PATs DynWork minted on the instances,
+// removes the skill it created, stops only the processes it started, deletes the profile and checks both instances
+// again.
 import { mkdir, realpath, rm } from "node:fs/promises"
-import { hostname } from "node:os"
+import { hostname, tmpdir } from "node:os"
 import path from "node:path"
 import { DynWorkIdentity } from "../packages/branding/src/identity"
 import {
@@ -48,7 +49,7 @@ import {
 } from "./desktop-profile"
 import { exchangePat } from "./sp-local"
 
-const shots = path.resolve(repo, process.argv[2] ?? "plans/active/2026-11-dynwork-sp-auth-sync/docs/e2e")
+const shots = process.argv[2] ? path.resolve(repo, process.argv[2]) : path.join(tmpdir(), "dynwork-e2e-shots")
 
 const harness = path.join(repo, "dynwork/test/sp-local")
 

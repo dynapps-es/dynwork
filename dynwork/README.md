@@ -230,7 +230,8 @@ the profile's registration; a skill created on alpha with the instance CLI appea
 once deleted; switching to beta swaps the content within 5 s; a copy of the app moved into the profile starts, loads the
 server plugin from its own `Contents/Resources` and syncs; signing out of both leaves nothing in the service; and no
 PAT, JWT or code is in plaintext anywhere in the profile, the OpenCode database included. Each step prints what it
-waited for and how long it took; screenshots go to the screenshot dir (default: the plan's `docs/e2e`).
+waited for and how long it took; screenshots go to the screenshot dir (default: `dynwork-e2e-shots` in the system temp
+dir).
 
 The live-sync steps need a focused DynWork window (the sync polls every 30 s with focus, every 5 min without). macOS
 does not activate an app a background process starts, so the run asks the main process, through its inspector on
