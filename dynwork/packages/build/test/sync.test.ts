@@ -202,6 +202,42 @@ describe("upstream sync", () => {
     expect(await exists(result.worktree.path)).toBe(false)
   })
 
+  test("replays the session shapes after the rebase when the recorder is there, and fails on a changed shape", async () => {
+    const root = await fixture(["src/a.ts", "package.json", "packages/desktop/package.json"])
+    await write(
+      root,
+      "package.json",
+      JSON.stringify({ name: "fixture", private: true, workspaces: ["dynwork/packages/*", "packages/*"] }),
+    )
+    await write(
+      root,
+      "packages/desktop/package.json",
+      JSON.stringify({ name: "desktop", private: true, scripts: { typecheck: "echo ok" } }),
+    )
+    await write(
+      root,
+      "dynwork/packages/good/package.json",
+      JSON.stringify({ name: "good", private: true, scripts: { test: "echo ok", typecheck: "echo ok" } }),
+    )
+    await write(
+      root,
+      "dynwork/script/record-session.ts",
+      'console.error("event session.text.ended: was a, now b")\nprocess.exit(1)\n',
+    )
+    await commit(root, "feat(dynwork): add the recorder")
+
+    const result = await Sync.run({ root, target: "next", remote: false, checks: "no-build" })
+
+    const shapes = result.steps.find((step) => step.name === "session shapes")
+    expect([shapes?.cwd, shapes?.command, shapes?.status]).toEqual([
+      ".",
+      "bun dynwork/script/record-session.ts --check",
+      "fail",
+    ])
+    expect(shapes?.output).toContain("event session.text.ended: was a, now b")
+    expect(result.exit).toBe(1)
+  })
+
   test("never moves a branch inside the stack, even with rebase.updateRefs set", async () => {
     const root = await fixture()
     await appendFile(path.join(root, ".git/config"), "[rebase]\n\tupdateRefs = true\n")

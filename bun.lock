@@ -72,6 +72,18 @@
         "electron": "44.9.1",
       },
     },
+    "dynwork/packages/mobile-model": {
+      "name": "@dynwork/mobile-model",
+      "version": "0.1.0",
+      "dependencies": {
+        "@opencode/client": "workspace:*",
+      },
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@typescript/native": "catalog:",
+      },
+    },
     "dynwork/packages/remote": {
       "name": "@dynwork/remote",
       "version": "0.1.0",
@@ -1631,6 +1643,8 @@
     "@dynwork/build": ["@dynwork/build@workspace:dynwork/packages/build"],
 
     "@dynwork/gui": ["@dynwork/gui@workspace:dynwork/packages/gui"],
+
+    "@dynwork/mobile-model": ["@dynwork/mobile-model@workspace:dynwork/packages/mobile-model"],
 
     "@dynwork/remote": ["@dynwork/remote@workspace:dynwork/packages/remote"],
 

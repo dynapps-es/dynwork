@@ -98,6 +98,9 @@ function matchers(actual: unknown, negate: boolean) {
     toMatch: (pattern: RegExp) => check(typeof actual === "string" && pattern.test(actual), `to match ${pattern}`),
     toContain: (item: unknown) =>
       check(Array.isArray(actual) && actual.some((value) => Object.is(value, item)), `to contain ${show(item)}`),
+    toHaveLength: (length: number) =>
+      check((actual as { length: number }).length === length, `to have length ${length}`),
+    toBeNull: () => check(actual === null, "to be null"),
     toBeUndefined: () => check(actual === undefined, "to be undefined"),
     toBeDefined: () => check(actual !== undefined, "to be defined"),
     toBeGreaterThan: (bound: number) => check((actual as number) > bound, `to be > ${bound}`),

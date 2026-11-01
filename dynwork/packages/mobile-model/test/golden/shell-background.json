@@ -1,0 +1,80 @@
+{
+  "sessions": [
+    {
+      "id": "ses_e67910ffbffejHy6iwmQn60iGx",
+      "title": "shell-background",
+      "project": "shell-background",
+      "directory": "/work/shell-background",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558772186,
+      "background": 0
+    }
+  ],
+  "session": {
+    "row": {
+      "id": "ses_e67910ffbffejHy6iwmQn60iGx",
+      "title": "shell-background",
+      "project": "shell-background",
+      "directory": "/work/shell-background",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558772186,
+      "background": 0
+    },
+    "turns": [
+      {
+        "id": "msg_1986ef069001tn5ky1F41p7VeM",
+        "user": {
+          "id": "msg_1986ef069001tn5ky1F41p7VeM",
+          "text": "[scenario:shell-background] Start a slow build",
+          "files": 0
+        },
+        "blocks": [
+          {
+            "kind": "toolGroup",
+            "tools": [
+              {
+                "id": "toolu_shell-background_0_0",
+                "name": "shell",
+                "label": "shell Slow build",
+                "status": "done",
+                "output": "Command moved to the background (shell ID: sh_1986ef19a0016KZ16Z5Vty2TGF).\nOutput is streaming to: /work/data/opencode/shell/56199a38dd81a205a313241ba174f0580efec622/sh_1986ef19a0016KZ16Z5Vty2TGF.out\nYou will be notified automatically when the command finishes. The notification will include the command's output. Unless the user explicitly asks otherwise, DO NOT poll for completion, even if you need the final result to continue. Repeatedly sleeping and reading or searching the output file is polling, not useful work. You may read the current output if it lets you do useful work now, but do not repeatedly check it while waiting for the command to finish. Keep working on anything that does not depend on the result. If you have nothing else to do, end your response; you will be resumed automatically when the command finishes."
+              }
+            ],
+            "running": 0,
+            "failed": 0
+          },
+          {
+            "kind": "text",
+            "text": "The build runs in the background.",
+            "streaming": false
+          },
+          {
+            "kind": "text",
+            "text": "The build finished.",
+            "streaming": false
+          }
+        ],
+        "status": "done",
+        "startedAt": 1793558769980,
+        "endedAt": 1793558772186
+      }
+    ],
+    "background": {
+      "items": []
+    },
+    "needs": [],
+    "children": [],
+    "info": {
+      "model": "fake/fake-1",
+      "cost": 0,
+      "tokens": {
+        "input": 303,
+        "output": 33,
+        "reasoning": 0
+      }
+    }
+  },
+  "children": []
+}

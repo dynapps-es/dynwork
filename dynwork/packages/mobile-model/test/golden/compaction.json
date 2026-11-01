@@ -1,0 +1,85 @@
+{
+  "sessions": [
+    {
+      "id": "ses_e6790dc8dfferzUapy5Pp3uKUD",
+      "title": "compaction",
+      "project": "compaction",
+      "directory": "/work/compaction",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558784967,
+      "background": 0
+    }
+  ],
+  "session": {
+    "row": {
+      "id": "ses_e6790dc8dfferzUapy5Pp3uKUD",
+      "title": "compaction",
+      "project": "compaction",
+      "directory": "/work/compaction",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558784967,
+      "background": 0
+    },
+    "turns": [
+      {
+        "id": "msg_1986f23d2001N24UNGoli5876t",
+        "user": {
+          "id": "msg_1986f23d2001N24UNGoli5876t",
+          "text": "[scenario:compaction] First question",
+          "files": 0
+        },
+        "blocks": [
+          {
+            "kind": "text",
+            "text": "The first answer.",
+            "streaming": false
+          }
+        ],
+        "status": "done",
+        "startedAt": 1793558783130,
+        "endedAt": 1793558783216
+      },
+      {
+        "id": "msg_1986f281b001thpU8fKw4TWyn8",
+        "user": {
+          "id": "msg_1986f281b001thpU8fKw4TWyn8",
+          "text": "[scenario:compaction] Second question",
+          "files": 0
+        },
+        "blocks": [
+          {
+            "kind": "text",
+            "text": "The second answer.",
+            "streaming": false
+          },
+          {
+            "kind": "compaction",
+            "status": "completed",
+            "reason": "manual",
+            "summary": "## Objective\n- Count the words in the notes\n\n## Requirements\n- (none)\n\n## Decisions\n- (none)\n\n## Work State\n### Completed\n- Counted the words\n\n### Active\n- (none)\n\n### Blocked\n- (none)\n\n## Next Move\n1. (none)\n\n## Relevant Files\n- (none)\n\n## Important Context\n- (none)"
+          }
+        ],
+        "status": "done",
+        "startedAt": 1793558784039,
+        "endedAt": 1793558784967
+      }
+    ],
+    "background": {
+      "items": []
+    },
+    "needs": [],
+    "children": [],
+    "info": {
+      "model": "fake/fake-1",
+      "cost": 0,
+      "tokens": {
+        "input": 303,
+        "output": 33,
+        "reasoning": 0
+      }
+    }
+  },
+  "children": []
+}

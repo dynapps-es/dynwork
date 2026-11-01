@@ -90,3 +90,7 @@ Padding hides exact sizes inside a bucket and nothing more. Timing and volume ca
 
   The host provides only what an RN app has on top of the engine: timers, `console`, `queueMicrotask`,
   `performance.now` and `crypto.getRandomValues`.
+
+  The harness is shared: `bun script/hermes.ts --package <dir>` runs another package's `test/hermes/entry.ts` with the same
+  Hermes, host, hermesc and Babel transforms, and the `bun:test` shim in `test/hermes/bun-test.ts` (`.jsonl` files are
+  bundled as text). `@dynwork/mobile-model` uses it.

@@ -1,0 +1,108 @@
+{
+  "sessions": [
+    {
+      "id": "ses_e679140a7ffeGQG5ihIcMPsw3c",
+      "title": "tools",
+      "project": "tools",
+      "directory": "/work/tools",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558757887,
+      "background": 0
+    }
+  ],
+  "session": {
+    "row": {
+      "id": "ses_e679140a7ffeGQG5ihIcMPsw3c",
+      "title": "tools",
+      "project": "tools",
+      "directory": "/work/tools",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558757887,
+      "background": 0
+    },
+    "turns": [
+      {
+        "id": "msg_1986ebfc500145lVlBFNQrz66B",
+        "user": {
+          "id": "msg_1986ebfc500145lVlBFNQrz66B",
+          "text": "[scenario:tools] Summarise the notes",
+          "files": 0
+        },
+        "blocks": [
+          {
+            "kind": "text",
+            "text": "I will look at the notes first.",
+            "streaming": false
+          },
+          {
+            "kind": "toolGroup",
+            "tools": [
+              {
+                "id": "toolu_tools_0_1",
+                "name": "glob",
+                "label": "glob *.md",
+                "status": "done",
+                "output": "/work/tools/notes.md"
+              },
+              {
+                "id": "toolu_tools_0_2",
+                "name": "grep",
+                "label": "grep alpha",
+                "status": "done",
+                "output": "Found 1 matches\n/work/tools/notes.md:\n  Line 1: alpha line\n"
+              },
+              {
+                "id": "toolu_tools_1_0",
+                "name": "read",
+                "label": "read notes.md",
+                "status": "done",
+                "output": "Read file notes.md, lines 1-3\n1: alpha line\n2: beta line\n3: gamma line"
+              },
+              {
+                "id": "toolu_tools_1_1",
+                "name": "shell",
+                "label": "shell Count the words",
+                "status": "done",
+                "output": "       6 notes.md\n"
+              },
+              {
+                "id": "toolu_tools_1_2",
+                "name": "read",
+                "label": "read missing.md",
+                "status": "error",
+                "error": "File not found: missing.md"
+              }
+            ],
+            "running": 0,
+            "failed": 1
+          },
+          {
+            "kind": "text",
+            "text": "The notes hold three lines about alpha, beta and gamma.",
+            "streaming": false
+          }
+        ],
+        "status": "done",
+        "startedAt": 1793558757505,
+        "endedAt": 1793558757887
+      }
+    ],
+    "background": {
+      "items": []
+    },
+    "needs": [],
+    "children": [],
+    "info": {
+      "model": "fake/fake-1",
+      "cost": 0,
+      "tokens": {
+        "input": 303,
+        "output": 33,
+        "reasoning": 0
+      }
+    }
+  },
+  "children": []
+}

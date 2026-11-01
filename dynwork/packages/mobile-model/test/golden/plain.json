@@ -1,0 +1,61 @@
+{
+  "sessions": [
+    {
+      "id": "ses_e67915552ffevMea2DGMwiunCu",
+      "title": "plain",
+      "project": "plain",
+      "directory": "/work/plain",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558753625,
+      "background": 0
+    }
+  ],
+  "session": {
+    "row": {
+      "id": "ses_e67915552ffevMea2DGMwiunCu",
+      "title": "plain",
+      "project": "plain",
+      "directory": "/work/plain",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558753625,
+      "background": 0
+    },
+    "turns": [
+      {
+        "id": "msg_1986eaccf0015xAkEsem3TBLSP",
+        "user": {
+          "id": "msg_1986eaccf0015xAkEsem3TBLSP",
+          "text": "[scenario:plain] Say hello",
+          "files": 0
+        },
+        "blocks": [
+          {
+            "kind": "text",
+            "text": "Hello from the fake provider. This is a plain answer, with `inline code` and a list:\n\n- one\n- two",
+            "streaming": false
+          }
+        ],
+        "status": "done",
+        "startedAt": 1793558753393,
+        "endedAt": 1793558753625
+      }
+    ],
+    "background": {
+      "items": []
+    },
+    "needs": [],
+    "children": [],
+    "info": {
+      "model": "fake/fake-1",
+      "cost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 10,
+        "reasoning": 0
+      }
+    }
+  },
+  "children": []
+}

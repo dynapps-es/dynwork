@@ -1,0 +1,155 @@
+{
+  "sessions": [
+    {
+      "id": "ses_e67912026ffexjdy5ixzzqwQBE",
+      "title": "subagent-background",
+      "project": "subagent-background",
+      "directory": "/work/subagent-background",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558768315,
+      "background": 0
+    }
+  ],
+  "session": {
+    "row": {
+      "id": "ses_e67912026ffexjdy5ixzzqwQBE",
+      "title": "subagent-background",
+      "project": "subagent-background",
+      "directory": "/work/subagent-background",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558768315,
+      "background": 0
+    },
+    "turns": [
+      {
+        "id": "msg_1986ee046001X477Pu7K8er5KP",
+        "user": {
+          "id": "msg_1986ee046001X477Pu7K8er5KP",
+          "text": "[scenario:subagent-background] Run a slow subagent",
+          "files": 0
+        },
+        "blocks": [
+          {
+            "kind": "text",
+            "text": "I will run a subagent in the background.",
+            "streaming": false
+          },
+          {
+            "kind": "subagent",
+            "id": "toolu_subagent-background_0_1",
+            "sessionID": "ses_e67911df9ffel5a38OXrX4V4jc",
+            "agent": "general",
+            "description": "Slow count",
+            "state": "completed",
+            "output": "one two three"
+          },
+          {
+            "kind": "text",
+            "text": "The subagent is running. I will wait for its report.",
+            "streaming": false
+          },
+          {
+            "kind": "text",
+            "text": "The subagent finished: it counted to three.",
+            "streaming": false
+          }
+        ],
+        "status": "done",
+        "startedAt": 1793558765915,
+        "endedAt": 1793558768315
+      }
+    ],
+    "background": {
+      "items": []
+    },
+    "needs": [],
+    "children": [
+      {
+        "id": "ses_e67911df9ffel5a38OXrX4V4jc",
+        "parentID": "ses_e67912026ffexjdy5ixzzqwQBE",
+        "title": "Slow count",
+        "project": "subagent-background",
+        "directory": "/work/subagent-background",
+        "desktop": "Studio Mac",
+        "status": "done",
+        "updated": 1793558768285,
+        "background": 0
+      }
+    ],
+    "info": {
+      "model": "fake/fake-1",
+      "cost": 0,
+      "tokens": {
+        "input": 303,
+        "output": 33,
+        "reasoning": 0
+      }
+    }
+  },
+  "children": [
+    {
+      "row": {
+        "id": "ses_e67911df9ffel5a38OXrX4V4jc",
+        "parentID": "ses_e67912026ffexjdy5ixzzqwQBE",
+        "title": "Slow count",
+        "project": "subagent-background",
+        "directory": "/work/subagent-background",
+        "desktop": "Studio Mac",
+        "status": "done",
+        "updated": 1793558768285,
+        "background": 0
+      },
+      "turns": [
+        {
+          "id": "msg_1986ee215001QhDZRYu7k91Aj7",
+          "user": {
+            "id": "msg_1986ee215001QhDZRYu7k91Aj7",
+            "text": "You are a subagent spawned by another session.\n[scenario:subagent-background/child] Count to three slowly.",
+            "files": 0
+          },
+          "blocks": [
+            {
+              "kind": "toolGroup",
+              "tools": [
+                {
+                  "id": "toolu_subagent-background_child_0_0",
+                  "name": "shell",
+                  "label": "shell Count slowly",
+                  "status": "done",
+                  "output": "one two three\n"
+                }
+              ],
+              "running": 0,
+              "failed": 0
+            },
+            {
+              "kind": "text",
+              "text": "one two three",
+              "streaming": false
+            }
+          ],
+          "status": "done",
+          "startedAt": 1793558766118,
+          "endedAt": 1793558768285
+        }
+      ],
+      "background": {
+        "items": []
+      },
+      "needs": [],
+      "children": [],
+      "info": {
+        "agent": "general",
+        "model": "fake/fake-1",
+        "cost": 0,
+        "tokens": {
+          "input": 201,
+          "output": 21,
+          "reasoning": 0
+        }
+      }
+    }
+  ]
+}

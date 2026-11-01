@@ -10,6 +10,9 @@
 // --no-build skips the desktop bundle; --quick runs only the rebase and the patch guard, without installing
 // --keep     keeps the worktree, otherwise it is removed
 //
+// After a rebase it also replays the session fixtures of `@dynwork/mobile-model` against the new server
+// (`bun dynwork/script/record-session.ts --check`) and fails on a changed event or message shape, unless --quick.
+//
 // Exit 0 green, 2 rebase conflicts, 1 a check failed.
 import { mkdir } from "node:fs/promises"
 import path from "node:path"

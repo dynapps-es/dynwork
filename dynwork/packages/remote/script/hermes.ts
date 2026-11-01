@@ -13,6 +13,10 @@
 //   4. compile the result to Hermes bytecode with the npm `hermesc`, as an RN release build does;
 //   5. run the bytecode in the host. Any failure, or a run that does not finish, is a red exit.
 //
+// `--package <dir>` runs another package's tests (its `test/hermes/entry.ts`) with this package's Hermes, host, hermesc,
+// Babel transforms and `bun:test` shim, as `@dynwork/mobile-model` does: `bun ../remote/script/hermes.ts --package .`.
+// Files ending in `.jsonl` are bundled as text.
+//
 // macOS only (the host links the macOS framework). Elsewhere it fails rather than skipping.
 
 import { $ } from "bun"
@@ -28,7 +32,10 @@ const artifact = {
   sha256: "c92c147a668e3349b041f27e457859e80d50512dc0aa4d9241987b4c64675625",
 }
 
-const root = path.resolve(import.meta.dir, "..")
+// This package: where hermesc, the host and the `bun:test` shim live. `root` is the package whose tests run.
+const home = path.resolve(import.meta.dir, "..")
+const flag = process.argv.indexOf("--package")
+const root = flag === -1 ? home : path.resolve(process.argv[flag + 1] ?? ".")
 const fail = (message: string): never => {
   console.error(`test:hermes: ${message}`)
   process.exit(1)
@@ -45,7 +52,7 @@ for await (const file of new Bun.Glob("src/**/*.ts").scan({ cwd: root })) {
 }
 
 // 2. hermesc from npm, the version React Native 0.88.1 pins
-const compiler = path.join(root, "node_modules/hermes-compiler")
+const compiler = path.join(home, "node_modules/hermes-compiler")
 const pinned = (await Bun.file(path.join(compiler, "package.json")).json()).version
 if (pinned !== version) fail(`hermes-compiler is ${pinned}, expected ${version} (React Native 0.88.1)`)
 const hermesc = path.join(compiler, "hermesc/osx-bin/hermesc")
@@ -70,7 +77,7 @@ if (!(await Bun.file(path.join(frameworks, "hermesvm.framework/hermesvm")).exist
   await Bun.write(tarball, bytes)
   await $`tar -xzf ${tarball} -C ${cache} ./destroot/include ./destroot/Library/Frameworks/macosx`.quiet()
 }
-const source = path.join(root, "script/hermes/host.cpp")
+const source = path.join(home, "script/hermes/host.cpp")
 const hostHash = new Bun.CryptoHasher("sha256")
   .update(await Bun.file(source).text())
   .digest("hex")
@@ -94,10 +101,13 @@ await build({
   target: "es2022",
   // Hermes compiles neither async generators nor `for await`
   supported: { "async-generator": false, "for-await": false },
-  alias: { "bun:test": path.join(root, "test/hermes/bun-test.ts") },
+  alias: { "bun:test": path.join(home, "test/hermes/bun-test.ts") },
+  loader: { ".jsonl": "text" },
   logLevel: "warning",
 })
 const lowered = await transformAsync(await Bun.file(bundle).text(), {
+  // Plugins resolve from here, not from the package whose tests run
+  cwd: home,
   babelrc: false,
   configFile: false,
   compact: true,

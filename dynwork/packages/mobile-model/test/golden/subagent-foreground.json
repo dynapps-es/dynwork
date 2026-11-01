@@ -1,0 +1,145 @@
+{
+  "sessions": [
+    {
+      "id": "ses_e679131b9ffen90YdfNpfgxeTn",
+      "title": "subagent-foreground",
+      "project": "subagent-foreground",
+      "directory": "/work/subagent-foreground",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558763784,
+      "background": 0
+    }
+  ],
+  "session": {
+    "row": {
+      "id": "ses_e679131b9ffen90YdfNpfgxeTn",
+      "title": "subagent-foreground",
+      "project": "subagent-foreground",
+      "directory": "/work/subagent-foreground",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558763784,
+      "background": 0
+    },
+    "turns": [
+      {
+        "id": "msg_1986eceb70014ZMNzJvFI3SmNr",
+        "user": {
+          "id": "msg_1986eceb70014ZMNzJvFI3SmNr",
+          "text": "[scenario:subagent-foreground] Ask a subagent to read the notes",
+          "files": 0
+        },
+        "blocks": [
+          {
+            "kind": "subagent",
+            "id": "toolu_subagent-foreground_0_0",
+            "sessionID": "ses_e67912f84ffelkB1ZDWcFfksCj",
+            "agent": "explore",
+            "description": "Read the notes",
+            "state": "completed",
+            "output": "notes.md holds three lines: alpha, beta, gamma."
+          },
+          {
+            "kind": "text",
+            "text": "The subagent read the notes: three lines.",
+            "streaming": false
+          }
+        ],
+        "status": "done",
+        "startedAt": 1793558761463,
+        "endedAt": 1793558763784
+      }
+    ],
+    "background": {
+      "items": []
+    },
+    "needs": [],
+    "children": [
+      {
+        "id": "ses_e67912f84ffelkB1ZDWcFfksCj",
+        "parentID": "ses_e679131b9ffen90YdfNpfgxeTn",
+        "title": "Read the notes",
+        "project": "subagent-foreground",
+        "directory": "/work/subagent-foreground",
+        "desktop": "Studio Mac",
+        "status": "done",
+        "updated": 1793558763754,
+        "background": 0
+      }
+    ],
+    "info": {
+      "model": "fake/fake-1",
+      "cost": 0,
+      "tokens": {
+        "input": 201,
+        "output": 21,
+        "reasoning": 0
+      }
+    }
+  },
+  "children": [
+    {
+      "row": {
+        "id": "ses_e67912f84ffelkB1ZDWcFfksCj",
+        "parentID": "ses_e679131b9ffen90YdfNpfgxeTn",
+        "title": "Read the notes",
+        "project": "subagent-foreground",
+        "directory": "/work/subagent-foreground",
+        "desktop": "Studio Mac",
+        "status": "done",
+        "updated": 1793558763754,
+        "background": 0
+      },
+      "turns": [
+        {
+          "id": "msg_1986ed087001s3EdtibDlhfAq5",
+          "user": {
+            "id": "msg_1986ed087001s3EdtibDlhfAq5",
+            "text": "You are a subagent spawned by another session.\n[scenario:subagent-foreground/child] Read notes.md and report what it holds.",
+            "files": 0
+          },
+          "blocks": [
+            {
+              "kind": "toolGroup",
+              "tools": [
+                {
+                  "id": "toolu_subagent-foreground_child_0_0",
+                  "name": "shell",
+                  "label": "shell Read the notes slowly",
+                  "status": "done",
+                  "output": "alpha line\nbeta line\ngamma line\n"
+                }
+              ],
+              "running": 0,
+              "failed": 0
+            },
+            {
+              "kind": "text",
+              "text": "notes.md holds three lines: alpha, beta, gamma.",
+              "streaming": false
+            }
+          ],
+          "status": "done",
+          "startedAt": 1793558761627,
+          "endedAt": 1793558763754
+        }
+      ],
+      "background": {
+        "items": []
+      },
+      "needs": [],
+      "children": [],
+      "info": {
+        "agent": "explore",
+        "model": "fake/fake-1",
+        "cost": 0,
+        "tokens": {
+          "input": 201,
+          "output": 21,
+          "reasoning": 0
+        }
+      }
+    }
+  ]
+}
