@@ -104,4 +104,11 @@ describe("lockup", () => {
     DynWorkOutline.symbol.stops.forEach((stop) => expect(lockupSvg).toContain(`stop-color="${stop.color}"`))
     expect(lockupSvg).not.toMatch(/<text|font-family|@font-face|<style/)
   })
+
+  // src/lockup.tsx draws the lockup from these numbers, so the component and the SVG must agree.
+  test("matches the geometry the Lockup component draws", () => {
+    expect(lockupSvg).toContain(`viewBox="0 0 ${DynWorkOutline.lockup.width} ${DynWorkOutline.lockup.height}"`)
+    expect(lockupSvg).toContain(`<g transform="${DynWorkOutline.lockup.symbol}">`)
+    expect(lockupSvg).toContain(`<g transform="${DynWorkOutline.lockup.wordmark}" fill="currentColor">`)
+  })
 })

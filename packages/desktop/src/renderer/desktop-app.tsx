@@ -14,6 +14,7 @@ import {
   useTabs,
   type LayoutRoute,
 } from "@opencode/app/desktop"
+import { SignInGate } from "@dynwork/gui/signin"
 import { useTheme } from "@opencode/ui/theme/context"
 import type { BaseRouterProps } from "@solidjs/router"
 import { createEffect, createMemo, createResource, lazy, Show, Suspense } from "solid-js"
@@ -139,6 +140,7 @@ export function DesktopApp(props: { api: ElectronAPI; version: string }) {
         }}
       >
         <Show when={true}>{(_) => <ReadyApp />}</Show>
+        <SignInGate version={props.version} />
         <Show when={!firstLaunch.loading && startup.visible}>
           <div
             data-component="startup-overlay"

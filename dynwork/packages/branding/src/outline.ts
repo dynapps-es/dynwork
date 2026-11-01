@@ -28,3 +28,11 @@ export const symbol = {
     { offset: 1, color: "#FF911F" },
   ],
 }
+
+// logo/lockup.svg: the symbol scaled to the wordmark's 148 px ascender and set left of the letters.
+export const lockup = {
+  width: 1178.75,
+  height: 243.5,
+  symbol: "scale(1.503086) translate(-132 0)",
+  wordmark: "translate(311.75 30.25)",
+}

@@ -11,8 +11,22 @@ the next tag.
 | `PATCHES.md` | Every upstream file we modify, why, and the risk on upstream updates |
 | `packages/branding` | `@dynwork/branding`: the prod app identity (`src/identity.ts`) that the desktop package reads |
 | `packages/branding/logo` | `wordmark.svg`: "dynwork" outlined, in `currentColor`. `lockup.svg`: the Dynapps symbol in its gradient left of the wordmark |
-| `packages/branding/src` | `outline.ts`: the wordmark letters and the symbol as path data. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos |
+| `packages/gui` | `@dynwork/gui`: DynWork's own screens. `src/signin`: the sign-in gate the desktop shows until the device is signed in |
+| `packages/branding/src` | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark |
 | `packages/branding/theme` | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json` |
+
+## Sign-in
+
+The desktop shows a full-window sign-in screen until this device is signed in to a systemprompt instance
+(`packages/gui/src/signin`, mounted by `desktop-app.tsx`, see `PATCHES.md`). It is a visual mock for now: every remote
+step goes through `SignInAccounts.Interface`, and `SignInAccounts.mock()` answers each one after a short delay, with no
+network. Real systemprompt auth will implement the same interface.
+
+The screen sits under the startup splash, so it appears when the splash fades and the shell keeps loading underneath.
+Finishing stores the `dynwork-signin` key (a small JSON with the URL and the chosen instance) in the renderer's
+`localStorage`, or in `sessionStorage` when "Keep me signed in on this device" is off, and fades the screen out.
+Removing the key shows the screen again on the next launch. While it shows, the gate keeps focus and every keydown
+to itself, so app shortcuts do not act on the hidden shell. All copy lives in `copy.ts`.
 
 ## Syncing with upstream
 
@@ -82,7 +96,7 @@ The script builds the CLI for this machine from `packages/cli` (release channel,
 To check the installed app, launch it in a throwaway profile:
 
 ```bash
-bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [home|new-session|first-launch]
+bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width]
 ```
 
 The smoke test starts `/Applications/DynWork.app` with its own home, user data, XDG directories, database, config and
@@ -92,8 +106,11 @@ and reloads (for example `oc-2-deep dark`), saves a screenshot (by default to
 `plans/done/2026-10-dynwork-pilot/docs/smoke.png`), prints the theme colors read from the page, then stops only the
 processes it started and deletes the profile. It exits non-zero if the window never appears.
 
-The view defaults to home. `new-session` starts as a fresh install, which opens on the new session screen, and applies
-the theme live instead of reloading, since a reload would land on home. `first-launch` shoots the first-launch splash
+The view defaults to home, which stores the sign-in flag and reloads. `signin` shoots the sign-in screen at step 1,
+`signin-choose` at step 2, `signin-finalizing` while it syncs and `signin-done` the app after it fades; each drives the
+screen with the keyboard over CDP. A width in CSS pixels (for example `800`) shoots the window at that width.
+`new-session` starts as a fresh install, which opens on the new session screen, signs in through the sign-in screen
+and applies the theme live instead of reloading, since a reload would land on home. `first-launch` shoots the first-launch splash
 once its wordmark has drawn, before any theme can be stored. A fresh install runs the first-launch onboarding, which
 may create `Default Project` in your real `~/Documents` (Electron reads it from macOS, not from `HOME`).
 

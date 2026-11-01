@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@dynwork/gui",
+  "private": true,
+  "version": "2.2.5",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "bun check --no-script -b",
+    "typecheck:tsc": "tsc -b",
+    "test": "bun test"
+  },
+  "exports": {
+    "./signin": "./src/signin/index.ts"
+  },
+  "dependencies": {
+    "@dynwork/branding": "workspace:*",
+    "@opencode/ui": "workspace:*",
+    "solid-js": "catalog:"
+  },
+  "devDependencies": {
+    "@happy-dom/global-registrator": "20.0.11",
+    "@tsconfig/node22": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native": "catalog:"
+  }
+}

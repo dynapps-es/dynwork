@@ -1,0 +1,447 @@
+/* Tailwind does not scan dynwork/, so the sign-in screen styles itself here with the theme's v2 tokens. */
+
+[data-component="dynwork-signin"] {
+  position: fixed;
+  inset: 0;
+  /* Above the shell, under the startup splash (z-index 100), which fades to reveal it. */
+  z-index: 90;
+  display: grid;
+  grid-template-columns: minmax(0, 54fr) minmax(460px, 46fr);
+  overflow: auto;
+  background: var(--v2-background-bg-base);
+  color: var(--v2-text-text-base);
+  font-family: var(--v2-font-family-sans);
+  outline: none;
+  transition: opacity 300ms ease-out;
+
+  &[data-leaving] {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* The shell's titlebar is covered, so the gate keeps the window draggable from the top edge. */
+  [data-slot="signin-drag"] {
+    position: absolute;
+    inset: 0 0 auto;
+    height: 36px;
+    -webkit-app-region: drag;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+    border-radius: 3px;
+    -webkit-app-region: no-drag;
+
+    &[href]:hover {
+      color: var(--v2-text-text-base);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--v2-border-border-focus);
+      outline-offset: 2px;
+    }
+  }
+
+  [data-slot="signin-brand"] {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 48px;
+    min-width: 0;
+    padding: 72px 56px 32px;
+    background-color: var(--v2-background-bg-layer-01);
+    background-image: radial-gradient(
+      120% 90% at 0% 100%,
+      color-mix(in srgb, var(--v2-background-bg-accent) 9%, transparent) 0%,
+      transparent 62%
+    );
+    border-inline-end: 1px solid var(--v2-border-border-muted);
+  }
+
+  [data-component="dynwork-lockup"] {
+    display: block;
+    align-self: flex-start;
+    width: auto;
+    height: 34px;
+  }
+
+  [data-slot="signin-pitch"] {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  [data-slot="signin-pitch-head"] {
+    max-width: 13em;
+    font-size: 36px;
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+
+  [data-slot="signin-pitch-body"] {
+    max-width: 26em;
+    font-size: 15px;
+    line-height: 1.55;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="signin-footer"] {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 16px;
+    white-space: nowrap;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="signin-panel"] {
+    display: flex;
+    min-width: 0;
+    padding: 72px 48px 48px;
+  }
+
+  [data-slot="signin-content"] {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    width: 100%;
+    max-width: 420px;
+    margin: auto;
+  }
+
+  [data-slot="signin-header"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  [data-slot="signin-eyebrow"] {
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 530;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-variant-numeric: tabular-nums;
+    color: var(--v2-text-text-muted);
+  }
+
+  h1 {
+    font-size: 24px;
+    line-height: 32px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  [data-slot="signin-lede"] {
+    font-size: 14px;
+    line-height: 22px;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="signin-form"] {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  [data-slot="signin-field"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  [data-slot="signin-field"] > label {
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 530;
+  }
+
+  [data-component="text-input-v2"] {
+    width: 100%;
+    height: 40px;
+  }
+
+  [data-slot="text-input-v2-input"] {
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  [data-slot="signin-status"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="signin-dot"] {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background: var(--v2-icon-icon-faint);
+    transition: background-color 150ms ease-out;
+  }
+
+  [data-tone="checking"] [data-slot="signin-dot"] {
+    background: var(--v2-state-fg-warning);
+  }
+
+  [data-tone="valid"] [data-slot="signin-dot"] {
+    background: var(--v2-state-fg-success);
+  }
+
+  [data-tone="invalid"] {
+    color: var(--v2-state-fg-danger);
+
+    [data-slot="signin-dot"] {
+      background: var(--v2-state-fg-danger);
+    }
+  }
+
+  [data-slot="signin-actions"] {
+    display: flex;
+    gap: 8px;
+
+    [data-component="button-v2"] {
+      height: 40px;
+    }
+
+    [data-component="button-v2"]:first-child {
+      flex: 1;
+    }
+  }
+
+  /* The loader takes the button's text color on the contrast and loading surfaces. */
+  [data-component="button-v2"] [data-component="loader-v2"] {
+    color: currentColor;
+  }
+
+  [data-slot="signin-hint"] {
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--v2-text-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  [data-slot="signin-actions"] + [data-slot="signin-hint"] {
+    margin-block-start: -8px;
+  }
+
+  [data-slot="signin-error"] {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--v2-state-fg-danger);
+  }
+
+  [data-component="checkbox"] {
+    gap: 10px;
+
+    [data-slot="checkbox-checkbox-label"] {
+      font-size: 13px;
+      line-height: 20px;
+      color: var(--v2-text-text-base);
+    }
+  }
+
+  [data-slot="signin-token"] {
+    padding-block-start: 20px;
+    border-radius: 0;
+    border-block-start: 1px solid var(--v2-border-border-muted);
+
+    [data-slot="signin-form"] {
+      padding-block-start: 16px;
+    }
+  }
+
+  [data-slot="signin-token-toggle"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    font: inherit;
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 530;
+    color: var(--v2-text-text-muted);
+    cursor: pointer;
+
+    &:hover {
+      color: var(--v2-text-text-base);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--v2-border-border-focus);
+      outline-offset: 2px;
+    }
+
+    [data-slot="icon-svg"] {
+      transition: transform 150ms ease-out;
+    }
+
+    &[aria-expanded="true"] [data-slot="icon-svg"] {
+      transform: rotate(180deg);
+    }
+  }
+
+  [data-slot="signin-token-row"] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+
+    a {
+      color: var(--v2-text-text-accent);
+    }
+
+    a[href]:hover {
+      color: var(--v2-text-text-accent-hover);
+    }
+
+    a[aria-disabled="true"] {
+      color: var(--v2-text-text-faint);
+      cursor: default;
+    }
+
+    [data-component="button-v2"] {
+      flex: none;
+      height: 36px;
+    }
+  }
+
+  /* Instance cards: the whole card selects its radio through the label's cover. */
+  [data-slot="signin-instances"] [data-slot="radio-v2-items"] {
+    gap: 8px;
+  }
+
+  [data-slot="signin-instances"] [data-slot="radio-v2-item"] {
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-01);
+    box-shadow: inset 0 0 0 1px var(--v2-border-border-base);
+    cursor: pointer;
+    transition: box-shadow 150ms ease-out;
+
+    &[data-checked] {
+      box-shadow: inset 0 0 0 1.5px var(--v2-background-bg-accent);
+    }
+
+    &:has([data-slot="radio-v2-item-input"]:focus-visible) {
+      outline: 2px solid var(--v2-border-border-focus);
+      outline-offset: 2px;
+    }
+
+    [data-slot="radio-v2-item-label"] {
+      flex: 1;
+      min-width: 0;
+      cursor: pointer;
+    }
+
+    [data-slot="radio-v2-item-label"]::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+    }
+
+    [data-slot="radio-v2-item-text"] {
+      gap: 2px;
+    }
+
+    [data-slot="radio-v2-item-label-text"] {
+      font-size: 14px;
+      font-weight: 530;
+    }
+
+    [data-slot="radio-v2-item-description"] {
+      font-size: 12px;
+      line-height: 16px;
+    }
+  }
+
+  [data-slot="signin-finalizing"] {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    text-align: center;
+  }
+
+  [data-slot="signin-finalizing-title"] {
+    font-size: 16px;
+    line-height: 24px;
+    font-weight: 560;
+  }
+}
+
+/* Below about 900 px the columns stack: a compact brand band on top, the panel below. */
+@media (max-width: 899px) {
+  [data-component="dynwork-signin"] {
+    display: flex;
+    flex-direction: column;
+
+    [data-slot="signin-brand"] {
+      flex: none;
+      justify-content: flex-start;
+      gap: 20px;
+      padding: 56px 32px 28px;
+      border-inline-end: 0;
+      border-block-end: 1px solid var(--v2-border-border-muted);
+    }
+
+    [data-slot="signin-pitch-head"] {
+      max-width: none;
+      font-size: 22px;
+    }
+
+    [data-slot="signin-pitch-body"],
+    [data-slot="signin-footer"] {
+      display: none;
+    }
+
+    [data-slot="signin-panel"] {
+      flex: 1 0 auto;
+      padding: 40px 32px 48px;
+    }
+
+    [data-slot="signin-content"] {
+      margin: 0 auto;
+    }
+  }
+}
+
+/* Reduced motion: no fade, no spinning loaders. The app's own setting (data-motion) wins over the system's. */
+:root[data-motion="reduce"] [data-component="dynwork-signin"] {
+  transition: none;
+
+  *,
+  [data-component="loader-v2"] {
+    transition: none;
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="full"]) [data-component="dynwork-signin"] {
+    transition: none;
+
+    *,
+    [data-component="loader-v2"] {
+      transition: none;
+      animation: none;
+    }
+  }
+}

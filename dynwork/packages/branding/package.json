@@ -12,6 +12,7 @@
     "test": "bun test --timeout 30000"
   },
   "exports": {
+    "./lockup": "./src/lockup.tsx",
     "./*": "./src/*.ts"
   },
   "dependencies": {

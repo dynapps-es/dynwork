@@ -2,7 +2,7 @@
 // Launches the installed DynWork in an isolated profile, waits for its window, takes a screenshot and reads the
 // theme background colors over CDP, then stops the processes it started.
 //
-//   bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [home|new-session|first-launch]
+//   bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width]
 //
 // The screenshot defaults to plans/done/2026-10-dynwork-pilot/docs/smoke.png. With a theme id and a color scheme the
 // script stores them as the app's theme preference and reloads before it reads the colors, for example
@@ -11,6 +11,11 @@
 // The view defaults to home. new-session and first-launch start as a fresh install, which opens on the new session
 // screen: new-session shoots that screen, applying the theme live, and first-launch shoots the first-launch splash when
 // its wordmark has drawn, before any theme preference can be stored.
+//
+// A fresh profile opens on the DynWork sign-in screen. home stores the signed-in flag and reloads, new-session signs in
+// through the screen, since a reload would leave the new session. The signin views shoot the screen itself: signin at
+// step 1, signin-choose at step 2, signin-finalizing while it syncs and signin-done the app once it has faded out. A
+// width in CSS pixels shoots the window at that width, for example 800 for the stacked layout.
 //
 // The profile follows packages/desktop/script/bench-startup.ts: its own home, userData, XDG directories, database,
 // config and service registration, a private service port and none of the developer's OPENCODE_* variables. It never
@@ -32,6 +37,15 @@ const colorScheme = process.argv[4]
 
 const view = process.argv[5] ?? "home"
 
+const width = process.argv[6] ? Number(process.argv[6]) : undefined
+
+const signInViews = ["signin", "signin-choose", "signin-finalizing", "signin-done"]
+
+const signedIn = JSON.stringify({
+  url: "https://sp.dynapps.es",
+  instance: { id: "dynapps", name: "Dynapps", host: "sp.dynapps.es" },
+})
+
 const root = await mkdtemp(path.join(tmpdir(), "dynwork-smoke-"))
 
 const config = path.join(root, "config/opencode")
@@ -49,7 +63,7 @@ await Bun.write(path.join(config, "service.json"), JSON.stringify({ port: await 
 
 await Bun.write(
   path.join(root, "desktop/opencode.settings"),
-  JSON.stringify({ firstLaunchOnboardingComplete: view === "home" }),
+  JSON.stringify({ firstLaunchOnboardingComplete: view !== "new-session" && view !== "first-launch" }),
 )
 
 const env = {
@@ -89,6 +103,10 @@ async function run() {
 
   if (view === "first-launch") return firstLaunch(cdp)
 
+  if (width) await cdp.send("Emulation.setDeviceMetricsOverride", { width, height: 0, deviceScaleFactor: 0, mobile: false })
+
+  if (signInViews.includes(view)) return signIn(cdp)
+
   const shell = () =>
     waitFor(
       "the app shell",
@@ -114,6 +132,12 @@ async function run() {
       throw new Error(`${error.message}; the window shows: ${seen}`)
     })
 
+  // The shell loads under the sign-in screen. home stores the signed-in flag for the reload below; the new session
+  // would not survive a reload, so that view signs in through the screen.
+  if (view === "new-session") await submitSignIn(cdp, "signin-done")
+
+  if (view === "home") await cdp.value(`localStorage.setItem("dynwork-signin", ${JSON.stringify(signedIn)})`)
+
   if (themeID && colorScheme) {
     await cdp.value(
       `localStorage.setItem("opencode-theme-id", ${JSON.stringify(themeID)}); localStorage.setItem("opencode-color-scheme", ${JSON.stringify(colorScheme)})`,
@@ -125,14 +149,49 @@ async function run() {
       await cdp.value(
         `[["opencode-theme-id", ${JSON.stringify(themeID)}], ["opencode-color-scheme", ${JSON.stringify(colorScheme)}]].forEach((entry) => window.dispatchEvent(new StorageEvent("storage", { key: entry[0], newValue: entry[1] })))`,
       )
+  }
 
-    if (view !== "new-session") {
-      await cdp.send("Page.reload")
-      // The old document stays alive for a moment after the reload call.
-      await Bun.sleep(1000)
-      await shell()
-    }
+  if (view === "home") {
+    await cdp.send("Page.reload")
+    // The old document stays alive for a moment after the reload call.
+    await Bun.sleep(1000)
+    await shell()
+  }
 
+  if (themeID && colorScheme)
+    await waitFor(
+      `theme ${themeID}`,
+      async () => (await cdp.value<string>("document.documentElement.dataset.theme")) === themeID,
+      15_000,
+    )
+
+  if (await cdp.value<boolean>(`!!document.querySelector('[data-component="dynwork-signin"]')`))
+    throw new Error("The sign-in screen still covers the app")
+
+  return shoot(cdp)
+}
+
+// Shoots the sign-in screen once the startup splash has faded from it, after driving it to the view's step.
+async function signIn(cdp: Awaited<ReturnType<typeof connect>>) {
+  const screen = () =>
+    waitFor(
+      "the sign-in screen",
+      async () =>
+        cdp.value<boolean>(
+          `!!document.querySelector('[data-component="dynwork-signin"]') && !document.querySelector('[data-component="startup-overlay"]')`,
+        ),
+      90_000,
+    )
+
+  await screen()
+
+  if (themeID && colorScheme) {
+    await cdp.value(
+      `localStorage.setItem("opencode-theme-id", ${JSON.stringify(themeID)}); localStorage.setItem("opencode-color-scheme", ${JSON.stringify(colorScheme)})`,
+    )
+    await cdp.send("Page.reload")
+    await Bun.sleep(1000)
+    await screen()
     await waitFor(
       `theme ${themeID}`,
       async () => (await cdp.value<string>("document.documentElement.dataset.theme")) === themeID,
@@ -140,8 +199,44 @@ async function run() {
     )
   }
 
-  // Let the theme apply and the first paint settle.
-  await Bun.sleep(2000)
+  if (view !== "signin") await submitSignIn(cdp, view)
+
+  return shoot(cdp)
+}
+
+// Types a valid instance URL, waits for the green status and presses Enter, then Enter again on Finish, the way a
+// keyboard user would, and stops at the given step.
+async function submitSignIn(cdp: Awaited<ReturnType<typeof connect>>, until: string) {
+  const enter = async () => {
+    for (const type of ["keyDown", "keyUp"])
+      await cdp.send("Input.dispatchKeyEvent", {
+        type,
+        key: "Enter",
+        code: "Enter",
+        windowsVirtualKeyCode: 13,
+        ...(type === "keyDown" ? { text: "\r" } : {}),
+      })
+  }
+  const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
+
+  await waitFor("the instance URL field", async () => seen("#dynwork-signin-url"), 60_000)
+  await cdp.value(`document.querySelector("#dynwork-signin-url").focus()`)
+  await cdp.send("Input.insertText", { text: "https://sp.dynapps.es" })
+  await waitFor("a reachable instance URL", async () => seen('[data-slot="signin-status"][data-tone="valid"]'), 5_000)
+  await enter()
+  await waitFor("the instance list", async () => seen('[data-slot="signin-instances"]'), 5_000)
+
+  if (until === "signin-choose") return Bun.sleep(300)
+  await enter()
+  await waitFor("the finalizing state", async () => seen('[data-slot="signin-finalizing"]'), 5_000)
+
+  if (until === "signin-finalizing") return Bun.sleep(700)
+  await waitFor("the sign-in screen to fade out", async () => !(await seen('[data-component="dynwork-signin"]')), 5_000)
+}
+
+async function shoot(cdp: Awaited<ReturnType<typeof connect>>) {
+  // Let the theme apply and the first paint settle; the timed sign-in steps are shot as they are.
+  if (view !== "signin-choose" && view !== "signin-finalizing") await Bun.sleep(2000)
 
   const colors = await cdp.value<Record<string, string>>(`(() => ({
     html: getComputedStyle(document.documentElement).backgroundColor,

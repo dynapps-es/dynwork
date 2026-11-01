@@ -1,0 +1,8 @@
+/* Dynapps ink (the light palette's ink) in light, white in dark and Deep dark. */
+[data-component="dynwork-lockup"] [data-slot="dynwork-lockup-letters"] {
+  fill: #050543;
+}
+
+[data-color-scheme="dark"] [data-component="dynwork-lockup"] [data-slot="dynwork-lockup-letters"] {
+  fill: #ffffff;
+}
