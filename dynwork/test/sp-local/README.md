@@ -103,6 +103,11 @@ skill (its directory under `skills/` plus its id in the plugin's `skills.include
 10 to 20 seconds after the apply, and leaves the manifest as quickly once removed (observed in phase 14; the e2e does
 this). Other content may still need `docker compose -p dynwork-sp-local restart <instance>`.
 
+`seed` also sets the user's model filter for both OpenCode packagings to `claude` and `openai`
+(`POST /v1/bridge/profile/host-model-filter`, what a user sets in the bridge): the harness serves only Anthropic models,
+and without a filter OpenCode lists only `openai` models, like the bridge, so DynWork would get no `systemprompt`
+provider.
+
 ## What `capture` records
 
 `capture` drives alpha's browser device link end to end and writes `fixtures/device-link.json`: the login gate, the

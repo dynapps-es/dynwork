@@ -55,16 +55,25 @@ const harness = path.join(repo, "dynwork/test/sp-local")
 // Both seeded instances are branded "Dynapps", so DynWork prefixes their ids in the service with the same key.
 const prefix = "dynapps-"
 
+// Like the bridge: skills are directories named after their id in kebab case, agents come from the plugin bundles'
+// `agents/*.md`, and MCP servers are named after the server.
 const expected = {
-  alpha: { skills: ["alpha_notes", "alpha_review", "who_am_i"], agents: ["alpha_helper"], mcp: ["alpha-docs"] },
-  beta: { skills: ["beta_review", "beta_triage", "who_am_i"], agents: ["beta_helper"], mcp: ["beta-docs"] },
+  alpha: { skills: ["alpha-notes", "alpha-review", "who-am-i"], agents: ["alpha_helper"], mcp: ["alpha-docs"] },
+  beta: { skills: ["beta-review", "beta-triage", "who-am-i"], agents: ["beta_helper"], mcp: ["beta-docs"] },
 }
 
 // The titlebar pill, named "systemprompt: <instance>".
 const pill = '[data-slot="titlebar-update"] button[aria-label^="systemprompt"]'
 
-// The skill the run creates on alpha and deletes again.
+// The skill the run creates on alpha and deletes again, and the directory it becomes in DynWork's service.
 const liveSkill = "alpha_e2e"
+const liveSkillDir = "alpha-e2e"
+
+// What the run can see of either instance; anything else in the service is the user's or upstream's.
+const known = new Set([
+  ...Object.values(expected).flatMap((want) => [...want.skills, ...want.agents, ...want.mcp]),
+  liveSkillDir,
+])
 
 // The name DynWork gives the PATs it mints from a one-time code (`accounts/main.ts`).
 const deviceName = `DynWork on ${hostname()}`
@@ -225,7 +234,7 @@ async function main() {
     const shown = await timed(() =>
       waitFor(
         `${prefix}${liveSkill} in the service`,
-        async () => (await synced(service, project)).skills.includes(liveSkill),
+        async () => (await synced(service, project)).skills.includes(liveSkillDir),
         60_000,
         500,
       ).catch(async (error: Error) => {
@@ -255,7 +264,7 @@ async function main() {
       const gone = await timed(() =>
         waitFor(
           `${prefix}${liveSkill} gone from the service`,
-          async () => !(await synced(service, project)).skills.includes(liveSkill),
+          async () => !(await synced(service, project)).skills.includes(liveSkillDir),
           60_000,
           500,
         ).catch(async (error: Error) => {
@@ -610,8 +619,8 @@ async function synced(service: Service, directory: string) {
     const body: { data: Record<string, string>[] } = await get(service, route, directory)
     return body.data
       .map((entry) => entry[field] ?? "")
-      .filter((id) => id.startsWith(prefix) || /alpha|beta/.test(id))
       .map((id) => id.replace(prefix, ""))
+      .filter((id) => known.has(id))
       .toSorted()
   }
   const [skills, agents, mcp] = await Promise.all([
