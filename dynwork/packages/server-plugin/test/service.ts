@@ -9,7 +9,7 @@ import path from "node:path"
 const cli = path.join(import.meta.dir, "../../../../packages/cli")
 const transpilerCache = path.join(tmpdir(), "opencode-test-transpiler-cache")
 
-export async function boot(extra: Record<string, string> = {}) {
+export async function boot(extra: Record<string, string> = {}, config: Record<string, unknown> = {}) {
   const root = await mkdtemp(path.join(tmpdir(), "dynwork-server-plugin-"))
   const plugin = path.join(root, "dynwork-server-plugin")
   await mkdir(plugin)
@@ -26,7 +26,7 @@ export async function boot(extra: Record<string, string> = {}) {
         ...Object.fromEntries(Object.entries(process.env).filter((entry) => !entry[0].startsWith("OPENCODE_"))),
         BUN_RUNTIME_TRANSPILER_CACHE_PATH: transpilerCache,
         HOME: root,
-        OPENCODE_CONFIG_CONTENT: JSON.stringify({ plugins: [plugin] }),
+        OPENCODE_CONFIG_CONTENT: JSON.stringify({ ...config, plugins: [plugin] }),
         OPENCODE_CONFIG_DIR: path.join(root, "config"),
         OPENCODE_DB: path.join(root, "opencode.db"),
         OPENCODE_DISABLE_FILEWATCHER: "true",

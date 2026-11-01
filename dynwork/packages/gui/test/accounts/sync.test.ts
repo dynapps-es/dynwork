@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test"
 import path from "node:path"
-import type { Manifest } from "@dynwork/sp-client"
+import type { Catalog, Manifest, Profile } from "@dynwork/sp-client"
 import { DynWorkSyncClient } from "@dynwork/server-plugin/client"
 import { DynWorkSyncMain } from "../../src/accounts/sync"
 
@@ -21,9 +21,11 @@ const sidecar = Bun.serve({
 })
 afterAll(() => sidecar.stop(true))
 
-const captured: { manifest: { payload: Manifest } } = await Bun.file(
-  path.join(import.meta.dir, "../../../sp-client/test/fixtures/alpha.json"),
-).json()
+const captured: {
+  manifest: { payload: Manifest }
+  profile: { body: Profile }
+  models: { body: { data: Catalog } }
+} = await Bun.file(path.join(import.meta.dir, "../../../sp-client/test/fixtures/alpha.json")).json()
 const manifest = captured.manifest.payload
 const endpoint = {
   id: "sidecar",
@@ -49,6 +51,79 @@ test("apply posts the instance, manifest and JWT to the plugin RPC with the side
       body: {
         input: { instance: { key: "dynapps-alpha", url: account.url }, manifest, jwt: "a.b.c", expiresAt: 5 },
       },
+    },
+  ])
+})
+
+test("apply with the profile adds the gateway models the user is admitted to", async () => {
+  requests.length = 0
+  await sync().apply({
+    account,
+    manifest,
+    jwt: "a.b.c",
+    expiresAt: 5,
+    profile: captured.profile.body,
+    catalog: captured.models.body.data,
+  })
+  expect(requests[0]?.body).toMatchObject({
+    input: {
+      gateway: {
+        label: "Dynapps (Alpha)",
+        models: [
+          { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", api: "messages", context: 1_000_000, output: 128_000 },
+          { id: "claude-opus-5-5", name: "Claude Opus 5.5", api: "messages", context: 1_000_000, output: 128_000 },
+          { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", api: "messages", context: 1_000_000, output: 128_000 },
+        ],
+        default: "claude-sonnet-5-5",
+      },
+    },
+  })
+  // The profile's internal gateway address never reaches the plugin: it calls the account's own URL.
+  const sent = requests[0]?.body as { input: { gateway: unknown } }
+  expect(JSON.stringify(sent.input.gateway)).not.toContain("localhost:8080")
+})
+
+test("the gateway keeps only models the plugin can serve", () => {
+  const profile: Profile = {
+    models: ["gpt-x", "dup", "dup", "off", "bad id", "sized", "unknown-kind"],
+    default_model: "nope",
+    providers: [
+      { name: "openai", clients: ["openai"], models: ["gpt-x"] },
+      { name: "deepseek", configured: false, models: ["off"] },
+      { name: "other", clients: ["gemini"], models: ["unknown-kind"] },
+    ],
+    model_limits: { sized: { context_window: 0, max_output_tokens: 1.5 } },
+  }
+  expect(DynWorkSyncMain.gateway("  ", profile, [{ id: "sized", max_input_tokens: 4096, max_tokens: 1024 }])).toEqual({
+    label: "systemprompt",
+    models: [
+      { id: "gpt-x", api: "chat" },
+      { id: "dup", api: "messages" },
+      { id: "sized", api: "messages", context: 4096, output: 1024 },
+    ],
+  })
+  expect(DynWorkSyncMain.gateway("A", { models: [] }).models).toEqual([])
+  // A configured provider wins over an unconfigured one listed first.
+  expect(
+    DynWorkSyncMain.gateway("A", {
+      models: ["claude-x"],
+      providers: [
+        { name: "direct", configured: false, models: ["claude-x"] },
+        { name: "bedrock", configured: true, clients: ["claude"], models: ["claude-x"] },
+      ],
+    }).models,
+  ).toEqual([{ id: "claude-x", api: "messages" }])
+})
+
+test("token pushes a renewed JWT for the account's instance", async () => {
+  requests.length = 0
+  answers.push(() => Response.json({ output: { accepted: true } }))
+  expect(await sync().token({ account, jwt: "d.e.f", expiresAt: 9 })).toBe(true)
+  expect(requests).toEqual([
+    {
+      path: "/api/rpc/dynwork.sync/token",
+      authorization: "Basic c2VjcmV0",
+      body: { input: { instance: { key: "dynapps-alpha", url: account.url }, jwt: "d.e.f", expiresAt: 9 } },
     },
   ])
 })

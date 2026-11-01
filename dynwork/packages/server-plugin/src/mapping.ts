@@ -124,7 +124,8 @@ function remote(server: DynWorkSync.Manifest["managed_mcp_servers"][number], inp
   return decodeRemote({ type: "remote", url: url.href, headers, oauth: false })
 }
 
-function secure(url: URL) {
+/** Plain HTTP only reaches loopback, so a JWT never travels in clear text to a remote host. */
+export function secure(url: URL) {
   if (url.protocol === "https:") return true
   return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
 }

@@ -158,6 +158,8 @@ export const Profile = Schema.Struct({
         display_name: Schema.optional(Schema.String),
         configured: Schema.optional(Schema.Boolean),
         models: Schema.optional(Strings),
+        // The client kinds the gateway serves the provider's models to: `claude` (`/v1/messages`), `openai`.
+        clients: Schema.optional(Strings),
       }),
     ),
   ),
@@ -183,6 +185,8 @@ export const Models = Schema.Struct({
     }),
   ),
 })
+
+export type Catalog = (typeof Models.Type)["data"]
 
 export const Whoami = Schema.Struct({
   user_id: Schema.String,

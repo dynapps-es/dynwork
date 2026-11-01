@@ -30,6 +30,7 @@ function record() {
     skill: domain("skill"),
     agent: domain("agent"),
     mcp: domain("mcp"),
+    provider: domain("provider"),
     model: domain("model"),
     session: { hook: hook("session") },
     shell: { hook: hook("shell") },
@@ -56,15 +57,19 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
   await Effect.runPromise(Effect.scoped(plugin.effect(recorded.ctx)))
   expect(plugin.id).toBe("dynwork")
   expect(Definition.id).toBe("dynwork.sync")
-  expect(Object.keys(Definition.methods)).toEqual(["apply", "clear"])
+  expect(Object.keys(Definition.methods)).toEqual(["apply", "clear", "token"])
+  expect(Object.keys(Definition.events)).toEqual(["refresh", "rejected"])
   expect(recorded.used).toEqual([
     "skill.transform",
     "agent.transform",
     "mcp.transform",
+    "provider.transform",
     "model.transform",
     "session.hook(context)",
     "shell.hook(create.before)",
     "rpc.register(dynwork.sync)",
+    "session.hook(model.request)",
+    "session.hook(retry)",
   ])
 })
 
@@ -107,6 +112,7 @@ test("apply fills every transform and the system prompt, and clear empties them"
           "skill.reload",
           "agent.reload",
           "mcp.reload",
+          "provider.reload",
           "model.reload",
         ])
         const filled = yield* run()

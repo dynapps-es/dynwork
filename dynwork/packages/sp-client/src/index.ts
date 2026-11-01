@@ -1,2 +1,2 @@
 export * as SpClient from "./client"
-export type { Manifest, Profile, Whoami } from "./schema"
+export type { Catalog, Manifest, Profile, Whoami } from "./schema"
