@@ -63,6 +63,10 @@ describe.skipIf(envPath === undefined)("live consumer API on alpha", () => {
       expect(first.acknowledgement).toBe("accepted")
       expect(again.acknowledgement).toBe("identical_retry")
       expect(again.receipt_id).toBe(first.receipt_id)
+      // A Session the governance events reported, bound to the receipt as the bridge's outbox binds it
+      const session = crypto.randomUUID()
+      const bound = await run(SpConsumer.bind(base, device.credential, { receipt_id: first.receipt_id, session_id: session }))
+      expect(await run(SpConsumer.bind(base, device.credential, { receipt_id: first.receipt_id, session_id: session }))).toEqual(bound)
     }
   })
 })

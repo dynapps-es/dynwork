@@ -246,3 +246,24 @@ test("model calls carry the session in metadata.user_id like the bridge's proxy 
   const text = new Request("https://sp.test/v1/messages", { method: "POST", body: "not json" })
   expect(await (await DynWorkTelemetry.stamp(text, "ses_7")).text()).toBe("not json")
 })
+
+// The bridge's proxy strips whatever the hook sent and, when enrolled, re-attaches the device credential and the host
+// as the evaluator client kind (`feedback/hooks.rs`); 0.76 refuses `opencode` there (400 "Invalid device host").
+test("with the device credential, track carries the bridge proxy's evidence and the client kind", async () => {
+  const hooks = DynWorkTelemetry.hooks()
+  const body = DynWorkTelemetry.lifecycle("session.created", "ses_8", "/work", "evt_8")
+  if (!body) throw new Error("no body")
+  await DynWorkTelemetry.send(hooks, target(), "user-jwt", body, "sp_device_held")
+  await DynWorkTelemetry.send(hooks, target(), "user-jwt", body)
+  const tracks = calls.filter((call) => call.path.startsWith("/api/public/hooks/track"))
+  expect(tracks[0]?.headers).toMatchObject({
+    "x-systemprompt-device-credential": "sp_device_held",
+    "x-systemprompt-host": "open-code",
+    authorization: "Bearer hook-dynapps-commons",
+  })
+  expect(tracks[1]?.headers["x-systemprompt-device-credential"]).toBeUndefined()
+  expect(tracks[1]?.headers["x-systemprompt-host"]).toBe("opencode")
+  // The credential goes to track only, never to the OAuth client or token routes.
+  for (const call of calls.filter((entry) => !entry.path.startsWith("/api/public/hooks/track")))
+    expect(JSON.stringify(call)).not.toContain("sp_device_held")
+})

@@ -175,6 +175,57 @@ test("a Session step reports its lifecycle, prompt and skill use to track, and s
   expect(await until(async () => named("SessionEnd").length, (count) => count > 0)).toBe(1)
 }, 30_000)
 
+test("the device credential main pushes goes on every track call, and each Session is reported to main once", async () => {
+  const sessions: Array<{ instance: string; session: string }> = []
+  const listening = new AbortController()
+  const listen = client.listen({ session: (event) => sessions.push(event) }, listening.signal)
+  const credential = "sp_device_pushed"
+  const local = { key: "alpha", url: instance.url.origin }
+  expect(await client.device({ instance: { ...local, key: "beta" }, credential })).toBe(false)
+  expect(await client.device({ instance: local, credential })).toBe(true)
+  tracked.length = 0
+  const created = await service.post("/api/session", {
+    location: { directory: project },
+    title: "evidence",
+    model: { id: "claude-sonnet-5-5", providerID: "systemprompt" },
+  })
+  const id: string = created.body.data.id
+  await service.post(`/api/session/${id}/prompt`, { text: "who am I?" }, project)
+  await fetch(`${service.url}/api/experimental/session/${id}/wait?location[directory]=${encodeURIComponent(project)}`, {
+    method: "POST",
+    headers: service.headers,
+  })
+  await until(
+    async () => tracked.length,
+    () => named("Stop").length > 0 && sessions.length > 0,
+  )
+  expect(tracked.length).toBeGreaterThanOrEqual(4)
+  for (const call of tracked)
+    expect(call.headers).toMatchObject({
+      "x-systemprompt-device-credential": credential,
+      "x-systemprompt-host": "open-code",
+    })
+  // The session the events carry, as the bridge's proxy queues it for its session bindings: once, however many events.
+  expect(sessions).toEqual([{ instance: "alpha", session: DynWorkTelemetry.session(id) }])
+  // Taken back (sign-out of the device, a refused credential): the calls go without evidence again.
+  expect(await client.device({ instance: local })).toBe(true)
+  tracked.length = 0
+  await service.post(`/api/session/${id}/prompt`, { text: "again" }, project)
+  await fetch(`${service.url}/api/experimental/session/${id}/wait?location[directory]=${encodeURIComponent(project)}`, {
+    method: "POST",
+    headers: service.headers,
+  })
+  await until(
+    async () => named("Stop").length,
+    (count) => count > 0,
+  )
+  for (const call of tracked) expect(call.headers["x-systemprompt-device-credential"]).toBeUndefined()
+  const database = await Bun.file(service.database).arrayBuffer()
+  expect(Buffer.from(database).includes(credential)).toBe(false)
+  listening.abort()
+  await listen
+}, 30_000)
+
 test("without a governance plugin nothing is reported", async () => {
   await client.apply({
     instance: { key: "alpha", url: instance.url.origin },

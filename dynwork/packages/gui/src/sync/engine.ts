@@ -40,7 +40,7 @@ export type Options = {
   /** Called after every change of `status()`. */
   changed: (status: SyncStatus) => void
   /** Delivers the skills' runtime files after an apply; without it they are not delivered. */
-  runtime?: Pick<DynWorkRuntime.Runtime, "capture">
+  runtime?: Pick<DynWorkRuntime.Runtime, "capture" | "bind">
 }
 
 /** The bridge's tolerance for a manifest's `not_before` against the local clock. */
@@ -349,6 +349,12 @@ export function make(options: Options) {
       void Promise.resolve()
         .then(() => accounts.signOut(loop.id))
         .catch(() => undefined)
+    },
+    // A Session the plugin's governance events reported with the device evidence: bound to the device's receipts.
+    session: (event) => {
+      const loop = current.loop
+      if (loop === undefined || event.instance !== loop.instance) return
+      void options.runtime?.bind({ id: loop.id, account: loop.account, session: event.session }).catch(() => undefined)
     },
   }
 

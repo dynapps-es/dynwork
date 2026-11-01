@@ -16,6 +16,14 @@ export const Receipt = Schema.Struct({
   state: Schema.Literals(["pending", "acknowledged", "conflict", "rejected"]),
   attempts: Schema.Number,
   next: Schema.Number,
+  /** From the instance's acknowledgement: the receipt sessions are bound to, and whether every file was verified. */
+  receiptId: Schema.optional(Schema.String),
+  verified: Schema.optional(Schema.Boolean),
+  /**
+   * Native sessions (the v5 UUIDs of the governance events) to bind to this receipt, as the bridge's outbox keeps them:
+   * `pending` until posted, `bound`, or `refused` for good.
+   */
+  sessions: Schema.optional(Schema.Record(Schema.String, Schema.Literals(["pending", "bound", "refused"]))),
 })
 export type Receipt = typeof Receipt.Type
 
@@ -436,7 +444,8 @@ export function make(options: Options) {
   }
 
   // The device credential of the account's `userId`, enrolling this install first when it holds none for that user,
-  // like the bridge's self-enrolment. For main code only (skill runtime files); never sent to a window.
+  // like the bridge's self-enrolment. For main code only (skill runtime files, and the governance events' device
+  // evidence, which main pushes to DynWork's own service in memory); never sent to a window.
   const device = async (id: string, userId: string) => {
     const account = find(id)
     const held = account?.device

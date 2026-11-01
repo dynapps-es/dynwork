@@ -64,8 +64,8 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
   await Effect.runPromise(Effect.scoped(plugin.effect(recorded.ctx)))
   expect(plugin.id).toBe("dynwork")
   expect(Definition.id).toBe("dynwork.sync")
-  expect(Object.keys(Definition.methods)).toEqual(["apply", "clear", "token", "materialize", "inspect"])
-  expect(Object.keys(Definition.events)).toEqual(["refresh", "rejected"])
+  expect(Object.keys(Definition.methods)).toEqual(["apply", "clear", "token", "materialize", "inspect", "device"])
+  expect(Object.keys(Definition.events)).toEqual(["refresh", "rejected", "session"])
   expect(recorded.used).toEqual([
     "skill.transform",
     "mcp.transform",

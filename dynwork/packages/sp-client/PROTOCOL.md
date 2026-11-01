@@ -188,6 +188,7 @@ below was observed on the local 0.76 instance (`test/fixtures/consumer.json`):
 | `POST /v1/bridge/device` `{fingerprint, label}`                                              | the user's JWT        | `200 {device_id, consumer_id, credential}`, the credential `sp_device_` plus 72 characters. The same fingerprint is the same `device_id`; each call issues a new credential                                                                    |
 | `GET /api/v1/consumer/resources/{resource}/publications/{publication}/bundle?host=open-code` | the device credential | `200` the installation plan: the publication's ids, `host`, `canonical_files` (`{revision_id, path, digest, bytes, executable, content_check, mode_check}`) and `runtime_files` (`{path, bytes, executable}`, `bytes` an array of byte values) |
 | `POST /api/v1/consumer/receipts` (`ConsumerReceiptRequest`)                                  | the device credential | `200 {receipt_id, acknowledgement, acknowledged_at, fully_verified}`; `acknowledgement` is `accepted`, then `identical_retry` with the same `receipt_id` for the same receipt                                                                  |
+| `POST /api/v1/consumer/session-bindings` `{receipt_id, host, session_id}` (`SessionBindingRequest`) | the device credential | `200 {id, bound_at}`; the same binding again answers the same. A receipt this device did not post, or an unknown device credential, is `403` "Consumer evidence is unavailable to this identity"; a JWT is `401`; `host: opencode` is `422` |
 
 - The fingerprint is the bridge's: hex SHA-256 of `systemprompt-bridge-device/v1\n<install id>\n<user id>`.
   DynWork's install id is a random UUID kept with its accounts.
@@ -200,6 +201,8 @@ below was observed on the local 0.76 instance (`test/fixtures/consumer.json`):
 - Each plan's runtime files are the bundle's files at their own paths, a copy of each under
   `.systemprompt-source/<revision>/`, and a `SKILL.md` rendered for the host (`name: "alpha-notes"` quoted, unlike the
   bridge's projection).
+- `SpConsumer.bind` posts a session binding: `session_id` is the session the governance events name (the v5 UUID the
+  bridge derives from OpenCode's `ses_…` id; 0.76 also takes the raw id).
 - The receipt reports every runtime file as read back from disk (`digest` SHA-256 hex, `bytes`, `executable`,
   `content_check`, `mode_check`), and each canonical file checked against its `.systemprompt-source` copy.
   `SpConsumer.receipt` builds it and refuses a readback that does not match the plan, as the bridge's `verify` does.

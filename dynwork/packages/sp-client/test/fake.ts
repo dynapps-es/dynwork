@@ -44,6 +44,7 @@ export function startFake() {
     // Plans served by publication id: the ones observed on the local harness for alpha's skills
     plans: structuredClone(consumer.plans) as Record<string, (typeof consumer.plans)["alpha_notes"]>,
     receipts: [] as Array<{ key: string; receipt_id: string; body: string }>,
+    bindings: new Map<string, { id: string; bound_at: string }>(),
     requests: [] as Recorded[],
     // Plugin bundle files by `<plugin>/<path>`, served at `/v1/bridge/plugins/<plugin>/<path>`
     files: {} as Record<string, Uint8Array | string>,
@@ -152,6 +153,7 @@ export function startFake() {
 
   // The device-authenticated consumer API: plans by publication, receipts acknowledged once and then as retries.
   const consumerRoute = (request: Request, path: string, body: string, bearer: string | undefined) => {
+    if (request.method === "POST" && path === "/api/v1/consumer/session-bindings") return binding(body, bearer)
     if (bearer === undefined || !state.devices.has(bearer))
       return Response.json(consumer.unauthorized.body, { status: 401 })
     const bundle = /^\/api\/v1\/consumer\/resources\/([^/]+)\/publications\/([^/]+)\/bundle$/.exec(path)
@@ -178,6 +180,22 @@ export function startFake() {
       })
     }
     return Response.json({ title: "Not Found", status: 404 }, { status: 404 })
+  }
+
+  // Session bindings as 0.76 answers them (phase 08b probe): an unknown device credential or a receipt this device did
+  // not post is 403, a host that is not an evaluator client kind 422, the same binding again the same answer.
+  const binding = (body: string, bearer: string | undefined) => {
+    const forbidden = { type: "about:blank", title: "Forbidden", status: 403, detail: "Consumer evidence is unavailable to this identity" }
+    if (bearer === undefined || !bearer.startsWith("sp_device_")) return Response.json(consumer.unauthorized.body, { status: 401 })
+    if (!state.devices.has(bearer)) return Response.json(forbidden, { status: 403 })
+    const input = JSON.parse(body) as { receipt_id: string; host: string; session_id: string }
+    if (input.host !== "open-code")
+      return Response.json({ type: "about:blank", title: "Unprocessable Entity", status: 422 }, { status: 422 })
+    if (!state.receipts.some((entry) => entry.receipt_id === input.receipt_id)) return Response.json(forbidden, { status: 403 })
+    const key = `${input.receipt_id}:${input.session_id}`
+    const bound = state.bindings.get(key) ?? { id: crypto.randomUUID(), bound_at: new Date().toISOString() }
+    state.bindings.set(key, bound)
+    return Response.json(bound)
   }
 
   return {

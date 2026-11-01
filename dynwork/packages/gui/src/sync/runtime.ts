@@ -12,7 +12,7 @@ import type { DynWorkSyncMain } from "../accounts/sync"
 // files beside the SKILL.md `apply` wrote and read them back, and posts a receipt. Receipts wait in an outbox kept with
 // the account until the instance acknowledges them. Every failure here is a warning: the sync stands either way.
 
-export type Plugin = Pick<ReturnType<typeof DynWorkSyncMain.make>, "materialize" | "inspect">
+export type Plugin = Pick<ReturnType<typeof DynWorkSyncMain.make>, "materialize" | "inspect" | "device">
 
 /** How long one capture may spend installing publications, and then delivering receipts, as the bridge budgets. */
 export const recoveryBudget = 30_000
@@ -21,6 +21,8 @@ export const deliveryBudget = 10_000
 const itemBudget = 2_000
 // Outbox entries kept per account, as the bridge's outbox
 const outboxLimit = 512
+// Sessions kept per receipt; the bridge refuses a new one past 256 waiting
+const sessionLimit = 256
 
 export type Outcome = {
   /** Publications installed by this capture. */
@@ -51,7 +53,17 @@ export function make(options: { accounts: DynWorkAccounts.Accounts; plugin: Plug
     waits.set(key, { attempts, next: Date.now() + backoff(attempts) })
   }
 
-  const capture = async (input: Input, serial: Serial = (call) => call()): Promise<Outcome> => {
+  // Captures and bindings read the outbox, post, then save it: one at a time, so neither overwrites the other.
+  const queue = { tail: Promise.resolve() as Promise<unknown> }
+  const exclusive = <A>(run: () => Promise<A>) => {
+    const next = queue.tail.then(run, run)
+    queue.tail = next.catch(() => undefined)
+    return next
+  }
+
+  const capture = (input: Input, serial: Serial = (call) => call()) => exclusive(() => captureNow(input, serial))
+
+  const captureNow = async (input: Input, serial: Serial): Promise<Outcome> => {
     const skills = selected(input.manifest)
     const enrolment = `device:${input.id}`
     const device = due(enrolment)
@@ -62,6 +74,8 @@ export function make(options: { accounts: DynWorkAccounts.Accounts; plugin: Plug
       : undefined
     if (device === undefined) return { recovered: 0, remaining: skills.length, undelivered: false }
     waits.delete(enrolment)
+    // The governance events carry it as device evidence, like the bridge's proxy forwards a hook
+    await serial(() => plugin.device({ account: input.account, credential: device.credential })).catch(() => false)
     const outbox = { entries: [...device.receipts], refused: false }
     const post = (deadline: number) => deliver(input.account.url, device.credential, outbox, deadline)
 
@@ -103,10 +117,33 @@ export function make(options: { accounts: DynWorkAccounts.Accounts; plugin: Plug
     }
     await post(Date.now() + deliveryBudget)
 
-    if (outbox.refused) accounts.forgetDevice(input.id)
+    if (outbox.refused) await forget(input, serial)
     if (!outbox.refused) accounts.receipts(input.id, outbox.entries)
-    return { ...counts, undelivered: outbox.entries.some((entry) => entry.state === "pending") }
+    return { ...counts, undelivered: undelivered(outbox.entries) }
   }
+
+  // The instance refused the device credential: forgotten, and taken back from the plugin's events.
+  const forget = async (input: Pick<Input, "id" | "account">, serial: Serial) => {
+    accounts.forgetDevice(input.id)
+    await serial(() => plugin.device({ account: input.account })).catch(() => false)
+  }
+
+  /**
+   * Binds a native Session the plugin's governance events reported to every receipt of the newest generation of each
+   * resource, and posts what is due, as the bridge's proxy queues a hook's session and its outbox delivers it. Without
+   * an enrolled device nothing is queued (nor enrolled). What fails waits for the next capture.
+   */
+  const bind = (input: Pick<Input, "id" | "account"> & { readonly session: string }) =>
+    exclusive(async () => {
+      const held = accounts.stored(input.id)?.device
+      if (held === undefined) return
+      const device = await accounts.device(input.id, held.consumer).catch(() => undefined)
+      if (device === undefined) return
+      const outbox = { entries: bindSession(device.receipts, input.session), refused: false }
+      await deliver(input.account.url, device.credential, outbox, Date.now() + deliveryBudget)
+      if (outbox.refused) await forget(input, (call) => call())
+      if (!outbox.refused) accounts.receipts(input.id, outbox.entries)
+    })
 
   // One publication: its plan, the files written and read back by the plugin, and the receipt that reports them.
   const install = async (
@@ -139,7 +176,7 @@ export function make(options: { accounts: DynWorkAccounts.Accounts; plugin: Plug
     return "receipt" in built ? built.receipt : undefined
   }
 
-  return { capture }
+  return { capture, bind }
 }
 
 export type Runtime = ReturnType<typeof make>
@@ -188,8 +225,37 @@ function enqueue(outbox: { entries: DynWorkAccounts.Receipt[] }, receipt: SpCons
   outbox.entries = [...kept, { receipt, state: "pending", attempts: 0, next: Date.now() }]
 }
 
+// Whether a receipt or a session binding still waits for the instance.
+function undelivered(entries: ReadonlyArray<DynWorkAccounts.Receipt>) {
+  return entries.some(
+    (entry) =>
+      entry.state === "pending" ||
+      (entry.state === "acknowledged" && Object.values(entry.sessions ?? {}).includes("pending")),
+  )
+}
+
+// The bridge's `bind_session`: the session waits on every entry of the newest generation of its resource that the
+// instance has not refused, unless that entry refused this session already or holds too many waiting.
+function bindSession(entries: ReadonlyArray<DynWorkAccounts.Receipt>, session: string) {
+  const live = entries.filter((entry) => entry.state === "pending" || entry.state === "acknowledged")
+  const newest = new Map<string, number>()
+  for (const entry of live)
+    newest.set(entry.receipt.resource_id, Math.max(newest.get(entry.receipt.resource_id) ?? 0, entry.receipt.generation))
+  return entries.map((entry) => {
+    const sessions = entry.sessions ?? {}
+    if (!live.includes(entry) || newest.get(entry.receipt.resource_id) !== entry.receipt.generation) return entry
+    if (sessions[session] !== undefined) return entry
+    if (Object.values(sessions).filter((state) => state === "pending").length >= sessionLimit) return entry
+    // Settled sessions make room, oldest first
+    const kept = Object.entries(sessions).slice(-(sessionLimit - 1))
+    return { ...entry, sessions: { ...Object.fromEntries(kept), [session]: "pending" as const } }
+  })
+}
+
 // Posts every pending receipt that is due, until `deadline`. The instance's answer settles it: acknowledged, refused
 // for good (`409` a conflict; `400`, `403`, `404`, `422` rejected) or tried again later; a refused credential stops.
+// Then the pending session bindings of every verified acknowledged receipt, as the bridge's `deliver`: bound, refused
+// for good (`400`, `403`, `404`, `409`, `422`), or left for later with the entry's backoff.
 async function deliver(
   url: string,
   credential: string,
@@ -200,7 +266,36 @@ async function deliver(
     if (outbox.refused || entry.state !== "pending" || entry.next > Date.now() || Date.now() > deadline) continue
     const answer = await Effect.runPromise(Effect.result(SpConsumer.post(url, credential, entry.receipt)))
     outbox.refused ||= answer._tag === "Failure" && answer.failure instanceof SpClient.Unauthorized
-    outbox.entries[index] = settle(entry, answer._tag === "Success" ? 200 : status(answer.failure))
+    const settled = settle(entry, answer._tag === "Success" ? 200 : status(answer.failure))
+    outbox.entries[index] =
+      answer._tag === "Success"
+        ? { ...settled, receiptId: answer.success.receipt_id, verified: answer.success.fully_verified }
+        : settled
+  }
+  for (const [index, entry] of outbox.entries.entries()) {
+    if (outbox.refused || entry.state !== "acknowledged" || entry.receiptId === undefined || !entry.verified) continue
+    if (entry.next > Date.now()) continue
+    const sessions = { ...entry.sessions }
+    for (const [session, state] of Object.entries(sessions)) {
+      if (state !== "pending" || outbox.refused || Date.now() > deadline) continue
+      const answer = await Effect.runPromise(
+        Effect.result(SpConsumer.bind(url, credential, { receipt_id: entry.receiptId, session_id: session })),
+      )
+      if (answer._tag === "Success") {
+        sessions[session] = "bound"
+        continue
+      }
+      const code = status(answer.failure)
+      outbox.refused ||= code === 401
+      if ([400, 403, 404, 409, 422].includes(code)) {
+        sessions[session] = "refused"
+        continue
+      }
+      const attempts = entry.attempts + 1
+      outbox.entries[index] = { ...entry, sessions, attempts, next: Date.now() + backoff(attempts) }
+      break
+    }
+    if (outbox.entries[index] === entry) outbox.entries[index] = { ...entry, sessions }
   }
 }
 

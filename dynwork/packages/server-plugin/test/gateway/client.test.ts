@@ -44,13 +44,15 @@ test("token posts the renewed JWT and reads whether the plugin took it", async (
   })
 })
 
-test("listen hands over the two events, split across chunks, and skips everything else", async () => {
+test("listen hands over the three events, split across chunks, and skips everything else", async () => {
   const frames = [
     `data: ${JSON.stringify({ type: "server.connected", data: {} })}\n\n`,
     `event: message\ndata: ${JSON.stringify({ type: "rpc.dynwork.sync.refresh", data: { instance: "alpha", reason: "expired" } })}\n\n`,
     `data: not json\n\n`,
     `data: ${JSON.stringify({ type: "rpc.dynwork.sync.refresh", data: { instance: "alpha", reason: "bogus" } })}\n\n`,
     `data: ${JSON.stringify({ type: "rpc.dynwork.sync.rejected", data: { instance: "alpha" } })}\r\n\r\n`,
+    `data: ${JSON.stringify({ type: "rpc.dynwork.sync.session", data: { instance: "alpha" } })}\n\n`,
+    `data: ${JSON.stringify({ type: "rpc.dynwork.sync.session", data: { instance: "alpha", session: "5de1b7f7-3c8e-5c6a-9885-2317b386feb1" } })}\n\n`,
   ].join("")
   const encoder = new TextEncoder()
   answers.push(
@@ -70,17 +72,22 @@ test("listen hands over the two events, split across chunks, and skips everythin
   requests.length = 0
   const heard: unknown[] = []
   await client.listen(
-    { refresh: (event) => heard.push(["refresh", event]), rejected: (event) => heard.push(["rejected", event]) },
+    {
+      refresh: (event) => heard.push(["refresh", event]),
+      rejected: (event) => heard.push(["rejected", event]),
+      session: (event) => heard.push(["session", event]),
+    },
     new AbortController().signal,
   )
   expect(heard).toEqual([
     ["refresh", { instance: "alpha", reason: "expired" }],
     ["rejected", { instance: "alpha" }],
+    ["session", { instance: "alpha", session: "5de1b7f7-3c8e-5c6a-9885-2317b386feb1" }],
   ])
   expect(requests).toEqual([
     {
       path: "/api/event",
-      query: "?types=rpc.dynwork.sync.refresh&types=rpc.dynwork.sync.rejected",
+      query: "?types=rpc.dynwork.sync.refresh&types=rpc.dynwork.sync.rejected&types=rpc.dynwork.sync.session",
       authorization: "Basic eA==",
     },
   ])

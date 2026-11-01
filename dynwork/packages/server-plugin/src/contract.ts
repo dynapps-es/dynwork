@@ -146,6 +146,16 @@ export type Token = typeof Token.Type
 export const TokenAccepted = Schema.Struct({ accepted: Schema.Boolean })
 
 /**
+ * The device credential main enrolled for the instance last applied (`POST /v1/bridge/device`), for the governance
+ * events' device evidence; without `credential` the plugin drops the one it holds. Refused for any other instance.
+ */
+export const Device = Schema.Struct({
+  instance: Instance,
+  credential: Schema.optional(Schema.String.check(Schema.isPattern(/^sp_device_[A-Za-z0-9._~+/=-]{1,246}$/))),
+})
+export type Device = typeof Device.Type
+
+/**
  * Events the plugin publishes for main. `refresh`: a model call needs a newer JWT than the plugin holds (it expired,
  * or the gateway refused it), so main mints one and pushes it with `token`. `rejected`: the gateway refused the JWT
  * main minted in answer to a refusal, so the plugin stopped sending it and main signs the instance out.
@@ -158,6 +168,13 @@ export type Refresh = typeof Refresh.Type
 
 export const Rejected = Schema.Struct({ instance: Schema.String })
 export type Rejected = typeof Rejected.Type
+
+/**
+ * `session`: a governance event of this Session went out with the device evidence, so main binds it to the device's
+ * receipts, as the bridge's proxy queues each hook's session (`session_id`, the v5 UUID). Once per Session.
+ */
+export const Session = Schema.Struct({ instance: Schema.String, session: Schema.String })
+export type Session = typeof Session.Type
 
 /** What the service now holds for the instance. */
 export const Applied = Schema.Struct({

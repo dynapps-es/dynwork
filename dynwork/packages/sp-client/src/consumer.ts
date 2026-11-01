@@ -174,6 +174,29 @@ export const post = Effect.fn("SpConsumer.post")(function* (baseUrl: string, cre
   })
 })
 
+export const Binding = Schema.Struct({ id: Schema.String, bound_at: Schema.String })
+export type Binding = typeof Binding.Type
+
+/**
+ * Binds a native session to an acknowledged receipt (`POST /api/v1/consumer/session-bindings`, the bridge's
+ * `SessionBindingRequest`) with the device credential. The same binding again answers the same. 0.76 answers an unknown
+ * device credential or a receipt this device did not post with `403`, unlike the other consumer routes.
+ */
+export const bind = Effect.fn("SpConsumer.bind")(function* (
+  baseUrl: string,
+  credential: string,
+  input: { readonly receipt_id: string; readonly session_id: string },
+) {
+  return yield* call(Binding, {
+    method: "POST",
+    url: `${yield* origin(baseUrl)}/api/v1/consumer/session-bindings`,
+    endpoint: "POST /api/v1/consumer/session-bindings",
+    bearer: credential,
+    body: { receipt_id: input.receipt_id, host, session_id: input.session_id },
+    limit: 4096,
+  })
+})
+
 /**
  * The bridge's `readback::verify`, from what the writer read back: every runtime file must be on disk with the plan's
  * bytes, and every canonical file must match its copy under `.systemprompt-source/<revision>/`. Returns the receipt, or

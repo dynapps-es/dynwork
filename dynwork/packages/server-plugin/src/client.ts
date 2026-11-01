@@ -58,6 +58,13 @@ export function make(endpoint: () => Endpoint | undefined) {
         if (accepted._tag === "None") throw new Failed("token", 200, "invalid_output")
         return accepted.value.accepted
       }),
+    /** Pushes or drops the device credential; false when the plugin holds another instance. */
+    device: (input: DynWorkSync.Device) =>
+      call("device", input).then((output) => {
+        const accepted = decodeAccepted(output)
+        if (accepted._tag === "None") throw new Failed("device", 200, "invalid_output")
+        return accepted.value.accepted
+      }),
     /** Writes a skill's runtime files beside its SKILL.md and reads them back. */
     materialize: (input: DynWorkSync.Materialize) =>
       call("materialize", input).then((output) => {
@@ -73,14 +80,14 @@ export function make(endpoint: () => Endpoint | undefined) {
         return inspected.value.intact
       }),
     /**
-     * Follows the plugin's `refresh` and `rejected` events until `signal` aborts or the service closes the stream
+     * Follows the plugin's `refresh`, `rejected` and `session` events until `signal` aborts or the service closes the stream
      * (it stopped or restarted), when the promise settles and the caller subscribes again. Events published while
      * nobody listens are lost: a call waiting for a JWT then gives up after a while.
      */
     listen: async (handlers: Handlers, signal: AbortSignal) => {
       const server = endpoint()
       if (!server) throw new Failed("events", 0)
-      const types = (["refresh", "rejected"] as const).map((name) => `types=rpc.${DynWorkSync.id}.${name}`).join("&")
+      const types = (["refresh", "rejected", "session"] as const).map((name) => `types=rpc.${DynWorkSync.id}.${name}`).join("&")
       const response = await fetch(`${server.url.replace(/\/+$/, "")}/api/event?${types}`, {
         headers: { ...server.headers, accept: "text/event-stream" },
         redirect: "error",
@@ -97,6 +104,7 @@ export function make(endpoint: () => Endpoint | undefined) {
 export interface Handlers {
   readonly refresh?: (event: DynWorkSync.Refresh) => void
   readonly rejected?: (event: DynWorkSync.Rejected) => void
+  readonly session?: (event: DynWorkSync.Session) => void
 }
 
 const decodeEvent = Schema.decodeUnknownOption(
@@ -104,6 +112,7 @@ const decodeEvent = Schema.decodeUnknownOption(
 )
 const decodeRefresh = Schema.decodeUnknownOption(DynWorkSync.Refresh)
 const decodeRejected = Schema.decodeUnknownOption(DynWorkSync.Rejected)
+const decodeSession = Schema.decodeUnknownOption(DynWorkSync.Session)
 
 async function follow(body: ReadableStream<Uint8Array>, handlers: Handlers) {
   const decoder = new TextDecoder()
@@ -132,6 +141,10 @@ function dispatch(frame: string, handlers: Handlers) {
   if (event.value.type === `rpc.${DynWorkSync.id}.rejected`) {
     const rejected = decodeRejected(event.value.data)
     if (rejected._tag === "Some") handlers.rejected?.(rejected.value)
+  }
+  if (event.value.type === `rpc.${DynWorkSync.id}.session`) {
+    const session = decodeSession(event.value.data)
+    if (session._tag === "Some") handlers.session?.(session.value)
   }
 }
 

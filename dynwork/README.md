@@ -118,7 +118,10 @@ Where secrets live:
   fails with `SecureStorageUnavailable`; only the instance refusing the PAT signs the account out.
 - The device credential (`sp_device_...`, from enrolling this install for skill runtime files, see "Skill runtime
   files") is stored the same way, as `safeStorage` ciphertext in the account's `device` entry beside the receipts
-  outbox, and decrypted only for a consumer call. Signing out forgets it and the outbox.
+  outbox, and decrypted only for a consumer call and for the governance events: each capture pushes it to DynWork's
+  own service with `dynwork.sync/device`, where the server plugin holds it in memory only (never written, logged or
+  in a window) to add it to its track calls (see "Governance telemetry"). A refused credential is taken back from the
+  service; signing out (`clear`) or applying another instance drops it there. Signing out forgets it and the outbox.
 - JWTs exist only in main memory. Each is renewed at 80 % of its lifetime; a failed renewal is tried again every 30 s
   while it holds. A refused JWT is minted again once; a refused PAT signs the account out. Main code (gateway, sync)
   gets one through `jwt(id)`, `session(id, fresh)` (with its expiry; `fresh` mints even while the held one is valid)
@@ -514,10 +517,23 @@ else:
   the call on the same context as the events; `x-opencode-session` is dropped, as the proxy drops it. Only while
   governance telemetry is on, like the bridge, whose stamp lives in the hooks plugin. OpenCode's own `X-Session-Id`
   still goes: 0.76 keeps a session id it did not issue as the client's, it does not reject it.
-- Not sent: the device evidence the bridge's proxy adds when enrolled (`x-systemprompt-device-credential` and
-  `x-systemprompt-host: open-code`, which 0.76 accepts with DynWork's device; the credential stays in main) and the
-  session bindings (`POST /api/v1/consumer/session-bindings`, one per native Session and acknowledged receipt). The
-  instance records the events without a device, as for a bridge that is not enrolled.
+- Device evidence, as the bridge's proxy forwards a hook when enrolled (`feedback/hooks.rs`): once main holds the
+  account's device (see "Skill runtime files") and pushed it (`dynwork.sync/device {instance, credential}`, refused for
+  any instance but the one applied), every track call carries `x-systemprompt-device-credential: <sp_device_…>` and
+  `x-systemprompt-host: open-code` (the evaluator client kind; 0.76 answers `opencode` there with `400` "Invalid
+  device host") instead of `opencode`. The credential goes to track only, never to the OAuth client or token routes.
+  Without a device the calls go as before, and the instance records the events without one.
+- Session bindings, as the bridge's proxy queues each hook's session and its outbox posts it (`proxy/forward/hook.rs`,
+  `feedback/{outbox_sessions,sync}.rs`): the first event of a Session sent with the evidence publishes
+  `rpc.dynwork.sync.session {instance, session}` (the v5 UUID). Main (`DynWorkRuntime.bind`) queues it on every receipt
+  of the newest generation of each resource in the device's outbox and posts `POST /api/v1/consumer/session-bindings
+  {receipt_id, host: "open-code", session_id}` with the device credential for each acknowledged, fully verified receipt
+  (the receipt id comes from its acknowledgement). Each binding is `bound`, `refused` for good (`400`, `403`, `404`,
+  `409`, `422`; 0.76 answers `403` for a receipt it does not hold for the device) or left `pending` with the receipt's
+  backoff, posted again by the next capture, which is not done while one waits. A failure goes on with the next receipt,
+  like the bridge. They are kept with the receipts (at most 256 per receipt). Without an enrolled device nothing is
+  queued, and nothing is enrolled for it. Receipts acknowledged before this change carry no receipt id and get no
+  bindings until their next receipt.
 
 ## Patch guard
 

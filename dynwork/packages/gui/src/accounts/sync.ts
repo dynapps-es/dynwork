@@ -42,6 +42,15 @@ export function make(endpoints: ServerEndpoints) {
     token: (input: { readonly account: Account; readonly jwt: string; readonly expiresAt: number }) =>
       client.token({ instance: instance(input.account), jwt: input.jwt, expiresAt: input.expiresAt }),
     clear: client.clear,
+    /**
+     * Pushes the account's device credential for the governance events' device evidence, or drops it without one. The
+     * service holds it in memory only; false when it holds another instance.
+     */
+    device: (input: { readonly account: Account; readonly credential?: string }) =>
+      client.device({
+        instance: instance(input.account),
+        ...(input.credential === undefined ? {} : { credential: input.credential }),
+      }),
     /** Writes a skill's runtime files beside its SKILL.md in the service and reads them back. */
     materialize: (input: {
       readonly account: Account

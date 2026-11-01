@@ -17,6 +17,12 @@ export const namespace = "7c1f5b6e-3a2d-4e8f-9b0c-2d6a1e4f8c73"
 
 export const host = "opencode"
 
+/**
+ * The host as the bridge's proxy stamps it beside the device credential: the evaluator client kind, which is what the
+ * instance checks the device against (0.76 answers `opencode` there with 400 "Invalid device host").
+ */
+export const client = "open-code"
+
 /** Every call to the instance gives up after this long, like the bridge's plugin. */
 export const timeout = 5_000
 
@@ -78,8 +84,17 @@ export function target(input: DynWorkSync.Apply): Target | undefined {
   }
 }
 
-/** Posts one event for `target`'s plugin. Never rejects: any failure drops the event, like the bridge's plugin. */
-export async function send(hooks: Hooks, target: Target, jwt: string, body: Record<string, unknown>) {
+/**
+ * Posts one event for `target`'s plugin. Never rejects: any failure drops the event, like the bridge's plugin. With the
+ * device credential main enrolled, the call carries it as the bridge's proxy forwards a hook (`feedback/hooks.rs`).
+ */
+export async function send(
+  hooks: Hooks,
+  target: Target,
+  jwt: string,
+  body: Record<string, unknown>,
+  device?: string,
+) {
   const token = await hookToken(hooks, target, jwt).catch(() => undefined)
   if (!token) return
   const id = body.tool_use_id ?? body.prompt_id ?? body.event_id
@@ -88,7 +103,7 @@ export async function send(hooks: Hooks, target: Target, jwt: string, body: Reco
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${token}`,
-      "x-systemprompt-host": host,
+      ...(device ? { "x-systemprompt-device-credential": device, "x-systemprompt-host": client } : { "x-systemprompt-host": host }),
       // The bridge's proxy gives an event without its own id a fresh one, so the instance can deduplicate retries.
       "x-ingestion-event-id": String(id ?? crypto.randomUUID()),
     },

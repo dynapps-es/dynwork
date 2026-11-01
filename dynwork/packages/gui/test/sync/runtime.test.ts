@@ -5,6 +5,8 @@ import path from "node:path"
 import { Effect, Schema } from "effect"
 import { SpClient, type Manifest } from "@dynwork/sp-client"
 import { DynWorkSync } from "@dynwork/server-plugin/contract"
+import type { DynWorkSyncClient } from "@dynwork/server-plugin/client"
+import { DynWorkSyncMain } from "../../src/accounts/sync"
 import { DynWorkMapping } from "@dynwork/server-plugin/mapping"
 import { DynWorkSkills } from "../../../server-plugin/src/skills"
 import { DynWorkRuntime } from "../../src/sync/runtime"
@@ -30,6 +32,7 @@ afterEach(async () => {
   fake.state.override = undefined
   fake.state.requests.length = 0
   fake.state.receipts.length = 0
+  fake.state.bindings.clear()
   setSystemTime()
 })
 
@@ -47,9 +50,12 @@ async function plugin(manifest: Manifest) {
   }).skillFiles
   await DynWorkSkills.write(root, projection)
   const calls: string[] = []
+  // The device credential the plugin holds, as main pushed it last
+  const held: { credential?: string; pushes: number } = { pushes: 0 }
   return {
     root,
     calls,
+    held,
     rewrite: () => DynWorkSkills.write(root, projection),
     plugin: {
       materialize: (input: { skill: string; files: ReadonlyArray<DynWorkSync.RuntimeFile> }) => {
@@ -59,6 +65,11 @@ async function plugin(manifest: Manifest) {
       inspect: (input: { skill: string; files: ReadonlyArray<DynWorkSync.Recorded> }) => {
         calls.push(`inspect ${input.skill}`)
         return DynWorkSkills.inspect(root, projection, input.skill, input.files)
+      },
+      device: async (input: { credential?: string }) => {
+        held.credential = input.credential
+        held.pushes++
+        return true
       },
     } satisfies DynWorkRuntime.Plugin,
   }
@@ -76,7 +87,8 @@ async function boot() {
   const side = await plugin(served.manifest)
   const runtime = DynWorkRuntime.make({ accounts: signed.accounts, plugin: side.plugin })
   const capture = () => runtime.capture({ id, account: { ...account, url: fake.url }, manifest: served.manifest })
-  return { ...signed, ...side, id, manifest: served.manifest, runtime, capture }
+  const bind = (session: string) => runtime.bind({ id, account: { ...account, url: fake.url }, session })
+  return { ...signed, ...side, id, manifest: served.manifest, runtime, capture, bind }
 }
 
 const bundles = () => fake.state.requests.filter((request) => request.path.endsWith("/bundle"))
@@ -169,8 +181,11 @@ describe("capture", () => {
     await booted.rewrite()
     expect((await booted.capture()).remaining).toBe(3)
     expect(booted.accounts.stored(booted.id)?.device).toBeUndefined()
+    // The plugin stops sending the refused credential with its governance events
+    expect(booted.held.credential).toBeUndefined()
     expect(await booted.capture()).toEqual({ recovered: 3, remaining: 0, undelivered: false })
     expect(booted.accounts.stored(booted.id)?.device?.cipher).not.toBe(first)
+    expect(booted.held.credential).toStartWith("sp_device_")
   })
 
   test("an instance that refuses enrolment, or a skill the plugin did not write, costs a warning, never the sync", async () => {
@@ -197,6 +212,77 @@ describe("capture", () => {
   })
 })
 
+// Session bindings like the bridge's proxy and outbox (`proxy/forward/hook.rs`, `feedback/outbox_sessions.rs`,
+// `feedback/sync.rs`): each native session the plugin reports is bound to every acknowledged receipt of the newest
+// generation, with the device credential; a binding the instance refuses for good is never posted again.
+const bindings = () => fake.state.requests.filter((request) => request.path === "/api/v1/consumer/session-bindings")
+const session = "5de1b7f7-3c8e-5c6a-9885-2317b386feb1"
+
+describe("device evidence", () => {
+  test("a capture pushes the device credential to the plugin, which holds it in memory only", async () => {
+    const booted = await boot()
+    expect(booted.held.pushes).toBe(0)
+    await booted.capture()
+    const credential = posts()[0]?.headers.authorization?.replace(/^Bearer /, "")
+    expect(booted.held.credential).toBe(credential)
+  })
+
+  test("a session is bound to each acknowledged receipt with the device credential, once", async () => {
+    const booted = await boot()
+    await booted.capture()
+    fake.state.requests.length = 0
+    await booted.bind(session)
+    await booted.bind(session)
+    expect(bindings()).toHaveLength(3)
+    const credential = booted.held.credential
+    const receiptIds = fake.state.receipts.map((entry) => entry.receipt_id).toSorted()
+    expect(bindings().map((request) => JSON.parse(request.body).receipt_id).toSorted()).toEqual(receiptIds)
+    for (const request of bindings()) {
+      expect(JSON.parse(request.body)).toMatchObject({ host: "open-code", session_id: session })
+      expect(request.headers.authorization).toBe(`Bearer ${credential}`)
+    }
+    expect(fake.state.bindings.size).toBe(3)
+    // Kept with the receipts, so a restart never posts them again
+    expect(
+      booted.accounts.stored(booted.id)?.device?.receipts.map((entry) => entry.sessions?.[session]),
+    ).toEqual(["bound", "bound", "bound"])
+    expect(booted.store.disk.json).not.toContain(credential ?? "none")
+  })
+
+  test("without a device nothing is queued; a failed binding waits for the next capture; a refused one is dropped", async () => {
+    const booted = await boot()
+    await booted.bind(session)
+    expect(bindings()).toHaveLength(0)
+    expect(fake.state.requests.filter((request) => request.path === "/v1/bridge/device")).toHaveLength(0)
+    await booted.capture()
+    fake.state.override = { path: "/api/v1/consumer/session-bindings", status: 503 }
+    await booted.bind(session)
+    // Like the bridge's `deliver`, a failure defers that receipt's bindings and goes on with the next receipt
+    expect(bindings()).toHaveLength(3)
+    expect(fake.state.bindings.size).toBe(0)
+    fake.state.override = undefined
+    // Still to post: the next capture is not done until the bindings are delivered
+    setSystemTime(new Date(Date.now() + 5_000))
+    expect((await booted.capture()).undelivered).toBe(false)
+    expect(fake.state.bindings.size).toBe(3)
+    // A receipt the instance no longer holds for this device: 403, never posted again
+    fake.state.receipts.length = 0
+    fake.state.requests.length = 0
+    const other = "6f2c0a1e-0000-5000-8000-000000000000"
+    await booted.bind(other)
+    expect(bindings()).toHaveLength(3)
+    expect(booted.accounts.stored(booted.id)?.device?.receipts.map((entry) => entry.sessions?.[other])).toEqual([
+      "refused",
+      "refused",
+      "refused",
+    ])
+    fake.state.requests.length = 0
+    await booted.capture()
+    await booted.bind(other)
+    expect(bindings()).toHaveLength(0)
+  })
+})
+
 describe("engine", () => {
   test("captures after an apply, not after a poll that changed nothing", async () => {
     // Just after the fixture manifest was stamped, so the engine admits it
@@ -218,6 +304,7 @@ describe("engine", () => {
           captured.push(input.manifest.user_id)
           return { recovered: 0, remaining: 0, undelivered: false }
         },
+        bind: async () => {},
       },
       focused: true,
       changed: () => {},
@@ -229,4 +316,40 @@ describe("engine", () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(captured).toHaveLength(1)
   })
+})
+
+test("the engine hands each session the plugin reports for the active instance to the runtime", async () => {
+  setSystemTime(new Date("2026-11-01T09:12:31Z"))
+  const signed = setup(fake)
+  cleanups.push(() => signed.accounts.dispose())
+  await signed.accounts.signInToken({ url: fake.url, token: fake.issuePat() })
+  const handlers: { current?: DynWorkSyncClient.Handlers } = {}
+  const bound: Array<{ id: string; session: string }> = []
+  const engine = DynWorkSyncEngine.make({
+    accounts: signed.accounts,
+    plugin: {
+      apply: async () => ({ skills: 3, agents: 1, mcp: 1, rules: 1 }),
+      token: async () => true,
+      clear: async () => {},
+      listen: (next, signal) => {
+        handlers.current = next
+        return new Promise((resolve) => signal.addEventListener("abort", () => resolve()))
+      },
+    },
+    runtime: {
+      capture: async () => ({ recovered: 0, remaining: 0, undelivered: false }),
+      bind: async (input) => {
+        bound.push({ id: input.id, session: input.session })
+      },
+    },
+    focused: true,
+    changed: () => {},
+  })
+  cleanups.push(() => engine.dispose())
+  await until(() => engine.status().status === "synced")
+  handlers.current?.session?.({ instance: "someone-else", session })
+  const label = signed.accounts.stored(signed.accounts.active() ?? "")?.label ?? ""
+  handlers.current?.session?.({ instance: DynWorkSyncMain.key(label), session })
+  await until(() => bound.length === 1)
+  expect(bound).toEqual([{ id: signed.accounts.active() ?? "", session }])
 })

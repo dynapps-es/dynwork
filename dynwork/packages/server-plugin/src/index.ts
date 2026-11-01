@@ -41,10 +41,15 @@ export const Definition = Rpc.define({
       input: Schema.toStandardSchemaV1(DynWorkSync.Inspect),
       output: Schema.toStandardSchemaV1(DynWorkSync.Inspected),
     },
+    device: {
+      input: Schema.toStandardSchemaV1(DynWorkSync.Device),
+      output: Schema.toStandardSchemaV1(DynWorkSync.TokenAccepted),
+    },
   },
   events: {
     refresh: { schema: Schema.toStandardSchemaV1(DynWorkSync.Refresh) },
     rejected: { schema: Schema.toStandardSchemaV1(DynWorkSync.Rejected) },
+    session: { schema: Schema.toStandardSchemaV1(DynWorkSync.Session) },
   },
 })
 
@@ -70,6 +75,12 @@ interface Store {
   readonly sessions: { readonly directories: Map<string, string>; readonly prompts: Map<string, string> }
   /** Lifecycle events already reported: every Location's activation sees the same service events. */
   readonly reported: Set<string>
+  /** The device credential main enrolled for the instance applied, held only here, for the events' device evidence. */
+  device: string | undefined
+  /** Sessions already reported to main for binding, by instance. */
+  readonly bound: Set<string>
+  /** Publishes `session` for main; set by the Location that registered the RPC last. */
+  emit: ((session: string) => void) | undefined
 }
 
 // The service activates the plugin once per Location, and each activation imports the module afresh (local plugin
@@ -85,6 +96,9 @@ const store: Store = Object.assign(slot.__dynworkSync ?? {}, {
   hooks: slot.__dynworkSync?.hooks ?? DynWorkTelemetry.hooks(),
   sessions: slot.__dynworkSync?.sessions ?? { directories: new Map<string, string>(), prompts: new Map<string, string>() },
   reported: slot.__dynworkSync?.reported ?? new Set<string>(),
+  device: slot.__dynworkSync?.device,
+  bound: slot.__dynworkSync?.bound ?? new Set<string>(),
+  emit: slot.__dynworkSync?.emit,
 })
 slot.__dynworkSync = store
 
@@ -114,7 +128,16 @@ const report = (body: Record<string, unknown> | undefined) =>
   Effect.sync(() => {
     const telemetry = store.current?.telemetry
     const jwt = store.tokens.current?.jwt
-    if (body && telemetry && jwt) void DynWorkTelemetry.send(store.hooks, telemetry, jwt, body)
+    const device = store.device
+    if (!body || !telemetry || !jwt) return
+    void DynWorkTelemetry.send(store.hooks, telemetry, jwt, body, device)
+    // Like the bridge's proxy, only an enrolled device queues the Session for binding to its receipts.
+    const session = typeof body.session_id === "string" ? body.session_id : undefined
+    const key = `${store.current?.input.instance.key}\u001f${session}`
+    if (!device || !session || store.bound.has(key)) return
+    store.bound.add(key)
+    bounded(store.bound)
+    store.emit?.(session)
   })
 
 const directory = (sessionID: string) => store.sessions.directories.get(sessionID) ?? process.cwd()
@@ -227,6 +250,9 @@ export default Plugin.define({
               yield* Effect.promise(() => DynWorkConfig.write(configDir, { locked: true, settings: next.settings }))
             }
             const telemetry = DynWorkTelemetry.target(input)
+            // The device credential belongs to the instance it was enrolled with: another one never receives it.
+            if (store.current?.input.instance.key !== input.instance.key || store.current.input.instance.url !== input.instance.url)
+              store.device = undefined
             // A hook client and tokens of another instance are never sent to this one.
             if (store.current?.telemetry?.base !== telemetry?.base) Object.assign(store.hooks, DynWorkTelemetry.hooks())
             store.current = { input, mapped: next, provided: DynWorkGateway.provider(input), telemetry }
@@ -245,6 +271,7 @@ export default Plugin.define({
             store.current = undefined
             DynWorkGateway.push(store.tokens, undefined)
             Object.assign(store.hooks, DynWorkTelemetry.hooks())
+            store.device = undefined
             if (configDir) {
               yield* Effect.promise(() => DynWorkInstructions.write(configDir, undefined))
               yield* Effect.promise(() => DynWorkSkills.write(configDir, undefined))
@@ -283,6 +310,14 @@ export default Plugin.define({
               DynWorkSkills.install(configDir, current.mapped.skillFiles, input.skill, input.files),
             )
           }),
+        device: (input) =>
+          Effect.sync(() => {
+            const current = store.current
+            if (current?.input.instance.key !== input.instance.key || current.input.instance.url !== input.instance.url)
+              return { accepted: false }
+            store.device = input.credential
+            return { accepted: true }
+          }),
         inspect: (input) =>
           Effect.gen(function* () {
             const current = store.current
@@ -300,6 +335,19 @@ export default Plugin.define({
           }),
       })
       .pipe(Effect.orDie)
+
+    const emit = (session: string) =>
+      Effect.runFork(
+        rpc.events
+          .emit("session", { instance: store.current?.input.instance.key ?? "", session })
+          .pipe(Effect.catchCause(() => Effect.logWarning("dynwork: could not report a Session for binding"))),
+      )
+    store.emit = emit
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (store.emit === emit) store.emit = undefined
+      }),
+    )
 
     // Main follows these events to renew or sign out; when it does not answer, the call just waits less long.
     const events: DynWorkGateway.Events = {

@@ -106,17 +106,17 @@ describe("plan", () => {
   })
 })
 
-describe("receipt", () => {
-  const readback = (plan: SpConsumer.Plan): SpConsumer.Readback[] =>
-    plan.runtime_files.map((file) => ({
-      path: file.path,
-      digest: createHash("sha256").update(file.bytes).digest("hex"),
-      bytes: file.bytes.length,
-      executable: file.executable,
-      content: "verified",
-      mode: "verified",
-    }))
+const readback = (plan: SpConsumer.Plan): SpConsumer.Readback[] =>
+  plan.runtime_files.map((file) => ({
+    path: file.path,
+    digest: createHash("sha256").update(file.bytes).digest("hex"),
+    bytes: file.bytes.length,
+    executable: file.executable,
+    content: "verified",
+    mode: "verified",
+  }))
 
+describe("receipt", () => {
   test("builds the receipt from the readback, with the canonical files checked against their copies", async () => {
     const device = await enrolled()
     const plan = await run(SpConsumer.plan(fake.url, device.credential, notes))
@@ -157,5 +157,32 @@ describe("receipt", () => {
     expect(await failure(SpConsumer.post(fake.url, device.credential, built.receipt))).toBeInstanceOf(
       SpClient.Unreachable,
     )
+  })
+})
+
+describe("bind", () => {
+  // `SessionBindingRequest`: one native session against an acknowledged receipt, host `open-code`, as the bridge posts
+  // it from its outbox (`feedback/sync.rs`).
+  test("binds a session to an acknowledged receipt with the device credential; the same again is the same binding", async () => {
+    const device = await enrolled()
+    const plan = await run(SpConsumer.plan(fake.url, device.credential, notes))
+    const built = SpConsumer.receipt(plan, readback(plan), crypto.randomUUID(), "2026-11-01T10:00:00Z")
+    if (!("receipt" in built)) throw new Error("mismatch")
+    const acknowledged = await run(SpConsumer.post(fake.url, device.credential, built.receipt))
+    const session = "5de1b7f7-3c8e-5c6a-9885-2317b386feb1"
+    const first = await run(SpConsumer.bind(fake.url, device.credential, { receipt_id: acknowledged.receipt_id, session_id: session }))
+    const again = await run(SpConsumer.bind(fake.url, device.credential, { receipt_id: acknowledged.receipt_id, session_id: session }))
+    expect(again).toEqual(first)
+    const sent = fake.state.requests.findLast((request) => request.path === "/api/v1/consumer/session-bindings")
+    expect(JSON.parse(sent?.body ?? "")).toEqual({ receipt_id: acknowledged.receipt_id, host: "open-code", session_id: session })
+    expect(sent?.headers.authorization).toBe(`Bearer ${device.credential}`)
+    // A receipt the instance does not hold for this device: refused for good (403 on 0.76)
+    const unknown = await failure(SpConsumer.bind(fake.url, device.credential, { receipt_id: crypto.randomUUID(), session_id: session }))
+    expect(unknown).toBeInstanceOf(SpClient.Protocol)
+    expect(unknown instanceof SpClient.Protocol && unknown.status).toBe(403)
+    // An unknown device credential is 403 there too, unlike the other consumer routes; a JWT is 401
+    const stranger = await failure(SpConsumer.bind(fake.url, "sp_device_unknown", { receipt_id: acknowledged.receipt_id, session_id: session }))
+    expect(stranger instanceof SpClient.Protocol && stranger.status).toBe(403)
+    expect(await failure(SpConsumer.bind(fake.url, "eyJ.jwt", { receipt_id: acknowledged.receipt_id, session_id: session }))).toBeInstanceOf(SpClient.Unauthorized)
   })
 })
