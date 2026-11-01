@@ -234,6 +234,16 @@ describe("manifest", () => {
     expect(result.manifest.host_model_protocols).toBeDefined()
   })
 
+  test("keeps each plugin's hook families for the plugin's governance telemetry", async () => {
+    const minted = await session()
+    const result = await run(SpClient.manifest(fake.url, minted.token, { key: fake.state.key.public }))
+    if (result._tag !== "Manifest") throw new Error("expected a manifest")
+    expect(result.manifest.plugins.map((plugin) => [plugin.id, plugin.hooks?.governance])).toEqual([
+      ["alpha-tools", false],
+      ["dynapps-commons", true],
+    ])
+  })
+
   test("answers NotModified to a matching strong or weak ETag", async () => {
     const minted = await session()
     const first = await run(SpClient.manifest(fake.url, minted.token, { key: fake.state.key.public }))

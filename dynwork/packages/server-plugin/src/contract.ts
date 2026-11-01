@@ -27,6 +27,8 @@ const Skill = Schema.Struct({
   hosts: Schema.optional(Strings),
   /** The author's front matter keys; the platform's own (`name`, `description`, `tags`...) are not written back. */
   frontmatter: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  /** The plugins that ship the skill; the first owns its `skill_ref` in governance events. */
+  plugins: Schema.optional(Strings),
 })
 
 const Agent = Schema.Struct({
@@ -55,6 +57,8 @@ const Marketplace = Schema.Struct({
 /** A plugin bundle: each file with the SHA-256 the signed manifest gives it. */
 const Plugin = Schema.Struct({
   id: Schema.String,
+  /** With `governance`, the plugin's id is the `plugin_id` of the governance events (`DynWorkTelemetry`). */
+  hooks: Schema.optional(Schema.Struct({ governance: Schema.optional(Schema.Boolean) })),
   files: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String, sha256: Schema.String }))),
 })
 

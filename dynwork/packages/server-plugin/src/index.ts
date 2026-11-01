@@ -1,5 +1,5 @@
 import { Plugin, Rpc } from "@opencode/plugin/effect"
-import { Effect, Exit, Schema } from "effect"
+import { Effect, Exit, Schema, Stream } from "effect"
 import { DynWorkBundles } from "./bundles"
 import { DynWorkConfig } from "./config"
 import { DynWorkSync } from "./contract"
@@ -8,6 +8,7 @@ import { DynWorkInstructions } from "./instructions"
 import { DynWorkMapping } from "./mapping"
 import { DynWorkShell } from "./shell"
 import { DynWorkSkills } from "./skills"
+import { DynWorkTelemetry } from "./telemetry"
 
 // DynWork's server plugin. Main pushes the active instance's manifest, gateway models, plugin bundle files and JWT over
 // `dynwork.sync`, and the plugin adds its MCP servers and `systemprompt` provider to the service in memory, and writes
@@ -15,7 +16,7 @@ import { DynWorkSkills } from "./skills"
 // managed block of the global `AGENTS.md`, its bundle agents, plugins and themes, and its `policies` and
 // `cli_defaults` in `opencode.json`. Nothing reaches the database, and `clear` (sign-out) or the
 // next `apply` (switch) leaves nothing of the previous instance. Main pushes each renewed JWT with `token`, and answers
-// the `refresh` event with one.
+// the `refresh` event with one. While a manifest plugin owns governance, the bridge's hook events go to the instance.
 
 export const Definition = Rpc.define({
   id: DynWorkSync.id,
@@ -53,6 +54,8 @@ interface Store {
         readonly input: DynWorkSync.Apply
         mapped: DynWorkMapping.Mapped
         readonly provided: DynWorkGateway.Provided | undefined
+        /** Where governance events go, when a manifest plugin owns them (`DynWorkTelemetry.target`). */
+        readonly telemetry: DynWorkTelemetry.Target | undefined
       }
     | undefined
   /** The instance's JWT for model calls, held only here. */
@@ -61,6 +64,12 @@ interface Store {
   readonly reloads: Set<Effect.Effect<void>>
   /** One per Location: reconnects only its MCP servers, for a renewed JWT. */
   readonly mcpReloads: Set<Effect.Effect<void>>
+  /** The instance's hook client and tokens for governance events, held only here. */
+  readonly hooks: DynWorkTelemetry.Hooks
+  /** Per Session: its directory and the prompt last reported, like the bridge's plugin keeps them. */
+  readonly sessions: { readonly directories: Map<string, string>; readonly prompts: Map<string, string> }
+  /** Lifecycle events already reported: every Location's activation sees the same service events. */
+  readonly reported: Set<string>
 }
 
 // The service activates the plugin once per Location, and each activation imports the module afresh (local plugin
@@ -73,6 +82,9 @@ const store: Store = Object.assign(slot.__dynworkSync ?? {}, {
   tokens: slot.__dynworkSync?.tokens ?? DynWorkGateway.tokens(),
   reloads: slot.__dynworkSync?.reloads ?? new Set<Effect.Effect<void>>(),
   mcpReloads: slot.__dynworkSync?.mcpReloads ?? new Set<Effect.Effect<void>>(),
+  hooks: slot.__dynworkSync?.hooks ?? DynWorkTelemetry.hooks(),
+  sessions: slot.__dynworkSync?.sessions ?? { directories: new Map<string, string>(), prompts: new Map<string, string>() },
+  reported: slot.__dynworkSync?.reported ?? new Set<string>(),
 })
 slot.__dynworkSync = store
 
@@ -96,6 +108,21 @@ const everywhere = (reloads: Set<Effect.Effect<void>>) =>
     }),
   )
 const reloadAll = everywhere(store.reloads)
+
+// One governance event, sent in the background: like the bridge's plugin, it never holds up or fails a step.
+const report = (body: Record<string, unknown> | undefined) =>
+  Effect.sync(() => {
+    const telemetry = store.current?.telemetry
+    const jwt = store.tokens.current?.jwt
+    if (body && telemetry && jwt) void DynWorkTelemetry.send(store.hooks, telemetry, jwt, body)
+  })
+
+const directory = (sessionID: string) => store.sessions.directories.get(sessionID) ?? process.cwd()
+
+// Sessions that never end would keep their entries: only the most recent ones are kept.
+function bounded<T>(collection: Map<string, T> | Set<string>) {
+  if (collection.size > 1024) collection.delete(collection.keys().next().value ?? "")
+}
 
 export default Plugin.define({
   id: "dynwork",
@@ -150,13 +177,22 @@ export default Plugin.define({
 
     // Without a config dir of its own, the rules go into the system part of each model call: it is rebuilt for every
     // call, so it never piles up across steps and a switch or sign-out takes effect on the next step of every Session.
-    if (!configDir)
-      yield* ctx.session.hook("context", (event) =>
-        Effect.sync(() => {
-          const instructions = mapped().instructions
-          if (instructions) event.system.push({ type: "text", text: instructions })
-        }),
-      )
+    // The same hook reports each new prompt while governance telemetry is on.
+    yield* ctx.session.hook("context", (event) =>
+      Effect.suspend(() => {
+        const instructions = configDir ? undefined : mapped().instructions
+        if (instructions) event.system.push({ type: "text", text: instructions })
+        if (!store.current?.telemetry) return Effect.void
+        const body = DynWorkTelemetry.prompt(
+          event.messages,
+          event.sessionID,
+          directory(event.sessionID),
+          store.sessions.prompts,
+        )
+        bounded(store.sessions.prompts)
+        return report(body)
+      }),
+    )
 
     const user = DynWorkShell.saved(process.env)
     if (user) {
@@ -190,7 +226,10 @@ export default Plugin.define({
               yield* Effect.promise(() => DynWorkBundles.write(configDir, next.owned))
               yield* Effect.promise(() => DynWorkConfig.write(configDir, { locked: true, settings: next.settings }))
             }
-            store.current = { input, mapped: next, provided: DynWorkGateway.provider(input) }
+            const telemetry = DynWorkTelemetry.target(input)
+            // A hook client and tokens of another instance are never sent to this one.
+            if (store.current?.telemetry?.base !== telemetry?.base) Object.assign(store.hooks, DynWorkTelemetry.hooks())
+            store.current = { input, mapped: next, provided: DynWorkGateway.provider(input), telemetry }
             DynWorkGateway.push(store.tokens, { jwt: input.jwt, expiresAt: input.expiresAt })
             yield* reloadAll
             return {
@@ -205,6 +244,7 @@ export default Plugin.define({
           Effect.gen(function* () {
             store.current = undefined
             DynWorkGateway.push(store.tokens, undefined)
+            Object.assign(store.hooks, DynWorkTelemetry.hooks())
             if (configDir) {
               yield* Effect.promise(() => DynWorkInstructions.write(configDir, undefined))
               yield* Effect.promise(() => DynWorkSkills.write(configDir, undefined))
@@ -308,6 +348,64 @@ export default Plugin.define({
           event.decision = (yield* DynWorkGateway.refused(store.tokens, events, event.sessionID, event.attempt <= 2))
             ? { retry: true, delay: 0 }
             : { retry: false }
+        }),
+      { providerID: DynWorkGateway.providerID },
+    )
+
+    // The governance events of the bridge's `systemprompt-hooks.js` (`DynWorkTelemetry`), only while a manifest plugin
+    // owns governance: Session start and end, every tool result, and the end of each assistant turn (prompts are
+    // reported by the context hook above).
+    yield* ctx.event.subscribe({ types: ["session.created", "session.deleted"] }).pipe(
+      Stream.runForEach((event) =>
+        Effect.suspend(() => {
+          const sessionID = event.data.sessionID
+          const id = event.id ?? `${sessionID}:${event.type}`
+          if (store.reported.has(id)) return Effect.void
+          store.reported.add(id)
+          bounded(store.reported)
+          if (event.type === "session.created") {
+            store.sessions.directories.set(sessionID, event.data.location.directory)
+            bounded(store.sessions.directories)
+          }
+          const body = DynWorkTelemetry.lifecycle(event.type, sessionID, directory(sessionID), id)
+          if (event.type === "session.deleted") {
+            store.sessions.directories.delete(sessionID)
+            store.sessions.prompts.delete(sessionID)
+          }
+          return report(body)
+        }),
+      ),
+      Effect.forkScoped({ startImmediately: true }),
+    )
+    // OpenCode 2 publishes no `session.idle`, which the bridge's plugin listens to; this hook runs at the same point,
+    // when a Session finishes model work with no pending input.
+    yield* ctx.session.hook("experimental.idle", (event) =>
+      report(
+        DynWorkTelemetry.lifecycle(
+          "session.idle",
+          event.sessionID,
+          directory(event.sessionID),
+          `${event.sessionID}:session.idle:${Date.now()}`,
+        ),
+      ),
+    )
+    yield* ctx.tool.hook("execute.after", (event) =>
+      Effect.suspend(() =>
+        store.current?.telemetry
+          ? report(DynWorkTelemetry.tool(event, store.current.telemetry.skills, directory(event.sessionID)))
+          : Effect.void,
+      ),
+    )
+    // The session on each gateway call, where the bridge's proxy puts it, so the call lands on the events' context.
+    yield* ctx.session.hook(
+      "http.request",
+      (event) =>
+        Effect.gen(function* () {
+          if (!store.current?.telemetry) return
+          const request = event.request
+          event.request = yield* Effect.promise(() =>
+            DynWorkTelemetry.stamp(request, event.sessionID).catch(() => request),
+          )
         }),
       { providerID: DynWorkGateway.providerID },
     )

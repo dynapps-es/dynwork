@@ -112,6 +112,14 @@ const McpServer = Schema.Struct({
 const Plugin = Schema.Struct({
   id: Schema.String,
   version: Schema.optional(Schema.String),
+  /** Which hook families the plugin owns; DynWork's server plugin reports governance events for `governance`. */
+  hooks: Schema.optional(
+    Schema.Struct({
+      governance: Schema.optional(Schema.Boolean),
+      judge: Schema.optional(Schema.Boolean),
+      comms: Schema.optional(Schema.Boolean),
+    }),
+  ),
   sha256: Schema.optional(Schema.String),
   files: Schema.optional(
     Schema.Array(Schema.Struct({ path: Schema.String, sha256: Schema.String, size: Schema.optional(Schema.Number) })),

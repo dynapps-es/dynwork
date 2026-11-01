@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test"
 import type { Plugin } from "@opencode/plugin/effect"
-import { Effect } from "effect"
+import { Effect, Stream } from "effect"
 import plugin, { Definition } from "../src/index"
 import { DynWorkShell } from "../src/shell"
 import { apply } from "./fixture"
@@ -34,6 +34,13 @@ function record() {
     model: domain("model"),
     session: { hook: hook("session") },
     shell: { hook: hook("shell") },
+    tool: { hook: hook("tool") },
+    event: {
+      subscribe: (input: { types: string[] }) => {
+        used.push(`event.subscribe(${input.types.join(",")})`)
+        return Stream.empty
+      },
+    },
     rpc: {
       register: (definition: { id: string }, implementation: typeof handlers) => {
         used.push(`rpc.register(${definition.id})`)
@@ -69,6 +76,10 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
     "rpc.register(dynwork.sync)",
     "session.hook(model.request)",
     "session.hook(retry)",
+    "event.subscribe(session.created,session.deleted)",
+    "session.hook(experimental.idle)",
+    "tool.hook(execute.after)",
+    "session.hook(http.request)",
   ])
 })
 
@@ -90,7 +101,8 @@ test("apply fills every transform and the system prompt, and clear empties them"
           const mcp: Record<string, unknown> = {}
           recorded.transforms.skill?.({ add: (skill: unknown) => added.push(skill) } as never)
           recorded.transforms.mcp?.({ set: (name: string, config: unknown) => (mcp[name] = config) } as never)
-          const event = { system: [] as unknown[] }
+          // The alpha manifest owns governance: the hook also reads the step's messages for a new prompt.
+          const event = { system: [] as unknown[], messages: [], sessionID: "ses_contract" }
           return Effect.as(recorded.hooks["session.context"]?.(event as never) ?? Effect.void, {
             added,
             mcp,

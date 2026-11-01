@@ -477,6 +477,48 @@ changed by the user's config never receives the JWT. Freshness:
   sidecar); events published while nobody listens are lost and the call just gives up after its wait. On `rejected`
   reasons main must mint a new JWT rather than hand out its cached one.
 
+### Governance telemetry
+
+When some manifest plugin has `hooks.governance` (the first one; the bridge writes its `systemprompt-hooks.js` for the
+same one), OpenCode is an enabled host and the instance URL may receive the JWT, the plugin reports what the bridge's
+OpenCode hooks plugin reports (`server-plugin/src/telemetry.ts`, from `integration/opencode/managed_resources/` and
+`proxy/forward/{hook,body}.rs`). Without such a plugin nothing is sent. What DynWork sends to the instance, and nothing
+else:
+
+- `POST <instance>/api/public/hooks/track?plugin_id=<governance plugin>`, JSON, with `x-systemprompt-host: opencode`
+  and `x-ingestion-event-id` (the event's id, else a random UUID, as the bridge's proxy adds one). Every body has
+  `hook_event_name`, `session_id` (the v5 UUID of the Session id under the bridge's namespace
+  `7c1f5b6e-3a2d-4e8f-9b0c-2d6a1e4f8c73`), `native_session_id` (OpenCode's `ses_…` id), `cwd` (the Session's directory)
+  and `native_host: "opencode"`:
+  - `SessionStart` on `session.created` and `SessionEnd` on `session.deleted`, with `event_id` (the event's id);
+  - `Stop` when a Session finishes model work with no pending input (`experimental.idle`; OpenCode 2 publishes no
+    `session.idle`, which the bridge listens to), with `event_id`;
+  - `UserPromptSubmit` once per new user message (the `context` hook, before each step), with `prompt` (its text parts)
+    and `prompt_id` (the message id);
+  - `PostToolUse` for every tool completion, with `tool_name`, `tool_input` (the call's whole input; `{name}` for the
+    skill tool), `tool_use_id` and `tool_response: {title, output, metadata}`, the output whole, as the bridge sends it
+    (the instance bounds and scans it). A skill use adds `skill_ref: "<owner plugin>:<skill directory>"`
+    (`opencode:<directory>` for a skill no plugin ships). OpenCode 2's skill tool takes `{id}`; the bridge's template
+    reads `name` and so reports no skill use there, DynWork reads the id.
+- Track takes a hook token, not the user's JWT (the 0.76 harness answers `401` to the JWT). Like the bridge's proxy
+  (`auth/plugin_oauth`), the plugin provisions the user's hook client with `POST /v1/auth/bridge/oauth-client`
+  (`Bearer <jwt>`), mints one token per plugin with `client_credentials` (`scope: hook:govern hook:track`,
+  `audience: hook`, `plugin_id`) at the advertised token endpoint, only on the instance's own origin, and keeps it until
+  5 min before it expires (30 days on 0.76). Client secret and tokens live in the service's memory only; a restart, a
+  switch or a sign-out drops them. The client is one per user and provisioning rotates its secret: a mint refused with
+  `401` (another DynWork or bridge of the same user rotated it) provisions once more, as the bridge does. Tokens already
+  minted stay valid.
+- Every call times out after 5 s; failures are dropped, never retried, and never hold up or fail a step.
+- Model calls on the `systemprompt` provider carry `metadata.user_id: {"session_id": "<v5 UUID>"}` in the body (kept
+  when the body already has one), where the bridge's proxy moves its plugin's `x-opencode-session`, so the gateway lands
+  the call on the same context as the events; `x-opencode-session` is dropped, as the proxy drops it. Only while
+  governance telemetry is on, like the bridge, whose stamp lives in the hooks plugin. OpenCode's own `X-Session-Id`
+  still goes: 0.76 keeps a session id it did not issue as the client's, it does not reject it.
+- Not sent: the device evidence the bridge's proxy adds when enrolled (`x-systemprompt-device-credential` and
+  `x-systemprompt-host: open-code`, which 0.76 accepts with DynWork's device; the credential stays in main) and the
+  session bindings (`POST /api/v1/consumer/session-bindings`, one per native Session and acknowledged receipt). The
+  instance records the events without a device, as for a bridge that is not enrolled.
+
 ## Patch guard
 
 ```bash
