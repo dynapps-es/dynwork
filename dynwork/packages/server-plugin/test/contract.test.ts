@@ -118,7 +118,7 @@ test("apply fills every transform and the system prompt, and clear empties them"
         const filled = yield* run()
         expect(filled.added).toHaveLength(3)
         expect(filled.agents["alpha-alpha_helper"]).toMatchObject({ name: "alpha helper", mode: "subagent" })
-        expect(Object.keys(filled.mcp)).toEqual(["alpha-alpha-docs"])
+        expect(Object.keys(filled.mcp)).toEqual(["alpha-docs"])
         expect(filled.system).toEqual([{ type: "text", text: expect.stringContaining("# Alpha conventions") }])
 
         expect(yield* recorded.handlers.clear!()).toEqual({})

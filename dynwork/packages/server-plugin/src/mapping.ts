@@ -1,6 +1,5 @@
 export * as DynWorkMapping from "./mapping"
 
-import { createHash } from "node:crypto"
 import { Mcp, Skill } from "@opencode/plugin/effect"
 import { Option, Schema } from "effect"
 import type { DynWorkSync } from "./contract"
@@ -75,9 +74,14 @@ export function map(input: DynWorkSync.Apply): Mapped {
         ...(agent.model && served.has(agent.model) ? { model: agent.model } : {}),
         mode: agent.id === defaultAgent?.id ? "all" : "subagent",
       })),
-    mcp: unique(manifest.managed_mcp_servers).flatMap((server) =>
-      Option.toArray(remote(server, input)).map((config) => [serverName(key, server.id), config] as const),
-    ),
+    // Two servers that share a slug keep the last one, like the bridge's table insert
+    mcp: [
+      ...new Map(
+        unique(manifest.managed_mcp_servers).flatMap((server) =>
+          Option.toArray(remote(server, input)).map((config) => [serverName(server.name), config] as const),
+        ),
+      ),
+    ],
     rules: rules.length,
     instructions: DynWorkInstructions.block(rules),
     defaults: {
@@ -87,14 +91,16 @@ export function map(input: DynWorkSync.Apply): Mapped {
   }
 }
 
-// OpenCode names an MCP tool `<server>_<tool>`, and providers cap tool names at 64 characters: a long server name is
-// cut and made unique again with a short hash of the full one.
-const serverLimit = 32
-
-function serverName(key: string, id: string) {
-  const full = `${key}-${id}`
-  if (full.length <= serverLimit) return full
-  return `${full.slice(0, serverLimit - 7)}-${createHash("sha256").update(full).digest("hex").slice(0, 6)}`
+// The bridge's `normalize_key` (`mcp_registry.rs`): lowercase `[a-z0-9_]`, any run of other characters becomes one `-`,
+// no leading or trailing `-`. OpenCode names an MCP tool `<server>_<tool>`, so this is what skills and rules call
+// (`dynbrain_docs_search`). The server is not prefixed with the instance key: a server of the same name that the user
+// configured is replaced by the instance's, as the transform's `editor.set` always does.
+function serverName(name: string) {
+  const slug = name
+    .replace(/[^A-Za-z0-9_]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase()
+  return slug || "mcp-server"
 }
 
 /** Ids become OpenCode ids, a virtual path and part of MCP tool names: anything else is skipped. */

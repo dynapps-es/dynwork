@@ -39,18 +39,19 @@ const manifest = {
   ],
 }
 
-const ids = async (route: string, directory: string, field: "id" | "name") => {
+// MCP servers carry no instance prefix, so they are told apart by the names the manifests give them
+const ids = async (route: string, directory: string, field: "id" | "name", owned = /^(alpha|beta)-/) => {
   const body: { data: Array<Record<string, string>> } = await service.get(route, directory)
   return body.data
     .map((entry) => entry[field] ?? "")
-    .filter((id) => /^(alpha|beta)-/.test(id))
+    .filter((id) => owned.test(id))
     .toSorted()
 }
 const content = (directory: string) =>
   Promise.all([
     ids("/api/skill", directory, "id"),
     ids("/api/agent", directory, "id"),
-    ids("/api/mcp", directory, "name"),
+    ids("/api/mcp", directory, "name", /^(alpha-docs|routed)$/),
   ])
 
 beforeAll(async () => {
@@ -71,7 +72,7 @@ test("apply adds the instance's skills, agents and MCP servers in every Location
   const expected = [
     ["alpha-alpha_notes", "alpha-alpha_review", "alpha-who_am_i"],
     ["alpha-alpha_helper"],
-    ["alpha-alpha-docs", "alpha-routed"],
+    ["alpha-docs", "routed"],
   ] satisfies Awaited<ReturnType<typeof content>>
   expect(await content(projectA)).toEqual(expected)
   expect(

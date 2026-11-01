@@ -31,7 +31,7 @@ describe("mapping the alpha manifest", () => {
   test("an MCP server off the instance origin gets no JWT and never OAuth", () => {
     expect(mapped.mcp).toHaveLength(1)
     const [name, config] = mapped.mcp[0] ?? []
-    expect(name).toBe("alpha-alpha-docs")
+    expect(name).toBe("alpha-docs")
     expect(config).toMatchObject({
       type: "remote",
       url: "http://127.0.0.1:9/alpha-docs/mcp",
@@ -171,20 +171,40 @@ describe("cli_defaults", () => {
     expect(mapped.defaults.agent).toBeUndefined()
   })
 
-  test("a long MCP server name is cut to 32 characters and stays unique", () => {
+  test("MCP servers are named from their name like the bridge, without the instance key", () => {
     const server = alpha.managed_mcp_servers[0]
     if (server === undefined) throw new Error("alpha has no MCP server")
-    const long = (id: string) => ({ ...server, id })
+    const names = (...list: ReadonlyArray<string>) =>
+      DynWorkMapping.map(
+        apply({ ...alpha, managed_mcp_servers: list.map((name, index) => ({ ...server, id: `s${index}`, name })) }),
+      ).mcp.map((entry) => entry[0])
+    // Prod's three managed servers
+    expect(names("agent-farm", "dynbrain", "systemprompt")).toEqual(["agent-farm", "dynbrain", "systemprompt"])
+    expect(names("Dyn Brain", "ACME__Docs!!", "--edge--", "a  b", "Lupa_2")).toEqual([
+      "dyn-brain",
+      "acme__docs",
+      "edge",
+      "a-b",
+      "lupa_2",
+    ])
+    expect(names("***", "ñandú")).toEqual(["mcp-server", "and"])
+  })
+
+  test("two MCP servers that share a name keep the last one", () => {
+    const server = alpha.managed_mcp_servers[0]
+    if (server === undefined) throw new Error("alpha has no MCP server")
     const mapped = DynWorkMapping.map(
       apply({
         ...alpha,
-        managed_mcp_servers: [long("customer-erp-connector-production"), long("customer-erp-connector-production-eu")],
+        managed_mcp_servers: [
+          { ...server, id: "one", name: "Docs", url: "http://127.0.0.1:9/one" },
+          { ...server, id: "two", name: "docs", url: "http://127.0.0.1:9/two" },
+        ],
       }),
     )
-    const names = mapped.mcp.map((entry) => entry[0])
-    expect(names).toHaveLength(2)
-    expect(names.every((name) => name.length <= 32)).toBe(true)
-    expect(new Set(names).size).toBe(2)
+    expect(mapped.mcp.map((entry) => [entry[0], (entry[1] as { url: string }).url])).toEqual([
+      ["docs", "http://127.0.0.1:9/two"],
+    ])
   })
 
   test("unknown agents and malformed values set no default", () => {
