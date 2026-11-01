@@ -27,6 +27,8 @@ export function make(endpoints: ServerEndpoints) {
       /** Without a profile the service gets no `systemprompt` provider. */
       readonly profile?: Profile
       readonly catalog?: Catalog
+      /** The plugin bundle files the plugin projects, fetched by main; the plugin checks them against the manifest. */
+      readonly files?: ReadonlyArray<DynWorkSync.BundleFile>
     }) =>
       client.apply({
         instance: instance(input.account),
@@ -34,6 +36,7 @@ export function make(endpoints: ServerEndpoints) {
         jwt: input.jwt,
         expiresAt: input.expiresAt,
         ...(input.profile ? { gateway: gateway(input.account.label, input.profile, input.catalog) } : {}),
+        ...(input.files ? { files: input.files } : {}),
       }),
     /** Pushes a renewed JWT; false when the service holds another instance. */
     token: (input: { readonly account: Account; readonly jwt: string; readonly expiresAt: number }) =>

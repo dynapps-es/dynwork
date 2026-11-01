@@ -149,6 +149,16 @@ The key is trusted on first use: the client pins it at sign-in and shows its fin
 SHA-256 of the 32 raw key bytes. When a manifest does not verify, the client fetches the served key again: a different
 key is a key change, the same key a bad signature.
 
+### Plugin bundle files (`SpPlugins`)
+
+`GET /v1/bridge/plugins/{plugin}/{path}` with the JWT answers `200` with the raw bytes of one file of a plugin the user
+is granted, the bytes the manifest's `plugins[].files[].sha256` covers: on the local 0.76 instance every file of alpha's
+two plugins matched its digest and size. An unknown file or plugin is `404` (`File not found`, `Plugin not found`), a
+bad JWT `401`. The route is the systemprompt bridge's (`gateway/fetch.rs`); `archive/<sha256>` under a plugin is the
+whole plugin as a tar.gz, not used. `SpPlugins.file` encodes each path segment, refuses a plugin id or a path that is
+not plain segments before sending anything, follows no redirect, and gives up past 8 MiB or 60 s; its errors map as
+below. The caller checks the bytes against the manifest before using them.
+
 ### How answers map to the client's errors
 
 The client refuses an `http:` base URL unless the host is `127.0.0.1`, `localhost` or `[::1]`, so a PAT or JWT never

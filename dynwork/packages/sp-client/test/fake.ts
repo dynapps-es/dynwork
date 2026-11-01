@@ -38,6 +38,8 @@ export function startFake() {
     pats: new Set<string>(),
     jwts: new Set<string>(),
     requests: [] as Recorded[],
+    // Plugin bundle files by `<plugin>/<path>`, served at `/v1/bridge/plugins/<plugin>/<path>`
+    files: {} as Record<string, Uint8Array | string>,
   }
 
   const server = Bun.serve({
@@ -112,6 +114,11 @@ export function startFake() {
     if (route === "GET /v1/bridge/profile") return Response.json(alpha.profile.body)
     if (route === "GET /v1/models") return Response.json(alpha.models.body)
     if (route === "GET /v1/bridge/whoami") return Response.json(alpha.whoami.body)
+    if (request.method === "GET" && path.startsWith("/v1/bridge/plugins/")) {
+      const file = state.files[path.slice("/v1/bridge/plugins/".length).split("/").map(decodeURIComponent).join("/")]
+      if (file === undefined) return Response.json({ code: "not_found", message: "file not found" }, { status: 404 })
+      return new Response(file)
+    }
     if (route === "GET /v1/bridge/manifest") {
       const payload = Jcs.canonicalize(state.payload)
       const etag = `"${createHash("sha256").update(payload).digest("hex")}"`

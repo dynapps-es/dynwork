@@ -2,45 +2,39 @@ export * as DynWorkMapping from "./mapping"
 
 import { Mcp, Skill } from "@opencode/plugin/effect"
 import { Option, Schema } from "effect"
+import { DynWorkBundles } from "./bundles"
+import { DynWorkConfig } from "./config"
 import type { DynWorkSync } from "./contract"
 import { DynWorkInstructions } from "./instructions"
 import { DynWorkSkills } from "./skills"
 
-// Turns an instance manifest into what the plugin's transforms add (decision D8). Pure and total: an entry the
-// service could not take is left out instead of failing, because a transform that throws disables the whole plugin.
+// Turns an instance manifest into what the plugin's transforms add (decision D8) and the files it writes. Pure and
+// total: an entry the service could not take is left out instead of failing, because a transform that throws disables
+// the whole plugin. Like the bridge, the manifest's `agents` are not used: agents come from the plugin bundles.
 
 /** The hosts an entry may target for DynWork to apply it. */
 const hosts = ["opencode", "opencode-cli"]
-
-export interface Agent {
-  readonly id: string
-  readonly name: string
-  readonly description?: string
-  readonly system?: string
-  /** A gateway model id: the agent runs on `systemprompt/<model>`. Absent when the gateway does not serve it. */
-  readonly model?: string
-  /** Instance agents are sub-agents; the one `cli_defaults` names is also selectable as the primary agent. */
-  readonly mode: "subagent" | "all"
-}
 
 export interface Mapped {
   /** The skills for a service without its own config dir; with one they are `skillFiles` instead. */
   readonly skills: ReadonlyArray<Skill.Info>
   /** The skills as the bridge's files (`DynWorkSkills.project`), or undefined when everything managed is to go. */
   readonly skillFiles?: DynWorkSkills.Projection
-  readonly agents: ReadonlyArray<Agent>
+  /** The plugin bundle files for OpenCode (`DynWorkBundles.project`), or undefined when everything owned is to go. */
+  readonly owned?: DynWorkBundles.Projection
+  /** The `opencode.json` and `cli.json` settings of the marketplaces (`DynWorkConfig.settings`). */
+  readonly settings?: DynWorkConfig.Settings
   readonly mcp: ReadonlyArray<readonly [string, Mcp.ServerConfig]>
   /** How many rules `instructions` carries. */
   readonly rules: number
   /** The rules as the managed `AGENTS.md` block (`DynWorkInstructions.block`), or undefined without rules. */
   readonly instructions?: string
   readonly defaults: {
-    readonly agent?: string
     readonly model?: { readonly providerID: string; readonly modelID: string }
   }
 }
 
-export const empty: Mapped = { skills: [], agents: [], mcp: [], rules: 0, defaults: {} }
+export const empty: Mapped = { skills: [], mcp: [], rules: 0, defaults: {} }
 
 export function map(input: DynWorkSync.Apply): Mapped {
   const manifest = input.manifest
@@ -48,13 +42,10 @@ export function map(input: DynWorkSync.Apply): Mapped {
   if (!manifest.enabled_hosts?.some((host) => hosts.includes(host))) return empty
   const key = input.instance.key
   const name = (id: string) => `${key}-${id}`
-  const settings = cliDefaults(manifest)
-  const defaultAgent = unique(manifest.agents).find(
-    (agent) => agent.enabled !== false && (agent.id === settings.agent || agent.name === settings.agent),
-  )
-  const served = new Set(input.gateway?.models.map((model) => model.id))
   const rules = DynWorkInstructions.select(manifest.rules)
   const skills = unique(manifest.skills).filter((skill) => applies(skill.hosts) && skill.instructions?.trim())
+  const owned = DynWorkBundles.project(manifest, input.files ?? [])
+  const themes = owned.files.flatMap((file) => file.path.match(/^themes\/(.+)\.json$/)?.[1] ?? [])
   return {
     skills: skills.flatMap((skill) =>
       Option.toArray(
@@ -68,16 +59,8 @@ export function map(input: DynWorkSync.Apply): Mapped {
       ),
     ),
     skillFiles: DynWorkSkills.project(manifest, skills),
-    agents: unique(manifest.agents)
-      .filter((agent) => agent.enabled !== false)
-      .map((agent) => ({
-        id: name(agent.id),
-        name: agent.display_name || agent.name,
-        description: agent.description,
-        system: agent.system_prompt,
-        ...(agent.model && served.has(agent.model) ? { model: agent.model } : {}),
-        mode: agent.id === defaultAgent?.id ? "all" : "subagent",
-      })),
+    owned,
+    settings: DynWorkConfig.settings(manifest, themes),
     // Two servers that share a slug keep the last one, like the bridge's table insert
     mcp: [
       ...new Map(
@@ -88,10 +71,7 @@ export function map(input: DynWorkSync.Apply): Mapped {
     ],
     rules: rules.length,
     instructions: DynWorkInstructions.block(rules),
-    defaults: {
-      agent: defaultAgent ? name(defaultAgent.id) : undefined,
-      model: settings.model,
-    },
+    defaults: { model: defaultModel(manifest) },
   }
 }
 
@@ -141,20 +121,15 @@ export function secure(url: URL) {
   return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
 }
 
-// `cli_defaults` is the free-form settings map of a marketplace's `opencode` block. DynWork reads the default agent
-// (`default_agent`, an instance agent id or name) and the default model (`model`, `provider/model`).
-function cliDefaults(manifest: DynWorkSync.Manifest) {
+// `cli_defaults` is the free-form settings map of a marketplace's `opencode` block. A service with a config dir of its
+// own gets every key in its `opencode.json`; one without reads only the default model (`model`, `provider/model`).
+function defaultModel(manifest: DynWorkSync.Manifest) {
   const defaults = (manifest.marketplaces ?? [])
     .map((marketplace) => marketplace.opencode?.cli_defaults)
     .find((value): value is Record<string, unknown> => typeof value === "object" && value !== null)
-  const agent = typeof defaults?.default_agent === "string" ? defaults.default_agent : undefined
   const model = typeof defaults?.model === "string" ? defaults.model : undefined
   const slash = model?.indexOf("/") ?? -1
-  return {
-    agent,
-    model:
-      model && slash > 0 && slash < model.length - 1
-        ? { providerID: model.slice(0, slash), modelID: model.slice(slash + 1) }
-        : undefined,
-  }
+  return model && slash > 0 && slash < model.length - 1
+    ? { providerID: model.slice(0, slash), modelID: model.slice(slash + 1) }
+    : undefined
 }

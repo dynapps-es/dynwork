@@ -8,6 +8,7 @@ import { DynWorkSync } from "@dynwork/server-plugin/contract"
 import { DynWorkAccounts } from "../accounts/accounts"
 import type { Counts, SyncError, SyncStatus } from "../accounts/contract"
 import { DynWorkSyncMain } from "../accounts/sync"
+import { DynWorkBundleFiles } from "./bundles"
 
 // The live sync (decision D4): one loop, for the active instance only, polls its signed manifest with the last ETag
 // and pushes the verified content to DynWork's service only when it changed. The plugin replaces the instance's whole
@@ -75,6 +76,8 @@ type Loop = {
   counts?: Counts
   // The last JWT the plugin got, so a renewal is pushed once
   sent?: string
+  // The plugin bundle files fetched for this account, kept by digest across polls
+  readonly bundles: ReturnType<typeof DynWorkBundleFiles.make>
 }
 
 export function make(options: Options) {
@@ -147,6 +150,7 @@ export function make(options: Options) {
       again: false,
       fresh: false,
       failures: 0,
+      bundles: DynWorkBundleFiles.make(accounts),
     }
     current.loop = started
     request(started)
@@ -225,6 +229,7 @@ export function make(options: Options) {
     const digest = digestOf(manifest, loop.gateway)
     if (loop.pushed !== digest) {
       const session = await accounts.session(loop.id)
+      const files = await loop.bundles.fetch({ id: loop.id, url: loop.account.url }, plugged(manifest))
       const counts = await serial(() =>
         loop.stopped
           ? Promise.resolve(undefined)
@@ -235,6 +240,7 @@ export function make(options: Options) {
               expiresAt: session.expiresAt,
               profile: loop.gateway?.profile,
               catalog: loop.gateway?.catalog,
+              files,
             }),
       )
       if (loop.stopped || counts === undefined) return
@@ -394,6 +400,7 @@ function digestOf(manifest: Manifest, gateway: Loop["gateway"]) {
     ...content.managed_mcp_servers.map((entry) => ["mcp", entry.id, entry] as const),
     ...content.rules.map((entry) => ["rule", entry.id, entry] as const),
     ...(content.marketplaces ?? []).map((entry) => ["marketplace", entry.id, entry] as const),
+    ...(content.plugins ?? []).map((entry) => ["plugin", entry.id, entry] as const),
     ["hosts", "", content.enabled_hosts ?? null] as const,
     ["profile", "", gateway?.profile ?? null] as const,
     ["catalog", "", gateway?.catalog ?? null] as const,

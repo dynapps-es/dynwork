@@ -16,16 +16,9 @@ describe("mapping the alpha manifest", () => {
     expect(mapped.skills[0]?.description).toBe("Turn a working session into short alpha-team notes.")
   })
 
-  test("agents become namespaced sub-agents with their system prompt", () => {
-    expect(mapped.agents).toEqual([
-      {
-        id: "alpha-alpha_helper",
-        name: "alpha helper",
-        description: "Local test agent of the alpha instance",
-        system: "You are the alpha helper of the local DynWork harness.",
-        mode: "subagent",
-      },
-    ])
+  test("the manifest's agents are not mapped: like the bridge, agents come from plugin bundles", () => {
+    expect(alpha.agents).not.toHaveLength(0)
+    expect(Object.keys(mapped)).not.toContain("agents")
   })
 
   test("an MCP server off the instance origin gets no JWT and never OAuth", () => {
@@ -89,7 +82,7 @@ describe("filters", () => {
     expect(DynWorkMapping.map(apply({ ...alpha, enabled_hosts: [] }))).toEqual(DynWorkMapping.empty)
   })
 
-  test("entries for other hosts, disabled agents, empty bodies and unsafe ids are skipped", () => {
+  test("entries for other hosts, empty bodies and unsafe ids are skipped", () => {
     const mapped = DynWorkMapping.map(
       apply({
         ...alpha,
@@ -99,11 +92,9 @@ describe("filters", () => {
           { id: "../escape", name: "u", instructions: "x" },
           { id: "both", name: "b", instructions: "x", hosts: ["opencode", "claude-code"] },
         ],
-        agents: [{ id: "off", name: "off", enabled: false }],
       }),
     )
     expect(mapped.skills.map((skill) => String(skill.id))).toEqual(["alpha-both"])
-    expect(mapped.agents).toEqual([])
   })
 
   test("a repeated id keeps the last entry", () => {
@@ -149,26 +140,9 @@ describe("cli_defaults", () => {
   const withDefaults = (cli_defaults: unknown) =>
     DynWorkMapping.map(apply({ ...alpha, marketplaces: [{ id: "m" }, { id: "o", opencode: { cli_defaults } }] }))
 
-  test("the default agent becomes selectable and default; the model splits at the first slash", () => {
+  test("the default model splits at the first slash", () => {
     const mapped = withDefaults({ default_agent: "alpha_helper", model: "systemprompt/claude/sonnet" })
-    expect(mapped.defaults).toEqual({
-      agent: "alpha-alpha_helper",
-      model: { providerID: "systemprompt", modelID: "claude/sonnet" },
-    })
-    expect(mapped.agents[0]?.mode).toBe("all")
-  })
-
-  test("a default agent whose surviving entry is disabled sets no default", () => {
-    const helper = alpha.agents[0]
-    if (helper === undefined) throw new Error("alpha has no agent")
-    const mapped = DynWorkMapping.map(
-      apply({
-        ...alpha,
-        agents: [helper, { ...helper, enabled: false }],
-        marketplaces: [{ id: "o", opencode: { cli_defaults: { default_agent: helper.id } } }],
-      }),
-    )
-    expect(mapped.defaults.agent).toBeUndefined()
+    expect(mapped.defaults).toEqual({ model: { providerID: "systemprompt", modelID: "claude/sonnet" } })
   })
 
   test("MCP servers are named from their name like the bridge, without the instance key", () => {
@@ -207,31 +181,8 @@ describe("cli_defaults", () => {
     ])
   })
 
-  test("unknown agents and malformed values set no default", () => {
-    expect(withDefaults({ default_agent: "nobody", model: "no-slash" }).defaults).toEqual({})
+  test("malformed values set no default", () => {
+    expect(withDefaults({ model: "no-slash" }).defaults).toEqual({})
     expect(withDefaults("not an object").defaults).toEqual({})
-  })
-})
-
-describe("agent models", () => {
-  const gateway = { label: "Alpha", models: [{ id: "claude-opus-5-5", api: "messages" as const }] }
-  const agents = [
-    { id: "served", name: "served", model: "claude-opus-5-5" },
-    { id: "unserved", name: "unserved", model: "gpt-9" },
-    { id: "none", name: "none" },
-  ]
-
-  test("an agent whose model the gateway serves runs on it; any other keeps the Session's model", () => {
-    const mapped = DynWorkMapping.map(apply({ ...alpha, agents }, { gateway }))
-    expect(mapped.agents.map((agent) => [agent.id, agent.model])).toEqual([
-      ["alpha-served", "claude-opus-5-5"],
-      ["alpha-unserved", undefined],
-      ["alpha-none", undefined],
-    ])
-  })
-
-  test("without a gateway no agent names a model", () => {
-    const mapped = DynWorkMapping.map(apply({ ...alpha, agents }))
-    expect(mapped.agents.every((agent) => agent.model === undefined)).toBe(true)
   })
 })

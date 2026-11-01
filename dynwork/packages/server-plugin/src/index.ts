@@ -1,5 +1,7 @@
-import { Agent, Model, Plugin, Rpc } from "@opencode/plugin/effect"
+import { Plugin, Rpc } from "@opencode/plugin/effect"
 import { Effect, Exit, Schema } from "effect"
+import { DynWorkBundles } from "./bundles"
+import { DynWorkConfig } from "./config"
 import { DynWorkSync } from "./contract"
 import { DynWorkGateway } from "./gateway"
 import { DynWorkInstructions } from "./instructions"
@@ -7,10 +9,11 @@ import { DynWorkMapping } from "./mapping"
 import { DynWorkShell } from "./shell"
 import { DynWorkSkills } from "./skills"
 
-// DynWork's server plugin. Main pushes the active instance's manifest, gateway models and JWT over `dynwork.sync`, and
-// the plugin adds its agents, MCP servers and `systemprompt` provider to the service in memory, its skills to the
-// service's `skills` directory and its rules to the managed block of the service's global `AGENTS.md` (the files the
-// systemprompt bridge writes for OpenCode): nothing reaches the database, and `clear` (sign-out) or the
+// DynWork's server plugin. Main pushes the active instance's manifest, gateway models, plugin bundle files and JWT over
+// `dynwork.sync`, and the plugin adds its MCP servers and `systemprompt` provider to the service in memory, and writes
+// into the service's config dir the files the systemprompt bridge writes for OpenCode: its skills, its rules in the
+// managed block of the global `AGENTS.md`, its bundle agents, plugins and themes, and its `policies` and
+// `cli_defaults` in `opencode.json`. Nothing reaches the database, and `clear` (sign-out) or the
 // next `apply` (switch) leaves nothing of the previous instance. Main pushes each renewed JWT with `token`, and answers
 // the `refresh` event with one.
 
@@ -114,24 +117,13 @@ export default Plugin.define({
       yield* ctx.skill.transform((editor) => {
         for (const skill of mapped().skills) editor.add(skill)
       })
-    yield* ctx.agent.transform((editor) => {
-      for (const agent of mapped().agents)
-        editor.update(agent.id, (info) => {
-          info.name = Agent.Name.make(agent.name)
-          info.description = agent.description
-          info.system = agent.system
-          info.mode = agent.mode
-          if (agent.model) info.model = { providerID: DynWorkGateway.providerID, id: Model.ID.make(agent.model) }
-        })
-      const id = mapped().defaults.agent
-      if (id) editor.default(id)
-    })
     yield* ctx.mcp.transform((editor) => {
       for (const [name, config] of mapped().mcp) editor.set(name, config)
     })
     // Like the bridge's `policies` (deny `provider.use *`, allow `systemprompt`), the instance's gateway is the only
     // provider while it is applied. Every provider reload runs this again, so one connected later is removed too.
-    // Providers declared in a config file's `providers` are added after external plugins, so they stay.
+    // Providers declared in a config file's `providers` are added after external plugins: with a config dir of its own
+    // the service gets the bridge's `policies` in `opencode.json`, which remove those too.
     yield* ctx.provider.transform((editor) => {
       const provided = store.current?.provided
       if (!provided) return
@@ -139,7 +131,8 @@ export default Plugin.define({
       editor.add({ info: provided.info, models: provided.models })
     })
     yield* ctx.model.transform((editor) => {
-      const model = mapped().defaults.model
+      // With a config dir of its own, `cli_defaults` sets `model` in `opencode.json` only where the user has not.
+      const model = configDir ? undefined : mapped().defaults.model
       if (model && editor.get(model.providerID, model.modelID)) editor.default.set(model.providerID, model.modelID)
       // The gateway's suggestion only fills an empty choice: a configured default model or `cli_defaults` wins.
       const suggested = store.current?.provided?.default
@@ -180,19 +173,24 @@ export default Plugin.define({
               yield* Effect.logWarning(
                 `dynwork: skills without a directory of their own, not written: ${next.skillFiles.skipped.join(", ")}`,
               )
+            const warnings = configDir ? (next.owned?.warnings ?? []) : []
+            yield* Effect.forEach(warnings, (warning) => Effect.logWarning(`dynwork: ${warning}`), { discard: true })
             // A failed write fails the call before anything changes, so main tries again.
             if (configDir) {
               yield* Effect.promise(() => DynWorkInstructions.write(configDir, next.instructions))
               yield* Effect.promise(() => DynWorkSkills.write(configDir, next.skillFiles))
+              yield* Effect.promise(() => DynWorkBundles.write(configDir, next.owned))
+              yield* Effect.promise(() => DynWorkConfig.write(configDir, { locked: true, settings: next.settings }))
             }
             store.current = { input, mapped: next, provided: DynWorkGateway.provider(input) }
             DynWorkGateway.push(store.tokens, { jwt: input.jwt, expiresAt: input.expiresAt })
             yield* reloadAll
             return {
               skills: configDir ? (next.skillFiles?.files.length ?? 0) : next.skills.length,
-              agents: next.agents.length,
+              agents: configDir ? (next.owned?.files.filter((file) => file.path.startsWith("agents/")).length ?? 0) : 0,
               mcp: next.mcp.length,
               rules: next.rules,
+              ...(warnings.length > 0 ? { warnings } : {}),
             }
           }),
         clear: () =>
@@ -202,6 +200,8 @@ export default Plugin.define({
             if (configDir) {
               yield* Effect.promise(() => DynWorkInstructions.write(configDir, undefined))
               yield* Effect.promise(() => DynWorkSkills.write(configDir, undefined))
+              yield* Effect.promise(() => DynWorkBundles.write(configDir, undefined))
+              yield* Effect.promise(() => DynWorkConfig.write(configDir, { locked: false }))
             }
             yield* reloadAll
             return {}

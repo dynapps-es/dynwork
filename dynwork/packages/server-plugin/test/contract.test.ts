@@ -61,7 +61,6 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
   expect(Object.keys(Definition.events)).toEqual(["refresh", "rejected"])
   expect(recorded.used).toEqual([
     "skill.transform",
-    "agent.transform",
     "mcp.transform",
     "provider.transform",
     "model.transform",
@@ -88,26 +87,18 @@ test("apply fills every transform and the system prompt, and clear empties them"
         yield* plugin.effect(recorded.ctx)
         const run = () => {
           const added: unknown[] = []
-          const agents: Record<string, Record<string, unknown>> = {}
           const mcp: Record<string, unknown> = {}
-          const defaults: unknown[] = []
           recorded.transforms.skill?.({ add: (skill: unknown) => added.push(skill) } as never)
-          recorded.transforms.agent?.({
-            update: (id: string, update: (info: Record<string, unknown>) => void) => update((agents[id] ??= {})),
-            default: (id: string) => defaults.push(id),
-          } as never)
           recorded.transforms.mcp?.({ set: (name: string, config: unknown) => (mcp[name] = config) } as never)
           const event = { system: [] as unknown[] }
           return Effect.as(recorded.hooks["session.context"]?.(event as never) ?? Effect.void, {
             added,
-            agents,
             mcp,
-            defaults,
             system: event.system,
           })
         }
 
-        expect(yield* recorded.handlers.apply!(apply())).toEqual({ skills: 3, agents: 1, mcp: 1, rules: 1 })
+        expect(yield* recorded.handlers.apply!(apply())).toEqual({ skills: 3, agents: 0, mcp: 1, rules: 1 })
         expect(recorded.used.filter((name) => name.endsWith(".reload"))).toEqual([
           "skill.reload",
           "agent.reload",
@@ -117,13 +108,12 @@ test("apply fills every transform and the system prompt, and clear empties them"
         ])
         const filled = yield* run()
         expect(filled.added).toHaveLength(3)
-        expect(filled.agents["alpha-alpha_helper"]).toMatchObject({ name: "alpha helper", mode: "subagent" })
         expect(Object.keys(filled.mcp)).toEqual(["alpha-docs"])
         expect(filled.system).toEqual([{ type: "text", text: expect.stringContaining("# Alpha conventions") }])
 
         expect(yield* recorded.handlers.clear!()).toEqual({})
         const cleared = yield* run()
-        expect(cleared).toEqual({ added: [], agents: {}, mcp: {}, defaults: [], system: [] })
+        expect(cleared).toEqual({ added: [], mcp: {}, system: [] })
       }),
     ),
   )

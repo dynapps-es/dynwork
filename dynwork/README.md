@@ -46,7 +46,7 @@ systemprompt instance ──HTTPS──▶ Electron main (dynwork GUI plugin)
   /v1 gateway ◀─────────┐                 │ RPC dynwork.sync/apply|token|clear (service password, loopback)
                         │                 ▼
                         └──── DynWork's OpenCode service (own port, DB, config, state)
-                              server plugin: skills (files), sub-agents, remote MCP, rules, provider `systemprompt`
+                              server plugin: skills and bundle files, remote MCP, rules, provider `systemprompt`
                               model calls carry the JWT, pinned to the instance gateway
 Windows (renderer) ◀── dynwork.accounts Ipc: accounts without secrets, sync status
 ```
@@ -178,8 +178,10 @@ no-cache`; polls, focus and activation let the instance answer from its memo, li
   instance again; a `token` the plugin refuses means the same. Event handlers never throw.
 
 Statuses, in `State.sync` and as the Ipc's `sync` event: `{status: "idle"}`, `{status: "syncing", account}`,
-`{status: "synced", account, at, counts: {skills, agents, mcp, rules}}` and `{status: "error", account, kind, at}`, with
-`kind` one of `unreachable`, `rate-limited`, `refused`, `key-changed`, `invalid`, `insecure` and `service`.
+`{status: "synced", account, at, counts: {skills, agents, mcp, rules, warnings?}}` and `{status: "error", account, kind,
+at}`, with `kind` one of `unreachable`, `rate-limited`, `refused`, `key-changed`, `invalid`, `insecure` and `service`.
+`warnings` lists what the service left out, such as a plugin bundle file that does not match the manifest; no window
+shows it yet.
 `bun test test/sync` in `packages/gui` drives the engine on fake timers against the fake instance.
 
 ## Demo views
@@ -265,8 +267,8 @@ them in its `shell` `create.before` hook, unless a session environment set its o
 ## Server plugin
 
 `@dynwork/server-plugin` (`packages/server-plugin`, plugin id `dynwork`) gives DynWork's service the active instance's
-content without writing anything but the rules block of the service's own global `AGENTS.md` and its managed skill
-files. The prod build ships its
+content without writing anything but the rules block of the service's own global `AGENTS.md`, its managed skill and
+plugin bundle files, and the bridge's keys in its `opencode.json` and `cli.json`. The prod build ships its
 `package.json` and `src` as the extra resource `dynwork-server-plugin` next to the app archive, and
 `DynWorkService.layout` adds that directory to the service's `OPENCODE_CONFIG_CONTENT` `plugins`. It imports only
 `effect` and `@opencode/plugin/effect`, which the service provides, so the directory needs no dependencies.
@@ -285,15 +287,15 @@ type, never the service's message, which may quote the input.
 | Manifest                               | OpenCode                                                                                                                                                                                                                                                                                                                                                                                                       |
 | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `skills[]` with inline body            | Files `<OPENCODE_CONFIG_DIR>/skills/<kebab(id)>/SKILL.md` with a ledger, as the bridge writes them (see "Skills on disk"). Without a config dir: `ctx.skill.transform`, embedded `Skill.Info` with id `<key>-<id>` and the virtual path `dynwork://<key>/skills/<id>`                                                                                                                                          |
-| `agents[]` (not disabled)              | `ctx.agent.transform`: sub-agent `<key>-<id>` with the display name, description and `system_prompt`. An agent whose `model` the gateway serves runs on `systemprompt/<model>`; any other uses the Session's model                                                                                                                                                                                             |
+| `agents[]`                             | Not used, like the bridge: agents come from the plugin bundles                                                                                                                                                                                                                                                                                                                                                 |
+| `plugins[].files[]`                    | Bundle agents, OpenCode plugins and pinned themes as files in the config dir, digest-checked, with a ledger (see "Plugin bundle files")                                                                                                                                                                                                                                                                        |
 | `managed_mcp_servers[]`                | `ctx.mcp.transform`: remote server named from its `name` with the bridge's slug (lowercase, `[a-z0-9_]`, other runs to `-`; `dynbrain`, not `<key>-<id>`), `oauth: false`. Only a server on the instance's own origin gets `Authorization: Bearer <jwt>`; any other keeps its declared headers only, and plain HTTP is accepted only on loopback. A user server of the same name is replaced by the instance's |
 | `rules[]`                              | A managed block in the service's global `AGENTS.md` (`<OPENCODE_CONFIG_DIR>/AGENTS.md`), described below                                                                                                                                                                                                                                                                                                       |
-| `marketplaces[].opencode.cli_defaults` | `default_agent` (an instance agent) becomes the default agent and selectable as primary; `model` (`provider/model`) becomes the default model when the service has it                                                                                                                                                                                                                                          |
+| `marketplaces[].opencode.cli_defaults` | Every key into `<OPENCODE_CONFIG_DIR>/opencode.json` where the user has not set it (see "Plugin bundle files"). Without a config dir only `model` (`provider/model`), the default model when the service has it                                                                                                                                                                                                 |
 
 Entries are kept only when they target OpenCode (`hosts` empty or with `opencode`/`opencode-cli`, and the same for the
 manifest's `enabled_hosts`, where an absent list is an empty one and clears the host, like the bridge; rules need an OpenCode host, see below), and only when their id is plain (`[A-Za-z0-9][A-Za-z0-9._-]*`, 64 at most). The mapping is
-pure and total, since a transform that throws disables the whole plugin. Manifest plugins, commands and hooks are not
-applied.
+pure and total, since a transform that throws disables the whole plugin. Manifest commands and hooks are not applied.
 
 ### Rules in AGENTS.md
 
@@ -362,6 +364,39 @@ reload; each is listed once, from the file, because the plugin adds no in-memory
 is rendered with `serde_yaml`'s layout (two-space indent, sequences under a key at the key's own indent, sorted keys) from
 the way that library is known to write it; no manifest of prod carries one, so unlike the rest it is not checked
 against bridge output.
+
+### Plugin bundle files
+
+With a config dir the plugin also writes what the bridge projects from each manifest plugin's bundle
+(`src/bundles.ts` and `src/config.ts`, ports of `managed_resources/{content,owned,config_json}.rs` and
+`install/merge.rs`; compared byte for byte with what the bridge left in prod's `~/.config/opencode`: the session header
+plugin, the `dynwork` theme, the ledger, the `policies` and the `cli.json` theme):
+
+- Main fetches only the files OpenCode gets (`DynWorkBundles.wanted`), with the account's JWT, from
+  `GET /v1/bridge/plugins/{plugin}/{path}` (`SpPlugins.file`, `gui/src/sync/bundles.ts`), keeps them by digest so an
+  unchanged file is not downloaded again, and passes them base64 in `apply`'s `files`. A file the instance does not
+  serve is left out; an unreachable instance fails the poll, which is tried again.
+- The plugin writes a file only when its bytes have the SHA-256 the signed manifest gives it, and only to one of these
+  paths, one file deep: a bundle's `agents/<name>.md` becomes `agents/<name>.md` with `mode: subagent` put first in its
+  front matter (front matter added when there is none); `hosts/opencode/plugins/<file>.{js,ts}` becomes
+  `plugins/<plugin>-<file>`, which OpenCode loads and reloads by itself; `hosts/opencode/themes/<name>.json` becomes
+  `themes/<name>.json` when a marketplace's `opencode.themes` pins that digest, and `hosts/opencode/desktop-themes/<name>.json`
+  becomes `desktop-themes/<name>.json`. Plugins go in id order and the first one to ship a path verified takes it. A
+  file not delivered or not matching is skipped and reported in `apply`'s `warnings`, which the sync status carries.
+- `.systemprompt-owned.json` (`{files}`, sorted, two-space JSON without a final newline) lists what was written; the next
+  `apply` removes what it lists and no longer projects, and an empty set, a host that is no longer enabled or `clear`
+  removes everything listed and the ledger. A ledger that is not JSON or names any other path fails the `apply`.
+- `opencode.json`: while an instance is applied, the bridge's `policies` (deny `provider.use` `*`, allow `systemprompt`)
+  go ahead of the user's own, so a provider declared in a config `providers` table is blocked too and the lock holds with
+  no gateway model; `clear` takes them away, and the file with them when nothing else is left. Every key of the
+  marketplaces' `cli_defaults` (the first marketplace winning a key) is set where the user has not set it, and never
+  removed; a V1 top-level `theme` naming a marketplace theme is removed. The file is rewritten owner-only, every other
+  key kept; one that is not a JSON object fails the `apply` instead of being overwritten.
+- `cli.json`: `theme: {name, mode?}` from the first marketplace whose `default_theme` names one of its themes, when that
+  theme's file was projected and the user has chosen no theme; never removed.
+
+The `dynwork-common` plugin's `session-header.js` targets the bridge's proxy port, so it is inert in DynWork's service;
+it is projected anyway, like the bridge. Without `OPENCODE_CONFIG_DIR` none of this is written.
 
 ### Model calls through the gateway
 

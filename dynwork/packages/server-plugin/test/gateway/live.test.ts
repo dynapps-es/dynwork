@@ -79,7 +79,6 @@ const models = [
 ] satisfies DynWorkSync.Gateway["models"]
 const manifest = {
   ...alpha,
-  agents: alpha.agents.map((agent) => ({ ...agent, model: "claude-haiku-5-5" })),
   managed_mcp_servers: [{ id: "routed", name: "routed", url: `${gateway.url.origin}/api/v1/mcp/routed/mcp` }],
 }
 const hour = () => Date.now() + 3_600_000
@@ -168,12 +167,6 @@ test("the instance's models appear as the systemprompt provider", async () => {
     ["claude-haiku-5-5", "Claude Haiku 5.5"],
     ["claude-sonnet-5-5", "Claude Sonnet 5.5"],
   ])
-  // An instance agent whose model the gateway serves runs on it.
-  const agent: { data: { model?: { providerID: string; id: string } } } = await service.get(
-    "/api/agent/alpha-alpha_helper",
-    project,
-  )
-  expect(agent.data.model).toEqual({ providerID: "systemprompt", id: "claude-haiku-5-5" })
 }, 30_000)
 
 test("a step calls the instance's /v1/messages with the JWT and the client header", async () => {

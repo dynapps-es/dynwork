@@ -52,12 +52,19 @@ const Marketplace = Schema.Struct({
   opencode: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 })
 
+/** A plugin bundle: each file with the SHA-256 the signed manifest gives it. */
+const Plugin = Schema.Struct({
+  id: Schema.String,
+  files: Schema.optional(Schema.Array(Schema.Struct({ path: Schema.String, sha256: Schema.String }))),
+})
+
 export const Manifest = Schema.Struct({
   enabled_hosts: Schema.optional(Strings),
   rules: Schema.Array(Rule),
   skills: Schema.Array(Skill),
   agents: Schema.Array(Agent),
   managed_mcp_servers: Schema.Array(McpServer),
+  plugins: Schema.optional(Schema.Array(Plugin)),
   marketplaces: Schema.optional(Schema.Array(Marketplace)),
   /** Per host, the client families (`claude`, `openai`, `gemini`) whose gateway models it lists. */
   host_model_protocols: Schema.optional(Schema.Record(Schema.String, Strings)),
@@ -97,6 +104,17 @@ export const Gateway = Schema.Struct({
 })
 export type Gateway = typeof Gateway.Type
 
+/**
+ * A plugin bundle file main fetched for `DynWorkBundles.wanted`, its bytes in base64. Main does not vouch for them: the
+ * plugin writes only bytes whose SHA-256 is the manifest's for that file.
+ */
+export const BundleFile = Schema.Struct({
+  plugin: Schema.String,
+  path: Schema.String,
+  content: Schema.String,
+})
+export type BundleFile = typeof BundleFile.Type
+
 // A token68 (RFC 7235) value: it goes into an Authorization header, so no whitespace or line breaks.
 const Jwt = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9._~+/-]+=*$/), Schema.isMaxLength(16_384))
 /** Epoch milliseconds. */
@@ -109,6 +127,7 @@ export const Apply = Schema.Struct({
   expiresAt: ExpiresAt,
   /** Without it the service gets no `systemprompt` provider. */
   gateway: Schema.optional(Gateway),
+  files: Schema.optional(Schema.Array(BundleFile)),
 })
 export type Apply = typeof Apply.Type
 
@@ -142,6 +161,8 @@ export const Applied = Schema.Struct({
   agents: Schema.Number,
   mcp: Schema.Number,
   rules: Schema.Number,
+  /** What was left out, such as a bundle file that does not match the manifest. Absent when nothing was. */
+  warnings: Schema.optional(Strings),
 })
 export type Applied = typeof Applied.Type
 

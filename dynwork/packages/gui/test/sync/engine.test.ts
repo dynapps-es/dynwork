@@ -550,3 +550,32 @@ describe("the gateway's JWT", () => {
     await until(() => context.stream.opened === 2)
   })
 })
+
+describe("bundle files", () => {
+  test("an apply carries the bundle files main fetched, and a plugin whose files change is applied again", async () => {
+    cleanups.push(() => (alpha.state.files = {}))
+    const plugin = (text: string) => ({
+      id: "kit",
+      files: [{ path: "agents/helper.md", sha256: new Bun.CryptoHasher("sha256").update(text).digest("hex") }],
+    })
+    const context = await boot()
+    await settled(context, 1)
+    alpha.state.files["kit/agents/helper.md"] = "# Helper"
+    serve({ plugins: [plugin("# Helper")] })
+    next()
+    await settled(context, 2)
+    expect(context.applies()).toHaveLength(2)
+    expect(context.applies()[1]?.input.files).toEqual([
+      { plugin: "kit", path: "agents/helper.md", content: Buffer.from("# Helper").toString("base64") },
+    ])
+
+    alpha.state.files["kit/agents/helper.md"] = "# Helper v2"
+    serve({ plugins: [plugin("# Helper v2")] })
+    next()
+    await settled(context, 3)
+    expect(context.applies()).toHaveLength(3)
+    expect(context.applies()[2]?.input.files).toEqual([
+      { plugin: "kit", path: "agents/helper.md", content: Buffer.from("# Helper v2").toString("base64") },
+    ])
+  })
+})
