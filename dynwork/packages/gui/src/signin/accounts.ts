@@ -50,18 +50,36 @@ export const instances: Instance[] = [
   { id: "sandbox", name: "Sandbox", host: "sandbox.sp.dynapps.es", role: "Member", skills: 3, agents: 1, servers: 2 },
 ]
 
-// An instance URL is any http(s) URL with a host.
+const scheme = /^[a-z][a-z0-9+.-]*:\/\//i
+
+// The only hosts that may use plain http, as in the Sp client.
+const loopback = ["localhost", "127.0.0.1", "[::1]"]
+
+// An instance URL is any http(s) URL with a host. Without a scheme it is https, or http for a loopback host: people
+// type `governance.ai.dyncloud.es` and `127.0.0.1:18101`. (`localhost:4096` is not read as a `localhost:` scheme.)
 export function parseURL(value: string) {
   const text = value.trim()
+  const explicit = scheme.test(text)
+  const url = parse(explicit ? text : `https://${text}`)
 
-  if (!URL.canParse(text)) return undefined
-  const url = new URL(text)
+  if (!url) return undefined
+
+  if (!explicit && loopback.includes(url.hostname)) return parse(`http://${text}`)
 
   if (url.protocol !== "http:" && url.protocol !== "https:") return undefined
 
   if (!url.hostname) return undefined
 
   return url
+}
+
+// The URL the whole sign-in works with: the probe, the sign-in and the stored account all get this one.
+export function normalizeURL(value: string) {
+  return parseURL(value)?.href.replace(/\/+$/, "")
+}
+
+function parse(text: string) {
+  return URL.canParse(text) ? new URL(text) : undefined
 }
 
 // Every remote step answers after a short delay, without network.

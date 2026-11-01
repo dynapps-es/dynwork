@@ -169,6 +169,12 @@
       outline-offset: 2px;
     }
 
+    /* The theme's indicator is grey, which reads poorly on the accent fill of the selected radio. */
+    [data-slot="radio-v2-item-indicator"] {
+      background: #fff;
+      box-shadow: none;
+    }
+
     [data-slot="radio-v2-item-label"] {
       flex: 1;
       min-width: 0;

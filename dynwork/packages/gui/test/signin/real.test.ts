@@ -106,8 +106,18 @@ describe("step 1 on the real accounts", () => {
     accounts.dispose()
   })
 
+  test("a local instance typed without a scheme, with a trailing slash, is reached over http", async () => {
+    const { flow, accounts } = screen()
+
+    await connect(flow, ` ${alpha.url.replace("http://", "")}/ `)
+    expect(flow.state.status).toBe("valid")
+    expect(flow.state.target).toBe(alpha.url)
+    expect(flow.state.host).toBe(new URL(alpha.url).host)
+    accounts.dispose()
+  })
+
   test.each([
-    { url: "sp.example.com", problem: "format" },
+    { url: "ftp://sp.example.com", problem: "format" },
     { url: "http://127.0.0.1:1", problem: "unreachable" },
   ])("$url is invalid as $problem", async (row) => {
     const { flow, accounts } = screen()

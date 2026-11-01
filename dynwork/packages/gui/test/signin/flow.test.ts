@@ -33,12 +33,60 @@ describe("instance URL", () => {
   test.each([
     { value: "https://sp.example.com", host: "sp.example.com" },
     { value: "  http://localhost:4096/  ", host: "localhost:4096" },
-    { value: "sp.example.com", host: undefined },
+    { value: "governance.ai.dyncloud.es", host: "governance.ai.dyncloud.es" },
+    { value: "localhost:4096", host: "localhost:4096" },
+    { value: "127.0.0.1:18101", host: "127.0.0.1:18101" },
+    { value: "[::1]:18101", host: "[::1]:18101" },
     { value: "ftp://sp.example.com", host: undefined },
+    { value: "sp example.com", host: undefined },
+    { value: "https://sp example.com", host: undefined },
     { value: "https://", host: undefined },
     { value: "", host: undefined },
+    { value: "   ", host: undefined },
   ])("$value parses to host $host", (row) => {
     expect(SignInAccounts.parseURL(row.value)?.host).toBe(row.host)
+  })
+
+  test.each([
+    { value: "governance.ai.dyncloud.es", url: "https://governance.ai.dyncloud.es" },
+    { value: "  governance.ai.dyncloud.es/  ", url: "https://governance.ai.dyncloud.es" },
+    { value: "sp.example.com:8443/", url: "https://sp.example.com:8443" },
+    { value: "sp.example.com/gateway/", url: "https://sp.example.com/gateway" },
+    { value: "127.0.0.1:18101", url: "http://127.0.0.1:18101" },
+    { value: "localhost:4096/", url: "http://localhost:4096" },
+    { value: "[::1]:18101", url: "http://[::1]:18101" },
+    { value: "http://127.0.0.1:18101", url: "http://127.0.0.1:18101" },
+    { value: "HTTPS://Sp.Example.com/", url: "https://sp.example.com" },
+    { value: "http://sp.example.com", url: "http://sp.example.com" },
+    { value: "https://sp.example.com", url: "https://sp.example.com" },
+    { value: "ftp://sp.example.com", url: undefined },
+    { value: "sp example.com", url: undefined },
+    { value: "https://", url: undefined },
+    { value: "", url: undefined },
+  ])("$value normalizes to $url", (row) => {
+    expect(SignInAccounts.normalizeURL(row.value)).toBe(row.url)
+  })
+
+  test("a URL typed without a scheme is checked and signed in as its normalized form", async () => {
+    const calls: string[] = []
+    const accounts: SignInAccounts.Interface = {
+      ...SignInAccounts.mock(),
+      probe: async (url) => (calls.push(url), { reachable: true, host: "governance.ai.dyncloud.es" }),
+      signInBrowser: async (url) => (calls.push(url), "cancelled"),
+      signInToken: async (url) => (calls.push(url), "cancelled"),
+    }
+    const flow = SignInFlow.create(accounts)
+
+    flow.input("  governance.ai.dyncloud.es/ ")
+    await flow.settle()
+    await elapse(500)
+    expect(flow.state.status).toBe("valid")
+    expect(flow.state.host).toBe("governance.ai.dyncloud.es")
+    expect(flow.state.target).toBe("https://governance.ai.dyncloud.es")
+    await flow.signInBrowser()
+    flow.token("sp-live-1")
+    await flow.signInToken()
+    expect(calls).toEqual(Array.from({ length: 3 }, () => "https://governance.ai.dyncloud.es"))
   })
 
   test("settles after idle typing, checks, then reports the host", async () => {
@@ -56,10 +104,21 @@ describe("instance URL", () => {
     expect(flow.state.host).toBe("sp.example.com")
   })
 
-  test("blur settles at once and a non-http URL is invalid", async () => {
+  test("blur settles at once and a bare host is valid", async () => {
     const flow = SignInFlow.create(SignInAccounts.mock())
 
     flow.input("sp.example.com")
+    void flow.settle()
+    expect(flow.state.status).toBe("checking")
+    await elapse(600)
+    expect(flow.state.status).toBe("valid")
+    expect(flow.state.host).toBe("sp.example.com")
+  })
+
+  test("blur settles at once and a non-http URL is invalid", async () => {
+    const flow = SignInFlow.create(SignInAccounts.mock())
+
+    flow.input("ftp://sp.example.com")
     void flow.settle()
     expect(flow.state.status).toBe("checking")
     await elapse(600)
@@ -72,7 +131,7 @@ describe("instance URL", () => {
     flow.input("https://sp.example.com")
     void flow.settle()
     await elapse(300)
-    flow.input("sp.example")
+    flow.input("sp example")
     await elapse(300)
     expect(flow.state.status).toBe("typing")
     await elapse(200 + 600)
@@ -93,7 +152,7 @@ describe("sign in", () => {
   test("the browser sign-in waits for a reachable URL", async () => {
     const flow = SignInFlow.create(SignInAccounts.mock())
 
-    flow.input("sp.example.com")
+    flow.input("ftp://sp.example.com")
     await elapse(1100)
     void flow.signInBrowser()
     expect(flow.state.pending).toBeUndefined()

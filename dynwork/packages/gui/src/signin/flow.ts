@@ -1,7 +1,7 @@
 export * as SignInFlow from "./flow"
 
 import { createStore } from "solid-js/store"
-import type { SignInAccounts } from "./accounts"
+import { SignInAccounts } from "./accounts"
 
 // "typing" waits for the field to settle; the other statuses are the colored dot under the instance URL.
 export type Status = "empty" | "typing" | "checking" | "valid" | "invalid"
@@ -15,6 +15,8 @@ export function create(accounts: SignInAccounts.Interface) {
   const [state, setState] = createStore({
     step: "connect" as Step,
     url: "",
+    // The typed URL once checked, normalized: the sign-ins and the stored account use it, not what was typed.
+    target: "",
     status: "empty" as Status,
     host: "",
     // Why the URL is invalid, and the instance's page that shows a one-time code
@@ -45,12 +47,13 @@ export function create(accounts: SignInAccounts.Interface) {
 
     if (state.status !== "typing") return
     setState("status", "checking")
-    const probe = await accounts.probe(url)
+    const target = SignInAccounts.normalizeURL(url) ?? url.trim()
+    const probe = await accounts.probe(target)
 
     if (state.url !== url) return
 
     if (!probe.reachable) return setState({ status: "invalid", host: "", login: undefined, problem: probe.reason })
-    setState({ status: "valid", host: probe.host, login: probe.login })
+    setState({ status: "valid", target, host: probe.host, login: probe.login })
   }
 
   const enter = async () => {
@@ -64,7 +67,14 @@ export function create(accounts: SignInAccounts.Interface) {
     selected,
     input(url: string) {
       clearTimeout(timer.current)
-      setState({ url, status: url.trim() ? "typing" : "empty", host: "", login: undefined, error: undefined })
+      setState({
+        url,
+        target: "",
+        status: url.trim() ? "typing" : "empty",
+        host: "",
+        login: undefined,
+        error: undefined,
+      })
 
       if (url.trim()) timer.current = setTimeout(() => void settle(), idle)
     },
@@ -76,7 +86,7 @@ export function create(accounts: SignInAccounts.Interface) {
       if (state.status !== "valid") return settle()
       setState({ pending: "browser", error: undefined })
       const attempt = ++attempts.current
-      const answer = await accounts.signInBrowser(state.url.trim(), state.keep)
+      const answer = await accounts.signInBrowser(state.target, state.keep)
 
       if (attempt !== attempts.current) return
 
@@ -97,7 +107,7 @@ export function create(accounts: SignInAccounts.Interface) {
       if (!state.token.trim()) return setState("tokenError", true)
       setState({ pending: "token", error: undefined })
       const attempt = ++attempts.current
-      const answer = await accounts.signInToken(state.url.trim(), state.token.trim(), state.keep)
+      const answer = await accounts.signInToken(state.target, state.token.trim(), state.keep)
 
       if (attempt !== attempts.current) return
 
