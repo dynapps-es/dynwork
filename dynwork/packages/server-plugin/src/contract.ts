@@ -57,6 +57,8 @@ export const Manifest = Schema.Struct({
   agents: Schema.Array(Agent),
   managed_mcp_servers: Schema.Array(McpServer),
   marketplaces: Schema.optional(Schema.Array(Marketplace)),
+  /** Per host, the client families (`claude`, `openai`, `gemini`) whose gateway models it lists. */
+  host_model_protocols: Schema.optional(Schema.Record(Schema.String, Strings)),
 })
 export type Manifest = typeof Manifest.Type
 
@@ -77,6 +79,8 @@ export const GatewayModel = Schema.Struct({
   name: Schema.optional(Schema.String.check(Schema.isMaxLength(200))),
   /** The gateway route the model speaks: Anthropic `/v1/messages` or OpenAI `/v1/chat/completions`. */
   api: Schema.Literals(["messages", "chat"]),
+  /** The client families the gateway serves the model's provider to, which `host_model_protocols` filters on. */
+  clients: Schema.optional(Strings),
   context: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
   output: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
 })

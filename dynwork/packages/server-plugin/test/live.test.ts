@@ -128,6 +128,44 @@ test("clear removes everything", async () => {
   expect(await content(projectB)).toEqual([[], [], []])
 }, 30_000)
 
+test("while an instance's gateway is applied it is the only provider, and clear brings the others back", async () => {
+  const providers = async (directory: string) =>
+    ((await service.get("/api/provider", directory)) as { data: Array<{ id: string }> }).data
+      .map((entry) => entry.id)
+      .toSorted()
+  const before = await providers(projectA)
+  // OpenCode's free provider is offered while signed out.
+  expect(before).toContain("opencode")
+  expect(before).not.toContain("systemprompt")
+  await client.apply({
+    instance: { key: "alpha", url: instance.url.origin },
+    manifest,
+    jwt,
+    expiresAt: Date.now() + 600_000,
+    gateway: { label: "Alpha", models: [{ id: "claude-x", api: "messages" }] },
+  })
+  expect(await providers(projectA)).toEqual(["systemprompt"])
+  expect(await until(() => providers(projectB), (ids) => ids.length === 1)).toEqual(["systemprompt"])
+  // A provider the user connects while the instance is active is not offered either.
+  const connected = await fetch(
+    `${service.url}/api/integration/anthropic/connect/key?location[directory]=${encodeURIComponent(projectA)}`,
+    {
+      method: "POST",
+      headers: { ...service.headers, "content-type": "application/json" },
+      body: JSON.stringify({ key: "sk-ant-test" }),
+    },
+  )
+  expect(connected.status).toBe(204)
+  expect(await providers(projectA)).toEqual(["systemprompt"])
+  await client.clear()
+  const after = await until(
+    () => providers(projectA),
+    (ids) => ids.includes("anthropic"),
+  )
+  expect(after).toEqual([...before, "anthropic"].toSorted())
+  expect(await until(() => providers(projectB), (ids) => ids.includes("anthropic"))).toEqual(after)
+}, 30_000)
+
 test("an input that fails the contract is refused without echoing it", async () => {
   const error = await client
     .apply({

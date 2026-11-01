@@ -125,9 +125,14 @@ export default Plugin.define({
     yield* ctx.mcp.transform((editor) => {
       for (const [name, config] of mapped().mcp) editor.set(name, config)
     })
+    // Like the bridge's `policies` (deny `provider.use *`, allow `systemprompt`), the instance's gateway is the only
+    // provider while it is applied. Every provider reload runs this again, so one connected later is removed too.
+    // Providers declared in a config file's `providers` are added after external plugins, so they stay.
     yield* ctx.provider.transform((editor) => {
       const provided = store.current?.provided
-      if (provided) editor.add({ info: provided.info, models: provided.models })
+      if (!provided) return
+      for (const record of editor.list()) editor.remove(record.provider.id)
+      editor.add({ info: provided.info, models: provided.models })
     })
     yield* ctx.model.transform((editor) => {
       const model = mapped().defaults.model

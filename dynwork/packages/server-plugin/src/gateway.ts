@@ -39,14 +39,19 @@ export function provider(input: DynWorkSync.Apply): Provided | undefined {
   const gateway = input.gateway
   const url = URL.canParse(input.instance.url) ? new URL(input.instance.url) : undefined
   if (!gateway || !url || !DynWorkMapping.secure(url)) return undefined
-  const models = [...new Map(gateway.models.map((model) => [model.id, model])).values()].map((model) => {
+  const allowed = families(input.manifest)
+  const models = [...new Map(gateway.models.map((model) => [model.id, model])).values()].flatMap((model) => {
+    const api = route(model, allowed)
+    if (!api) return []
     const base = Model.Info.default(providerID, Model.ID.make(model.id))
-    return {
-      ...base,
-      name: model.name || model.id,
-      package: packages[model.api],
-      limit: { context: model.context ?? base.limit.context, output: model.output ?? base.limit.output },
-    } satisfies Model.Info
+    return [
+      {
+        ...base,
+        name: model.name || model.id,
+        package: packages[api],
+        limit: { context: model.context ?? base.limit.context, output: model.output ?? base.limit.output },
+      } satisfies Model.Info,
+    ]
   })
   if (models.length === 0) return undefined
   const baseURL = `${url.origin}${url.pathname.replace(/\/+$/, "")}/v1`
@@ -62,6 +67,26 @@ export function provider(input: DynWorkSync.Apply): Provided | undefined {
     baseURL,
     default: models.some((model) => model.id === gateway.default) ? gateway.default : undefined,
   }
+}
+
+/**
+ * The client families the instance lets OpenCode list models for: the manifest's `host_model_protocols` entry for
+ * DynWork's host (`opencode`, else `opencode-cli`), or undefined, every family DynWork can call, without one. The bridge
+ * defaults to `openai` instead because its OpenCode provider speaks only Chat Completions.
+ */
+export function families(manifest: DynWorkSync.Manifest) {
+  return manifest.host_model_protocols?.opencode ?? manifest.host_model_protocols?.["opencode-cli"]
+}
+
+// The route of a model the allowed families may list, preferring `/v1/messages`; undefined when none may. A model
+// without its client families is served to the family of its route.
+function route(model: DynWorkSync.Gateway["models"][number], allowed: ReadonlyArray<string> | undefined) {
+  const clients = (model.clients ?? [model.api === "chat" ? "openai" : "claude"]).filter(
+    (family) => allowed === undefined || allowed.includes(family),
+  )
+  if (clients.includes("claude")) return "messages"
+  if (clients.includes("openai")) return "chat"
+  return undefined
 }
 
 export interface Token {

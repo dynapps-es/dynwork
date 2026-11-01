@@ -138,6 +138,7 @@ export const Manifest = Schema.Struct({
   plugins: Schema.Array(Plugin),
   marketplaces: Schema.optional(Schema.Array(Marketplace)),
   enabled_hosts: Schema.optional(Strings),
+  host_model_protocols: Schema.optional(Schema.Record(Schema.String, Strings)),
   revocations: Schema.optional(Strings),
   branding: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   desktop_policy: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),

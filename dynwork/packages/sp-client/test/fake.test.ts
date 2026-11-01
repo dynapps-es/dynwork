@@ -226,6 +226,14 @@ describe("manifest", () => {
     ).toBe("no-cache")
   })
 
+  test("keeps the per-host model protocols for the plugin's model filter", async () => {
+    const minted = await session()
+    const result = await run(SpClient.manifest(fake.url, minted.token, { key: fake.state.key.public }))
+    if (result._tag !== "Manifest") throw new Error("expected a manifest")
+    expect(result.manifest.host_model_protocols).toEqual(JSON.parse(result.payload).host_model_protocols)
+    expect(result.manifest.host_model_protocols).toBeDefined()
+  })
+
   test("answers NotModified to a matching strong or weak ETag", async () => {
     const minted = await session()
     const first = await run(SpClient.manifest(fake.url, minted.token, { key: fake.state.key.public }))

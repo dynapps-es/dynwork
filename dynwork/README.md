@@ -343,6 +343,16 @@ ids, so a user's model choice survives syncs and switches. A model whose provide
 never the profile's `inference_gateway_base_url` (the instance's internal address), and plain HTTP only on loopback.
 The profile's `default_model` (without a `[1m]`-style suffix) becomes the default model only while no default is set.
 
+Each model also carries the client families its provider is served to (`clients`), and the manifest's
+`host_model_protocols` entry for DynWork's host (`opencode`, else `opencode-cli`) keeps only the models served to one of
+its families, on `/v1/messages` when `claude` is among them, else on `/v1/chat/completions`. Without an entry every
+family DynWork can call is listed (the bridge defaults to `openai`, because its OpenCode provider speaks only Chat
+Completions). Like the bridge's `policies` (deny `provider.use *`, allow `systemprompt`), while an instance with a
+gateway is applied the same transform removes every other provider first, OpenCode's free one included, and every
+provider reload runs it again, so a provider connected meanwhile is not offered either; `clear` brings them all back. An
+apply without gateway models (no profile, or a filter that selects none) locks nothing. Providers declared in a config
+file's `providers` table are added by OpenCode's config plugin, which runs after external plugins, so they stay.
+
 The JWT is never part of the provider, a credential row or the database (decision T6). `ctx.session.hook("model.request",
 …, {providerID: "systemprompt"})` adds `authorization: Bearer <jwt>` and `x-systemprompt-client: opencode` to every
 call, drops any other `authorization` or `x-api-key`, and pins the base URL to the gateway, so a provider base URL

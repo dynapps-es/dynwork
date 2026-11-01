@@ -67,7 +67,8 @@ export function key(label: string) {
 
 /**
  * The gateway models for the plugin: the ids `profile` admits for the user, named and sized from the `models`
- * catalog, each with the route its provider is served on. A provider the instance has not configured is left out,
+ * catalog, each with the route its provider is served on and the client families it is served to, which the plugin
+ * filters by the manifest's `host_model_protocols`. A provider the instance has not configured is left out,
  * and so is any entry the plugin's contract would refuse, so one odd model never fails the whole apply.
  */
 export function gateway(label: string, profile: Profile, catalog: Catalog = []): DynWorkSync.Gateway {
@@ -83,6 +84,7 @@ export function gateway(label: string, profile: Profile, catalog: Catalog = []):
     const model = decodeModel({
       id,
       api,
+      ...(provider?.clients ? { clients: provider.clients } : {}),
       ...(entry?.display_name ? { name: entry.display_name } : {}),
       ...size("context", [limits?.context_window, entry?.max_input_tokens]),
       ...size("output", [limits?.max_output_tokens, entry?.max_tokens]),
