@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
+import { mkdir, readdir } from "node:fs/promises"
+import path from "node:path"
 import { DynWorkSyncClient } from "../src/client"
 import { DynWorkSync } from "../src/contract"
 import { DynWorkShell } from "../src/shell"
@@ -7,7 +9,9 @@ import { boot, until } from "./service"
 
 // The plugin in a real OpenCode service: content applied over the RPC shows through the server's own HTTP API in
 // every Location, a switch replaces it, clear removes it, the JWT reaches only the instance's MCP route and is
-// never written to the database, and shells get the user's XDG values back.
+// never written to the database, and shells get the user's XDG values back. DynWork's own service (a config dir, and
+// OpenCode's watcher on) gets the skills as files, which OpenCode loads by itself; one without a config dir gets them
+// in memory.
 
 // Stands in for the instance: its MCP route records the Authorization header OpenCode connects with.
 const authorizations: string[] = []
@@ -21,13 +25,16 @@ const instance = Bun.serve({
 })
 
 const service = await boot({
+  OPENCODE_DISABLE_FILEWATCHER: "false",
   [DynWorkShell.variable]: JSON.stringify({ XDG_STATE_HOME: "/home/user/.local/state", XDG_DATA_HOME: null }),
 })
+// A service whose config dir is the user's: OPENCODE_CONFIG_DIR is not set, so the plugin never writes files.
+const shared = await boot({ OPENCODE_CONFIG_DIR: undefined })
 const client = DynWorkSyncClient.make(() => ({ url: service.url, headers: service.headers }))
 const [projectA, projectB] = service.projects as [string, string]
 
 afterAll(async () => {
-  await service.stop()
+  await Promise.all([service.stop(), shared.stop()])
   instance.stop(true)
 })
 
@@ -40,24 +47,50 @@ const manifest = {
 }
 
 // MCP servers carry no instance prefix, so they are told apart by the names the manifests give them
-const ids = async (route: string, directory: string, field: "id" | "name", owned = /^(alpha|beta)-/) => {
-  const body: { data: Array<Record<string, string>> } = await service.get(route, directory)
+const ids = async (
+  route: string,
+  directory: string,
+  field: "id" | "name",
+  owned = /^(alpha|beta)-/,
+  from: typeof service = service,
+) => {
+  const body: { data: Array<Record<string, string>> } = await from.get(route, directory)
   return body.data
     .map((entry) => entry[field] ?? "")
     .filter((id) => owned.test(id))
     .toSorted()
 }
-const content = (directory: string) =>
+const content = (directory: string, from: typeof service = service) =>
   Promise.all([
-    ids("/api/skill", directory, "id"),
-    ids("/api/agent", directory, "id"),
-    ids("/api/mcp", directory, "name", /^(alpha-docs|routed)$/),
+    ids("/api/skill", directory, "id", /^(alpha|beta|who)-/, from),
+    ids("/api/agent", directory, "id", /^(alpha|beta)-/, from),
+    ids("/api/mcp", directory, "name", /^(alpha-docs|routed)$/, from),
   ])
 
+// OpenCode reloads the skill files when its watcher reports them: read until the Location lists what is expected.
+const settled = (directory: string, expected: Awaited<ReturnType<typeof content>>, from: typeof service = service) =>
+  until(
+    () => content(directory, from),
+    (value) => JSON.stringify(value) === JSON.stringify(expected),
+  )
+
+const skills = path.join(service.config, "skills")
+const ledger = path.join(skills, ".systemprompt-managed.json")
+// The skill directories on disk, whoever wrote them
+const directories = async () =>
+  (await readdir(skills).catch(() => [])).filter((name) => !name.startsWith(".")).toSorted()
+// Every skill the Location lists, with how many times each id appears
+const listed = async (directory: string, from: typeof service = service) => {
+  const body: { data: Array<{ id: string; name: string }> } = await from.get("/api/skill", directory)
+  return body.data
+}
+
 beforeAll(async () => {
-  // Boot both Locations before the first apply, so the content must reach Locations the call did not target.
+  // Boot both Locations before the first apply, so the content must reach Locations the call did not target. The
+  // service's skills directory does not exist yet: the watcher has to pick it up once the plugin creates it.
   expect(await content(projectA)).toEqual([[], [], []])
   expect(await content(projectB)).toEqual([[], [], []])
+  expect(await directories()).toEqual([])
 })
 
 test("apply adds the instance's skills, agents and MCP servers in every Location", async () => {
@@ -69,18 +102,20 @@ test("apply adds the instance's skills, agents and MCP servers in every Location
       expiresAt: Date.now() + 600_000,
     }),
   ).toEqual({ skills: 3, agents: 1, mcp: 2, rules: 1 })
+  // Skills are the bridge's files, named after their directory: the id is the kebab-cased manifest id
   const expected = [
-    ["alpha-alpha_notes", "alpha-alpha_review", "alpha-who_am_i"],
+    ["alpha-notes", "alpha-review", "who-am-i"],
     ["alpha-alpha_helper"],
     ["alpha-docs", "routed"],
   ] satisfies Awaited<ReturnType<typeof content>>
-  expect(await content(projectA)).toEqual(expected)
-  expect(
-    await until(
-      () => content(projectB),
-      (value) => JSON.stringify(value) === JSON.stringify(expected),
-    ),
-  ).toEqual(expected)
+  expect(await settled(projectA, expected)).toEqual(expected)
+  expect(await settled(projectB, expected)).toEqual(expected)
+  expect(await directories()).toEqual(["alpha-notes", "alpha-review", "who-am-i"])
+  expect(JSON.parse(await Bun.file(ledger).text()).ids).toEqual(["alpha-notes", "alpha-review", "who-am-i"])
+  // Once each: not from the files and again from memory
+  const all = await listed(projectA)
+  expect(all.map((entry) => entry.id).filter((id) => id === "alpha-notes")).toHaveLength(1)
+  expect(all.find((entry) => entry.id === "who-am-i")).toMatchObject({ name: "who-am-i" })
   const agent: { data: { mode: string; system?: string } } = await service.get(
     "/api/agent/alpha-alpha_helper",
     projectA,
@@ -103,6 +138,19 @@ test("the JWT reaches the instance's MCP route and nothing else stores it", asyn
   expect(Buffer.from(database).includes(jwt)).toBe(false)
 }, 30_000)
 
+test("a skill the user keeps beside the instance's survives a switch and a sign-out", async () => {
+  await mkdir(path.join(skills, "mine"))
+  await Bun.write(
+    path.join(skills, "mine", "SKILL.md"),
+    "---\nname: mine\ndescription: The user's own.\n---\n\nMine.\n",
+  )
+  const mine = await until(
+    async () => (await listed(projectA)).map((entry) => entry.id),
+    (found) => found.includes("mine"),
+  )
+  expect(mine).toContain("mine")
+}, 30_000)
+
 test("applying another instance replaces every item of the previous one", async () => {
   const beta = {
     ...alpha,
@@ -118,14 +166,41 @@ test("applying another instance replaces every item of the previous one", async 
       expiresAt: Date.now() + 600_000,
     }),
   ).toEqual({ skills: 1, agents: 0, mcp: 0, rules: 1 })
-  expect(await content(projectA)).toEqual([["beta-beta_notes"], [], []])
-  expect(await content(projectB)).toEqual([["beta-beta_notes"], [], []])
+  expect(await settled(projectA, [["beta-notes"], [], []])).toEqual([["beta-notes"], [], []])
+  expect(await settled(projectB, [["beta-notes"], [], []])).toEqual([["beta-notes"], [], []])
+  expect(await directories()).toEqual(["beta-notes", "mine"])
+  expect(JSON.parse(await Bun.file(ledger).text()).ids).toEqual(["beta-notes"])
 }, 30_000)
 
 test("clear removes everything", async () => {
   await client.clear()
-  expect(await content(projectA)).toEqual([[], [], []])
-  expect(await content(projectB)).toEqual([[], [], []])
+  expect(await settled(projectA, [[], [], []])).toEqual([[], [], []])
+  expect(await settled(projectB, [[], [], []])).toEqual([[], [], []])
+  expect(await directories()).toEqual(["mine"])
+  expect(await Bun.file(ledger).exists()).toBe(false)
+  expect((await listed(projectA)).map((entry) => entry.id)).toContain("mine")
+}, 30_000)
+
+test("without OPENCODE_CONFIG_DIR the skills are added in memory and no file is written", async () => {
+  const [sharedA] = shared.projects as [string]
+  expect(await content(sharedA, shared)).toEqual([[], [], []])
+  expect(
+    await DynWorkSyncClient.make(() => ({ url: shared.url, headers: shared.headers })).apply({
+      instance: { key: "alpha", url: instance.url.origin },
+      manifest,
+      jwt,
+      expiresAt: Date.now() + 600_000,
+    }),
+  ).toMatchObject({ skills: 3 })
+  expect((await content(sharedA, shared))[0]).toEqual(["alpha-alpha_notes", "alpha-alpha_review", "alpha-who_am_i"])
+  expect(
+    await Array.fromAsync(new Bun.Glob("**/.systemprompt-managed.json").scan({ cwd: shared.root, dot: true })),
+  ).toEqual([])
+  expect(
+    await Array.fromAsync(new Bun.Glob("{config,xdg-config}/**/SKILL.md").scan({ cwd: shared.root, dot: true })),
+  ).toEqual([])
+  await DynWorkSyncClient.make(() => ({ url: shared.url, headers: shared.headers })).clear()
+  expect((await content(sharedA, shared))[0]).toEqual([])
 }, 30_000)
 
 test("while an instance's gateway is applied it is the only provider, and clear brings the others back", async () => {
@@ -145,7 +220,12 @@ test("while an instance's gateway is applied it is the only provider, and clear 
     gateway: { label: "Alpha", models: [{ id: "claude-x", api: "messages" }] },
   })
   expect(await providers(projectA)).toEqual(["systemprompt"])
-  expect(await until(() => providers(projectB), (ids) => ids.length === 1)).toEqual(["systemprompt"])
+  expect(
+    await until(
+      () => providers(projectB),
+      (ids) => ids.length === 1,
+    ),
+  ).toEqual(["systemprompt"])
   // A provider the user connects while the instance is active is not offered either.
   const connected = await fetch(
     `${service.url}/api/integration/anthropic/connect/key?location[directory]=${encodeURIComponent(projectA)}`,
@@ -163,7 +243,12 @@ test("while an instance's gateway is applied it is the only provider, and clear 
     (ids) => ids.includes("anthropic"),
   )
   expect(after).toEqual([...before, "anthropic"].toSorted())
-  expect(await until(() => providers(projectB), (ids) => ids.includes("anthropic"))).toEqual(after)
+  expect(
+    await until(
+      () => providers(projectB),
+      (ids) => ids.includes("anthropic"),
+    ),
+  ).toEqual(after)
 }, 30_000)
 
 test("an input that fails the contract is refused without echoing it", async () => {

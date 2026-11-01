@@ -4,6 +4,7 @@ import { Mcp, Skill } from "@opencode/plugin/effect"
 import { Option, Schema } from "effect"
 import type { DynWorkSync } from "./contract"
 import { DynWorkInstructions } from "./instructions"
+import { DynWorkSkills } from "./skills"
 
 // Turns an instance manifest into what the plugin's transforms add (decision D8). Pure and total: an entry the
 // service could not take is left out instead of failing, because a transform that throws disables the whole plugin.
@@ -23,7 +24,10 @@ export interface Agent {
 }
 
 export interface Mapped {
+  /** The skills for a service without its own config dir; with one they are `skillFiles` instead. */
   readonly skills: ReadonlyArray<Skill.Info>
+  /** The skills as the bridge's files (`DynWorkSkills.project`), or undefined when everything managed is to go. */
+  readonly skillFiles?: DynWorkSkills.Projection
   readonly agents: ReadonlyArray<Agent>
   readonly mcp: ReadonlyArray<readonly [string, Mcp.ServerConfig]>
   /** How many rules `instructions` carries. */
@@ -50,20 +54,20 @@ export function map(input: DynWorkSync.Apply): Mapped {
   )
   const served = new Set(input.gateway?.models.map((model) => model.id))
   const rules = DynWorkInstructions.select(manifest.rules)
+  const skills = unique(manifest.skills).filter((skill) => applies(skill.hosts) && skill.instructions?.trim())
   return {
-    skills: unique(manifest.skills)
-      .filter((skill) => applies(skill.hosts) && skill.instructions?.trim())
-      .flatMap((skill) =>
-        Option.toArray(
-          decodeSkill({
-            id: name(skill.id),
-            name: skill.name,
-            ...(skill.description ? { description: skill.description } : {}),
-            path: `dynwork://${key}/skills/${skill.id}`,
-            content: skill.instructions,
-          }),
-        ),
+    skills: skills.flatMap((skill) =>
+      Option.toArray(
+        decodeSkill({
+          id: name(skill.id),
+          name: skill.name,
+          ...(skill.description ? { description: skill.description } : {}),
+          path: `dynwork://${key}/skills/${skill.id}`,
+          content: skill.instructions,
+        }),
       ),
+    ),
+    skillFiles: DynWorkSkills.project(manifest, skills),
     agents: unique(manifest.agents)
       .filter((agent) => agent.enabled !== false)
       .map((agent) => ({

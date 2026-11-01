@@ -25,6 +25,8 @@ const Skill = Schema.Struct({
   description: Schema.optional(Schema.String),
   instructions: Schema.optional(Schema.String),
   hosts: Schema.optional(Strings),
+  /** The author's front matter keys; the platform's own (`name`, `description`, `tags`...) are not written back. */
+  frontmatter: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 })
 
 const Agent = Schema.Struct({

@@ -5,10 +5,12 @@ import { DynWorkGateway } from "./gateway"
 import { DynWorkInstructions } from "./instructions"
 import { DynWorkMapping } from "./mapping"
 import { DynWorkShell } from "./shell"
+import { DynWorkSkills } from "./skills"
 
 // DynWork's server plugin. Main pushes the active instance's manifest, gateway models and JWT over `dynwork.sync`, and
-// the plugin adds its skills, agents, MCP servers and `systemprompt` provider to the service in memory, and its rules to
-// the managed block of the service's global `AGENTS.md`: nothing reaches the database, and `clear` (sign-out) or the
+// the plugin adds its agents, MCP servers and `systemprompt` provider to the service in memory, its skills to the
+// service's `skills` directory and its rules to the managed block of the service's global `AGENTS.md` (the files the
+// systemprompt bridge writes for OpenCode): nothing reaches the database, and `clear` (sign-out) or the
 // next `apply` (switch) leaves nothing of the previous instance. Main pushes each renewed JWT with `token`, and answers
 // the `refresh` event with one.
 
@@ -66,8 +68,9 @@ slot.__dynworkSync = store
 const mapped = () => store.current?.mapped ?? DynWorkMapping.empty
 
 // Set only for DynWork's own service (the packaged prod build), whose config dir is DynWork's alone: the rules go to its
-// global `AGENTS.md`, which OpenCode watches and reloads by itself. A service without it keeps the user's config dir,
-// which the plugin never writes to: the rules go into each step's system context instead.
+// global `AGENTS.md` and the skills to its `skills` directory, which OpenCode watches and reloads by itself. A service
+// without it keeps the user's config dir, which the plugin never writes to: the rules go into each step's system
+// context and the skills into the service in memory instead.
 const configDir = process.env.OPENCODE_CONFIG_DIR || undefined
 
 // Every Location reloads, even when one fails; any failure then fails the call, so main never records a sync that did
@@ -107,9 +110,10 @@ export default Plugin.define({
     )
 
     // Transforms only copy values the mapping already built and decoded: one that throws disables the plugin.
-    yield* ctx.skill.transform((editor) => {
-      for (const skill of mapped().skills) editor.add(skill)
-    })
+    if (!configDir)
+      yield* ctx.skill.transform((editor) => {
+        for (const skill of mapped().skills) editor.add(skill)
+      })
     yield* ctx.agent.transform((editor) => {
       for (const agent of mapped().agents)
         editor.update(agent.id, (info) => {
@@ -172,18 +176,33 @@ export default Plugin.define({
               yield* Effect.logWarning(
                 `dynwork: the rules block of AGENTS.md is ${over} characters, over OpenCode's ${DynWorkInstructions.budget}`,
               )
+            if (next.skillFiles?.skipped.length)
+              yield* Effect.logWarning(
+                `dynwork: skills without a directory of their own, not written: ${next.skillFiles.skipped.join(", ")}`,
+              )
             // A failed write fails the call before anything changes, so main tries again.
-            if (configDir) yield* Effect.promise(() => DynWorkInstructions.write(configDir, next.instructions))
+            if (configDir) {
+              yield* Effect.promise(() => DynWorkInstructions.write(configDir, next.instructions))
+              yield* Effect.promise(() => DynWorkSkills.write(configDir, next.skillFiles))
+            }
             store.current = { input, mapped: next, provided: DynWorkGateway.provider(input) }
             DynWorkGateway.push(store.tokens, { jwt: input.jwt, expiresAt: input.expiresAt })
             yield* reloadAll
-            return { skills: next.skills.length, agents: next.agents.length, mcp: next.mcp.length, rules: next.rules }
+            return {
+              skills: configDir ? (next.skillFiles?.files.length ?? 0) : next.skills.length,
+              agents: next.agents.length,
+              mcp: next.mcp.length,
+              rules: next.rules,
+            }
           }),
         clear: () =>
           Effect.gen(function* () {
             store.current = undefined
             DynWorkGateway.push(store.tokens, undefined)
-            if (configDir) yield* Effect.promise(() => DynWorkInstructions.write(configDir, undefined))
+            if (configDir) {
+              yield* Effect.promise(() => DynWorkInstructions.write(configDir, undefined))
+              yield* Effect.promise(() => DynWorkSkills.write(configDir, undefined))
+            }
             yield* reloadAll
             return {}
           }),
