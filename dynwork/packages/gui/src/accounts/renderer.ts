@@ -3,6 +3,7 @@ import type { IpcClient, Live, Plugin } from "@opencode/plugin/gui"
 import { Accounts } from "./contract"
 import type definition from "./index"
 import { register } from "./ui/register"
+import { registerViews } from "../views/register"
 
 export type Client = IpcClient<(typeof Accounts)["spec"]>
 
@@ -20,6 +21,7 @@ const setup: Plugin.Setup<typeof definition> = (ctx) => {
     if (current() === live) setCurrent(undefined)
   })
   register(ctx, live)
+  registerViews(ctx)
 }
 
 export default setup

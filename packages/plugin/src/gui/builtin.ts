@@ -112,6 +112,16 @@ export interface BuiltinSlotMap extends SlotMap {
     /** The location icon: monitor for the local repository, worktree for a worktree. */
     readonly icon: IconName
   }
+  /** Rows after New session in the vertical sidebar, after Home in the narrow window's tabs drawer, and after Search in the horizontal titlebar. */
+  readonly "sidebar.nav": {
+    /** Where the rows render: the sidebar, the tabs drawer that replaces it under 768px, or the horizontal titlebar (icons only). */
+    readonly place: "sidebar" | "drawer" | "titlebar"
+  }
+  /** The main area of a page route (`/page/:id`), opened with `layout.page(id)`. */
+  readonly page: {
+    /** The routed page's id. Reactive: it follows the route. */
+    readonly id: string
+  }
 }
 
 /** A `Slot` that may also fill the slots only built-ins use. */
@@ -277,6 +287,12 @@ export interface BuiltinLayout extends Layout {
    * @param id - The app command's id.
    */
   command(id: string): void
+  /**
+   * Shows a page in the main area, as Home is shown: the `page` slot renders it.
+   *
+   * @param id - The page's id.
+   */
+  page(id: string): void
 }
 
 /** `Locale` with the abilities only built-ins use. */

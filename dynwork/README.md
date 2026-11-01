@@ -178,6 +178,18 @@ Statuses, in `State.sync` and as the Ipc's `sync` event: `{status: "idle"}`, `{s
 `kind` one of `unreachable`, `rate-limited`, `refused`, `key-changed`, `invalid`, `insecure` and `service`.
 `bun test test/sync` in `packages/gui` drives the engine on fake timers against the fake instance.
 
+## Demo views
+
+Agents (Agent Farm), Routines (this Mac) and Brain are demo screens of the November 2026 vision: they run on built-in
+data ported from the mockup, show a "Demo data" marker and make no network call, Ipc or service request. They open from
+rows under New session in the vertical sidebar (after Home in the tabs drawer of a window under 768px, and as icons
+after Search in the horizontal titlebar), on the
+`/page/:id` route; the systemprompt row opens the real Settings page.
+
+- Code: `packages/gui/src/views/` (one folder per view, its `demo.ts` holds the data), contract in its `README.md`.
+- Host seam: the built-in slots `sidebar.nav` and `page` and `BuiltinLayout.page(id)` (see `PATCHES.md`).
+- Remove them: drop `registerViews(ctx)` from `packages/gui/src/accounts/renderer.ts`.
+
 ## Local systemprompt instances
 
 `bun dynwork/script/sp-local.ts up|seed|check|status|code|capture|down` runs two disposable systemprompt 0.76 instances in

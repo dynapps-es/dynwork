@@ -866,6 +866,7 @@ export function mountBrowserRegion(input: RegionHost) {
       project() {},
       draft() {},
       command() {},
+      page() {},
     })
 
     const keep = <T extends object>(key: string, initial: T) => {

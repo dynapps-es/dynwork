@@ -1,3 +1,5 @@
+import views from "../../views/en"
+
 export default {
   title: "systemprompt",
   description:
@@ -77,4 +79,5 @@ export default {
   "pill.dialog.description": "Switch the instance DynWork syncs from, or sync it now.",
   "pill.manage": "Manage instances",
   "pill.switch": "Switch to {{label}}",
+  ...views,
 }

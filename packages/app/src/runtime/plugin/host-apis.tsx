@@ -52,7 +52,7 @@ import { terminalFontFamily, useSettings } from "@/settings/model"
 import { useSettingsSurface } from "@/settings/surface"
 import { formatKeybindParts, useCommand } from "@/shell/commands/command"
 import { createMediaQuery } from "@solid-primitives/media"
-import { useIsRouting, useLocation } from "@solidjs/router"
+import { useIsRouting, useLocation, useNavigate } from "@solidjs/router"
 import { useLanguage } from "@/runtime/i18n/language"
 import { closedEntry, createClosedTabs } from "./closed-tabs"
 import { panelsMoving } from "@/shell/panel-motion"
@@ -84,6 +84,7 @@ type Attached = {
     stored(plugin: string, session: SessionRef): readonly string[]
   }
   settings: (page?: string) => void
+  page: (id: string) => void
   project: (server: string, title: string) => void
   draft: Layout["draft"]
   command: (id: string) => void
@@ -421,6 +422,7 @@ export function createHostApis() {
       project: (server, title) => write((value) => value.project(server, title)),
       draft: (input) => write((value) => value.draft(input)),
       command: (id) => write((value) => value.command(id)),
+      page: (id) => write((value) => value.page(id)),
     }),
     embeds: () => embeds,
     ui: () => ui,
@@ -473,6 +475,7 @@ export function createPluginAttachment(apis: HostApis) {
   const host = usePluginHost()
   const command = useCommand()
   const location = useLocation()
+  const navigate = useNavigate()
   const platform = usePlatform()
   const theme = useTheme()
   const menu = createSessionPanelMenu()
@@ -1076,6 +1079,7 @@ export function createPluginAttachment(apis: HostApis) {
     server,
     // SAFETY: a plugin names a page it contributed through `SettingsPage`, which settings lists as a plugin tab.
     settings: (page) => surface.open(page as Parameters<typeof surface.open>[0]),
+    page: (id) => navigate(`/page/${encodeURIComponent(id)}`),
     layout: {
       ready: layout.ready,
       open,

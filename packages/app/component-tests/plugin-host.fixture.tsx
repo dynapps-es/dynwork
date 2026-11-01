@@ -91,6 +91,7 @@ const layout: BuiltinLayout = {
   project() {},
   draft() {},
   command() {},
+  page() {},
 }
 
 const about: App = { name: "opencode", version: "", channel: "dev", platform: "desktop", packaged: false }
@@ -388,6 +389,7 @@ function standIn(overrides: Partial<Interface>): Interface {
     project() {},
     draft() {},
     command() {},
+    page() {},
     run: () => false,
     notify: async () => ({ notification: false, sound: false }),
     font: () => "fixture mono",
