@@ -4,12 +4,10 @@ import { createHash } from "node:crypto"
 import { Mcp, Skill } from "@opencode/plugin/effect"
 import { Option, Schema } from "effect"
 import type { DynWorkSync } from "./contract"
+import { DynWorkInstructions } from "./instructions"
 
 // Turns an instance manifest into what the plugin's transforms add (decision D8). Pure and total: an entry the
 // service could not take is left out instead of failing, because a transform that throws disables the whole plugin.
-
-/** OpenCode reads at most this much of the managed rules block, like the instance's own AGENTS.md projection. */
-export const rulesBudget = 24_000
 
 /** The hosts an entry may target for DynWork to apply it. */
 const hosts = ["opencode", "opencode-cli"]
@@ -31,7 +29,7 @@ export interface Mapped {
   readonly mcp: ReadonlyArray<readonly [string, Mcp.ServerConfig]>
   /** How many rules `instructions` carries. */
   readonly rules: number
-  /** The rules as `AGENTS.md` sections (`## <name>`, then the instructions), or undefined without rules. */
+  /** The rules as the managed `AGENTS.md` block (`DynWorkInstructions.block`), or undefined without rules. */
   readonly instructions?: string
   readonly defaults: {
     readonly agent?: string
@@ -51,9 +49,7 @@ export function map(input: DynWorkSync.Apply): Mapped {
     (agent) => agent.enabled !== false && (agent.id === settings.agent || agent.name === settings.agent),
   )
   const served = new Set(input.gateway?.models.map((model) => model.id))
-  const rules = unique(manifest.rules)
-    .filter((rule) => applies(rule.hosts) && rule.instructions?.trim())
-    .toSorted((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const rules = DynWorkInstructions.select(manifest.rules)
   return {
     skills: unique(manifest.skills)
       .filter((skill) => applies(skill.hosts) && skill.instructions?.trim())
@@ -82,7 +78,7 @@ export function map(input: DynWorkSync.Apply): Mapped {
       Option.toArray(remote(server, input)).map((config) => [serverName(key, server.id), config] as const),
     ),
     rules: rules.length,
-    instructions: rules.length === 0 ? undefined : rulesText(rules),
+    instructions: DynWorkInstructions.block(rules),
     defaults: {
       agent: defaultAgent ? name(defaultAgent.id) : undefined,
       model: settings.model,
@@ -132,12 +128,6 @@ function remote(server: DynWorkSync.Manifest["managed_mcp_servers"][number], inp
 export function secure(url: URL) {
   if (url.protocol === "https:") return true
   return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
-}
-
-// The sections the systemprompt bridge wrote into its managed AGENTS.md block, so both read the same.
-function rulesText(rules: ReadonlyArray<DynWorkSync.Manifest["rules"][number]>) {
-  const text = rules.map((rule) => `## ${rule.name}\n\n${rule.instructions?.trim() ?? ""}`).join("\n\n")
-  return text.length <= rulesBudget ? text : text.slice(0, rulesBudget)
 }
 
 // `cli_defaults` is the free-form settings map of a marketplace's `opencode` block. DynWork reads the default agent

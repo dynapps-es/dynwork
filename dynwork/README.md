@@ -286,17 +286,19 @@ type, never the service's message, which may quote the input.
 | `marketplaces[].opencode.cli_defaults` | `default_agent` (an instance agent) becomes the default agent and selectable as primary; `model` (`provider/model`) becomes the default model when the service has it                                                                  |
 
 Entries are kept only when they target OpenCode (`hosts` empty or with `opencode`/`opencode-cli`, and the same for the
-manifest's `enabled_hosts`), and only when their id is plain (`[A-Za-z0-9][A-Za-z0-9._-]*`, 64 at most). The mapping is
+manifest's `enabled_hosts`; rules need an OpenCode host, see below), and only when their id is plain (`[A-Za-z0-9][A-Za-z0-9._-]*`, 64 at most). The mapping is
 pure and total, since a transform that throws disables the whole plugin. Manifest plugins, commands and hooks are not
 applied.
 
 ### Rules in AGENTS.md
 
-Like the systemprompt bridge did, the rules become a managed block of the global `AGENTS.md` in the service's config
-dir, which OpenCode loads into every Session's instructions:
+The rules become the managed block of the global `AGENTS.md` in the service's config dir, which OpenCode loads into
+every Session's instructions. The block is byte for byte the one the systemprompt bridge writes into OpenCode's
+(`src/instructions.ts`, checked against a file the bridge wrote), markers included, so a block the bridge left is
+replaced too:
 
 ```
-<!-- systemprompt:begin (managed by DynWork; edits are replaced) -->
+<!-- systemprompt:begin (managed by the bridge; edits are replaced) -->
 
 ## <rule name>
 
@@ -305,12 +307,15 @@ dir, which OpenCode loads into every Session's instructions:
 ## <next rule name>
 
 <its instructions>
+
 <!-- systemprompt:end -->
 ```
 
-Rules are sorted by id, and the sections are capped at 24,000 characters. `apply` writes the block (appended after
-anything the user wrote, or replaced in place), a switch replaces it and `clear` removes it; a file that held only the
-block is deleted. The plugin writes through a temporary file and a rename, and only when the content changes, and a
+Only rules whose `hosts` name `opencode` or `opencode-cli` are written (unlike skills, a rule with no `hosts` reaches no
+host), sorted by id; a rule with empty instructions keeps its heading. The block is never cut: one over 24,000
+characters, past which OpenCode stops reading, is written in full and logged as a warning. `apply` cuts any block out of
+the file and appends the new one after what the user wrote, a switch replaces it and `clear` removes it; a file left
+empty is deleted. The plugin writes through a temporary file and a rename, and only when the content changes, and a
 failed write fails the `apply`, so main tries again. OpenCode watches the file and reloads it by itself about 100 ms
 after the change (`apply` does not wait for that): a new Session starts with the current rules, and an open one hears
 of the change at its next step, like any edit of `AGENTS.md`. With the service's file watcher off

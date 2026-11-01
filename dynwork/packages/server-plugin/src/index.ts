@@ -161,6 +161,12 @@ export default Plugin.define({
         apply: (input) =>
           Effect.gen(function* () {
             const next = DynWorkMapping.map(input)
+            // Like the bridge, the block is written in full and only reported: OpenCode never reads rules past it.
+            const over = DynWorkInstructions.overBudget(next.instructions)
+            if (over)
+              yield* Effect.logWarning(
+                `dynwork: the rules block of AGENTS.md is ${over} characters, over OpenCode's ${DynWorkInstructions.budget}`,
+              )
             // A failed write fails the call before anything changes, so main tries again.
             if (configDir) yield* Effect.promise(() => DynWorkInstructions.write(configDir, next.instructions))
             store.current = { input, mapped: next, provided: DynWorkGateway.provider(input) }

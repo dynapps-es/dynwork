@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { DynWorkInstructions } from "../src/instructions"
 import { DynWorkMapping } from "../src/mapping"
 import { alpha, apply, jwt } from "./fixture"
 
@@ -39,11 +40,14 @@ describe("mapping the alpha manifest", () => {
     })
   })
 
-  test("rules become AGENTS.md sections named after each rule", () => {
+  test("rules become the bridge's AGENTS.md block, and a rule that names no host reaches none", () => {
     expect(mapped.rules).toBe(1)
     expect(mapped.instructions).toBe(
-      "## alpha conventions\n\n# Alpha conventions\n\nAnswer in English and keep commit messages in the imperative mood.",
+      `${DynWorkInstructions.begin}\n\n## alpha conventions\n\n# Alpha conventions\n\nAnswer in English and keep commit messages in the imperative mood.\n\n${DynWorkInstructions.end}\n`,
     )
+    const unhosted = DynWorkMapping.map(apply({ ...alpha, rules: alpha.rules.map((rule) => ({ ...rule, hosts: [] })) }))
+    expect(unhosted.rules).toBe(0)
+    expect(unhosted.instructions).toBeUndefined()
   })
 })
 
@@ -109,21 +113,29 @@ describe("filters", () => {
     expect(mapped.skills.map((skill) => String(skill.name))).toEqual(["second"])
   })
 
-  test("rules are sorted by id and capped at the reading budget", () => {
+  test("rules for an OpenCode packaging become the bridge's AGENTS.md block, sorted by id and never cut", () => {
+    const opencode = ["opencode"]
     const mapped = DynWorkMapping.map(
       apply({
         ...alpha,
         rules: [
-          { id: "b", name: "Second", instructions: "  second\n" },
-          { id: "a", name: "First", instructions: "first" },
+          { id: "b", name: "Second", instructions: "  second\n", hosts: ["opencode-cli"] },
+          { id: "a", name: "First", instructions: "first", hosts: opencode },
+          { id: "c", name: "Empty", instructions: "", hosts: opencode },
+          { id: "d", name: "Claude", instructions: "claude", hosts: ["claude-code"] },
         ],
       }),
     )
-    expect(mapped.instructions).toBe("## First\n\nfirst\n\n## Second\n\nsecond")
-    const long = DynWorkMapping.map(
-      apply({ ...alpha, rules: [{ id: "a", name: "a", instructions: "x".repeat(30_000) }] }),
+    expect(mapped.rules).toBe(3)
+    expect(mapped.instructions).toBe(
+      `${DynWorkInstructions.begin}\n\n## First\n\nfirst\n\n## Second\n\nsecond\n\n## Empty\n\n\n\n${DynWorkInstructions.end}\n`,
     )
-    expect(long.instructions).toHaveLength(DynWorkMapping.rulesBudget)
+    const long = DynWorkMapping.map(
+      apply({ ...alpha, rules: [{ id: "a", name: "a", instructions: "x".repeat(30_000), hosts: opencode }] }),
+    )
+    expect(long.instructions).toContain("x".repeat(30_000))
+    expect(DynWorkInstructions.overBudget(long.instructions)).toBeGreaterThan(DynWorkInstructions.budget)
+    expect(DynWorkInstructions.overBudget(mapped.instructions)).toBeUndefined()
   })
 })
 

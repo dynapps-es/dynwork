@@ -4,35 +4,46 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { DynWorkInstructions } from "../src/instructions"
 
-// The managed block of the service's global AGENTS.md: the bridge's format, the user's own content kept around it, and
-// a file that only changes when its content does. The live tests check that OpenCode loads it.
+// The managed block of the service's global AGENTS.md: the bridge's bytes, the user's own content kept before it, and a
+// file that only changes when its content does. The live tests check that OpenCode loads it.
 
-const block = (rules: string) => `${DynWorkInstructions.begin}\n\n${rules}\n${DynWorkInstructions.end}\n`
+const rule = (id: string, name: string, instructions: string) => ({ id, name, instructions, hosts: ["opencode"] })
+const block = (...rules: ReturnType<typeof rule>[]) =>
+  DynWorkInstructions.block(DynWorkInstructions.select(rules)) ?? ""
+const a = block(rule("a", "First", "first"))
+const b = block(rule("b", "Second", "second"))
 
-describe("merge", () => {
-  test("a file of its own holds only the block, and goes away on clear", () => {
-    expect(DynWorkInstructions.merge("", "## a\n\nfirst")).toBe(
-      "<!-- systemprompt:begin (managed by DynWork; edits are replaced) -->\n\n## a\n\nfirst\n<!-- systemprompt:end -->\n",
+describe("block", () => {
+  test("matches the bridge byte for byte: a blank line after the begin marker, between rules and before the end", () => {
+    expect(block(rule("b", "Second", "  second\n"), rule("a", "First", "first"))).toBe(
+      "<!-- systemprompt:begin (managed by the bridge; edits are replaced) -->\n" +
+        "\n## First\n\nfirst\n" +
+        "\n## Second\n\nsecond\n" +
+        "\n<!-- systemprompt:end -->\n",
     )
-    expect(DynWorkInstructions.merge(block("## a\n\nfirst"), undefined)).toBeUndefined()
-    expect(DynWorkInstructions.merge("", undefined)).toBeUndefined()
+    expect(DynWorkInstructions.block([])).toBeUndefined()
+  })
+})
+
+describe("splice", () => {
+  test("a file of its own holds only the block, and empties on clear", () => {
+    expect(DynWorkInstructions.splice("", a)).toBe(a)
+    expect(DynWorkInstructions.splice(a, undefined)).toBe("")
+    expect(DynWorkInstructions.splice("", undefined)).toBe("")
   })
 
-  test("the user's content stays: the block is appended, replaced in place and removed", () => {
-    const appended = DynWorkInstructions.merge("# Mine\n\nKeep this.\n", "## a\n\nfirst")
-    expect(appended).toBe(`# Mine\n\nKeep this.\n\n${block("## a\n\nfirst")}`)
-    expect(DynWorkInstructions.merge(appended ?? "", "## b\n\nsecond")).toBe(
-      `# Mine\n\nKeep this.\n\n${block("## b\n\nsecond")}`,
-    )
-    expect(DynWorkInstructions.merge(appended ?? "", undefined)).toBe("# Mine\n\nKeep this.\n")
-    const between = `# Top\n\n${block("## a\n\nfirst")}\n# Bottom\n`
-    expect(DynWorkInstructions.merge(between, "## b\n\n$& $1")).toBe(`# Top\n\n${block("## b\n\n$& $1")}\n# Bottom\n`)
-    expect(DynWorkInstructions.merge("# Mine\n", undefined)).toBe("# Mine\n")
+  test("the user's content stays and the block always goes last", () => {
+    const appended = DynWorkInstructions.splice("# Mine\n\nKeep this.\n", a)
+    expect(appended).toBe(`# Mine\n\nKeep this.\n\n${a}`)
+    expect(DynWorkInstructions.splice(appended, b)).toBe(`# Mine\n\nKeep this.\n\n${b}`)
+    expect(DynWorkInstructions.splice(appended, undefined)).toBe("# Mine\n\nKeep this.\n")
+    // Like the bridge, the text after the block joins the text before it once the block is cut out.
+    expect(DynWorkInstructions.splice(`# Top\n\n${a}\n# Bottom\n`, b)).toBe(`# Top# Bottom\n\n${b}`)
+    expect(DynWorkInstructions.splice("# Mine\n", undefined)).toBe("# Mine\n")
   })
 
-  test("a block an older writer left is replaced", () => {
-    const old = "<!-- systemprompt:begin (managed by systemprompt) -->\n\n## old\n\nstale\n<!-- systemprompt:end -->\n"
-    expect(DynWorkInstructions.merge(old, "## a\n\nfirst")).toBe(block("## a\n\nfirst"))
+  test("the block the bridge left in a file is replaced", () => {
+    expect(DynWorkInstructions.splice(`# Mine\n\n${block(rule("old", "Old", "stale"))}`, a)).toBe(`# Mine\n\n${a}`)
   })
 })
 
@@ -50,13 +61,13 @@ describe("write", () => {
     const file = path.join(root, "AGENTS.md")
     await DynWorkInstructions.write(root, undefined)
     expect(await Bun.file(file).exists()).toBe(false)
-    await DynWorkInstructions.write(root, "## a\n\nfirst")
-    expect(await Bun.file(file).text()).toBe(block("## a\n\nfirst"))
+    await DynWorkInstructions.write(root, a)
+    expect(await Bun.file(file).text()).toBe(a)
     const inode = (await stat(file)).ino
-    await DynWorkInstructions.write(root, "## a\n\nfirst")
+    await DynWorkInstructions.write(root, a)
     expect((await stat(file)).ino).toBe(inode)
-    await DynWorkInstructions.write(root, "## b\n\nsecond")
-    expect(await Bun.file(file).text()).toBe(block("## b\n\nsecond"))
+    await DynWorkInstructions.write(root, b)
+    expect(await Bun.file(file).text()).toBe(b)
     expect(await readdir(root)).toEqual(["AGENTS.md"])
     await DynWorkInstructions.write(root, undefined)
     expect(await readdir(root)).toEqual([])

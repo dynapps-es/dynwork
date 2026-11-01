@@ -61,7 +61,7 @@ afterAll(async () => {
 const models = [
   { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", api: "messages" },
 ] satisfies DynWorkSync.Gateway["models"]
-const rule = (id: string, name: string, instructions: string) => ({ id, name, instructions })
+const rule = (id: string, name: string, instructions: string) => ({ id, name, instructions, hosts: ["opencode"] })
 const manifest = (rules: DynWorkSync.Manifest["rules"]) => ({ ...alpha, rules, managed_mcp_servers: [] })
 const alphaRules = manifest(
   [
@@ -112,7 +112,7 @@ const settled = (
 const file = path.join(own.config, "AGENTS.md")
 const user = "# My own notes\n\nKeep this line: USER-NOTE.\n"
 const block = (rules: string) =>
-  `<!-- systemprompt:begin (managed by DynWork; edits are replaced) -->\n\n${rules}\n<!-- systemprompt:end -->\n`
+  `<!-- systemprompt:begin (managed by the bridge; edits are replaced) -->\n\n${rules}\n\n<!-- systemprompt:end -->\n`
 const alphaBlock = block(
   "## Language\n\nAnswer in English: ALPHA-LANGUAGE.\n\n## Style\n\nPrefer short sentences: ALPHA-STYLE.",
 )
