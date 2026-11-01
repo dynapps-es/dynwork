@@ -41,7 +41,8 @@ export const empty: Mapped = { skills: [], agents: [], mcp: [], rules: 0, defaul
 
 export function map(input: DynWorkSync.Apply): Mapped {
   const manifest = input.manifest
-  if (manifest.enabled_hosts !== undefined && !manifest.enabled_hosts.some((host) => hosts.includes(host))) return empty
+  // Absent means empty means cleared, like the bridge's `serde(default)`
+  if (!manifest.enabled_hosts?.some((host) => hosts.includes(host))) return empty
   const key = input.instance.key
   const name = (id: string) => `${key}-${id}`
   const settings = cliDefaults(manifest)

@@ -38,7 +38,22 @@ afterEach(() => {
   setSystemTime()
 })
 
-const start = Date.parse("2030-01-01T00:00:00Z")
+// Just after the fixture manifest was stamped: its `not_before` is a minute old
+const start = Date.parse("2026-11-01T09:12:31Z")
+const version = (stamp: string) => `${stamp}-000001a19661c117`
+
+// What the instance does on every response: a newer `manifest_version` and a `not_before` a minute ago, so a changed
+// catalog is accepted however far the fake clock has moved. The fake instance itself stamps nothing.
+const stamps = { count: 0 }
+function serve(patch: Record<string, unknown> = {}) {
+  stamps.count++
+  alpha.state.payload = {
+    ...alpha.state.payload,
+    ...patch,
+    manifest_version: version(new Date(Date.now() + stamps.count * 1000).toISOString()),
+    not_before: new Date(Date.now() - 60_000).toISOString(),
+  }
+}
 const counts = { skills: 3, agents: 1, mcp: 1, rules: 1 }
 
 // Stands in for the plugin RPC: records every call, answers `apply` with counts, and holds the event stream open
@@ -79,7 +94,7 @@ function fakePlugin() {
 }
 
 // Main's wiring, as `accounts/main.ts` does it: the accounts tell the engine about each change and each new JWT.
-async function boot(options: { focused?: boolean; instances?: Fake[] } = {}) {
+async function boot(options: { focused?: boolean; instances?: Fake[]; store?: ReturnType<typeof memoryStore> } = {}) {
   jest.useFakeTimers()
   setSystemTime(new Date(start))
   const fake = fakePlugin()
@@ -87,7 +102,7 @@ async function boot(options: { focused?: boolean; instances?: Fake[] } = {}) {
   const holder: { engine?: DynWorkSyncEngine.Engine } = {}
   const jwts = new Set<string>()
   const accounts = DynWorkAccounts.make({
-    store: memoryStore(),
+    store: options.store ?? memoryStore(),
     secure: fakeSecure(),
     open: async () => {},
     deviceName: "DynWork test",
@@ -203,13 +218,12 @@ describe("changes", () => {
     expect(context.polls(alpha)[1]?.headers["if-none-match"]).toStartWith('"')
     expect(context.applies()).toHaveLength(1)
 
-    alpha.state.payload = {
-      ...alpha.state.payload,
+    serve({
       skills: [
         ...(alpha.state.payload.skills as unknown[]),
         { id: "fresh", name: "fresh", instructions: "New on the instance" },
       ],
-    }
+    })
     next()
     await settled(context, 3)
     expect(context.applies()).toHaveLength(2)
@@ -219,8 +233,8 @@ describe("changes", () => {
     await settled(context, 4)
     expect(context.applies()).toHaveLength(2)
 
-    // A new `issued_at` changes the ETag but not the content the plugin gets
-    alpha.state.payload = { ...alpha.state.payload, issued_at: "2030-01-02T00:00:00Z" }
+    // A new stamp changes the ETag but not the content the plugin gets
+    serve({ issued_at: "2030-01-02T00:00:00Z" })
     next()
     await settled(context, 5)
     expect(context.applies()).toHaveLength(2)
@@ -238,7 +252,7 @@ describe("changes", () => {
     expect(apply?.catalog?.length).toBeGreaterThan(0)
   })
 
-  test("a manifest for another user, or older than the last one, is refused and nothing is pushed", async () => {
+  test("a manifest for another user, or not newer than the last applied, is refused and nothing is pushed", async () => {
     const context = await boot()
     await settled(context, 1)
     // The user the instance named at sign-in
@@ -247,7 +261,11 @@ describe("changes", () => {
     next()
     expect(await settled(context, 2)).toEqual({ status: "error", account: context.id, kind: "invalid", at: Date.now() })
 
-    alpha.state.payload = { ...structuredClone(original.alpha), issued_at: "2020-01-01T00:00:00Z", skills: [] }
+    alpha.state.payload = {
+      ...structuredClone(original.alpha),
+      manifest_version: version("2026-11-01T09:00:00Z"),
+      skills: [],
+    }
     next()
     expect(await settled(context, 3)).toMatchObject({ status: "error", kind: "invalid" })
     expect(context.applies()).toHaveLength(1)
@@ -256,6 +274,125 @@ describe("changes", () => {
     next()
     expect(await settled(context, 4)).toMatchObject({ status: "synced" })
     expect(context.applies()).toHaveLength(1)
+  })
+})
+
+describe("acceptance like the bridge", () => {
+  const fixture = () => String(original.alpha?.manifest_version)
+
+  test("the applied manifest_version is persisted and a manifest that is not newer is refused after a restart", async () => {
+    const store = memoryStore()
+    const first = await boot({ store })
+    await settled(first, 1)
+    expect(store.value.accounts[0]?.manifestVersion).toBe(fixture())
+    cleanups.pop()?.()
+
+    // The same version again (200, no ETag after a restart) is a replay
+    const second = await boot({ store })
+    expect(await settled(second, 1)).toMatchObject({ status: "error", kind: "invalid" })
+    expect(second.applies()).toHaveLength(0)
+
+    // A lower one too
+    alpha.state.payload = { ...structuredClone(original.alpha), manifest_version: version("2026-11-01T09:00:00Z") }
+    next()
+    expect(await settled(second, 2)).toMatchObject({ status: "error", kind: "invalid" })
+    expect(second.applies()).toHaveLength(0)
+
+    // A newer one applies and moves the stored version
+    alpha.state.payload = { ...structuredClone(original.alpha), manifest_version: version("2026-11-01T09:13:00Z") }
+    next()
+    expect(await settled(second, 3)).toMatchObject({ status: "synced" })
+    expect(second.applies()).toHaveLength(1)
+    expect(store.value.accounts[0]?.manifestVersion).toBe(version("2026-11-01T09:13:00Z"))
+  })
+
+  test("versions order by timestamp, then by the hex suffix", async () => {
+    const store = memoryStore()
+    const context = await boot({ store })
+    await settled(context, 1)
+
+    // Same second, a smaller suffix: not newer
+    alpha.state.payload = {
+      ...structuredClone(original.alpha),
+      manifest_version: "2026-11-01T09:12:31Z-000001a19661c116",
+    }
+    next()
+    expect(await settled(context, 2)).toMatchObject({ status: "error", kind: "invalid" })
+
+    // Same second, a larger suffix: newer
+    alpha.state.payload = {
+      ...structuredClone(original.alpha),
+      manifest_version: "2026-11-01T09:12:31Z-000001a19661c118",
+    }
+    next()
+    expect(await settled(context, 3)).toMatchObject({ status: "synced" })
+    expect(store.value.accounts[0]?.manifestVersion).toBe("2026-11-01T09:12:31Z-000001a19661c118")
+
+    // A malformed version is refused too
+    alpha.state.payload = { ...structuredClone(original.alpha), manifest_version: "yesterday-abc" }
+    next()
+    expect(await settled(context, 4)).toMatchObject({ status: "error", kind: "invalid" })
+  })
+
+  test("a not_before more than five minutes from now is refused, either way; four minutes passes", async () => {
+    const store = memoryStore()
+    const context = await boot({ store })
+    await settled(context, 1)
+    // Each is newer than the last applied one, so only the clock can refuse it
+    const skewed = (minutes: number) => {
+      serve()
+      alpha.state.payload = {
+        ...alpha.state.payload,
+        not_before: new Date(Date.now() + minutes * 60_000).toISOString(),
+      }
+    }
+
+    skewed(-6)
+    next()
+    expect(await settled(context, 2)).toMatchObject({ status: "error", kind: "invalid" })
+    skewed(6)
+    next()
+    expect(await settled(context, 3)).toMatchObject({ status: "error", kind: "invalid" })
+    expect(store.value.accounts[0]?.manifestVersion).toBe(fixture())
+    expect(context.applies()).toHaveLength(1)
+
+    skewed(-4)
+    next()
+    expect(await settled(context, 4)).toMatchObject({ status: "synced" })
+    expect(store.value.accounts[0]?.manifestVersion).not.toBe(fixture())
+  })
+
+  test("a 304 skips both checks: its stored manifest is as old as its first acceptance", async () => {
+    const context = await boot()
+    await settled(context, 1)
+    setSystemTime(new Date(start + 30 * 60_000))
+    next()
+    expect(await settled(context, 2)).toMatchObject({ status: "synced" })
+    expect(context.polls(alpha)[1]?.headers["if-none-match"]).toStartWith('"')
+    expect(context.applies()).toHaveLength(1)
+  })
+
+  test("only Sync now asks for a fresh build; polls and focus use the instance's memo", async () => {
+    const context = await boot({ focused: false })
+    await settled(context, 1)
+    expect(context.polls(alpha)[0]?.headers["cache-control"]).toBeUndefined()
+
+    next()
+    await settled(context, 2)
+    expect(context.polls(alpha)[1]?.headers["cache-control"]).toBeUndefined()
+
+    context.engine.focus(true)
+    await settled(context, 3)
+    expect(context.polls(alpha)[2]?.headers["cache-control"]).toBeUndefined()
+
+    context.engine.now()
+    await settled(context, 4)
+    expect(context.polls(alpha)[3]?.headers["cache-control"]).toBe("no-cache")
+
+    // The freshness was for that one poll
+    next()
+    await settled(context, 5)
+    expect(context.polls(alpha)[4]?.headers["cache-control"]).toBeUndefined()
   })
 })
 
@@ -313,7 +450,7 @@ describe("failures", () => {
     await settled(context, 1)
     const rotated = keyPair()
     alpha.state.key = rotated
-    alpha.state.payload = { ...alpha.state.payload, skills: [] }
+    serve({ skills: [] })
     next()
     expect(await settled(context, 2)).toMatchObject({ status: "error", kind: "key-changed" })
     const account = context.accounts.list()[0]
@@ -326,6 +463,8 @@ describe("failures", () => {
     expect(context.calls.filter((call) => call.method === "clear")).toHaveLength(0)
     expect(context.applies()).toHaveLength(1)
 
+    // An hour later the instance stamps a new response
+    serve()
     context.accounts.trust({ id: context.id, fingerprint: account?.fingerprint ?? "" })
     expect(await settled(context, 3)).toMatchObject({ status: "synced" })
     expect(context.applies().at(-1)?.input.manifest.skills).toEqual([])

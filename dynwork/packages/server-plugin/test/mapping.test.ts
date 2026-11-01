@@ -83,6 +83,12 @@ describe("filters", () => {
     expect(DynWorkMapping.map(apply({ ...alpha, enabled_hosts: ["claude-code"] }))).toEqual(DynWorkMapping.empty)
   })
 
+  test("a manifest without enabled hosts applies nothing, like an empty list", () => {
+    const { enabled_hosts: _, ...bare } = alpha
+    expect(DynWorkMapping.map(apply(bare))).toEqual(DynWorkMapping.empty)
+    expect(DynWorkMapping.map(apply({ ...alpha, enabled_hosts: [] }))).toEqual(DynWorkMapping.empty)
+  })
+
   test("entries for other hosts, disabled agents, empty bodies and unsafe ids are skipped", () => {
     const mapped = DynWorkMapping.map(
       apply({

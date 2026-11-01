@@ -153,10 +153,14 @@ one loop, for the active signed-in account only (decision D4), and pushes its co
 - Cadence: the first poll at once; then every 30 s ± 20 % while a DynWork window has focus, every 5 min while none
   has; at once when a window gains focus, when an account is activated and on `syncNow`. Polls never overlap: one asked
   for while another runs follows it once.
-- Each poll reads the manifest with the last ETag (`If-None-Match`, `Cache-Control: no-cache`). The signature is checked
-  against the pinned key, else the one offered at sign-in. A manifest for another user than the one `whoami` named at
-  sign-in, or with an `issued_at` older than the newest applied in this process, is refused (`invalid`) and its ETag is
-  not kept.
+- Each poll reads the manifest with the last ETag (`If-None-Match`). Only `syncNow` ("Sync now") adds `Cache-Control:
+  no-cache`; polls, focus and activation let the instance answer from its memo, like the bridge's scheduled sync. The
+  signature is checked against the pinned key, else the one offered at sign-in. A 200 is then accepted under the
+  bridge's rules, and refused (`invalid`, ETag not kept) when it is another user's than the one `whoami` named at
+  sign-in, when its `manifest_version` (`<RFC3339>-<hex>`, ordered by timestamp then suffix) is not strictly newer than
+  the last one fully applied for that account (`replay`; persisted with the account, so it survives restarts), when it
+  does not parse (`version`), or when its `not_before` is more than 5 min from now (`skew`). A 304 skips both checks:
+  its stored manifest is as old as its first acceptance. `issued_at` is not checked, as in the bridge.
 - The content the plugin reads is digested entry by entry (kind, id, digest of the entry, sorted), with the profile and
   the models catalog. `apply` runs only when that changes: a 304 or a re-signed copy of the same content pushes nothing.
   The plugin replaces the instance's whole namespace on each `apply` (design point 3: whole-namespace replace).
@@ -286,7 +290,7 @@ type, never the service's message, which may quote the input.
 | `marketplaces[].opencode.cli_defaults` | `default_agent` (an instance agent) becomes the default agent and selectable as primary; `model` (`provider/model`) becomes the default model when the service has it                                                                  |
 
 Entries are kept only when they target OpenCode (`hosts` empty or with `opencode`/`opencode-cli`, and the same for the
-manifest's `enabled_hosts`; rules need an OpenCode host, see below), and only when their id is plain (`[A-Za-z0-9][A-Za-z0-9._-]*`, 64 at most). The mapping is
+manifest's `enabled_hosts`, where an absent list is an empty one and clears the host, like the bridge; rules need an OpenCode host, see below), and only when their id is plain (`[A-Za-z0-9][A-Za-z0-9._-]*`, 64 at most). The mapping is
 pure and total, since a transform that throws disables the whole plugin. Manifest plugins, commands and hooks are not
 applied.
 

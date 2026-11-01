@@ -24,6 +24,8 @@ export const Stored = Schema.Struct({
   keyFingerprint: Schema.optional(Schema.String),
   // A served key that differs from the trusted one, waiting for `trust`; kept across restarts
   offeredKey: Schema.optional(Schema.String),
+  // The `manifest_version` of the last manifest the sync fully applied for this instance: the next one must be newer
+  manifestVersion: Schema.optional(Schema.String),
   addedAt: Schema.Number,
 })
 export type Stored = typeof Stored.Type
@@ -385,6 +387,18 @@ export function make(options: Options) {
     })
   }
 
+  // Records the newest manifest the sync fully applied. It is no part of what a window shows, so it is saved without
+  // announcing a change.
+  const applied = (id: string, version: string) => {
+    const store = read()
+    options.store.set({
+      ...store,
+      accounts: store.accounts.map((account) =>
+        account.id === id ? { ...account, manifestVersion: version } : account,
+      ),
+    })
+  }
+
   // What the first manifest holds, for the sign-in screen's instance list. The signature is checked against the key
   // the account pinned, else the one it was offered, so the counts only describe the catalog the instance served.
   const summary = async (id: string) => {
@@ -423,6 +437,7 @@ export function make(options: Options) {
     remove,
     trust,
     offerKey,
+    applied,
     summary,
     active: () => read().active,
     // The stored entry, for main code (the sync engine reads the pinned key and the user id)
