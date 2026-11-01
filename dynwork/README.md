@@ -135,7 +135,7 @@ account joins the list and stays inactive until you make it active.
 A manifest key waits for the user: the first key an instance offers ("New key") and a rotated one ("Key changed", shown
 with the pinned and the offered fingerprints) stop at "Trust this key" / "Trust new key", which pins exactly the
 fingerprint on screen. The sign-in screen never trusts a key. The active instance's section lists what it synced,
-including its rules, which reach every session's system context.
+including its rules, which reach every session's system context through the service's global `AGENTS.md`.
 
 The titlebar pill (a `TitlebarItem`) shows the active instance; its icon says how the sync stands (synced, syncing,
 needs attention). It grows to its label on hover, and a click opens a small dialog to switch instance, Sync now, or go
@@ -261,34 +261,66 @@ them in its `shell` `create.before` hook, unless a session environment set its o
 ## Server plugin
 
 `@dynwork/server-plugin` (`packages/server-plugin`, plugin id `dynwork`) gives DynWork's service the active instance's
-content without writing it anywhere. The prod build ships its `package.json` and `src` as the extra resource
-`dynwork-server-plugin` next to the app archive, and `DynWorkService.layout` adds that directory to the service's
-`OPENCODE_CONFIG_CONTENT` `plugins`. It imports only `effect` and `@opencode/plugin/effect`, which the service
-provides, so the directory needs no dependencies.
+content without writing anything but the rules block of the service's own global `AGENTS.md`. The prod build ships its
+`package.json` and `src` as the extra resource `dynwork-server-plugin` next to the app archive, and
+`DynWorkService.layout` adds that directory to the service's `OPENCODE_CONFIG_CONTENT` `plugins`. It imports only
+`effect` and `@opencode/plugin/effect`, which the service provides, so the directory needs no dependencies.
 
 Data flow: main (the sync engine, through `accounts/sync.ts`) verifies the manifest with `@dynwork/sp-client`, then
 calls `POST /api/rpc/dynwork.sync/apply` on the sidecar endpoint with `{instance: {key, url}, manifest, jwt,
 expiresAt}`, or `dynwork.sync/clear` on sign-out. The plugin maps the manifest once, keeps the result and the JWT in
-process memory only, and rebuilds the skills, agents, MCP servers and models of every Location it runs in before it
-answers with the counts. The service activates the plugin per Location and re-imports it for each, so that state lives
-in one process-wide slot; the RPC reaches whichever Location main calls. Each `apply` replaces everything of the
-previous instance and `clear` removes it, because the transforms rebuild from the current state every time. `key` is a
-slug of the account label (`DynWorkSyncMain.key`): the prefix of every id, so instance content never replaces the
-user's own items. A failed call reports only the HTTP status and the RPC error type, never the service's message, which
-may quote the input.
+process memory only, writes the rules into `AGENTS.md` (below), and rebuilds the skills, agents, MCP servers and models
+of every Location it runs in before it answers with the counts. The service activates the plugin per Location and
+re-imports it for each, so that state lives in one process-wide slot; the RPC reaches whichever Location main calls.
+Each `apply` replaces everything of the previous instance and `clear` removes it, because the transforms rebuild from
+the current state every time. `key` is a slug of the account label (`DynWorkSyncMain.key`): the prefix of every id, so
+instance content never replaces the user's own items. A failed call reports only the HTTP status and the RPC error
+type, never the service's message, which may quote the input.
 
-| Manifest                               | OpenCode                                                                                                                                                                                                                                                                                                                                                  |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `skills[]` with inline body            | `ctx.skill.transform`: embedded `Skill.Info` with id `<key>-<id>` and the virtual path `dynwork://<key>/skills/<id>`                                                                                                                                                                                                                                      |
-| `agents[]` (not disabled)              | `ctx.agent.transform`: sub-agent `<key>-<id>` with the display name, description and `system_prompt`. An agent whose `model` the gateway serves runs on `systemprompt/<model>`; any other uses the Session's model                                                                                                                                        |
-| `managed_mcp_servers[]`                | `ctx.mcp.transform`: remote server `<key>-<id>`, `oauth: false`. Only a server on the instance's own origin gets `Authorization: Bearer <jwt>`; any other keeps its declared headers only, and plain HTTP is accepted only on loopback                                                                                                                    |
-| `rules[]`                              | `ctx.session.hook("context")`: one system part per model call, rules sorted by id and capped at 24,000 characters. Chosen over the Session instruction entries, which are stored per Session: the system part is rebuilt on every step, so it never piles up, compaction cannot summarize it away, and a switch applies to every Session at the next step |
-| `marketplaces[].opencode.cli_defaults` | `default_agent` (an instance agent) becomes the default agent and selectable as primary; `model` (`provider/model`) becomes the default model when the service has it                                                                                                                                                                                     |
+| Manifest                               | OpenCode                                                                                                                                                                                                                               |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skills[]` with inline body            | `ctx.skill.transform`: embedded `Skill.Info` with id `<key>-<id>` and the virtual path `dynwork://<key>/skills/<id>`                                                                                                                   |
+| `agents[]` (not disabled)              | `ctx.agent.transform`: sub-agent `<key>-<id>` with the display name, description and `system_prompt`. An agent whose `model` the gateway serves runs on `systemprompt/<model>`; any other uses the Session's model                     |
+| `managed_mcp_servers[]`                | `ctx.mcp.transform`: remote server `<key>-<id>`, `oauth: false`. Only a server on the instance's own origin gets `Authorization: Bearer <jwt>`; any other keeps its declared headers only, and plain HTTP is accepted only on loopback |
+| `rules[]`                              | A managed block in the service's global `AGENTS.md` (`<OPENCODE_CONFIG_DIR>/AGENTS.md`), described below                                                                                                                               |
+| `marketplaces[].opencode.cli_defaults` | `default_agent` (an instance agent) becomes the default agent and selectable as primary; `model` (`provider/model`) becomes the default model when the service has it                                                                  |
 
 Entries are kept only when they target OpenCode (`hosts` empty or with `opencode`/`opencode-cli`, and the same for the
 manifest's `enabled_hosts`), and only when their id is plain (`[A-Za-z0-9][A-Za-z0-9._-]*`, 64 at most). The mapping is
 pure and total, since a transform that throws disables the whole plugin. Manifest plugins, commands and hooks are not
 applied.
+
+### Rules in AGENTS.md
+
+Like the systemprompt bridge did, the rules become a managed block of the global `AGENTS.md` in the service's config
+dir, which OpenCode loads into every Session's instructions:
+
+```
+<!-- systemprompt:begin (managed by DynWork; edits are replaced) -->
+
+## <rule name>
+
+<rule instructions, trimmed>
+
+## <next rule name>
+
+<its instructions>
+<!-- systemprompt:end -->
+```
+
+Rules are sorted by id, and the sections are capped at 24,000 characters. `apply` writes the block (appended after
+anything the user wrote, or replaced in place), a switch replaces it and `clear` removes it; a file that held only the
+block is deleted. The plugin writes through a temporary file and a rename, and only when the content changes, and a
+failed write fails the `apply`, so main tries again. OpenCode watches the file and reloads it by itself about 100 ms
+after the change (`apply` does not wait for that): a new Session starts with the current rules, and an open one hears
+of the change at its next step, like any edit of `AGENTS.md`. With the service's file watcher off
+(`OPENCODE_DISABLE_FILEWATCHER`), the change waits for the next start of the service.
+
+The plugin writes only when `OPENCODE_CONFIG_DIR` is set, as `DynWorkService.layout` does for the packaged prod build,
+whose config dir is DynWork's alone. A service without it reads the user's own config dir, which the plugin never
+touches: there the rules go into the system context of each model call through `ctx.session.hook("context")` instead.
+The block outlives the service process: a sign-out while the service is down leaves it in place until the next `apply`
+or `clear`.
 
 ### Model calls through the gateway
 

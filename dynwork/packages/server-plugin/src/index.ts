@@ -2,13 +2,15 @@ import { Agent, Model, Plugin, Rpc } from "@opencode/plugin/effect"
 import { Effect, Exit, Schema } from "effect"
 import { DynWorkSync } from "./contract"
 import { DynWorkGateway } from "./gateway"
+import { DynWorkInstructions } from "./instructions"
 import { DynWorkMapping } from "./mapping"
 import { DynWorkShell } from "./shell"
 
 // DynWork's server plugin. Main pushes the active instance's manifest, gateway models and JWT over `dynwork.sync`, and
-// the plugin adds its skills, agents, MCP servers, rules and `systemprompt` provider to the service in memory: nothing
-// reaches the database or the config files, and `clear` (sign-out) or the next `apply` (switch) leaves nothing of the
-// previous instance. Main pushes each renewed JWT with `token`, and answers the `refresh` event with one.
+// the plugin adds its skills, agents, MCP servers and `systemprompt` provider to the service in memory, and its rules to
+// the managed block of the service's global `AGENTS.md`: nothing reaches the database, and `clear` (sign-out) or the
+// next `apply` (switch) leaves nothing of the previous instance. Main pushes each renewed JWT with `token`, and answers
+// the `refresh` event with one.
 
 export const Definition = Rpc.define({
   id: DynWorkSync.id,
@@ -62,6 +64,11 @@ const store: Store = Object.assign(slot.__dynworkSync ?? {}, {
 slot.__dynworkSync = store
 
 const mapped = () => store.current?.mapped ?? DynWorkMapping.empty
+
+// Set only for DynWork's own service (the packaged prod build), whose config dir is DynWork's alone: the rules go to its
+// global `AGENTS.md`, which OpenCode watches and reloads by itself. A service without it keeps the user's config dir,
+// which the plugin never writes to: the rules go into each step's system context instead.
+const configDir = process.env.OPENCODE_CONFIG_DIR || undefined
 
 // Every Location reloads, even when one fails; any failure then fails the call, so main never records a sync that did
 // not land everywhere and tries again.
@@ -131,15 +138,15 @@ export default Plugin.define({
         editor.default.set(DynWorkGateway.providerID, suggested)
     })
 
-    // Rules go into the system prompt of every step instead of the Session's instruction entries: the system part is
-    // rebuilt for each model call, so it never piles up across steps, compaction cannot summarize it away, and a
-    // switch or sign-out takes effect on the next step of every Session without touching stored history.
-    yield* ctx.session.hook("context", (event) =>
-      Effect.sync(() => {
-        const system = mapped().system
-        if (system) event.system.push({ type: "text", text: system })
-      }),
-    )
+    // Without a config dir of its own, the rules go into the system part of each model call: it is rebuilt for every
+    // call, so it never piles up across steps and a switch or sign-out takes effect on the next step of every Session.
+    if (!configDir)
+      yield* ctx.session.hook("context", (event) =>
+        Effect.sync(() => {
+          const instructions = mapped().instructions
+          if (instructions) event.system.push({ type: "text", text: instructions })
+        }),
+      )
 
     const user = DynWorkShell.saved(process.env)
     if (user) {
@@ -154,6 +161,8 @@ export default Plugin.define({
         apply: (input) =>
           Effect.gen(function* () {
             const next = DynWorkMapping.map(input)
+            // A failed write fails the call before anything changes, so main tries again.
+            if (configDir) yield* Effect.promise(() => DynWorkInstructions.write(configDir, next.instructions))
             store.current = { input, mapped: next, provided: DynWorkGateway.provider(input) }
             DynWorkGateway.push(store.tokens, { jwt: input.jwt, expiresAt: input.expiresAt })
             yield* reloadAll
@@ -163,6 +172,7 @@ export default Plugin.define({
           Effect.gen(function* () {
             store.current = undefined
             DynWorkGateway.push(store.tokens, undefined)
+            if (configDir) yield* Effect.promise(() => DynWorkInstructions.write(configDir, undefined))
             yield* reloadAll
             return {}
           }),

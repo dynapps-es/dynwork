@@ -29,10 +29,10 @@ export interface Mapped {
   readonly skills: ReadonlyArray<Skill.Info>
   readonly agents: ReadonlyArray<Agent>
   readonly mcp: ReadonlyArray<readonly [string, Mcp.ServerConfig]>
-  /** How many rules the system text carries. */
+  /** How many rules `instructions` carries. */
   readonly rules: number
-  /** The rules as one system part, or undefined without rules. */
-  readonly system?: string
+  /** The rules as `AGENTS.md` sections (`## <name>`, then the instructions), or undefined without rules. */
+  readonly instructions?: string
   readonly defaults: {
     readonly agent?: string
     readonly model?: { readonly providerID: string; readonly modelID: string }
@@ -82,7 +82,7 @@ export function map(input: DynWorkSync.Apply): Mapped {
       Option.toArray(remote(server, input)).map((config) => [serverName(key, server.id), config] as const),
     ),
     rules: rules.length,
-    system: rules.length === 0 ? undefined : rulesText(rules.map((rule) => rule.instructions?.trim() ?? "")),
+    instructions: rules.length === 0 ? undefined : rulesText(rules),
     defaults: {
       agent: defaultAgent ? name(defaultAgent.id) : undefined,
       model: settings.model,
@@ -134,8 +134,9 @@ export function secure(url: URL) {
   return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
 }
 
-function rulesText(rules: ReadonlyArray<string>) {
-  const text = ["# Rules from your systemprompt instance", ...rules].join("\n\n")
+// The sections the systemprompt bridge wrote into its managed AGENTS.md block, so both read the same.
+function rulesText(rules: ReadonlyArray<DynWorkSync.Manifest["rules"][number]>) {
+  const text = rules.map((rule) => `## ${rule.name}\n\n${rule.instructions?.trim() ?? ""}`).join("\n\n")
   return text.length <= rulesBudget ? text : text.slice(0, rulesBudget)
 }
 

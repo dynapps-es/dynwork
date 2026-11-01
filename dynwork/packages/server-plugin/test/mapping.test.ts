@@ -39,9 +39,11 @@ describe("mapping the alpha manifest", () => {
     })
   })
 
-  test("rules become one system text", () => {
+  test("rules become AGENTS.md sections named after each rule", () => {
     expect(mapped.rules).toBe(1)
-    expect(mapped.system).toStartWith("# Rules from your systemprompt instance\n\n# Alpha conventions")
+    expect(mapped.instructions).toBe(
+      "## alpha conventions\n\n# Alpha conventions\n\nAnswer in English and keep commit messages in the imperative mood.",
+    )
   })
 })
 
@@ -112,16 +114,16 @@ describe("filters", () => {
       apply({
         ...alpha,
         rules: [
-          { id: "b", name: "b", instructions: "second" },
-          { id: "a", name: "a", instructions: "first" },
+          { id: "b", name: "Second", instructions: "  second\n" },
+          { id: "a", name: "First", instructions: "first" },
         ],
       }),
     )
-    expect(mapped.system).toBe("# Rules from your systemprompt instance\n\nfirst\n\nsecond")
+    expect(mapped.instructions).toBe("## First\n\nfirst\n\n## Second\n\nsecond")
     const long = DynWorkMapping.map(
       apply({ ...alpha, rules: [{ id: "a", name: "a", instructions: "x".repeat(30_000) }] }),
     )
-    expect(long.system).toHaveLength(DynWorkMapping.rulesBudget)
+    expect(long.instructions).toHaveLength(DynWorkMapping.rulesBudget)
   })
 })
 
