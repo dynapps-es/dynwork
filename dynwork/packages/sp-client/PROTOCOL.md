@@ -10,10 +10,10 @@ which entries changed, so a new server version can be checked against this page.
 
 ## 1. Where the device-link page is
 
-| Step | Request | Answer |
-| --- | --- | --- |
-| Discovery | `GET /.well-known/systemprompt-bridge`, no auth | `200` JSON with `contract` (`"1"`), `device_link_path` (`/bridge-auth/device-link` here), `identity_path`, `branding.display_name`, `enabled_hosts` |
-| No discovery | | Instances older than 0.76 answer `404`. Fall back to `/bridge-auth/device-link` (the Dynapps brand); the core default `/bridge/device-link` is `404` on this image |
+| Step         | Request                                         | Answer                                                                                                                                                             |
+| ------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Discovery    | `GET /.well-known/systemprompt-bridge`, no auth | `200` JSON with `contract` (`"1"`), `device_link_path` (`/bridge-auth/device-link` here), `identity_path`, `branding.display_name`, `enabled_hosts`                |
+| No discovery |                                                 | Instances older than 0.76 answer `404`. Fall back to `/bridge-auth/device-link` (the Dynapps brand); the core default `/bridge/device-link` is `404` on this image |
 
 Both paths are relative to the instance base URL. A path that would leave that origin is refused by the client.
 
@@ -28,14 +28,14 @@ The client opens the system browser on
 `redirect` is the only query parameter the page reads. The rules it applies, observed on the page (`GET`) and on the
 approval (`POST`), which reject the same set:
 
-| `redirect` | Result |
-| --- | --- |
-| `http://127.0.0.1:<port>/<any path>`, with or without a path or its own query | accepted |
-| `http://localhost:<port>/...` | accepted |
-| any port from 0 to 65535 (`:0` and `:1` included) | accepted; 65536 is `400` |
-| no port (`http://127.0.0.1/cb`) | `400` |
+| `redirect`                                                                                                           | Result                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `http://127.0.0.1:<port>/<any path>`, with or without a path or its own query                                        | accepted                                                                                                      |
+| `http://localhost:<port>/...`                                                                                        | accepted                                                                                                      |
+| any port from 0 to 65535 (`:0` and `:1` included)                                                                    | accepted; 65536 is `400`                                                                                      |
+| no port (`http://127.0.0.1/cb`)                                                                                      | `400`                                                                                                         |
 | `https://` loopback, `http://[::1]:<port>`, `127.0.0.2`, `127.0.0.1.<other domain>`, any other host, a custom scheme | `400`, page "Invalid redirect": "Only http://127.0.0.1:PORT or http://localhost:PORT redirects are accepted." |
-| missing | the page switches to the paste flow (section 5) |
+| missing                                                                                                              | the page switches to the paste flow (section 5)                                                               |
 
 A browser without a session on the instance gets `307` to `/admin/login?redirect=<path and query of the page>`, signs
 in with the instance's own IdP (Microsoft Entra on the Dynapps brand) and lands back on the page. The client never sees
@@ -47,10 +47,10 @@ the IdP.
 `redirect`), how long the code will live (600 seconds) and says that approving issues a personal access token that
 stays valid until revoked. Two forms, each with a single hidden `redirect` field:
 
-| Button | Form | Answer |
-| --- | --- | --- |
-| Allow | `POST <device_link_path>/approve`, `application/x-www-form-urlencoded` | `303` to `redirect` with `code=<code>` appended to its query |
-| Deny | `POST <device_link_path>/deny` | `303` to `redirect` with `error=denied` appended; nothing is issued |
+| Button | Form                                                                   | Answer                                                              |
+| ------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Allow  | `POST <device_link_path>/approve`, `application/x-www-form-urlencoded` | `303` to `redirect` with `code=<code>` appended to its query        |
+| Deny   | `POST <device_link_path>/deny`                                         | `303` to `redirect` with `error=denied` appended; nothing is issued |
 
 A `POST` without a form body answers `415`; one without a session `307` to the login.
 
@@ -80,12 +80,12 @@ An operator can also mint a code for a user with the instance CLI: `admin bridge
 
 ## 6. Exchanging the code
 
-| Request | Body | Answer |
-| --- | --- | --- |
+| Request                                     | Body                                | Answer                                                                                                                |
+| ------------------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/auth/bridge/session-pat`, no auth | JSON `code`, optional `device_name` | `200` JSON `pat`: a durable `sp-live-` personal access token. `device_name` becomes its name in the user's token list |
-| same, code empty | | `400` `bad_request` "missing exchange code" |
-| same, code unknown, expired or already used | | `401` `unauthorized` "exchange code invalid, expired, or already consumed" |
-| `POST /v1/auth/bridge/session`, no auth | JSON `code` | `200` with the same body as `/pat` below: a JWT and no durable credential |
+| same, code empty                            |                                     | `400` `bad_request` "missing exchange code"                                                                           |
+| same, code unknown, expired or already used |                                     | `401` `unauthorized` "exchange code invalid, expired, or already consumed"                                            |
+| `POST /v1/auth/bridge/session`, no auth     | JSON `code`                         | `200` with the same body as `/pat` below: a JWT and no durable credential                                             |
 
 A code works once across both routes: the second exchange answers `401`.
 
@@ -93,10 +93,10 @@ Errors use the common envelope: `code`, `message`, `timestamp`.
 
 ## 7. From the PAT to a session
 
-| Request | Answer |
-| --- | --- |
+| Request                                                            | Answer                                                                                                                                                                                                                                                  |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /v1/auth/bridge/pat`, `Authorization: Bearer <PAT>`, no body | `200` JSON `token` (RS256 JWT), `ttl` (3600 s), `headers` (identity headers the client may replay: `x-client-id` is `sp_bridge`, plus `x-user-id`, `x-session-id`, `x-trace-id`, `x-policy-version`, `x-call-source`) and `device_token` (a second JWT) |
-| same, PAT revoked | `401` `unauthorized` "Invalid PAT" |
+| same, PAT revoked                                                  | `401` `unauthorized` "Invalid PAT"                                                                                                                                                                                                                      |
 
 There is no refresh token: the client calls `/pat` again before `ttl` runs out.
 
@@ -113,6 +113,58 @@ There is no refresh token: the client calls `/pat` again before `ttl` runs out.
 - Offer "paste the code" as the fallback: same exchange, with the code typed in.
 - Never log or persist a code, PAT or JWT.
 
+## 9. After sign-in: what `@dynwork/sp-client` reads
+
+Observed on both local instances; the redacted bodies are in `test/fixtures/alpha.json`. Every request carries
+`x-systemprompt-client: opencode` (the declared client kind; the instance accepts only its closed list) and no
+attestation header. Authenticated routes take the JWT from section 7 as `Authorization: Bearer`; a PAT is refused there
+with `401` `invalid_credential`.
+
+| Request                                                       | Auth        | Answer                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/auth/bridge/capabilities`                            | none        | `200` `modes`: `pat`, `session`, `oauth-client`                                                                                                                                                                                                                                                       |
+| `GET /api/v1/health`                                          | none        | `200` `status`, `version` (`"0.76.0"`)                                                                                                                                                                                                                                                                |
+| `GET /v1/bridge/pubkey`                                       | none        | `200` `pubkey`: base64 of the 32 raw bytes of an ed25519 key. Each instance has its own                                                                                                                                                                                                               |
+| `GET /v1/bridge/manifest`                                     | JWT         | `200` `payload` (a JSON string) and `signature` (base64, 64 bytes), with `ETag` (a quoted 64-hex digest) and `Cache-Control: private, no-cache`. `If-None-Match` with that tag, strong or `W/` weak, answers `304` with no body. `Cache-Control: no-cache` on the request asks for a fresh resolution |
+| `GET /v1/bridge/profile`                                      | JWT         | `200` `models` (ids admitted for the user), `default_model`, `providers` (name, display name, configured, models), `model_limits` (per model `context_window`, `max_output_tokens`), `auth_scheme` (`bearer`), `organization_uuid` (null), `inference_gateway_base_url`                               |
+| `GET /v1/models`                                              | none needed | `200` `data`: the instance-wide catalog (`id`, `display_name`, `max_input_tokens`, `max_tokens`), Anthropic shape; `?format=openai` gives the OpenAI list                                                                                                                                             |
+| `GET /v1/bridge/whoami`                                       | JWT         | `200` `user_id`, `email`, `display_name`, `roles`                                                                                                                                                                                                                                                     |
+| `GET /api/public/bridge/whoami` (discovery's `identity_path`) |             | `401` with a bridge JWT; not used                                                                                                                                                                                                                                                                     |
+
+`inference_gateway_base_url` is the instance's internal address (`http://localhost:8080/v1` locally), like the
+`--gateway` of section 5, so the client keeps using its own base URL plus `/v1`.
+
+### The manifest
+
+The signature is ed25519 over the exact UTF-8 bytes of `payload`; the client verifies it before parsing anything.
+`payload` is RFC 8785 (JCS) canonical JSON: re-canonicalizing the parsed value gives the same string on both instances
+(a live test checks it). The fields DynWork reads: `min_schema_version` (1), `user_id`, `user`, `rules[]` (id, name,
+`instructions`, sha256, plugins), `skills[]` (id, name, description, inline `instructions`, sha256, plugins),
+`agents[]` (id, name, display name, provider, model, `system_prompt`, `mcp_servers.include`, `skills.include`),
+`managed_mcp_servers[]` (id, name, url, transport, `oauth`, `tool_policy`), `plugins[]` (id, version, sha256,
+`files[]` with path, sha256, size), `marketplaces[]`, `enabled_hosts`, `revocations` (ids of the user's revoked keys),
+`branding`, `desktop_policy`. Unknown fields are ignored. A `min_schema_version` above 1 is incompatible.
+
+The key is trusted on first use: the client pins it at sign-in and shows its fingerprint, `sha256:` plus the hex
+SHA-256 of the 32 raw key bytes. When a manifest does not verify, the client fetches the served key again: a different
+key is a key change, the same key a bad signature.
+
+### How answers map to the client's errors
+
+The client refuses an `http:` base URL unless the host is `127.0.0.1`, `localhost` or `[::1]`, so a PAT or JWT never
+travels in clear text to a remote instance. A health answer that fails or does not decode only leaves the version
+unknown, and a `404` on `/v1/auth/bridge/capabilities` (instances before 0.76) means no modes.
+
+| Answer                                                                                                                                                                      | Error                                                                                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `401` anywhere (PAT revoked, JWT refused, code invalid or used)                                                                                                             | `Unauthorized`, with the envelope's `message` and `error_key`. With a JWT, mint once more from the PAT before treating it as signed out |
+| `429`                                                                                                                                                                       | `RateLimited`, with `Retry-After` (seconds or an HTTP date) in milliseconds                                                             |
+| no answer, a timeout (30 s for the whole answer, body included), or a `5xx`                                                                                                 | `Unreachable`                                                                                                                           |
+| manifest signature fails, served key unchanged                                                                                                                              | `SignatureInvalid`                                                                                                                      |
+| manifest signature fails, served key changed                                                                                                                                | `KeyChanged`, with both fingerprints                                                                                                    |
+| discovery `contract` other than `"1"`, manifest schema above 1                                                                                                              | `Incompatible`                                                                                                                          |
+| any other status, a `3xx` (never followed, so a bearer never leaves the origin), a body that does not decode (with the field path), a discovery path that leaves the origin | `Protocol`                                                                                                                              |
+
 ## Not observed
 
 - What an expired code answers (expected the `401` above; the CLI cannot mint a short-lived code and waiting 600 s was
@@ -120,3 +172,6 @@ There is no refresh token: the client calls `/pat` again before `ttl` runs out.
 - A real IdP login: the local instance has a dummy Entra secret. The capture signs in through the core OAuth page with
   a passkey instead (see the fixture's `development_login`); everything after the login is the same page.
 - Other brands and production instances (0.74 has no discovery).
+- A real `429` or `5xx` from an instance; their mapping is tested against a fake only.
+- A manifest key rotation on a real instance (the local instances keep theirs; the live test pins one instance's key
+  against the other's manifest instead).

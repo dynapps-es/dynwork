@@ -1,0 +1,465 @@
+{
+  "captured_at": "2026-11-01T09:12:31.563Z",
+  "source": "alpha of the sp-local harness (ghcr.io/systempromptio/systemprompt-dynapps:0.76.0), plain HTTP; no credential is kept",
+  "health": {
+    "status": 200,
+    "body": {
+      "status": "healthy",
+      "version": "0.76.0"
+    }
+  },
+  "capabilities": {
+    "status": 200,
+    "body": {
+      "modes": ["pat", "session", "oauth-client"]
+    }
+  },
+  "pubkey": {
+    "status": 200,
+    "shape": "base64 of 32 raw ed25519 key bytes"
+  },
+  "manifest": {
+    "status": 200,
+    "etag_format": "quoted 64 hex",
+    "cache_control": "private, no-cache",
+    "envelope_fields": ["payload", "signature"],
+    "payload": {
+      "agents": [
+        {
+          "description": "Local test agent of the alpha instance",
+          "display_name": "alpha helper",
+          "enabled": true,
+          "endpoint": "http://localhost:8080/api/v1/agents/alpha_helper/",
+          "id": "alpha_helper",
+          "is_default": false,
+          "is_primary": false,
+          "mcp_servers": {
+            "include": ["alpha-docs"],
+            "source": "explicit"
+          },
+          "model": "claude-sonnet-5-5",
+          "name": "alpha_helper",
+          "provider": "anthropic",
+          "skills": {
+            "include": ["alpha_notes"],
+            "source": "explicit"
+          },
+          "system_prompt": "You are the alpha helper of the local DynWork harness.",
+          "tags": [],
+          "version": "1.0.0"
+        }
+      ],
+      "allow_claude_ai_connectors": false,
+      "allow_user_disable": false,
+      "artifacts": [],
+      "auto_update": "staged",
+      "branding": {
+        "display_name": "Dynapps"
+      },
+      "desktop_policy": {
+        "schema_version": 1,
+        "settings": {
+          "alwaysStartWithDefaultModel": true,
+          "autoUpdaterEnforcementHours": 72,
+          "builtinToolPolicy": {
+            "WebFetch": "allow",
+            "WebSearch": "allow"
+          },
+          "chatAdvancedFileAnalysisEnabled": true,
+          "configRecheckIntervalMinutes": 2,
+          "deploymentDisplayName": "Dynapps",
+          "disableAutoUpdates": false,
+          "disableBundledSkills": false,
+          "inferenceStreamIdleTimeoutSec": 300,
+          "mcpToolTimeoutSec": 300,
+          "modelDiscoveryEnabled": false,
+          "modelPrefer1mContext": true,
+          "otlpContentCapture": [],
+          "otlpDesktopLogLevel": "info",
+          "otlpTracesEnabled": true,
+          "relaunchEnforcementHours": 24,
+          "toolSearchEnabled": true
+        }
+      },
+      "enabled_hosts": ["claude-code", "claude-desktop", "opencode", "opencode-cli"],
+      "hooks": [],
+      "host_model_protocols": {},
+      "issued_at": "2026-11-01T09:12:31.255641757Z",
+      "managed_mcp_servers": [
+        {
+          "id": "alpha-docs",
+          "name": "alpha-docs",
+          "oauth": false,
+          "tool_policy": {
+            "*": "allow"
+          },
+          "transport": "http",
+          "url": "http://127.0.0.1:9/alpha-docs/mcp"
+        }
+      ],
+      "manifest_version": "2026-11-01T09:12:31Z-000001a19661c117",
+      "marketplaces": [
+        {
+          "id": "alpha-local",
+          "name": "alpha-local",
+          "plugin_ids": ["alpha-tools"]
+        },
+        {
+          "id": "dynapps-commons",
+          "name": "Dynapps — Commons",
+          "plugin_ids": ["dynapps-commons"]
+        }
+      ],
+      "min_bridge_version": "0.28.0",
+      "min_schema_version": 1,
+      "not_before": "2026-11-01T09:11:31.255641757Z",
+      "plugins": [
+        {
+          "files": [
+            {
+              "path": ".claude-plugin/plugin.json",
+              "sha256": "3322c4ddc2a08588fa10168039bf874590bf50cb59d7b03575ac042cc70ead90",
+              "size": 233
+            },
+            {
+              "path": ".mcp.json",
+              "sha256": "cd3d9ea6ff084ea8564402b6d34bfc5dd13f39f2d0f434cfca138f42182450df",
+              "size": 122
+            },
+            {
+              "path": "agents/alpha_helper.md",
+              "sha256": "bbff3373dcbabc322a96906d7246852b40ea8eaaae98e3b4b25dd19a7b8b9415",
+              "size": 164
+            },
+            {
+              "path": "rules/alpha-conventions.md",
+              "sha256": "2ca59539602ef9c94e705c3c6ea69fe0216c57863662cacf7047a4d908d0c8ec",
+              "size": 137
+            },
+            {
+              "path": "skills/alpha-notes/SKILL.md",
+              "sha256": "a63abecf6f1b0787a21a2cce8a9b6db6338aedb2c97991413a541a251f8f5b9b",
+              "size": 199
+            },
+            {
+              "path": "skills/alpha-review/SKILL.md",
+              "sha256": "3e4bcbe7872e4413aba0e36c9927db6584457d6b4402c821a3db3ce111f7a29c",
+              "size": 211
+            }
+          ],
+          "hooks": {
+            "comms": false,
+            "governance": false,
+            "judge": false
+          },
+          "id": "alpha-tools",
+          "sha256": "453903fceddc37d09b84cdf3eeed0fea4fe5ad61cd53eea61af0697dc43725e4",
+          "version": "1.0.0"
+        },
+        {
+          "files": [
+            {
+              "path": ".claude-plugin/plugin.json",
+              "sha256": "f84bd454ffc0ad3eea9a9b87eb16b3701fc918aad5d3b2c76f6b256c3c70891d",
+              "size": 429
+            },
+            {
+              "path": "skills/who-am-i/SKILL.md",
+              "sha256": "b406367a7355f2e628fb164892e1728de7d575a48c1272398980bd49e7fa0479",
+              "size": 2622
+            }
+          ],
+          "hooks": {
+            "comms": false,
+            "governance": true,
+            "judge": true
+          },
+          "id": "dynapps-commons",
+          "sha256": "e41b078cc903b876f7746382090d75c401351a92c33cb63ed2bbfd121beba2b0",
+          "version": "1.0.0"
+        }
+      ],
+      "revocations": [
+        "4e261575-c9fe-4781-91a5-f395f2cf2f51",
+        "483154f1-38a0-4220-b226-727b2113942b",
+        "ccb93eec-6841-44f3-ac56-fcaa9358a532",
+        "00e8889c-2cda-48fd-ac5c-9aabfbe86986",
+        "464bc7d8-a35e-4654-885b-ff1c1c9dd8e0",
+        "688d0128-836e-44c1-a42f-e44045ef4317",
+        "38c8e141-3195-4067-90db-69862a172a2d",
+        "43313656-0910-4d8b-b251-453ffb9e6bde",
+        "d2b83bac-dded-4161-afc6-f9d8f67c9161",
+        "a1d381b4-6229-4d8f-b9f6-5aa0fd66f15a"
+      ],
+      "rules": [
+        {
+          "description": "",
+          "file_path": "/app/services/rules/alpha_conventions/index.md",
+          "id": "alpha_conventions",
+          "instructions": "# Alpha conventions\n\nAnswer in English and keep commit messages in the imperative mood.",
+          "name": "alpha conventions",
+          "plugins": ["alpha-tools"],
+          "sha256": "67e6d6c25b3415915eff4fd7d6e8229d29a29633965e40e9a2632e3c50d2e733",
+          "tags": []
+        }
+      ],
+      "skills": [
+        {
+          "description": "Turn a working session into short alpha-team notes.",
+          "file_path": "managed://alpha_notes@b3bb6c15ade34221806687bae4d2ff5ccaaf56ab24911bc7859d88dd8c3b9fa4",
+          "id": "alpha_notes",
+          "instructions": "# Alpha notes\n\nSummarize the session in five bullets: goal, decisions, open questions, next step, owner.",
+          "name": "alpha notes",
+          "plugins": ["alpha-tools"],
+          "publication": {
+            "bundle_digest": "b3bb6c15ade34221806687bae4d2ff5ccaaf56ab24911bc7859d88dd8c3b9fa4",
+            "generation": 1,
+            "publication_id": "750981ce-807d-4c97-8607-0d510dd51a63",
+            "resource_id": "1d1ee2f7-5968-48c6-abc6-2c993721f681",
+            "revision_id": "802c1429-27ed-4274-afd9-51e2ed79ea79"
+          },
+          "sha256": "c3a9984b4941d36ee40075ad389ff726b3aa42fc8d39a3113767c54c76974ad6",
+          "tags": []
+        },
+        {
+          "description": "Review a change the way the alpha team does, checking tests first.",
+          "file_path": "managed://alpha_review@21bfd332332a91339700c1d852aa77bce0ae14262b1517531952405676bab68e",
+          "id": "alpha_review",
+          "instructions": "# Alpha review\n\nRead the diff, run the tests it touches, then list what is missing before approving.",
+          "name": "alpha review",
+          "plugins": ["alpha-tools"],
+          "publication": {
+            "bundle_digest": "21bfd332332a91339700c1d852aa77bce0ae14262b1517531952405676bab68e",
+            "generation": 1,
+            "publication_id": "5df18472-615c-4db3-ad74-5a6b089a1a3e",
+            "resource_id": "14060900-e5db-48d9-8f9b-35b436d55d13",
+            "revision_id": "371dc122-e0c1-44bf-a901-43a15e6cfb42"
+          },
+          "sha256": "be68c5441f8e571e399b3c465095aeda568ee5a95a054e4eda9602947e3f7794",
+          "tags": []
+        },
+        {
+          "description": "Report who the signed-in user is on this instance, which workspaces, skills and connectors their access actually grants, and where to see their own usage.",
+          "file_path": "managed://who_am_i@ad0a53468e47b98997a3267cc187fe8d98ea38085c754f27e90cdf6bd8fa7b0a",
+          "id": "who_am_i",
+          "instructions": "# Who am I\n\nUse when someone asks who they are on this instance, what they have access to, why\na skill or connector they expected is missing, or what they are allowed to do here.\nIt is the first thing a new user runs and the fastest answer to \"why can't I see X\".\n\n## What you report\n\nAnswer from what this session can actually observe — the signed-in identity and the\nsigned plugin manifest the client is already holding. Do not guess at entitlement\nfrom a job title or a team name.\n\n1. **Identity** — the account this session is authenticated as: the email or user\n   id, and the roles it carries. If the session is anonymous or the identity is\n   not visible, say exactly that rather than inventing a user.\n2. **Workspaces** — the marketplaces this account reaches, by name. Say what each\n   one is for in a sentence.\n3. **Skills** — the skills those workspaces grant, grouped by workspace. Give the\n   count and then the names; a list of forty with no shape is not an answer.\n4. **Connectors** — the MCP servers available, and for each one whether it is\n   *connected* (the account has linked it and calls will work) or merely\n   *granted* (it appears in the manifest but has no credential yet). This\n   distinction is the single most common source of \"the skill didn't work\".\n5. **Where to see usage** — the admin console profile page shows this account's own\n   request history and spend. Point the user there for figures; do not attempt to\n   produce usage numbers yourself.\n\n## Guardrails\n\n- **You report on the caller, and only the caller.** Never enumerate other users,\n  other accounts' access, or instance-wide totals. That is the administrator's\n  control plane, not this skill.\n- **Absence is a finding, not a failure.** A workspace or connector the user\n  expected and does not have is the answer they came for. Name it, say which gate\n  it sits behind — group membership, a role, or an unlinked connector account —\n  and stop. Do not attempt to grant anything, and do not speculate about who could.\n- **Do not read the platform's own configuration** to answer this. The manifest\n  the session holds is the truth about what this user reaches; a YAML file on disk\n  describes what the instance ships, which is a different question and will\n  mislead when the two disagree.\n- **Never state a usage figure you did not read.** If you cannot see the numbers,\n  the honest answer is where to find them.",
+          "name": "Who Am I",
+          "plugins": ["dynapps-commons"],
+          "publication": {
+            "bundle_digest": "ad0a53468e47b98997a3267cc187fe8d98ea38085c754f27e90cdf6bd8fa7b0a",
+            "generation": 1,
+            "publication_id": "e89fe555-31c4-4327-a6bd-906e8863a450",
+            "resource_id": "07c66646-8524-435c-b8d5-006a61ce6d5b",
+            "revision_id": "c1e0c608-3445-4610-816a-97cbcdfead56"
+          },
+          "sha256": "c3cba251fb3c18f678694e76f288365e28e7ab1e30eb55bf82833adeedea4fb0",
+          "tags": ["commons", "profile", "onboarding"]
+        }
+      ],
+      "tenant_id": null,
+      "user": {
+        "display_name": "Dev User",
+        "email": "dev@dynapps.test",
+        "id": "1ecce4e3-bc87-441d-b374-ea29bab88da8",
+        "name": "dev",
+        "roles": ["user"]
+      },
+      "user_id": "1ecce4e3-bc87-441d-b374-ea29bab88da8"
+    }
+  },
+  "profile": {
+    "status": 200,
+    "body": {
+      "inference_gateway_base_url": "http://localhost:8080/v1",
+      "auth_scheme": "bearer",
+      "models": ["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5"],
+      "default_model": "claude-sonnet-5-5[1m]",
+      "organization_uuid": null,
+      "providers": [
+        {
+          "name": "anthropic",
+          "credential": "anthropic",
+          "clients": ["claude"],
+          "configured": true,
+          "models": ["claude-haiku-5-5", "claude-opus-5-5", "claude-sonnet-5-5"],
+          "display_name": "Anthropic"
+        },
+        {
+          "name": "deepseek",
+          "credential": "deepseek",
+          "clients": ["openai"],
+          "configured": false,
+          "models": ["deepseek-flash", "deepseek-v4-pro"],
+          "config_issue": "API key secret 'deepseek' is not configured",
+          "display_name": "DeepSeek"
+        },
+        {
+          "name": "opencode-go",
+          "credential": "opencode-go",
+          "clients": ["openai"],
+          "configured": false,
+          "models": [
+            "go-deepseek-v4-pro",
+            "go-deepseek-v4.1-flash",
+            "go-glm-5.3",
+            "go-kimi-k3",
+            "go-mimo-v2.6-flash",
+            "go-mimo-v2.6-pro",
+            "go-minimax-m3",
+            "go-qwen3.8-flash",
+            "go-qwen3.8-max"
+          ],
+          "config_issue": "personal key not added — add your own key in Settings",
+          "display_name": "OpenCode Go",
+          "personal_key": true
+        }
+      ],
+      "model_limits": {
+        "claude-haiku-5-5": {
+          "context_window": 1000000,
+          "max_output_tokens": 128000
+        },
+        "claude-opus-5-5": {
+          "context_window": 1000000,
+          "max_output_tokens": 128000
+        },
+        "claude-sonnet-5-5": {
+          "context_window": 1000000,
+          "max_output_tokens": 128000
+        }
+      }
+    }
+  },
+  "models": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "type": "model",
+          "id": "claude-haiku-5-5",
+          "display_name": "Claude Haiku 5.5",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 1000000,
+          "max_tokens": 128000
+        },
+        {
+          "type": "model",
+          "id": "claude-opus-5-5",
+          "display_name": "Claude Opus 5.5",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 1000000,
+          "max_tokens": 128000
+        },
+        {
+          "type": "model",
+          "id": "claude-sonnet-5-5",
+          "display_name": "Claude Sonnet 5.5",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 1000000,
+          "max_tokens": 128000
+        },
+        {
+          "type": "model",
+          "id": "go-deepseek-v4-pro",
+          "display_name": "Go Deepseek V4 Pro",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 1048576,
+          "max_tokens": 393216
+        },
+        {
+          "type": "model",
+          "id": "go-deepseek-v4.1-flash",
+          "display_name": "Go Deepseek V4.1 Flash",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 1048576,
+          "max_tokens": 393216
+        },
+        {
+          "type": "model",
+          "id": "go-glm-5.3",
+          "display_name": "Go Glm 5.3",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 200000,
+          "max_tokens": 131072
+        },
+        {
+          "type": "model",
+          "id": "go-kimi-k3",
+          "display_name": "Go Kimi K3",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 262144,
+          "max_tokens": 65536
+        },
+        {
+          "type": "model",
+          "id": "go-mimo-v2.6-flash",
+          "display_name": "Go Mimo V2.6 Flash",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 262144,
+          "max_tokens": 65536
+        },
+        {
+          "type": "model",
+          "id": "go-mimo-v2.6-pro",
+          "display_name": "Go Mimo V2.6 Pro",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 262144,
+          "max_tokens": 65536
+        },
+        {
+          "type": "model",
+          "id": "go-minimax-m3",
+          "display_name": "Go Minimax M3",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 1000000,
+          "max_tokens": 131072
+        },
+        {
+          "type": "model",
+          "id": "go-qwen3.8-flash",
+          "display_name": "Go Qwen3.8 Flash",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 262144,
+          "max_tokens": 65536
+        },
+        {
+          "type": "model",
+          "id": "go-qwen3.8-max",
+          "display_name": "Go Qwen3.8 Max",
+          "created_at": "1970-01-01T00:00:00Z",
+          "max_input_tokens": 262144,
+          "max_tokens": 65536
+        }
+      ],
+      "has_more": false,
+      "first_id": "claude-haiku-5-5",
+      "last_id": "go-qwen3.8-max"
+    }
+  },
+  "whoami": {
+    "status": 200,
+    "body": {
+      "user_id": "1ecce4e3-bc87-441d-b374-ea29bab88da8",
+      "email": "dev@dynapps.test",
+      "display_name": "Dev User",
+      "roles": ["user"]
+    }
+  },
+  "rejected_jwt": {
+    "status": 401,
+    "body": {
+      "code": "unauthorized",
+      "message": "Bridge credential rejected",
+      "error_key": "invalid_credential",
+      "timestamp": "<timestamp>"
+    }
+  },
+  "invalid_pat": {
+    "status": 401,
+    "body": {
+      "code": "unauthorized",
+      "message": "Invalid PAT",
+      "timestamp": "<timestamp>"
+    }
+  }
+}

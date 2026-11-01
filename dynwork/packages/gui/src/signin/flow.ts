@@ -85,7 +85,8 @@ export function create(accounts: SignInAccounts.Interface) {
       if (!state.token.trim()) return setState("tokenError", true)
       setState("pending", "token")
 
-      if ((await accounts.signInToken(state.url, state.token.trim())) !== "signed-in") return setState("pending", undefined)
+      if ((await accounts.signInToken(state.url, state.token.trim())) !== "signed-in")
+        return setState("pending", undefined)
       await enter()
     },
     select: (id: string) => setState("selected", id),
