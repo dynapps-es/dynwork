@@ -15,6 +15,7 @@ the next tag.
 | `script/patches.ts` | The patch guard (`bun dynwork/script/patches.ts`, logic in `packages/build/src/patches.ts`). `UPSTREAM` holds the upstream tag the stack sits on |
 | `script/sync-upstream.ts` | The upstream sync (logic in `packages/build/src/sync.ts`): rebases the stack onto a newer upstream ref in a throwaway worktree, checks it and writes a report. See "Syncing with upstream" |
 | `script/sp-local.ts`, `test/sp-local` | The local systemprompt harness (see "Local systemprompt instances") |
+| `packages/sp-client` | `PROTOCOL.md`: the systemprompt sign-in contract as observed (device link, code exchange, PAT to JWT) |
 | `packages/gui` | `@dynwork/gui`: DynWork's own screens and main-process helpers. `src/signin`: the sign-in gate the desktop shows until the device is signed in. `src/service.ts`: the layout of DynWork's own background service (see "Background service") |
 | `packages/branding/src` | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark |
 | `packages/branding/theme` | `dynapps.json`: the Dynapps light and dark theme, bundled by the desktop build in place of `oc-2.json`. `dynapps-deep.json`: Dynapps Deep, the same light variant and a pure black dark variant, linked into the upstream theme folder as `oc-2-deep.json` |
@@ -34,10 +35,12 @@ to itself, so app shortcuts do not act on the hidden shell. All copy lives in `c
 
 ## Local systemprompt instances
 
-`bun dynwork/script/sp-local.ts up|seed|check|status|code|down` runs two disposable systemprompt 0.76 instances in Docker
-(alpha and beta, loopback only, seeded with a user, a PAT, an exchange code and content) so DynWork can be tested against
-real servers without touching a Dynapps environment. Setup, what the image needs and the seeded content are in
-`test/sp-local/README.md`; the generated secrets stay in the gitignored `test/sp-local/.env.local`.
+`bun dynwork/script/sp-local.ts up|seed|check|status|code|capture|down` runs two disposable systemprompt 0.76 instances in
+Docker (alpha and beta, loopback only, seeded with a user, a PAT, an exchange code and content) so DynWork can be tested
+against real servers without touching a Dynapps environment. Setup, what the image needs and the seeded content are in
+`test/sp-local/README.md`; the generated secrets stay in the gitignored `test/sp-local/.env.local`. `capture` observes
+the browser device link and writes the redacted `test/sp-local/fixtures/device-link.json`; the sign-in contract drawn
+from it is `packages/sp-client/PROTOCOL.md`.
 
 ## Background service
 

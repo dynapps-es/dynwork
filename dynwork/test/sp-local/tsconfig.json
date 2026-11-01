@@ -4,7 +4,9 @@
   "compilerOptions": {
     "types": ["bun"],
     "noUnusedLocals": true,
-    "noEmit": true
+    "noEmit": true,
+    // sp-local.ts loads Playwright from packages/app at runtime (dynwork/ has no dependency on it); types only
+    "paths": { "@playwright/test": ["../../../packages/app/node_modules/@playwright/test"] }
   },
   "include": ["*.ts", "../../script/sp-local.ts"]
 }
