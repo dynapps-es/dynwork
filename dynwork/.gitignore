@@ -1,2 +1,3 @@
 # Generated secrets and seeded credentials of the local systemprompt instances (dynwork/script/sp-local.ts)
 test/sp-local/.env.local
+test/sp-local/.env.*.local

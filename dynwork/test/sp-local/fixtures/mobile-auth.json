@@ -1,0 +1,1396 @@
+{
+  "captured_at": "2026-11-01T15:33:43.900Z",
+  "image": "ghcr.io/systempromptio/systemprompt-dynapps:0.76.0",
+  "verdict": "core OAuth usable",
+  "reasons": [],
+  "instances": {
+    "alpha": {
+      "discovery": {
+        "/v1/auth/bridge/capabilities": {
+          "status": 200,
+          "body": {
+            "modes": [
+              "pat",
+              "session",
+              "oauth-client"
+            ]
+          }
+        },
+        "/.well-known/oauth-authorization-server": {
+          "status": 200,
+          "body": {
+            "issuer": "<instance>",
+            "authorization_endpoint": "<instance>/api/v1/core/oauth/authorize",
+            "token_endpoint": "<instance>/api/v1/core/oauth/token",
+            "userinfo_endpoint": "<instance>/api/v1/core/oauth/userinfo",
+            "introspection_endpoint": "<instance>/api/v1/core/oauth/introspect",
+            "revocation_endpoint": "<instance>/api/v1/core/oauth/revoke",
+            "registration_endpoint": "<instance>/api/v1/core/oauth/register",
+            "scopes_supported": [
+              "user",
+              "admin"
+            ],
+            "response_types_supported": [
+              "code"
+            ],
+            "response_modes_supported": [
+              "query"
+            ],
+            "grant_types_supported": [
+              "authorization_code",
+              "refresh_token",
+              "urn:ietf:params:oauth:grant-type:token-exchange",
+              "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            ],
+            "token_endpoint_auth_methods_supported": [
+              "none",
+              "client_secret_post",
+              "client_secret_basic"
+            ],
+            "code_challenge_methods_supported": [
+              "S256"
+            ],
+            "subject_types_supported": [
+              "public"
+            ],
+            "id_token_signing_alg_values_supported": [
+              "RS256"
+            ],
+            "claims_supported": [
+              "sub",
+              "username",
+              "email",
+              "user_type",
+              "roles",
+              "permissions",
+              "iat",
+              "exp",
+              "iss",
+              "aud",
+              "jti"
+            ],
+            "authorization_response_iss_parameter_supported": true,
+            "subject_token_types_supported": [
+              "urn:ietf:params:oauth:token-type:access_token",
+              "urn:ietf:params:oauth:token-type:id_token",
+              "urn:ietf:params:oauth:token-type:jwt",
+              "urn:ietf:params:oauth:token-type:id-jag"
+            ],
+            "issued_token_types_supported": [
+              "urn:ietf:params:oauth:token-type:access_token",
+              "urn:ietf:params:oauth:token-type:id-jag"
+            ],
+            "authorization_grant_profiles_supported": [
+              "urn:ietf:params:oauth:grant-profile:id-jag"
+            ]
+          }
+        },
+        "/.well-known/openid-configuration": {
+          "status": 200,
+          "body": {
+            "issuer": "<instance>",
+            "authorization_endpoint": "<instance>/api/v1/core/oauth/authorize",
+            "token_endpoint": "<instance>/api/v1/core/oauth/token",
+            "userinfo_endpoint": "<instance>/api/v1/core/oauth/userinfo",
+            "introspection_endpoint": "<instance>/api/v1/core/oauth/introspect",
+            "revocation_endpoint": "<instance>/api/v1/core/oauth/revoke",
+            "registration_endpoint": "<instance>/api/v1/core/oauth/register",
+            "scopes_supported": [
+              "user",
+              "admin"
+            ],
+            "response_types_supported": [
+              "code"
+            ],
+            "response_modes_supported": [
+              "query"
+            ],
+            "grant_types_supported": [
+              "authorization_code",
+              "refresh_token",
+              "urn:ietf:params:oauth:grant-type:token-exchange",
+              "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            ],
+            "token_endpoint_auth_methods_supported": [
+              "none",
+              "client_secret_post",
+              "client_secret_basic"
+            ],
+            "code_challenge_methods_supported": [
+              "S256"
+            ],
+            "subject_types_supported": [
+              "public"
+            ],
+            "id_token_signing_alg_values_supported": [
+              "RS256"
+            ],
+            "claims_supported": [
+              "sub",
+              "username",
+              "email",
+              "user_type",
+              "roles",
+              "permissions",
+              "iat",
+              "exp",
+              "iss",
+              "aud",
+              "jti"
+            ],
+            "authorization_response_iss_parameter_supported": true,
+            "subject_token_types_supported": [
+              "urn:ietf:params:oauth:token-type:access_token",
+              "urn:ietf:params:oauth:token-type:id_token",
+              "urn:ietf:params:oauth:token-type:jwt",
+              "urn:ietf:params:oauth:token-type:id-jag"
+            ],
+            "issued_token_types_supported": [
+              "urn:ietf:params:oauth:token-type:access_token",
+              "urn:ietf:params:oauth:token-type:id-jag"
+            ],
+            "authorization_grant_profiles_supported": [
+              "urn:ietf:params:oauth:grant-profile:id-jag"
+            ]
+          }
+        },
+        "/.well-known/oauth-protected-resource": {
+          "status": 200,
+          "body": {
+            "resource": "<instance>",
+            "authorization_servers": [
+              "<instance>"
+            ],
+            "scopes_supported": [
+              "user",
+              "admin"
+            ],
+            "bearer_methods_supported": [
+              "header",
+              "body"
+            ],
+            "resource_documentation": "<instance>"
+          }
+        },
+        "/.well-known/systemprompt-bridge": {
+          "status": 200,
+          "body": {
+            "contract": "1",
+            "device_link_path": "/bridge-auth/device-link",
+            "identity_path": "/api/public/bridge/whoami",
+            "branding": {
+              "display_name": "Dynapps"
+            },
+            "enabled_hosts": [
+              "claude-code",
+              "claude-desktop",
+              "opencode",
+              "opencode-cli"
+            ]
+          }
+        }
+      },
+      "registration": {
+        "without_credentials": true,
+        "cases": [
+          {
+            "redirect": "dynwork://auth/callback",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 400,
+              "error": "invalid_client_metadata: redirect_uri \"dynwork://auth/callback\" uses a private-use scheme, which requires application_type \"native\""
+            }
+          },
+          {
+            "redirect": "dynwork:/auth/callback",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 400,
+              "error": "invalid_client_metadata: redirect_uri \"dynwork:/auth/callback\" uses a private-use scheme, which requires application_type \"native\""
+            }
+          },
+          {
+            "redirect": "com.dynapps.dynwork:/auth/callback",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 400,
+              "error": "invalid_client_metadata: redirect_uri \"com.dynapps.dynwork:/auth/callback\" uses a private-use scheme, which requires application_type \"native\""
+            }
+          },
+          {
+            "redirect": "http://127.0.0.1/cb",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 201
+            }
+          },
+          {
+            "redirect": "http://127.0.0.1:<port>/cb",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 201
+            }
+          },
+          {
+            "redirect": "https://<instance>/auth/callback",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 201
+            }
+          },
+          {
+            "redirect": "https://evil.example/cb",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 201
+            }
+          },
+          {
+            "redirect": "javascript:alert(1)",
+            "native": {
+              "status": 400,
+              "error": "invalid_client_metadata: redirect_uri \"javascript:alert(1)\" uses a refused scheme"
+            },
+            "web": {
+              "status": 400,
+              "error": "invalid_client_metadata: redirect_uri \"javascript:alert(1)\" uses a refused scheme"
+            }
+          }
+        ]
+      },
+      "authorize": {
+        "cases": [
+          {
+            "name": "native client, registered redirect",
+            "redirect": "dynwork://auth/callback",
+            "status": 200,
+            "page": "systemprompt.io OAuth - Sign In v2.0"
+          },
+          {
+            "name": "native client, other path of the same scheme",
+            "redirect": "dynwork://auth/other",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'dynwork://auth/other' not registered for client '<client>'"
+          },
+          {
+            "name": "native client, other host of the same scheme",
+            "redirect": "dynwork://other/callback",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'dynwork://other/callback' not registered for client '<client>'"
+          },
+          {
+            "name": "native client, trailing slash",
+            "redirect": "dynwork://auth/callback/",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'dynwork://auth/callback/' not registered for client '<client>'"
+          },
+          {
+            "name": "native client, another scheme",
+            "redirect": "dynworkx://auth/callback",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'dynworkx://auth/callback' not registered for client '<client>'"
+          },
+          {
+            "name": "native client, a loopback redirect",
+            "redirect": "http://127.0.0.1:<port>/cb",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'http://127.0.0.1:<n>/cb' not registered for client '<client>'"
+          },
+          {
+            "name": "native client, no code_challenge",
+            "redirect": "dynwork://auth/callback",
+            "status": 303,
+            "location": "dynwork://auth/callback?error=invalid_request&error_description=<redacted>&state=<redacted>",
+            "error_in_location": "invalid_request"
+          },
+          {
+            "name": "native client, plain code_challenge_method",
+            "redirect": "dynwork://auth/callback",
+            "status": 303,
+            "location": "dynwork://auth/callback?error=invalid_request&error_description=<redacted>&state=<redacted>",
+            "error_in_location": "invalid_request"
+          },
+          {
+            "name": "native client, state of 30 characters",
+            "redirect": "dynwork://auth/callback",
+            "status": 400,
+            "error": "invalid_request: CSRF token (state parameter) is invalid"
+          },
+          {
+            "name": "native client, state of 43 base64url characters",
+            "redirect": "dynwork://auth/callback",
+            "status": 200,
+            "page": "systemprompt.io OAuth - Sign In v2.0"
+          },
+          {
+            "name": "native client, no state",
+            "redirect": "dynwork://auth/callback",
+            "status": 400,
+            "error": "invalid_request: CSRF token (state parameter) is required"
+          },
+          {
+            "name": "native client, scope admin",
+            "redirect": "dynwork://auth/callback",
+            "status": 303,
+            "location": "dynwork://auth/callback?error=invalid_request&error_description=<redacted>&state=<redacted>",
+            "error_in_location": "invalid_request"
+          },
+          {
+            "name": "loopback client, registered without a port, any port",
+            "redirect": "http://127.0.0.1:<port>/cb",
+            "status": 200,
+            "page": "systemprompt.io OAuth - Sign In v2.0"
+          },
+          {
+            "name": "loopback client, registered redirect",
+            "redirect": "http://127.0.0.1/cb",
+            "status": 200,
+            "page": "systemprompt.io OAuth - Sign In v2.0"
+          },
+          {
+            "name": "loopback client, another path",
+            "redirect": "http://127.0.0.1:<port>/other",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'http://127.0.0.1:<n>/other' not registered for client '<client>'"
+          },
+          {
+            "name": "loopback client, localhost",
+            "redirect": "http://localhost:<port>/cb",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'http://localhost:<n>/cb' not registered for client '<client>'"
+          },
+          {
+            "name": "loopback client, the dynwork scheme",
+            "redirect": "dynwork://auth/callback",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'dynwork://auth/callback' not registered for client '<client>'"
+          },
+          {
+            "name": "web client, https redirect on the instance host",
+            "redirect": "https://<instance>/auth/callback",
+            "status": 200,
+            "page": "systemprompt.io OAuth - Sign In v2.0"
+          },
+          {
+            "name": "unknown client",
+            "redirect": "dynwork://auth/callback",
+            "status": 400,
+            "error": "invalid_request: Invalid client_id"
+          }
+        ]
+      },
+      "round_trip": {
+        "native": {
+          "callback": {
+            "status": 303,
+            "location": "dynwork://auth/callback?code=<redacted>&client_id=<redacted>&state=<redacted>&iss=<redacted>",
+            "query": [
+              "code",
+              "client_id",
+              "state",
+              "iss"
+            ],
+            "state_returned": true,
+            "code_length": 42,
+            "issuer_returned": true
+          },
+          "token": {
+            "status": 200,
+            "body": {
+              "access_token": "<jwt>",
+              "expires_in": 2592000,
+              "refresh_token": "<string>",
+              "scope": "user",
+              "token_type": "Bearer"
+            },
+            "has_refresh_token": true,
+            "jwt_claims": {
+              "names": [
+                "aud",
+                "auth_time",
+                "client_id",
+                "email",
+                "exp",
+                "iat",
+                "iss",
+                "jti",
+                "nbf",
+                "rate_limit_tier",
+                "roles",
+                "scope",
+                "session_id",
+                "sub",
+                "token_type",
+                "user_type",
+                "username"
+              ],
+              "aud": [
+                "web",
+                "api",
+                "a2a",
+                "mcp"
+              ],
+              "token_use": "Bearer"
+            },
+            "lifetime_seconds": 2592000
+          },
+          "code_used_twice": {
+            "first": 200,
+            "second": {
+              "status": 400,
+              "error": "invalid_grant: Invalid authorization code"
+            },
+            "refresh_token_of_first_use_afterwards": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          },
+          "refresh": {
+            "status": 200,
+            "body": {
+              "access_token": "<jwt>",
+              "expires_in": 2592000,
+              "refresh_token": "<string>",
+              "scope": "user",
+              "token_type": "Bearer"
+            },
+            "rotates": true,
+            "old_token_after_rotation": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          },
+          "wrong_verifier": {
+            "status": 400,
+            "error": "invalid_grant: Invalid authorization code"
+          },
+          "wrong_redirect_at_token_endpoint": {
+            "status": 400,
+            "error": "invalid_grant: Invalid authorization code"
+          },
+          "bridge": [
+            {
+              "path": "/v1/bridge/whoami",
+              "status": 200,
+              "keys": [
+                "display_name",
+                "email",
+                "roles",
+                "user_id"
+              ]
+            },
+            {
+              "path": "/v1/bridge/profile",
+              "status": 200,
+              "keys": [
+                "auth_scheme",
+                "default_model",
+                "inference_gateway_base_url",
+                "model_limits",
+                "models",
+                "organization_uuid",
+                "providers"
+              ]
+            },
+            {
+              "path": "/v1/bridge/manifest",
+              "status": 200,
+              "keys": [
+                "payload",
+                "signature"
+              ]
+            }
+          ],
+          "oauth_jwt_as_pat_at_pat_route": 401,
+          "userinfo": 200,
+          "revoke": {
+            "client_id_alone": {
+              "status": 401
+            },
+            "with_access_token_as_bearer": {
+              "status": 200
+            },
+            "refresh_afterwards": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          }
+        },
+        "loopback_any_port": {
+          "callback": {
+            "status": 303,
+            "location": "http://127.0.0.1:<port>/cb?code=<redacted>&client_id=<redacted>&state=<redacted>&iss=<redacted>",
+            "query": [
+              "code",
+              "client_id",
+              "state",
+              "iss"
+            ],
+            "state_returned": true,
+            "code_length": 42,
+            "issuer_returned": true
+          },
+          "token": {
+            "status": 200,
+            "body": {
+              "access_token": "<jwt>",
+              "expires_in": 2592000,
+              "refresh_token": "<string>",
+              "scope": "user",
+              "token_type": "Bearer"
+            },
+            "has_refresh_token": true,
+            "jwt_claims": {
+              "names": [
+                "aud",
+                "auth_time",
+                "client_id",
+                "email",
+                "exp",
+                "iat",
+                "iss",
+                "jti",
+                "nbf",
+                "rate_limit_tier",
+                "roles",
+                "scope",
+                "session_id",
+                "sub",
+                "token_type",
+                "user_type",
+                "username"
+              ],
+              "aud": [
+                "web",
+                "api",
+                "a2a",
+                "mcp"
+              ],
+              "token_use": "Bearer"
+            },
+            "lifetime_seconds": 2592000
+          },
+          "code_used_twice": {
+            "first": 200,
+            "second": {
+              "status": 400,
+              "error": "invalid_grant: Invalid authorization code"
+            },
+            "refresh_token_of_first_use_afterwards": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          },
+          "refresh": {
+            "status": 200,
+            "body": {
+              "access_token": "<jwt>",
+              "expires_in": 2592000,
+              "refresh_token": "<string>",
+              "scope": "user",
+              "token_type": "Bearer"
+            },
+            "rotates": true,
+            "old_token_after_rotation": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          },
+          "wrong_verifier": {
+            "status": 400,
+            "error": "invalid_grant: Invalid authorization code"
+          },
+          "wrong_redirect_at_token_endpoint": {
+            "status": 400,
+            "error": "invalid_grant: Invalid authorization code"
+          },
+          "bridge": [
+            {
+              "path": "/v1/bridge/whoami",
+              "status": 200,
+              "keys": [
+                "display_name",
+                "email",
+                "roles",
+                "user_id"
+              ]
+            },
+            {
+              "path": "/v1/bridge/profile",
+              "status": 200,
+              "keys": [
+                "auth_scheme",
+                "default_model",
+                "inference_gateway_base_url",
+                "model_limits",
+                "models",
+                "organization_uuid",
+                "providers"
+              ]
+            },
+            {
+              "path": "/v1/bridge/manifest",
+              "status": 200,
+              "keys": [
+                "payload",
+                "signature"
+              ]
+            }
+          ],
+          "oauth_jwt_as_pat_at_pat_route": 401,
+          "userinfo": 200,
+          "revoke": {
+            "client_id_alone": {
+              "status": 401
+            },
+            "with_access_token_as_bearer": {
+              "status": 200
+            },
+            "refresh_afterwards": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          }
+        },
+        "deny": {
+          "status": 303,
+          "location": "dynwork://auth/callback?error=access_denied&error_description=<redacted>&state=<redacted>",
+          "error": "access_denied",
+          "state_returned": true
+        }
+      },
+      "passkey_enrolment": {
+        "note": "The authorize page signs in with a passkey only; the admin login (Entra) is not offered on it.",
+        "sign_in_unknown_email": {
+          "status": 401,
+          "error": "authentication_failed: Authentication failed. Check the email address or register a passkey."
+        },
+        "register_start_known_email_without_credentials": {
+          "status": 200
+        },
+        "register_finish": "not exercised"
+      },
+      "cleanup": {
+        "created": 14,
+        "removed": 14,
+        "first_status": 204
+      },
+      "summary": {
+        "native_registration": true,
+        "authorize_page": true,
+        "callback_state": true,
+        "token_with_refresh": true,
+        "refresh_works": true,
+        "bridge_accepts_jwt": true
+      }
+    },
+    "beta": {
+      "discovery": {
+        "/v1/auth/bridge/capabilities": {
+          "status": 200,
+          "body": {
+            "modes": [
+              "pat",
+              "session",
+              "oauth-client"
+            ]
+          }
+        },
+        "/.well-known/oauth-authorization-server": {
+          "status": 200,
+          "body": {
+            "issuer": "<instance>",
+            "authorization_endpoint": "<instance>/api/v1/core/oauth/authorize",
+            "token_endpoint": "<instance>/api/v1/core/oauth/token",
+            "userinfo_endpoint": "<instance>/api/v1/core/oauth/userinfo",
+            "introspection_endpoint": "<instance>/api/v1/core/oauth/introspect",
+            "revocation_endpoint": "<instance>/api/v1/core/oauth/revoke",
+            "registration_endpoint": "<instance>/api/v1/core/oauth/register",
+            "scopes_supported": [
+              "user",
+              "admin"
+            ],
+            "response_types_supported": [
+              "code"
+            ],
+            "response_modes_supported": [
+              "query"
+            ],
+            "grant_types_supported": [
+              "authorization_code",
+              "refresh_token",
+              "urn:ietf:params:oauth:grant-type:token-exchange",
+              "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            ],
+            "token_endpoint_auth_methods_supported": [
+              "none",
+              "client_secret_post",
+              "client_secret_basic"
+            ],
+            "code_challenge_methods_supported": [
+              "S256"
+            ],
+            "subject_types_supported": [
+              "public"
+            ],
+            "id_token_signing_alg_values_supported": [
+              "RS256"
+            ],
+            "claims_supported": [
+              "sub",
+              "username",
+              "email",
+              "user_type",
+              "roles",
+              "permissions",
+              "iat",
+              "exp",
+              "iss",
+              "aud",
+              "jti"
+            ],
+            "authorization_response_iss_parameter_supported": true,
+            "subject_token_types_supported": [
+              "urn:ietf:params:oauth:token-type:access_token",
+              "urn:ietf:params:oauth:token-type:id_token",
+              "urn:ietf:params:oauth:token-type:jwt",
+              "urn:ietf:params:oauth:token-type:id-jag"
+            ],
+            "issued_token_types_supported": [
+              "urn:ietf:params:oauth:token-type:access_token",
+              "urn:ietf:params:oauth:token-type:id-jag"
+            ],
+            "authorization_grant_profiles_supported": [
+              "urn:ietf:params:oauth:grant-profile:id-jag"
+            ]
+          }
+        },
+        "/.well-known/openid-configuration": {
+          "status": 200,
+          "body": {
+            "issuer": "<instance>",
+            "authorization_endpoint": "<instance>/api/v1/core/oauth/authorize",
+            "token_endpoint": "<instance>/api/v1/core/oauth/token",
+            "userinfo_endpoint": "<instance>/api/v1/core/oauth/userinfo",
+            "introspection_endpoint": "<instance>/api/v1/core/oauth/introspect",
+            "revocation_endpoint": "<instance>/api/v1/core/oauth/revoke",
+            "registration_endpoint": "<instance>/api/v1/core/oauth/register",
+            "scopes_supported": [
+              "user",
+              "admin"
+            ],
+            "response_types_supported": [
+              "code"
+            ],
+            "response_modes_supported": [
+              "query"
+            ],
+            "grant_types_supported": [
+              "authorization_code",
+              "refresh_token",
+              "urn:ietf:params:oauth:grant-type:token-exchange",
+              "urn:ietf:params:oauth:grant-type:jwt-bearer"
+            ],
+            "token_endpoint_auth_methods_supported": [
+              "none",
+              "client_secret_post",
+              "client_secret_basic"
+            ],
+            "code_challenge_methods_supported": [
+              "S256"
+            ],
+            "subject_types_supported": [
+              "public"
+            ],
+            "id_token_signing_alg_values_supported": [
+              "RS256"
+            ],
+            "claims_supported": [
+              "sub",
+              "username",
+              "email",
+              "user_type",
+              "roles",
+              "permissions",
+              "iat",
+              "exp",
+              "iss",
+              "aud",
+              "jti"
+            ],
+            "authorization_response_iss_parameter_supported": true,
+            "subject_token_types_supported": [
+              "urn:ietf:params:oauth:token-type:access_token",
+              "urn:ietf:params:oauth:token-type:id_token",
+              "urn:ietf:params:oauth:token-type:jwt",
+              "urn:ietf:params:oauth:token-type:id-jag"
+            ],
+            "issued_token_types_supported": [
+              "urn:ietf:params:oauth:token-type:access_token",
+              "urn:ietf:params:oauth:token-type:id-jag"
+            ],
+            "authorization_grant_profiles_supported": [
+              "urn:ietf:params:oauth:grant-profile:id-jag"
+            ]
+          }
+        },
+        "/.well-known/oauth-protected-resource": {
+          "status": 200,
+          "body": {
+            "resource": "<instance>",
+            "authorization_servers": [
+              "<instance>"
+            ],
+            "scopes_supported": [
+              "user",
+              "admin"
+            ],
+            "bearer_methods_supported": [
+              "header",
+              "body"
+            ],
+            "resource_documentation": "<instance>"
+          }
+        },
+        "/.well-known/systemprompt-bridge": {
+          "status": 200,
+          "body": {
+            "contract": "1",
+            "device_link_path": "/bridge-auth/device-link",
+            "identity_path": "/api/public/bridge/whoami",
+            "branding": {
+              "display_name": "Dynapps"
+            },
+            "enabled_hosts": [
+              "claude-code",
+              "claude-desktop",
+              "opencode",
+              "opencode-cli"
+            ]
+          }
+        }
+      },
+      "registration": {
+        "without_credentials": true,
+        "cases": [
+          {
+            "redirect": "dynwork://auth/callback",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 400,
+              "error": "invalid_client_metadata: redirect_uri \"dynwork://auth/callback\" uses a private-use scheme, which requires application_type \"native\""
+            }
+          },
+          {
+            "redirect": "dynwork:/auth/callback",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 400,
+              "error": "invalid_client_metadata: redirect_uri \"dynwork:/auth/callback\" uses a private-use scheme, which requires application_type \"native\""
+            }
+          },
+          {
+            "redirect": "com.dynapps.dynwork:/auth/callback",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 400,
+              "error": "invalid_client_metadata: redirect_uri \"com.dynapps.dynwork:/auth/callback\" uses a private-use scheme, which requires application_type \"native\""
+            }
+          },
+          {
+            "redirect": "http://127.0.0.1/cb",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 201
+            }
+          },
+          {
+            "redirect": "http://127.0.0.1:<port>/cb",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 201
+            }
+          },
+          {
+            "redirect": "https://<instance>/auth/callback",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 201
+            }
+          },
+          {
+            "redirect": "https://evil.example/cb",
+            "native": {
+              "status": 201
+            },
+            "web": {
+              "status": 201
+            }
+          },
+          {
+            "redirect": "javascript:alert(1)",
+            "native": {
+              "status": 400,
+              "error": "invalid_client_metadata: redirect_uri \"javascript:alert(1)\" uses a refused scheme"
+            },
+            "web": {
+              "status": 400,
+              "error": "invalid_client_metadata: redirect_uri \"javascript:alert(1)\" uses a refused scheme"
+            }
+          }
+        ]
+      },
+      "authorize": {
+        "cases": [
+          {
+            "name": "native client, registered redirect",
+            "redirect": "dynwork://auth/callback",
+            "status": 200,
+            "page": "systemprompt.io OAuth - Sign In v2.0"
+          },
+          {
+            "name": "native client, other path of the same scheme",
+            "redirect": "dynwork://auth/other",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'dynwork://auth/other' not registered for client '<client>'"
+          },
+          {
+            "name": "native client, other host of the same scheme",
+            "redirect": "dynwork://other/callback",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'dynwork://other/callback' not registered for client '<client>'"
+          },
+          {
+            "name": "native client, trailing slash",
+            "redirect": "dynwork://auth/callback/",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'dynwork://auth/callback/' not registered for client '<client>'"
+          },
+          {
+            "name": "native client, another scheme",
+            "redirect": "dynworkx://auth/callback",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'dynworkx://auth/callback' not registered for client '<client>'"
+          },
+          {
+            "name": "native client, a loopback redirect",
+            "redirect": "http://127.0.0.1:<port>/cb",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'http://127.0.0.1:<n>/cb' not registered for client '<client>'"
+          },
+          {
+            "name": "native client, no code_challenge",
+            "redirect": "dynwork://auth/callback",
+            "status": 303,
+            "location": "dynwork://auth/callback?error=invalid_request&error_description=<redacted>&state=<redacted>",
+            "error_in_location": "invalid_request"
+          },
+          {
+            "name": "native client, plain code_challenge_method",
+            "redirect": "dynwork://auth/callback",
+            "status": 303,
+            "location": "dynwork://auth/callback?error=invalid_request&error_description=<redacted>&state=<redacted>",
+            "error_in_location": "invalid_request"
+          },
+          {
+            "name": "native client, state of 30 characters",
+            "redirect": "dynwork://auth/callback",
+            "status": 400,
+            "error": "invalid_request: CSRF token (state parameter) is invalid"
+          },
+          {
+            "name": "native client, state of 43 base64url characters",
+            "redirect": "dynwork://auth/callback",
+            "status": 200,
+            "page": "systemprompt.io OAuth - Sign In v2.0"
+          },
+          {
+            "name": "native client, no state",
+            "redirect": "dynwork://auth/callback",
+            "status": 400,
+            "error": "invalid_request: CSRF token (state parameter) is required"
+          },
+          {
+            "name": "native client, scope admin",
+            "redirect": "dynwork://auth/callback",
+            "status": 303,
+            "location": "dynwork://auth/callback?error=invalid_request&error_description=<redacted>&state=<redacted>",
+            "error_in_location": "invalid_request"
+          },
+          {
+            "name": "loopback client, registered without a port, any port",
+            "redirect": "http://127.0.0.1:<port>/cb",
+            "status": 200,
+            "page": "systemprompt.io OAuth - Sign In v2.0"
+          },
+          {
+            "name": "loopback client, registered redirect",
+            "redirect": "http://127.0.0.1/cb",
+            "status": 200,
+            "page": "systemprompt.io OAuth - Sign In v2.0"
+          },
+          {
+            "name": "loopback client, another path",
+            "redirect": "http://127.0.0.1:<port>/other",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'http://127.0.0.1:<n>/other' not registered for client '<client>'"
+          },
+          {
+            "name": "loopback client, localhost",
+            "redirect": "http://localhost:<port>/cb",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'http://localhost:<n>/cb' not registered for client '<client>'"
+          },
+          {
+            "name": "loopback client, the dynwork scheme",
+            "redirect": "dynwork://auth/callback",
+            "status": 400,
+            "error": "invalid_request: redirect_uri 'dynwork://auth/callback' not registered for client '<client>'"
+          },
+          {
+            "name": "web client, https redirect on the instance host",
+            "redirect": "https://<instance>/auth/callback",
+            "status": 200,
+            "page": "systemprompt.io OAuth - Sign In v2.0"
+          },
+          {
+            "name": "unknown client",
+            "redirect": "dynwork://auth/callback",
+            "status": 400,
+            "error": "invalid_request: Invalid client_id"
+          }
+        ]
+      },
+      "round_trip": {
+        "native": {
+          "callback": {
+            "status": 303,
+            "location": "dynwork://auth/callback?code=<redacted>&client_id=<redacted>&state=<redacted>&iss=<redacted>",
+            "query": [
+              "code",
+              "client_id",
+              "state",
+              "iss"
+            ],
+            "state_returned": true,
+            "code_length": 42,
+            "issuer_returned": true
+          },
+          "token": {
+            "status": 200,
+            "body": {
+              "access_token": "<jwt>",
+              "expires_in": 2592000,
+              "refresh_token": "<string>",
+              "scope": "user",
+              "token_type": "Bearer"
+            },
+            "has_refresh_token": true,
+            "jwt_claims": {
+              "names": [
+                "aud",
+                "auth_time",
+                "client_id",
+                "email",
+                "exp",
+                "iat",
+                "iss",
+                "jti",
+                "nbf",
+                "rate_limit_tier",
+                "roles",
+                "scope",
+                "session_id",
+                "sub",
+                "token_type",
+                "user_type",
+                "username"
+              ],
+              "aud": [
+                "web",
+                "api",
+                "a2a",
+                "mcp"
+              ],
+              "token_use": "Bearer"
+            },
+            "lifetime_seconds": 2592000
+          },
+          "code_used_twice": {
+            "first": 200,
+            "second": {
+              "status": 400,
+              "error": "invalid_grant: Invalid authorization code"
+            },
+            "refresh_token_of_first_use_afterwards": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          },
+          "refresh": {
+            "status": 200,
+            "body": {
+              "access_token": "<jwt>",
+              "expires_in": 2592000,
+              "refresh_token": "<string>",
+              "scope": "user",
+              "token_type": "Bearer"
+            },
+            "rotates": true,
+            "old_token_after_rotation": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          },
+          "wrong_verifier": {
+            "status": 400,
+            "error": "invalid_grant: Invalid authorization code"
+          },
+          "wrong_redirect_at_token_endpoint": {
+            "status": 400,
+            "error": "invalid_grant: Invalid authorization code"
+          },
+          "bridge": [
+            {
+              "path": "/v1/bridge/whoami",
+              "status": 200,
+              "keys": [
+                "display_name",
+                "email",
+                "roles",
+                "user_id"
+              ]
+            },
+            {
+              "path": "/v1/bridge/profile",
+              "status": 200,
+              "keys": [
+                "auth_scheme",
+                "default_model",
+                "inference_gateway_base_url",
+                "model_limits",
+                "models",
+                "organization_uuid",
+                "providers"
+              ]
+            },
+            {
+              "path": "/v1/bridge/manifest",
+              "status": 200,
+              "keys": [
+                "payload",
+                "signature"
+              ]
+            }
+          ],
+          "oauth_jwt_as_pat_at_pat_route": 401,
+          "userinfo": 200,
+          "revoke": {
+            "client_id_alone": {
+              "status": 401
+            },
+            "with_access_token_as_bearer": {
+              "status": 200
+            },
+            "refresh_afterwards": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          }
+        },
+        "loopback_any_port": {
+          "callback": {
+            "status": 303,
+            "location": "http://127.0.0.1:<port>/cb?code=<redacted>&client_id=<redacted>&state=<redacted>&iss=<redacted>",
+            "query": [
+              "code",
+              "client_id",
+              "state",
+              "iss"
+            ],
+            "state_returned": true,
+            "code_length": 42,
+            "issuer_returned": true
+          },
+          "token": {
+            "status": 200,
+            "body": {
+              "access_token": "<jwt>",
+              "expires_in": 2592000,
+              "refresh_token": "<string>",
+              "scope": "user",
+              "token_type": "Bearer"
+            },
+            "has_refresh_token": true,
+            "jwt_claims": {
+              "names": [
+                "aud",
+                "auth_time",
+                "client_id",
+                "email",
+                "exp",
+                "iat",
+                "iss",
+                "jti",
+                "nbf",
+                "rate_limit_tier",
+                "roles",
+                "scope",
+                "session_id",
+                "sub",
+                "token_type",
+                "user_type",
+                "username"
+              ],
+              "aud": [
+                "web",
+                "api",
+                "a2a",
+                "mcp"
+              ],
+              "token_use": "Bearer"
+            },
+            "lifetime_seconds": 2592000
+          },
+          "code_used_twice": {
+            "first": 200,
+            "second": {
+              "status": 400,
+              "error": "invalid_grant: Invalid authorization code"
+            },
+            "refresh_token_of_first_use_afterwards": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          },
+          "refresh": {
+            "status": 200,
+            "body": {
+              "access_token": "<jwt>",
+              "expires_in": 2592000,
+              "refresh_token": "<string>",
+              "scope": "user",
+              "token_type": "Bearer"
+            },
+            "rotates": true,
+            "old_token_after_rotation": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          },
+          "wrong_verifier": {
+            "status": 400,
+            "error": "invalid_grant: Invalid authorization code"
+          },
+          "wrong_redirect_at_token_endpoint": {
+            "status": 400,
+            "error": "invalid_grant: Invalid authorization code"
+          },
+          "bridge": [
+            {
+              "path": "/v1/bridge/whoami",
+              "status": 200,
+              "keys": [
+                "display_name",
+                "email",
+                "roles",
+                "user_id"
+              ]
+            },
+            {
+              "path": "/v1/bridge/profile",
+              "status": 200,
+              "keys": [
+                "auth_scheme",
+                "default_model",
+                "inference_gateway_base_url",
+                "model_limits",
+                "models",
+                "organization_uuid",
+                "providers"
+              ]
+            },
+            {
+              "path": "/v1/bridge/manifest",
+              "status": 200,
+              "keys": [
+                "payload",
+                "signature"
+              ]
+            }
+          ],
+          "oauth_jwt_as_pat_at_pat_route": 401,
+          "userinfo": 200,
+          "revoke": {
+            "client_id_alone": {
+              "status": 401
+            },
+            "with_access_token_as_bearer": {
+              "status": 200
+            },
+            "refresh_afterwards": {
+              "status": 400,
+              "error": "invalid_grant: Refresh token invalid: Invalid refresh token"
+            }
+          }
+        },
+        "deny": {
+          "status": 303,
+          "location": "dynwork://auth/callback?error=access_denied&error_description=<redacted>&state=<redacted>",
+          "error": "access_denied",
+          "state_returned": true
+        }
+      },
+      "passkey_enrolment": {
+        "note": "The authorize page signs in with a passkey only; the admin login (Entra) is not offered on it.",
+        "sign_in_unknown_email": {
+          "status": 401,
+          "error": "authentication_failed: Authentication failed. Check the email address or register a passkey."
+        },
+        "register_start_known_email_without_credentials": {
+          "status": 200
+        },
+        "register_finish": "not exercised"
+      },
+      "cleanup": {
+        "created": 14,
+        "removed": 14,
+        "first_status": 204
+      },
+      "summary": {
+        "native_registration": true,
+        "authorize_page": true,
+        "callback_state": true,
+        "token_with_refresh": true,
+        "refresh_works": true,
+        "bridge_accepts_jwt": true
+      }
+    }
+  }
+}
