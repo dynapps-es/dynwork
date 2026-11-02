@@ -131,6 +131,22 @@ refresh and its rotation, a code used twice, a wrong verifier, the OAuth token o
 removes the clients it registered. As with `capture`, nothing secret reaches the file and a changed answer is reported
 by leaf. The contract it supports is section 10 of `dynwork/packages/sp-client/PROTOCOL.md`.
 
+## The relay image and the development login
+
+- `up --image local` builds `ghcr.io/systempromptio/systemprompt-dynapps:dynwork-relay` from the systemprompt-dynapps
+  checkout (`SP_DYNAPPS_REPO`, default `~/ai/dynwork/systemprompt-dynapps`) with its own
+  `docker compose -f docker-compose.yml -f docker-compose.build.yml build`, plus `relay-image.yml` here, which gives the
+  image a tag no published compose file names and drops the checkout's `.env`. `up` writes the image it ran into the env
+  file as `SP_IMAGE`; `up` without the flag goes back to the published `0.76.0`. Dangling layers are pruned after the
+  build. The binaries are compiled first, natively for this Mac (linux/arm64, Debian bookworm, toolchain and target
+  under `~/.cache/dynwork-relay/linux-arm64`), and the image is built in the checkout's `BIN_STAGE=prebuilt` mode, so
+  no release target dir lands on the Docker VM's small disk. A cold compile takes about an hour; a warm one minutes.
+  `up` also writes `SP_PLATFORM`: `linux/amd64` for the published image (amd64 only), the native arch for the local
+  one, so `DOCKER_DEFAULT_PLATFORM` does not decide it.
+- `dev-login [alpha|beta]` prints a single-use, ten-minute link that signs a browser in as `dev@dynapps.test` through
+  the instance's own development login (`/admin/auth/dev/login`), the local stand-in for Entra. The image has no
+  `dev-login` CLI, so the code's SHA-256 is written to `dev_login_codes` directly, as that CLI would.
+
 ## Limits
 
 - No model calls: there is no real provider key (decision: out of scope for the harness).

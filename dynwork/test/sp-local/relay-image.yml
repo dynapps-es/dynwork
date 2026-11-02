@@ -1,0 +1,7 @@
+# `bun dynwork/script/sp-local.ts up --image local` builds the systemprompt-dynapps checkout with this file after the
+# checkout's own docker-compose.yml and docker-compose.build.yml. It tags the image `dynwork-relay`, which no published
+# compose file names, so no other compose project picks it up, and drops the checkout's `.env`, which only `up` needs.
+services:
+  app:
+    image: ghcr.io/systempromptio/systemprompt-dynapps:dynwork-relay
+    env_file: !reset []

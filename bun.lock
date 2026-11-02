@@ -123,6 +123,7 @@
       "name": "@dynwork/sp-client",
       "version": "2.2.5",
       "dependencies": {
+        "@noble/hashes": "2.4.0",
         "effect": "catalog:",
       },
       "devDependencies": {

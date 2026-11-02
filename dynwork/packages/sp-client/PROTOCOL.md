@@ -274,6 +274,59 @@ from the desktop, whose device link rides the Entra login.
 - On Android the custom scheme can be claimed by another installed app (RFC 8252 7.1); `S256` makes a stolen code
   useless without the verifier, so the app never uses a challenge it did not generate.
 
+## 11. Mobile sign-in, path 1: the DynWork extension
+
+Path 1 is the default (decision A6, "Ambos"): the phone signs in like the desktop, through the system browser and the
+instance login (Entra on the Dynapps brand), and needs no passkey. It is the `dynwork-relay` extension of
+systemprompt-dynapps, not core, so it is written from its source and its tests, and observed on the mobile project's
+alpha (`sp-local.ts up --image local`). Core OAuth (section 10) is path 2, postponed to phase 19 (decision M9).
+`@dynwork/sp-client/mobile` (`SpMobile`) is the client; it runs on Hermes.
+
+Every route is under `/api/dynwork/mobile/v1` (under `/api/`, so core's session middleware tracks none of them):
+
+| Request                                                                              | Auth                                                   | Answer                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /discovery`                                                                     | none                                                   | `version` 1, `display_name`, `redirect_uri`, the route paths, `device_socket_path`, `code_challenge_methods` `["S256"]`. `404` on an instance without the extension: the app falls back to path 2                         |
+| `GET /authorize?redirect_uri&code_challenge&code_challenge_method&state&device_name` | the instance's browser session cookie (`access_token`) | `200` consent page; `307` to `/admin/login?redirect=<this path and query>` without a session; `400` page for any malformed parameter, before the session is looked at                                                     |
+| `POST /authorize/decision`, form `request`, `decision` (`allow` or `deny`)           | the same cookie                                        | `303` to `dynwork://auth/callback?code=<code>&state=<state>` or `?error=access_denied&state=<state>`; `400` page when the request is unknown, already answered, expired or another person's; `401` page without a session |
+| `POST /token`, JSON `code`, `code_verifier`, `peer_id`                               | none                                                   | `200` JSON `credential` (`dwm1_`), `peer_id`, `token` (JWT), `token_type` `Bearer`, `expires_in` 3600, `device_id`, `account` (`id`, `email`, `name`); `cache-control: no-store`                                          |
+| `POST /refresh`                                                                      | `Bearer <credential>`                                  | `200` the same without `credential` and `peer_id`                                                                                                                                                                         |
+| `GET /session`                                                                       | `Bearer <JWT>`                                         | `200` `user_id`, `email`, `name`, `device_id`, `expires_at` while the device is live                                                                                                                                      |
+| `POST /revoke`                                                                       | `Bearer <credential>`                                  | `204`: the device is revoked (sign-out)                                                                                                                                                                                   |
+
+Rules:
+
+- `redirect_uri` must be exactly `dynwork://auth/callback`; the relay never redirects anywhere a request names.
+- PKCE is `S256` only: `code_challenge` is 43 base64url characters, `code_challenge_method` may be omitted or `S256`.
+  `code_verifier` is 43 to 128 unreserved characters.
+- `state` is mandatory, 32 to 256 unreserved characters, returned verbatim on Allow and on Deny. The client accepts a
+  callback only with its own `state` (constant-time compare).
+- `device_name` is at most 64 printable characters (default `Phone`); it is shown on the consent page and names the
+  device in the devices list.
+- Only a browser session of a person opens the consent page: an `Authorization` header is never read there, and an
+  anonymous, delegated, plugin-scoped or purpose-bound token is a signed-out browser.
+- At most 10 consents per person are open at once (`429` page after that).
+- The code (`dwa1_` + 43 characters) lives 10 minutes from Allow and works once. Unknown, used, expired and
+  wrong-verifier all answer the same `400` `invalid_grant`, and a wrong verifier burns the code. A code presented
+  again revokes the device its first use created.
+- The credential is a phone row of the relay (`kind` `phone`, SHA-256 only): it opens the device socket
+  (`/api/dynwork/relay/v1/device`), shows up in the desktop's `GET /devices` and is removed by `DELETE /devices/{id}`.
+  Signing in again with the same peer id replaces the previous device of that peer.
+- The JWT lives one hour. Its only audience is `dynwork-mobile` and its purpose `dynwork-mobile`, so the bridge, MCP,
+  core session and the relay's desktop routes refuse it. `/refresh` re-reads the account: a suspended or deleted
+  account cannot refresh.
+- Errors are the relay's `{error, message}`: `invalid_grant` and `bad_request` (`400`), `unauthorized` (`401`),
+  `device_limit` and `peer_taken` (`409`).
+
+Locally there is no IdP. `sp-local.ts dev-login [alpha|beta]` prints a single-use, ten-minute link to the instance's
+own development login (`/admin/auth/dev/login`, mounted only on development, non-cloud profiles, which the image's
+generated profile is). Opening it sets the instance session cookie in that browser; the consent then shows with no
+IdP. `test/mobile/live.test.ts` does this with `fetch`; the app's end-to-end flows (phase 12) open the link in the
+device browser first, which shares its cookies with ASWebAuthenticationSession and Custom Tabs.
+
+Not observed: the Entra login in front of `/authorize` (no local IdP), and whether core's login honours a `redirect`
+under `/api/` after Entra the way it does for the device link.
+
 ## Not observed
 
 - Mobile sign-in: the Entra login on the authorize page (the local instance has none to offer), how long a refresh token

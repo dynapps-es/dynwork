@@ -11,13 +11,18 @@ import {
   fixtureChanges,
   formatEnv,
   freePort,
+  imageFor,
   jwtExpiry,
   leaks,
+  localArch,
+  localImage,
   manifestIds,
   missing,
   mobileFixtureFile,
   mobileVerdict,
   parseEnv,
+  platformFor,
+  publishedImage,
   redactUrl,
   scrubText,
   signatureValid,
@@ -297,5 +302,27 @@ describe("mobile-auth fixture", () => {
     expect(text).not.toMatch(/reg_[\w-]{20,}/)
     expect(text).not.toMatch(/client_[0-9a-f]{32}/)
     expect(text).not.toMatch(/[0-9a-f]{64}/)
+  })
+})
+
+describe("image", () => {
+  test("up runs the published release unless --image local asks for the relay image", () => {
+    expect(imageFor([])).toBe(publishedImage)
+    expect(imageFor(["--image", "published"])).toBe(publishedImage)
+    expect(imageFor(["--image", "local"])).toBe(localImage)
+    expect(localImage).not.toBe(publishedImage)
+    expect(localImage.endsWith(":dynwork-relay")).toBe(true)
+    expect(() => imageFor(["--image"])).toThrow()
+    expect(() => imageFor(["--image", "latest"])).toThrow()
+    expect(platformFor(publishedImage)).toBe("linux/amd64")
+    expect(platformFor(localImage)).toBe(`linux/${localArch}`)
+  })
+
+  test("compose runs the image up chose, and the published release without one", async () => {
+    const text = await Bun.file(path.join(import.meta.dir, "compose.yml")).text()
+    expect(text).toContain(`image: \${SP_IMAGE:-${publishedImage}}`)
+    expect(text).toContain("platform: ${SP_PLATFORM:-linux/amd64}")
+    const build = await Bun.file(path.join(import.meta.dir, "relay-image.yml")).text()
+    expect(build).toContain(`image: ${localImage}`)
   })
 })
