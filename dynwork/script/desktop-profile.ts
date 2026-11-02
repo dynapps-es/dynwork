@@ -269,11 +269,14 @@ export async function connect(url: string) {
 }
 
 /** An instance's URL and PAT from the local harness' generated environment. */
+// The env file of the sp-local project in SP_LOCAL_PROJECT, as `sp-local.ts` names it; the default project's otherwise.
 export async function localInstance(name: "ALPHA" | "BETA") {
-  const env = await Bun.file(path.join(repo, "dynwork/test/sp-local/.env.local"))
+  const project = process.env.SP_LOCAL_PROJECT
+  const file = project && project !== "dynwork-sp-local" ? `.env.${project}.local` : ".env.local"
+  const env = await Bun.file(path.join(repo, "dynwork/test/sp-local", file))
     .text()
     .catch(() => {
-      throw new Error("dynwork/test/sp-local/.env.local is missing: run `bun dynwork/script/sp-local.ts up`")
+      throw new Error(`dynwork/test/sp-local/${file} is missing: run \`bun dynwork/script/sp-local.ts up\``)
     })
   const read = (key: string) => new RegExp(`^${key}=(.*)$`, "m").exec(env)?.[1]?.trim()
   const url = read(`SP_${name}_URL`)

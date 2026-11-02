@@ -37,6 +37,9 @@ export type Pairing = {
   token: Uint8Array
   // Epoch milliseconds after which the desktop refuses the token
   expires: number
+  // The relay's one-time pairing token (`dwp1_…`, 5 minutes), which the phone claims its device credential with
+  // (`POST /pairings/claim`). Opaque to this package; the relay never sees `token`, and the desktop never checks this.
+  relay?: string
 }
 
 export const scheme = "dynwork://pair#"
@@ -47,18 +50,29 @@ const Payload = Schema.Struct({
   desktopKey: Schema.String,
   token: Schema.String,
   expires: Schema.Number,
+  relay: Schema.optional(Schema.String),
 })
+
+// `dwp1_` and 32 random bytes in base64url, as the relay mints it.
+const relayToken = /^dwp1_[A-Za-z0-9_-]{43}$/
 
 const decodePayload = Schema.decodeUnknownOption(Schema.fromJsonString(Payload))
 
 // A fresh pairing for the desktop to show. The token is the only secret in it.
-export function createPairing(input: { instance: string; desktopKey: Uint8Array; now: number; ttlMs: number }) {
+export function createPairing(input: {
+  instance: string
+  desktopKey: Uint8Array
+  now: number
+  ttlMs: number
+  relay?: string
+}) {
   return {
     v: version,
     instance: input.instance,
     desktopKey: input.desktopKey,
     token: randomBytes(32),
     expires: input.now + input.ttlMs,
+    ...(input.relay === undefined ? {} : { relay: input.relay }),
   } satisfies Pairing
 }
 
@@ -71,11 +85,13 @@ export function encodePairing(pairing: Pairing) {
     desktopKey: toBase64Url(pairing.desktopKey),
     token: toBase64Url(pairing.token),
     expires: pairing.expires,
+    ...(pairing.relay === undefined ? {} : { relay: pairing.relay }),
   })
   return scheme + toBase64Url(utf8(json))
 }
 
-// Reads a scanned QR. Refuses an unknown version, an expired payload, a key or token of the wrong size, and an
+// Reads a scanned QR. Refuses an unknown version, an expired payload, a key or token of the wrong size, a relay token
+// that is not `dwp1_` and 43 base64url characters, and an
 // instance that is not https (plain http only on loopback, as in `@dynwork/sp-client`).
 export function parsePairing(text: string, now: number) {
   return Effect.gen(function* () {
@@ -91,6 +107,8 @@ export function parsePairing(text: string, now: number) {
     const token = fromBase64Url(payload.value.token)
     if (desktopKey?.length !== 32) return yield* malformed("desktop key is not 32 bytes")
     if (token?.length !== 32) return yield* malformed("token is not 32 bytes")
+    const relay = payload.value.relay
+    if (relay !== undefined && !relayToken.test(relay)) return yield* malformed("relay token is not a pairing token")
     if (!allowedInstance(payload.value.instance)) return yield* new PairingRejected({ reason: "instance" })
     if (!(payload.value.expires > now)) return yield* new PairingRejected({ reason: "expired" })
     return {
@@ -99,6 +117,7 @@ export function parsePairing(text: string, now: number) {
       desktopKey,
       token,
       expires: payload.value.expires,
+      ...(relay === undefined ? {} : { relay }),
     } satisfies Pairing
   })
 }

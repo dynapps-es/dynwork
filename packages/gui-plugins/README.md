@@ -724,7 +724,8 @@ export const builtins = compose({
   review: { ...review, windowEntry: eager(reviewRenderer) },
   details: { ...details, windowEntry: eager(detailsRenderer) },
   browser: { ...browser, windowEntry: eager(browserRenderer) },
-  pairing: { ...pairing, windowEntry: eager(pairingRenderer) },
+  // DynWork hides upstream's pairing page: it drives the shared service; Remote control replaces it
+  pairing,
   updater: { ...updater, windowEntry: eager(updaterRenderer) },
   ssh: { ...ssh, windowEntry: eager(sshRenderer) },
   wsl: { ...wsl, windowEntry: eager(wslRenderer) },

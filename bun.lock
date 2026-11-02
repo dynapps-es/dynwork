@@ -57,10 +57,12 @@
       "version": "2.2.5",
       "dependencies": {
         "@dynwork/branding": "workspace:*",
+        "@dynwork/remote": "workspace:*",
         "@dynwork/server-plugin": "workspace:*",
         "@dynwork/sp-client": "workspace:*",
         "@opencode/plugin": "workspace:*",
         "@opencode/ui": "workspace:*",
+        "@opencode/util": "workspace:*",
         "effect": "catalog:",
         "solid-js": "catalog:",
       },

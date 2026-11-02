@@ -17,14 +17,17 @@
     "./accounts/contract": "./src/accounts/contract.ts",
     "./accounts/main": "./src/accounts/main.ts",
     "./accounts/renderer": "./src/accounts/renderer.ts",
-    "./accounts/sync": "./src/accounts/sync.ts"
+    "./accounts/sync": "./src/accounts/sync.ts",
+    "./remote/main": "./src/remote/main.ts"
   },
   "dependencies": {
     "@dynwork/branding": "workspace:*",
+    "@dynwork/remote": "workspace:*",
     "@dynwork/server-plugin": "workspace:*",
     "@dynwork/sp-client": "workspace:*",
     "@opencode/plugin": "workspace:*",
     "@opencode/ui": "workspace:*",
+    "@opencode/util": "workspace:*",
     "effect": "catalog:",
     "solid-js": "catalog:"
   },

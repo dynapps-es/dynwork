@@ -180,6 +180,32 @@ Statuses, in `State.sync` and as the Ipc's `sync` event: `{status: "idle"}`, `{s
 `kind` one of `unreachable`, `rate-limited`, `refused`, `key-changed`, `invalid`, `insecure` and `service`.
 `bun test test/sync` in `packages/gui` drives the engine on fake timers against the fake instance.
 
+## Remote control
+
+Settings → Remote control lets DynWork Mobile drive this desktop with no inbound port: the desktop keeps one outbound
+WebSocket to the active instance's relay (the `dynwork-relay` systemprompt extension, `/api/dynwork/relay/v1/desktop`,
+with the account's JWT), and everything a phone says travels end-to-end encrypted with Noise (`@dynwork/remote`). The
+code is `packages/gui/src/remote/` and rides on the `dynwork` built-in, so it needs no upstream patch of its own.
+
+- **Off by default.** The first time it is turned on, a dialog says what a phone can do. The toggle, the desktop's key
+  (sealed by the OS secure store), the paired phones (public keys only), the used pairing tokens (SHA-256, pruned once
+  their pairing expires) and the last 50 connections persist in the plugin's storage.
+- **Follows the accounts.** Switching the active instance moves the tunnel; signing out or turning it off stops it and
+  ends the phones' sessions. The relay's lifetime close (4000) and shutdown (1012) reconnect at once, anything else with
+  backoff and a fresh JWT.
+- **Pairing.** "Pair a phone" mints a one-time `dwp1_` token on the relay and shows a QR holding it beside the
+  end-to-end secret and the desktop's key (`Keys.encodePairing`). The phone claims a device credential with the first
+  and proves the second inside the handshake.
+- **Proxy.** A phone reaches DynWork's OpenCode service (whatever `ServerEndpoints` resolves as `sidecar`) only through
+  the allowlist in `packages/gui/src/remote/allowlist.ts`: sessions, events, permissions, questions, agents, models,
+  projects and the server info. No terminals, shells, filesystem writes, config or credentials, and no WebSocket. The
+  phone's credentials and cookies never pass; requests run under an OpenCode session token the desktop mints with the
+  service's pairing endpoint and hands to the phone only inside the channel (`/dynwork/remote/v1/session`).
+- **Presence.** The relay's presence messages mark phones connected; the titlebar shows an indicator while one is.
+- **Revoke** ends the phone's sessions here at once and revokes its device on the relay (close 4003).
+- Upstream's own `pairing` settings page is hidden: `packages/gui-plugins/src/renderer.ts` lists that built-in without
+  its window entry (it drives the shared OpenCode service, decision A4).
+
 ## Local systemprompt instances
 
 `bun dynwork/script/sp-local.ts up|seed|check|status|code|capture|down` runs two disposable systemprompt 0.76 instances in
@@ -397,8 +423,12 @@ workspace installed (`BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun instal
 line tools. The result is unsigned apart from an ad-hoc signature, so it only runs on the Mac that built it.
 
 ```bash
-bun dynwork/script/desktop.ts
+bun dynwork/script/desktop.ts [--to <dir>]
 ```
+
+`--to <dir>` installs `<dir>/DynWork.app` instead (a leading `~` is your home), so a development build can live beside
+an installed DynWork that another session uses; `script/install-target.ts` holds the rule and
+`packages/gui/test/remote/isolation.test.ts` pins the default.
 
 The script builds the CLI for this machine from `packages/cli` (release channel, version taken from
 `packages/desktop/package.json`), builds the desktop app on the prod channel, swaps in
@@ -408,12 +438,19 @@ The script builds the CLI for this machine from `packages/cli` (release channel,
 To check the installed app, launch it in a throwaway profile:
 
 ```bash
-bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] [--with-foreign-service]
+bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] [--with-foreign-service] [--app <bundle>]
+bun dynwork/script/smoke.ts remote [screenshot] --app <bundle>
 ```
+
+`--app` launches another bundle, such as a `desktop.ts --to` build, and unregisters it from Launch Services when the
+run ends so the installed app keeps the `dynwork://` scheme. `remote` signs in to the alpha of the sp-local project named
+by `SP_LOCAL_PROJECT` (the mobile project runs the relay image), turns on Settings → Remote control, confirms, waits for
+the tunnel and shoots the pairing QR (by default `remote-qr.png` beside the bundle).
 
 The smoke test starts `/Applications/DynWork.app` with its own home, user data, XDG directories, database and config,
 and none of your `OPENCODE_*` variables, so it never attaches to or restarts a running OpenCode service. DynWork's own
-service runs inside that profile on its fixed port, so the smoke fails at once when a DynWork is already running. It
+service runs inside that profile on a free port the smoke picks (`DYNWORK_SERVICE_PORT`, read by
+`DynWorkService.port`), so a DynWork already running on the fixed port keeps it. It
 also exports an `OPENCODE_CONFIG_CONTENT` the way a login shell would and fails if DynWork's service loaded it.
 `--with-foreign-service` first starts an `opencode serve --service` from this checkout, with another version string, at
 the profile's default registration, as OpenCode.app's service would be; once DynWork is ready the smoke fails unless

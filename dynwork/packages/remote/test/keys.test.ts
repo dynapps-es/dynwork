@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { Effect } from "effect"
 import fc from "fast-check"
 import { fromBase64Url, toBase64Url, utf8 } from "../src/bytes"
-import { Keys } from "../src"
+import { Keys, Presence } from "../src"
 
 const now = 1_800_000_000_000
 
@@ -104,5 +104,48 @@ describe("Keys", () => {
       failure(qr({ ...fields, desktopKey: toBase64Url(value.desktopKey), token: toBase64Url(new Uint8Array(8)) }))
         .message,
     ).toBe("token is not 32 bytes")
+  })
+
+  test("carries the relay's pairing token beside the end-to-end secret, and refuses anything else there", () => {
+    const relay = `dwp1_${toBase64Url(new Uint8Array(32).fill(7))}`
+    const value = Keys.createPairing({
+      instance: "https://ai.dynapps.es",
+      desktopKey: Keys.generate().publicKey,
+      now,
+      ttlMs: 60_000,
+      relay,
+    })
+    const parsed = parse(Keys.encodePairing(value))
+    expect(parsed._tag === "Success" && parsed.value.relay).toBe(relay)
+    // A pairing without one still parses (the phone then cannot claim through the relay)
+    const plain = parse(Keys.encodePairing(pairing()))
+    expect(plain._tag === "Success" && plain.value.relay).toBeUndefined()
+    const fields = {
+      v: 1,
+      instance: value.instance,
+      desktopKey: toBase64Url(value.desktopKey),
+      token: toBase64Url(value.token),
+      expires: value.expires,
+    }
+    for (const bad of ["dwr1_" + relay.slice(5), relay.slice(0, -1), `${relay}A`, "dwp1_" + "!".repeat(43)])
+      expect(failure(qr({ ...fields, relay: bad })).message).toBe("relay token is not a pairing token")
+  })
+})
+
+describe("Presence", () => {
+  test("reads the relay's 34-byte message by byte 0, and nothing else", () => {
+    const to = new Uint8Array(16).fill(1)
+    const phone = new Uint8Array(16).fill(2)
+    const bytes = Presence.encode({ to, phone, event: "disconnected" })
+    expect(bytes.length).toBe(34)
+    expect(Presence.kind(bytes)).toBe("presence")
+    expect(Presence.decode(bytes)).toEqual({ to, phone, event: "disconnected" })
+    expect(Presence.decode(Presence.encode({ to, phone, event: "connected" }))?.event).toBe("connected")
+    const odd = bytes.slice()
+    odd[33] = 3
+    expect(Presence.decode(odd)).toBeUndefined()
+    expect(Presence.decode(bytes.slice(0, 33))).toBeUndefined()
+    expect(Presence.kind(new Uint8Array([1]))).toBe("envelope")
+    expect(Presence.kind(new Uint8Array([2]))).toBe("ignored")
   })
 })

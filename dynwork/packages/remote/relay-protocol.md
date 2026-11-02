@@ -41,9 +41,54 @@ the desktop's key, and so its id, from the pairing QR. The relay never sees a ke
    timestamps at most.
 5. **Allow one desktop socket to carry many phones.** The desktop tells phones apart by `from`.
 
-The relay does **not** see or check the pairing token. The token in the QR is a secret between the two ends: the phone
-proves it inside the encrypted third handshake message, and the desktop checks it. The relay authorizes sockets with
-the instance's credentials, never with the token.
+The relay does **not** see or check the end-to-end pairing token. That token in the QR is a secret between the two
+ends: the phone proves it inside the encrypted third handshake message, and the desktop checks it. The relay
+authorizes sockets with the instance's credentials, never with that token.
+
+## Routes and pairing
+
+The relay lives under `/api/dynwork/relay/v1` on the instance (under `/api/`, where core neither tracks a session nor
+records the URI). Every credential travels in the `Authorization` header or the JSON body, never in a URL.
+
+| Route                                  | Caller  | Credential                                                                         |
+| -------------------------------------- | ------- | ---------------------------------------------------------------------------------- |
+| `GET /desktop` (WebSocket)             | desktop | the account's DynWork JWT, plus `X-Dynwork-Peer: <peer id, 32 hex>`                |
+| `GET /device` (WebSocket)              | phone   | its `dwr1_` device credential                                                      |
+| `POST /pairings`                       | desktop | JWT; answers `{pairing_id, token, expires_at}`                                     |
+| `POST /pairings/claim`                 | phone   | none: the body `{token, peer_id, name}` answers `{device_id, peer_id, credential}` |
+| `GET /devices`, `DELETE /devices/{id}` | desktop | JWT; only phones are revocable (desktops: `409`)                                   |
+
+The QR therefore carries **two** secrets (`Keys.encodePairing`, field `relay`):
+
+- `relay`: the relay's pairing token, `dwp1_` and 32 random bytes in base64url (48 characters), single use, 5 minutes.
+  The relay keeps only its SHA-256. The phone claims its device credential with it, sending its peer id, never its key.
+- `token`: the end-to-end secret above, which the relay never sees.
+
+A relay that is not honest can therefore at most refuse a pairing: claiming the relay token gives a device credential,
+but without the end-to-end token no handshake completes. The desktop keeps used end-to-end tokens (as SHA-256) until
+their pairing expires, so a token stays single use across restarts.
+
+## Presence
+
+The relay itself writes one 34-byte binary message to every live desktop of the user when a phone of that user
+attaches (`1`) or goes away (`2`), on the same queue as the envelopes, so it arrives after that phone's last envelope:
+
+| Offset | Size | Field     | Meaning                                                                                                 |
+| ------ | ---- | --------- | ------------------------------------------------------------------------------------------------------- |
+| 0      | 1    | `version` | `0xFF`: relay control. A client cannot send it: the relay drops every envelope whose version is not `1` |
+| 1      | 16   | `to`      | the desktop's peer id                                                                                   |
+| 17     | 16   | `phone`   | the phone's peer id                                                                                     |
+| 33     | 1    | `event`   | `1` connected, `2` disconnected                                                                         |
+
+A desktop reads byte 0 before decoding: `0x01` is an envelope, `0xFF` presence (`Presence.decode`), anything else is
+ignored. A desktop that attaches hears one `connected` for each phone already online. A phone socket replaced by a newer
+one is not reported gone.
+
+## Limits a client respects
+
+The relay closes a socket that sends more than 500 envelopes a second (burst 1000) or 8 MiB a second (burst 16 MiB)
+with `1008`. `Socket.link` paces what it sends below that (400 a second, burst 800; 6 MiB a second, burst 12 MiB), in
+order. `4000` (the 50-minute lifetime) and `1012` (shutdown) mean "dial again now"; `4003` is a revoked device.
 
 ## Channels
 

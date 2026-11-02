@@ -24,7 +24,7 @@ export function layout(
   return {
     file: path.join(state, "opencode", "service.json"),
     // Loopback only, on a fixed port: a second contender for the same profile fails to bind and backs off.
-    args: ["--hostname", "127.0.0.1", "--port", String(DynWorkIdentity.servicePort)],
+    args: ["--hostname", "127.0.0.1", "--port", String(port(process.env))],
     env: {
       XDG_STATE_HOME: state,
       XDG_DATA_HOME: app.getPath("userData"),
@@ -46,6 +46,13 @@ export function layout(
       }),
     },
   }
+}
+
+// The service's port: DynWork's fixed one, unless DYNWORK_SERVICE_PORT names another unprivileged port. Isolated runs
+// (the smoke) use it so a DynWork already running on this Mac keeps its port.
+export function port(env: Record<string, string | undefined>) {
+  const value = /^\d{4,5}$/.test(env.DYNWORK_SERVICE_PORT ?? "") ? Number(env.DYNWORK_SERVICE_PORT) : 0
+  return value > 1024 && value < 65536 ? value : DynWorkIdentity.servicePort
 }
 
 /** The directory name of the server plugin among the app's resources. */

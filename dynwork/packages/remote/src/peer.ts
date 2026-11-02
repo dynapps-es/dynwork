@@ -5,6 +5,7 @@ import { decode as decodeEnvelope, encode as encodeEnvelope, type Envelope } fro
 import { Closed, Handshake, Replay, type RemoteError } from "./errors"
 import { Kind, unsequenced, type Frame } from "./frame"
 import { peerId, type Pairing } from "./keys"
+import { decode as decodePresence, kind } from "./presence"
 import { Mux } from "./mux"
 import type { KeyPair } from "./noise"
 import {
@@ -334,6 +335,30 @@ export type DesktopEvents = {
   connected?: (peer: Peer, resumed: boolean) => void
   // A channel failed before it could attach (a refused pairing, an unknown device, a version mismatch, a timeout)
   refused?: (error: unknown) => void
+  // The relay reported a phone of this user attaching or going away (its peer id; any phone, paired here or not)
+  presence?: (phone: Uint8Array, online: boolean) => void
+}
+
+// The pairing tokens already redeemed. Single use outlives the process when the app persists them: a token is kept
+// until the pairing it came with expires, after which the desktop refuses it anyway.
+export type Tokens = {
+  used: (token: Uint8Array) => boolean
+  // Records the token; false when it was already used. `expires` is the pairing's expiry, epoch milliseconds.
+  claim: (token: Uint8Array, expires: number) => boolean
+}
+
+// The default: in memory, for the desktop's lifetime.
+export function memoryTokens(): Tokens {
+  const claimed = new Set<string>()
+  return {
+    used: (token) => claimed.has(toBase64Url(token)),
+    claim: (token) => {
+      const key = toBase64Url(token)
+      if (claimed.has(key)) return false
+      claimed.add(key)
+      return true
+    },
+  }
 }
 
 export type DesktopOptions = {
@@ -343,6 +368,8 @@ export type DesktopOptions = {
   pairing: () => Pick<Pairing, "token" | "expires"> | undefined
   device: (phoneKey: Uint8Array) => boolean
   events?: DesktopEvents
+  // Where used pairing tokens are kept; in memory by default
+  tokens?: Tokens
   options?: Partial<Options>
   // A handshake not authenticated after this long is dropped
   handshakeMs?: number
@@ -370,12 +397,33 @@ export class Desktop {
   readonly #input: DesktopOptions
   readonly #id: Uint8Array
   readonly #peers = new Map<string, Peer>()
-  readonly #claimed = new Set<string>()
+  readonly #tokens: Tokens
   #handshakes = 0
 
   constructor(input: DesktopOptions) {
     this.#input = input
     this.#id = peerId(input.staticKey.publicKey)
+    this.#tokens = input.tokens ?? memoryTokens()
+  }
+
+  // The address the relay routes this desktop by
+  get id() {
+    return this.#id
+  }
+
+  // Ends every session of a phone for good (its streams fail with `Closed`). The caller makes `device` refuse the key
+  // first, so the phone cannot reconnect.
+  revoke(phoneKey: Uint8Array) {
+    return Effect.forEach(
+      [...this.#peers.values()].filter((peer) => equalBytes(peer.session.remoteStatic, phoneKey)),
+      (peer) => peer.close("revoked"),
+      { discard: true },
+    )
+  }
+
+  // Ends every session, e.g. when the desktop stops serving this instance.
+  closeAll(reason: string) {
+    return Effect.forEach([...this.#peers.values()], (peer) => peer.close(reason), { discard: true })
   }
 
   // Sessions held, connected or waiting for their phone to resume
@@ -396,8 +444,17 @@ export class Desktop {
     const limit = self.#input.maxHandshakes ?? 16
     return Effect.gen(function* () {
       while (true) {
-        const envelope = yield* Queue.take(link.incoming).pipe(
-          Effect.flatMap((bytes) => decodeEnvelope(bytes)),
+        const bytes = yield* Queue.take(link.incoming)
+        // Byte 0 first: relay presence (0xFF) is not an envelope, and an unknown version is ignored
+        const type = kind(bytes)
+        if (type === "presence") {
+          const presence = decodePresence(bytes)
+          if (presence && equalBytes(presence.to, self.#id))
+            self.#input.events?.presence?.(presence.phone, presence.event === "connected")
+          continue
+        }
+        if (type !== "envelope") continue
+        const envelope = yield* decodeEnvelope(bytes).pipe(
           Effect.catchTag("Malformed", () => Effect.succeed(undefined)),
         )
         if (envelope === undefined || !equalBytes(envelope.to, self.#id)) continue
@@ -510,13 +567,8 @@ export class Desktop {
       first,
       staticKey: self.#input.staticKey,
       pairing: self.#input.pairing,
-      used: (token) => self.#claimed.has(toBase64Url(token)),
-      claim: (token) => {
-        const key = toBase64Url(token)
-        if (self.#claimed.has(key)) return false
-        self.#claimed.add(key)
-        return true
-      },
+      used: (token) => self.#tokens.used(token),
+      claim: (token) => self.#tokens.claim(token, self.#input.pairing()?.expires ?? 0),
       device: self.#input.device,
       session: (id, phoneKey) => {
         const peer = self.#peers.get(id)

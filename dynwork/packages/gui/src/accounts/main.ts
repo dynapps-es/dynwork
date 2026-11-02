@@ -1,6 +1,7 @@
 import { hostname } from "node:os"
 import { app, safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
+import { RemoteMain } from "../remote/main"
 import { DynWorkSyncEngine } from "../sync/engine"
 import { DynWorkAccounts } from "./accounts"
 import { Accounts, type SyncStatus } from "./contract"
@@ -13,6 +14,7 @@ const setup: Plugin.MainSetup = (ctx) => {
     emit: () => {},
   }
   const engine: { current?: DynWorkSyncEngine.Engine } = {}
+  const remote: { update: () => void } = { update: () => {} }
   const accounts = DynWorkAccounts.make({
     store: ctx.storage.store("accounts", { schema: DynWorkAccounts.Store, initial: DynWorkAccounts.initial }),
     secure: safeStorage,
@@ -21,6 +23,7 @@ const setup: Plugin.MainSetup = (ctx) => {
     changed: () => {
       provider.changed()
       engine.current?.update()
+      remote.update()
     },
     renewed: (id, session) => engine.current?.renewed(id, session),
   })
@@ -47,6 +50,9 @@ const setup: Plugin.MainSetup = (ctx) => {
     app.off("browser-window-focus", follow)
     app.off("browser-window-blur", follow)
   })
+
+  // Remote control follows the active account: switching it moves the tunnel, signing out stops it
+  remote.update = RemoteMain.setup(ctx, accounts).update
 
   const ipc = ctx.provide(Accounts, AccountsIpc.implementation(accounts, sync))
   provider.changed = () => ipc.changed()
