@@ -8,6 +8,9 @@ import type { SessionMessageAssistant, SessionMessageAssistantTool, SessionMessa
 
 export type Error = { type: string; message: string; status?: number; retryAfterMs?: number }
 
+/** A model call's tokens, as the provider counted them: the cache read and written are part of what it was sent. */
+export type Tokens = { input: number; output: number; reasoning: number; cache: { read: number; write: number } }
+
 /** What a tool returned for the model: text, or a file by reference. */
 export type Content = { type: "text"; text: string } | { type: "file"; uri: string; mime: string; name?: string | null }
 
@@ -45,7 +48,9 @@ export type Assistant = {
   finish?: string
   error?: Error
   retry?: { attempt: number; at: number; error: Error }
-  tokens?: { input: number; output: number; reasoning: number }
+  tokens?: Tokens
+  /** What the step cost, in USD, once it ended. */
+  cost?: number
   time: { created: number; streamed?: number; completed?: number }
 }
 export type User = {
@@ -110,7 +115,7 @@ export type Info = {
   agent?: string
   model?: { id: string; providerID: string }
   cost: number
-  tokens: { input: number; output: number; reasoning: number }
+  tokens: Tokens
   created: number
   updated: number
   archived?: number
@@ -199,9 +204,26 @@ export function empty(options: { desktop?: string } = {}): State {
   }
 }
 
+export const noTokens: Tokens = { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } }
+
+/** The wire's token usage, normalized (an older desktop may leave the cache out). */
+export function tokens(wire: {
+  input: number
+  output: number
+  reasoning: number
+  cache?: { read: number; write: number }
+}): Tokens {
+  return {
+    input: wire.input,
+    output: wire.output,
+    reasoning: wire.reasoning,
+    cache: { read: wire.cache?.read ?? 0, write: wire.cache?.write ?? 0 },
+  }
+}
+
 export function session(id: string, created: number): Session {
   return {
-    info: { id, cost: 0, tokens: { input: 0, output: 0, reasoning: 0 }, created, updated: created },
+    info: { id, cost: 0, tokens: noTokens, created, updated: created },
     messages: {},
     order: [],
     rank: {},
@@ -234,7 +256,8 @@ export function message(wire: SessionMessageInfo): Message {
       finish: wire.finish,
       error: wire.error && failure(wire.error),
       retry: wire.retry && { attempt: wire.retry.attempt, at: wire.retry.at, error: failure(wire.retry.error) },
-      tokens: wire.tokens && { input: wire.tokens.input, output: wire.tokens.output, reasoning: wire.tokens.reasoning },
+      tokens: wire.tokens && tokens(wire.tokens),
+      cost: wire.cost,
       time: { created: wire.time.created, streamed: wire.time.streamed, completed: wire.time.completed },
     }
   if (wire.type === "synthetic")

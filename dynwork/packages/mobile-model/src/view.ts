@@ -101,6 +101,29 @@ export type Session = {
   /** What is blocking the session: permissions and questions waiting for an answer, oldest first. */
   needs: Array<Extract<Block, { kind: "permission" | "question" }>>
   children: Row[]
-  /** For "Session info": tokens and cost live here and nowhere else. */
-  info: { agent?: string; model?: string; cost: number; tokens: { input: number; output: number; reasoning: number } }
+  /** For "Session info" and the context gauge: tokens and cost live here and nowhere else. */
+  info: Usage
+}
+
+export type Tokens = { input: number; output: number; reasoning: number; cache: { read: number; write: number } }
+
+export type Usage = {
+  agent?: string
+  /** The session's model, `provider/model`. */
+  model?: string
+  /** This session's own cost in USD. */
+  cost: number
+  /** With its subagents' (the desktop's figure for a root session); a subagent's own cost otherwise. */
+  familyCost: number
+  /** The session's total tokens over all its steps. */
+  tokens: Tokens
+  /**
+   * What the context window holds now, as the desktop counts it: the last step with usage after the last completed
+   * compaction, all its tokens (input, output, reasoning and the cache read and written). None before a first step.
+   */
+  context?: { tokens: Tokens; total: number; model?: string; cost?: number; at: number }
+  messages: { user: number; assistant: number }
+  compactions: number
+  created: number
+  updated: number
 }

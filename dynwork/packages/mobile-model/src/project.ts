@@ -28,12 +28,56 @@ export function session(state: State.State, id: string): View.Session | undefine
       .filter((child) => child.info.parentID === id)
       .map((child) => row(state, child))
       .sort((a, b) => a.updated - b.updated),
-    info: {
-      agent: found.info.agent,
-      model: found.info.model && `${found.info.model.providerID}/${found.info.model.id}`,
-      cost: found.info.cost,
-      tokens: found.info.tokens,
+    info: usage(state, found),
+  }
+}
+
+/** Tokens, cost and the context window's fill, counted as the desktop's context indicator counts them. */
+function usage(state: State.State, found: State.Session): View.Usage {
+  const messages = found.order.flatMap((id) => {
+    const message = found.messages[id]
+    return message ? [message] : []
+  })
+  // The steps after the last completed compaction: what came before it was summarised away
+  const since = messages.reduce(
+    (start, message, index) => (message.type === "compaction" && message.status === "completed" ? index + 1 : start),
+    0,
+  )
+  const last = messages
+    .slice(since)
+    .reverse()
+    .find(
+      (message): message is State.Assistant & { tokens: State.Tokens } =>
+        message.type === "assistant" && message.tokens !== undefined,
+    )
+  const key = (model: { providerID: string; id: string } | undefined) => model && `${model.providerID}/${model.id}`
+  const family = found.info.parentID === undefined ? [...descendants(state, found.info.id)] : []
+  const count = (type: State.Message["type"]) => messages.filter((message) => message.type === type).length
+  return {
+    agent: found.info.agent,
+    model: key(found.info.model),
+    cost: found.info.cost,
+    familyCost:
+      found.info.parentID === undefined
+        ? family.reduce((total, id) => total + (state.sessions[id]?.info.cost ?? 0), 0)
+        : found.info.cost,
+    tokens: found.info.tokens,
+    context: last && {
+      tokens: last.tokens,
+      total:
+        last.tokens.input +
+        last.tokens.output +
+        last.tokens.reasoning +
+        last.tokens.cache.read +
+        last.tokens.cache.write,
+      model: key(last.model) ?? key(found.info.model),
+      cost: last.cost,
+      at: last.time.completed ?? last.time.created,
     },
+    messages: { user: count("user"), assistant: count("assistant") },
+    compactions: messages.filter((message) => message.type === "compaction" && message.status === "completed").length,
+    created: found.info.created,
+    updated: found.info.updated,
   }
 }
 

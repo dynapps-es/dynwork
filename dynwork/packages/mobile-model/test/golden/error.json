@@ -50,11 +50,23 @@
     "info": {
       "model": "fake/fake-1",
       "cost": 0,
+      "familyCost": 0,
       "tokens": {
         "input": 0,
         "output": 0,
-        "reasoning": 0
-      }
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "messages": {
+        "user": 1,
+        "assistant": 1
+      },
+      "compactions": 0,
+      "created": 1793558790933,
+      "updated": 1793558791308
     }
   },
   "children": []

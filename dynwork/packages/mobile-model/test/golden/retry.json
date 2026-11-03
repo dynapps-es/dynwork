@@ -50,11 +50,38 @@
     "info": {
       "model": "fake/fake-1",
       "cost": 0,
+      "familyCost": 0,
       "tokens": {
         "input": 100,
         "output": 10,
-        "reasoning": 0
-      }
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "context": {
+        "tokens": {
+          "input": 100,
+          "output": 10,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "total": 110,
+        "model": "fake/fake-1",
+        "cost": 0,
+        "at": 1793558781102
+      },
+      "messages": {
+        "user": 1,
+        "assistant": 1
+      },
+      "compactions": 0,
+      "created": 1793558778692,
+      "updated": 1793558781107
     }
   },
   "children": []

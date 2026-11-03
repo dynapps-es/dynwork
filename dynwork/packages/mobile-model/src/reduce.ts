@@ -48,7 +48,7 @@ export function snapshot(state: State.State, input: Snapshot): State.State {
         agent: info.agent,
         model: info.model && { id: info.model.id, providerID: info.model.providerID },
         cost: info.cost,
-        tokens: { input: info.tokens.input, output: info.tokens.output, reasoning: info.tokens.reasoning },
+        tokens: State.tokens(info.tokens),
         created: info.time.created,
         updated: Math.max(info.time.updated, current.info.updated),
         archived: info.time.archived,
@@ -215,11 +215,7 @@ function apply(state: State.State, input: OpenCodeEvent): Result {
           info: {
             ...session.info,
             cost: input.data.cost,
-            tokens: {
-              input: input.data.tokens.input,
-              output: input.data.tokens.output,
-              reasoning: input.data.tokens.reasoning,
-            },
+            tokens: State.tokens(input.data.tokens),
           },
         })),
       )
@@ -350,11 +346,8 @@ function apply(state: State.State, input: OpenCodeEvent): Result {
       return assistant(state, input, input.data.assistantMessageID, (message) => ({
         ...message,
         finish: input.data.finish,
-        tokens: {
-          input: input.data.tokens.input,
-          output: input.data.tokens.output,
-          reasoning: input.data.tokens.reasoning,
-        },
+        tokens: State.tokens(input.data.tokens),
+        cost: input.data.cost,
         time: { ...message.time, completed: input.created },
       }))
     case "session.step.failed":
