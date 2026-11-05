@@ -41,13 +41,13 @@ export function listen<T>(options: { parse: (url: URL) => T | undefined; timeout
     // through a DNS name rebound to 127.0.0.1.
     if (settled.done) return reply(410, "This sign-in has already finished.")
     if (!loopback(request.socket.remoteAddress) || request.headers.host !== `127.0.0.1:${port}`)
-      return reply(403, "This sign-in link is not for this DynWork window.")
+      return reply(403, "This sign-in link is not for this Dynwork window.")
     if (request.method !== "GET" || request.url === undefined) return reply(404, "Not found.")
     const url = new URL(request.url, `http://127.0.0.1:${port}`)
     if (url.pathname !== "/cb") return reply(404, "Not found.")
     const answer = options.parse(url)
-    if (answer === undefined) return reply(400, "This sign-in link is not for this DynWork window.")
-    reply(200, "You can close this tab and return to DynWork.")
+    if (answer === undefined) return reply(400, "This sign-in link is not for this Dynwork window.")
+    reply(200, "You can close this tab and return to Dynwork.")
     settle({ _tag: "Answer", answer })
   })
 
@@ -71,5 +71,5 @@ function loopback(address: string | undefined) {
 }
 
 function page(title: string) {
-  return `<!doctype html><html><head><meta charset="utf-8"><title>DynWork</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;margin:0"><p>${title}</p></body></html>`
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Dynwork</title></head><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;margin:0"><p>${title}</p></body></html>`
 }

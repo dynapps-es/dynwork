@@ -20,7 +20,7 @@ export const demoRoutines: readonly Routine[] = [
         id: "standup-2",
         state: "missed",
         when: "Fri 31 Oct 08:45",
-        note: "Missed while DynWork was closed. Ran at 09:12 when it opened.",
+        note: "Missed while Dynwork was closed. Ran at 09:12 when it opened.",
       },
       { id: "standup-1", state: "succeeded", when: "Thu 30 Oct 08:45", note: "1 min 4 s" },
     ],

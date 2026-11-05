@@ -1,16 +1,17 @@
 #!/usr/bin/env bun
-// Builds DynWork for this Mac (darwin-arm64) from the checkout and installs it as /Applications/DynWork.app:
+// Builds DynWork for this Mac (darwin-arm64) from the checkout and installs it as /Applications/Dynwork.app:
 // the CLI first, then the desktop app with the DynWork icons, packed unsigned and signed ad hoc.
 //
 //   bun dynwork/script/desktop.ts
 //
-// It only ever replaces /Applications/DynWork.app, and removes the app bundle the pack leaves in packages/desktop/dist,
+// It only ever replaces /Applications/Dynwork.app, and removes the app bundle the pack leaves in packages/desktop/dist,
 // so this Mac only ever has one DynWork: Spotlight and "Open With" never offer an older build. The OpenCode app and its
 // service are never touched.
 import { $ } from "bun"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { DynWorkIdentity } from "../packages/branding/src/identity"
 
 if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("DynWork builds for macOS arm64 only")
 
@@ -18,7 +19,7 @@ const root = path.resolve(import.meta.dir, "../..")
 
 const desktop = path.join(root, "packages/desktop")
 
-const install = "/Applications/DynWork.app"
+const install = `/Applications/${DynWorkIdentity.name}.app`
 
 const version: string = (await Bun.file(path.join(desktop, "package.json")).json()).version
 
@@ -54,7 +55,7 @@ const staging = await mkdtemp(path.join(tmpdir(), "dynwork-install-"))
 
 await $`tar -xf ${path.join(root, "dist/desktop/opencode-desktop-mac-arm64.app.tar")} -C ${staging}`
 
-const bundle = path.join(staging, "DynWork.app")
+const bundle = path.join(staging, `${DynWorkIdentity.name}.app`)
 
 await $`codesign --force --deep --sign - ${bundle}`
 
@@ -69,7 +70,7 @@ await rm(staging, { recursive: true, force: true })
 // Forget the pack's own copy in Launch Services before removing it, then make the installed app the one it knows.
 const lsregister =
   "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-const packed = path.join(desktop, "dist/mac-arm64/DynWork.app")
+const packed = path.join(desktop, `dist/mac-arm64/${DynWorkIdentity.name}.app`)
 await $`${lsregister} -u ${packed}`.nothrow().quiet()
 await rm(packed, { recursive: true, force: true })
 await $`${lsregister} -f ${install}`.nothrow().quiet()

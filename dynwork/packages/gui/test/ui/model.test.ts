@@ -123,6 +123,20 @@ describe("the pill", () => {
     expect(AccountsModel.pill(state([account({ active: true, status: "signedOut" })]))).toBeUndefined()
   })
 
+  test("its tone is green once synced, red on a failed sync, amber on a key to trust, and the accent otherwise", () => {
+    const tone = (value: ReturnType<typeof account>, status: Parameters<typeof state>[1]) =>
+      AccountsModel.pill(state([value], status))?.tone
+    expect(tone(account({ active: true }), synced("alpha"))).toBe("success")
+    expect(tone(account({ active: true }), { status: "error", account: "alpha", kind: "refused", at: 1 })).toBe(
+      "danger",
+    )
+    expect(tone(account({ active: true, trusted: false, fingerprint: fingerprints.offered }), synced("alpha"))).toBe(
+      "warning",
+    )
+    expect(tone(account({ active: true }), { status: "syncing", account: "alpha" })).toBeUndefined()
+    expect(tone(account({ active: true }), { status: "idle" })).toBeUndefined()
+  })
+
   test("its icon says how the sync stands", () => {
     const icon = (value: ReturnType<typeof account>, status: Parameters<typeof state>[1]) =>
       AccountsModel.pill(state([value], status))?.icon

@@ -11,7 +11,7 @@ export function Lockup(props: Pick<ComponentProps<"svg">, "class">) {
     <svg
       data-component="dynwork-lockup"
       role="img"
-      aria-label="DynWork"
+      aria-label="Dynwork"
       classList={{ [props.class ?? ""]: !!props.class }}
       viewBox={`0 0 ${DynWorkOutline.lockup.width} ${DynWorkOutline.lockup.height}`}
       fill="none"

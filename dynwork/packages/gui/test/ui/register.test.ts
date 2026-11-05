@@ -59,12 +59,12 @@ describe("the window entry's contributions", () => {
 
     view.set(state([account({ active: true })], synced("alpha", Date.now())))
     const item = pill()
-    expect(item).toMatchObject({ id: "systemprompt", icon: "circle-check" })
+    expect(item).toMatchObject({ id: "systemprompt", icon: "circle-check", tone: "success" })
     expect(item?.label).toContain("Dynapps")
     expect(item?.title).toContain('pill.title|{"label":"Dynapps"}')
 
     view.set(state([account({ active: true })], { status: "error", account: "alpha", kind: "refused", at: Date.now() }))
-    expect(pill()?.icon).toBe("circle-exclamation")
+    expect(pill()).toMatchObject({ icon: "circle-exclamation", tone: "danger" })
     view.dispose()
   })
 

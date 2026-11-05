@@ -344,7 +344,7 @@ Your team lead walks you through the tools you will use and pairs you with a bud
 
 ## By the end of the week
 
-- You can sign in to DynWork with your governance account.
+- You can sign in to Dynwork with your governance account.
 - You have read the project methodology.
 - You have shadowed one customer meeting.
 `,
@@ -367,7 +367,7 @@ owner: People team
 
 ## Accounts you get
 
-- DynWork, signed in to the Dynapps governance instance.
+- Dynwork, signed in to the Dynapps governance instance.
 - Odoo, with the Knowledge app for this brain.
 - GitLab, for code and for documentation that lives in Git.
 `,
