@@ -2,10 +2,10 @@
 export default {
   "routines.title": "Routines",
   "routines.description":
-    "Routines run on {{device}} through DynWork's own OpenCode service, with your projects, skills and MCP servers. They run while DynWork is open; a run missed while it was closed starts when it opens.",
+    "Routines run on {{device}} through Dynwork's own OpenCode service, with your projects, skills and MCP servers. They run while Dynwork is open; a run missed while it was closed starts when it opens.",
   "routines.new": "New routine",
   "routines.nav.status": "Agent Farm connected",
-  "routines.service.title": "DynWork service",
+  "routines.service.title": "Dynwork service",
   "routines.service.running": "Running",
   "routines.service.description":
     "Local OpenCode service at 127.0.0.1:17495, separate from OpenCode.app. Each run opens a session you can read later.",
@@ -46,7 +46,7 @@ export default {
   "routines.remove.title": "Remove {{name}}?",
   "routines.remove.description": "The routine and its run history are removed from {{device}}.",
   "routines.new.title": "New routine",
-  "routines.new.description": "Runs on {{device}} while DynWork is open.",
+  "routines.new.description": "Runs on {{device}} while Dynwork is open.",
   "routines.new.name": "Name",
   "routines.new.namePlaceholder": "Weekly report",
   "routines.new.prompt": "Prompt",
