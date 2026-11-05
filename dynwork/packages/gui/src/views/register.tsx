@@ -4,6 +4,7 @@ import type definition from "../accounts/index"
 import { SidebarBrand } from "./brand"
 import { ViewsNav } from "./nav"
 import { ViewRoute } from "./route"
+import "./primary.css"
 
 /** The DynWork views: their rows in the sidebar (and the narrow window's tabs drawer), their pages, and the brand at
  * the sidebar's foot. */

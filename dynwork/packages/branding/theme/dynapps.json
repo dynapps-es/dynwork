@@ -6,9 +6,9 @@
     "palette": {
       "neutral": "#F5F5FA",
       "ink": "#050543",
-      "primary": "#7B00DC",
-      "accent": "#7B00DC",
-      "interactive": "#7B00DC",
+      "primary": "#01007C",
+      "accent": "#01007C",
+      "interactive": "#01007C",
       "success": "#1E9E4F",
       "warning": "#FF911F",
       "error": "#F13C42",
@@ -18,13 +18,18 @@
       "text-weak": "#65637A"
     },
     "v2Overrides": {
-      "v2-text-text-faint": "#9290A6"
+      "v2-text-text-faint": "#9290A6",
+      "v2-text-text-accent": "#01007C",
+      "v2-text-text-accent-hover": "#7B00DC",
+      "v2-icon-icon-accent": "#01007C",
+      "v2-icon-icon-accent-hover": "#7B00DC",
+      "v2-background-bg-accent": "#01007C"
     }
   },
   "dark": {
     "palette": {
-      "neutral": "#050543",
-      "ink": "#F5F5FA",
+      "neutral": "#000000",
+      "ink": "#FFFFFF",
       "primary": "#951CF3",
       "accent": "#951CF3",
       "interactive": "#951CF3",
@@ -34,10 +39,16 @@
       "info": "#7272A8"
     },
     "overrides": {
-      "text-weak": "#8B8A9D"
+      "text-weak": "#FFFFFF"
     },
     "v2Overrides": {
-      "v2-text-text-faint": "#7272A8"
+      "v2-text-text-base": "#FFFFFF",
+      "v2-text-text-muted": "#FFFFFF",
+      "v2-text-text-faint": "#FFFFFF",
+      "v2-text-text-accent": "#FFFFFF",
+      "v2-text-text-accent-hover": "#FFFFFF",
+      "v2-icon-icon-accent": "#FFFFFF",
+      "v2-icon-icon-accent-hover": "#FFFFFF"
     }
   }
 }

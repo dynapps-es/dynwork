@@ -1,0 +1,22 @@
+/* Dynwork's primary buttons (submit and contrast): flat Dynapps midnight with white text, turning Dynapps lilac on
+   hover, in both color schemes. The upstream styles sit in the `components` layer, so these unlayered rules win; the
+   disabled opacity stays theirs, which keeps an enabled button from ever looking disabled. */
+:root {
+  --dynwork-primary: #01007c;
+  --dynwork-primary-hover: #7b00dc;
+}
+
+:is([data-component="button-v2"], [data-component="icon-button-v2"]):is(
+  [data-variant="submit"],
+  [data-variant="contrast"]
+) {
+  background-image: none;
+  background-color: var(--dynwork-primary);
+  color: #ffffff;
+  text-shadow: none;
+
+  &:is(:hover, [data-state="hover"], :active, [data-state="pressed"]):not(:disabled) {
+    background-image: none;
+    background-color: var(--dynwork-primary-hover);
+  }
+}
