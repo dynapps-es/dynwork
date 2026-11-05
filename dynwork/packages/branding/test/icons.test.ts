@@ -26,3 +26,23 @@ test("icon.icns is an icns file with the 1024 px entry", async () => {
   expect(bytes.subarray(0, 4).toString("latin1")).toBe("icns")
   expect(bytes.includes("ic10", 0, "latin1")).toBe(true)
 })
+
+// macOS 26 and later draw the icon from the Icon Composer package: black on white, and white on black in dark mode.
+test("icon.icon fills the aperture and its background by appearance", async () => {
+  const composer = path.join(root, "icon.icon")
+  const icon = await Bun.file(path.join(composer, "icon.json")).json()
+  const layer = icon.groups[0].layers[0]
+  const fills = (specializations: Array<{ appearance?: string; value: { solid: string } }>) =>
+    Object.fromEntries(specializations.map((entry) => [entry.appearance ?? "light", entry.value.solid]))
+
+  expect(icon["supported-platforms"]).toEqual({ squares: ["macOS"] })
+  expect(await Bun.file(path.join(composer, "Assets", layer["image-name"])).exists()).toBe(true)
+  expect(fills(icon["fill-specializations"])).toEqual({
+    light: "srgb:1.00000,1.00000,1.00000,1.00000",
+    dark: "srgb:0.00000,0.00000,0.00000,1.00000",
+  })
+  expect(fills(layer["fill-specializations"])).toEqual({
+    light: "srgb:0.00000,0.00000,0.00000,1.00000",
+    dark: "srgb:1.00000,1.00000,1.00000,1.00000",
+  })
+})
