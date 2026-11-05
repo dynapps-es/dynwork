@@ -657,7 +657,8 @@ bun dynwork/script/desktop.ts
 The script builds the CLI for this machine from `packages/cli` (release channel, version taken from
 `packages/desktop/package.json`), builds the desktop app on the prod channel, swaps in
 `dynwork/packages/branding/icons` before packing, signs ad hoc, clears quarantine and replaces
-`/Applications/DynWork.app`. It never touches `/Applications/OpenCode.app`. A run takes about a minute.
+`/Applications/DynWork.app`. It then removes the app bundle the pack leaves in `packages/desktop/dist`, so the Mac
+only ever has one DynWork. It never touches `/Applications/OpenCode.app`. A run takes about a minute.
 
 To check the installed app, launch it in a throwaway profile:
 
