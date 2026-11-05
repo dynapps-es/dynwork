@@ -7,6 +7,7 @@ import { ServerConnection, useServers } from "@/runtime/server/registry"
 import { SessionPanelFrame, SessionRouteFrame } from "@/session/session-frame"
 import { LayoutProvider } from "@/shell/state/layout"
 import { SettingsSurfaceProvider } from "@/settings/surface"
+import { useSettingsCommand } from "@/settings/command"
 import Shell from "@/shell/shell"
 import { requireServerKey } from "./session"
 import { PluginAttachment } from "@/runtime/plugin/root"
@@ -72,10 +73,17 @@ export function AppRoutes() {
         )}
       />
       <Route path="/new-session" component={DraftRoute} />
-      <Route path="/page/:id" component={() => <PluginSlot at="page" input={useParams<{ id: string }>()} />} />
+      <Route path="/page/:id" component={PluginPage} />
       {ComponentsLab && <Route path="/components" component={ComponentsLab} />}
     </Route>
   )
+}
+
+// A built-in's page. Like Home and the session routes, it keeps Settings reachable from the app menu and its shortcut.
+function PluginPage() {
+  useSettingsCommand()
+
+  return <PluginSlot at="page" input={useParams<{ id: string }>()} />
 }
 
 function TargetServerRoute(props: ParentProps) {
