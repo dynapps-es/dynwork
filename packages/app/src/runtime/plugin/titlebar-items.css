@@ -18,3 +18,31 @@
     );
   }
 }
+
+/* A pill with a tone shows its state's color instead of the accent, as a composer pill does. */
+[data-slot="titlebar-update"][data-tone] > button {
+  color: var(--titlebar-tone);
+  background-color: color-mix(in srgb, var(--titlebar-tone) 12%, transparent);
+}
+
+[data-slot="titlebar-update"][data-tone] [data-slot="titlebar-update-label"] {
+  color: var(--titlebar-tone);
+}
+
+@media (hover: hover) {
+  [data-slot="titlebar-update"][data-tone]:hover > button {
+    background-color: color-mix(in srgb, var(--titlebar-tone) 18%, var(--v2-background-bg-deep));
+  }
+}
+
+[data-slot="titlebar-update"][data-tone="success"] {
+  --titlebar-tone: var(--v2-state-fg-success);
+}
+
+[data-slot="titlebar-update"][data-tone="warning"] {
+  --titlebar-tone: var(--v2-state-fg-warning);
+}
+
+[data-slot="titlebar-update"][data-tone="danger"] {
+  --titlebar-tone: var(--v2-state-fg-danger);
+}
