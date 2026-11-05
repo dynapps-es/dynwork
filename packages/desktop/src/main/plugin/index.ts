@@ -1,8 +1,10 @@
 export * as Plugins from "./index"
 
+import { DynWorkService } from "@dynwork/gui/service"
 import { app } from "electron"
 import { Context, Effect, Layer } from "effect"
 import type { PluginEndpoint } from "../../shared/ipc-rpc/plugins"
+import { CHANNEL } from "../constants"
 import { ApplicationLifecycle } from "../lifecycle"
 import { Shutdown } from "../lifecycle/shutdown"
 
@@ -75,6 +77,7 @@ export const layer = Layer.effect(
             command: cli.command,
             binary: cli.binary,
             development: !app.isPackaged && !cli.binary,
+            env: DynWorkService.layout(CHANNEL, app)?.env,
           },
           subscriptions,
           servers,

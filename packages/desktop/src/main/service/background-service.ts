@@ -45,6 +45,10 @@ const connect = Effect.fn("BackgroundService.connect")(function* (mode: "initial
   const version = serviceVersion({ channel: CHANNEL, isolated, mode, version: cli.version })
   const own = DynWorkService.layout(CHANNEL, app)
   if (own) DynWorkService.isolate(process.env)
+  if (own)
+    yield* Effect.tryPromise(() => DynWorkService.pin(own)).pipe(
+      Effect.catch((error) => Effect.logWarning("could not pin DynWork's service address in its settings", { error })),
+    )
 
   if (isolated) process.env.XDG_STATE_HOME = app.getPath("userData")
   const client = yield* Effect.promise(() => import("@opencode/client/service"))

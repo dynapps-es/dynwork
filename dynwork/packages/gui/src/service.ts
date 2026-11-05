@@ -1,8 +1,10 @@
 export * as DynWorkService from "./service"
 
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { DynWorkShell } from "@dynwork/server-plugin/shell"
+import { Option, Schema } from "effect"
 
 // The packaged prod build runs its own OpenCode background service, so it never adopts, stops or replaces the one
 // OpenCode.app registered, and its credentials and synced content stay in DynWork's profile. Everything the service
@@ -24,7 +26,7 @@ export function layout(
   return {
     file: path.join(state, "opencode", "service.json"),
     // Loopback only, on a fixed port: a second contender for the same profile fails to bind and backs off.
-    args: ["--hostname", "127.0.0.1", "--port", String(DynWorkIdentity.servicePort)],
+    args: ["--hostname", hostname, "--port", String(DynWorkIdentity.servicePort)],
     env: {
       XDG_STATE_HOME: state,
       XDG_DATA_HOME: app.getPath("userData"),
@@ -47,6 +49,31 @@ export function layout(
     },
   }
 }
+
+const hostname = "127.0.0.1"
+
+/**
+ * Writes the service's host and port into its own settings (`<config>/service.json`, what `opencode service set` edits),
+ * keeping every other setting. `opencode service start`, which the pairing settings run to bring the service back with
+ * remote access, starts it from these settings and not from the desktop's arguments: without them it would come up on
+ * OpenCode's port.
+ */
+export async function pin(own: NonNullable<ReturnType<typeof layout>>) {
+  const file = path.join(own.env.OPENCODE_CONFIG_DIR, "service.json")
+  const current = await readFile(file, "utf8").then(settings, () => settings(""))
+  if (current.hostname === hostname && current.port === DynWorkIdentity.servicePort) return
+  await mkdir(path.dirname(file), { recursive: true })
+  const temp = `${file}.${process.pid}.tmp`
+  await writeFile(temp, JSON.stringify({ ...current, hostname, port: DynWorkIdentity.servicePort }, null, 2) + "\n", {
+    mode: 0o600,
+  })
+  await rename(temp, file)
+}
+
+// The settings as an object, or none when the file is not one: the CLI reads such a file as empty too.
+const settings = (text: string) => Option.getOrElse(decodeSettings(text), (): Readonly<Record<string, unknown>> => ({}))
+
+const decodeSettings = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))
 
 /** The directory name of the server plugin among the app's resources. */
 export const plugin = "dynwork-server-plugin"

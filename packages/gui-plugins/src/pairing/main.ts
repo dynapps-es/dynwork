@@ -46,7 +46,8 @@ const setup: Plugin.MainSetup = (ctx) => {
           execFile(
             cli.command[0] ?? "opencode",
             [...cli.command.slice(1), "service", ...args],
-            { signal, windowsHide: true },
+            // An app with its own service changes that one, never the shared service of the user's other clients.
+            { signal, windowsHide: true, env: cli.env && { ...process.env, ...cli.env } },
             (error, stdout, stderr) => {
               if (!error) return resolve(stdout.trim())
               log.write("error", "pairing service command failed", { args, error: error.message, stderr })

@@ -135,6 +135,11 @@ export interface Cli {
   readonly binary?: string
   /** An unpackaged app running the CLI from source. */
   readonly development: boolean
+  /**
+   * Variables that point `opencode service` commands at the app's own background service (its registration, settings
+   * and database) when the app runs one apart from the shared service; undefined when it uses the shared one.
+   */
+  readonly env?: Readonly<Record<string, string>>
 }
 
 /** The server endpoints the app's windows use. */
