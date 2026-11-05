@@ -90,8 +90,7 @@ test("legacy Linux launcher stays hidden", async () => {
 
 test.each(channels)("macOS bundle for $channel", ({ channel }) => {
   const config = load(channel)
-  // DynWork builds without full Xcode, so prod ships the ICNS instead of an Icon Composer package.
-  expect(config.mac?.icon).toBe("resources/icons/icon.icns")
+  expect(config.mac?.icon).toBe(channel === "prod" ? "resources/icons/icon.icon" : "resources/icons/icon.icns")
   expect(config.dmg?.icon).toBe(channel === "prod" ? "resources/icons/icon.icns" : undefined)
   // The prod override must keep the rest of the shared macOS settings.
   expect(config.mac?.target).toEqual(["dmg", "zip"])

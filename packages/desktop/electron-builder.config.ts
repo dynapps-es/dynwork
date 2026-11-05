@@ -268,8 +268,10 @@ export function getConfig() {
             filter: ["package.json", "src/**/*"],
           },
         ],
-        // DynWork ships the ICNS only: compiling an Icon Composer package needs actool, which comes with full Xcode.
-        mac: { ...base.mac, icon: "resources/icons/icon.icns" },
+        // An Icon Composer package compiles to Assets.car, which macOS 26 and later draw the app icon from, light or
+        // dark with the system appearance. Older macOS keeps using the ICNS. Compiling it needs actool (full Xcode).
+        mac: { ...base.mac, icon: "resources/icons/icon.icon" },
+        // The DMG volume icon would otherwise use the same actool-generated ICNS.
         dmg: { icon: "resources/icons/icon.icns" },
         publish: {
           provider: "generic",
