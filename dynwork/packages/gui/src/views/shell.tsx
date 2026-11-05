@@ -64,6 +64,15 @@ export function ViewShell(props: {
   const detail = children(() => props.detail)
   const open = () => detail.toArray().length > 0
   const close = () => props.onCloseDetail?.()
+  // Escape closes the drawer wherever the focus is, usually still on the row that opened it. A dialog over the view
+  // handles its own Escape first.
+  const escape = (event: KeyboardEvent) => {
+    if (event.key !== "Escape" || event.defaultPrevented || !open() || layout() === "narrow") return
+    if (document.querySelector('[role="dialog"]')) return
+    close()
+  }
+  document.addEventListener("keydown", escape)
+  onCleanup(() => document.removeEventListener("keydown", escape))
 
   return (
     <div
@@ -133,13 +142,7 @@ export function ViewShell(props: {
         <Show when={layout() !== "narrow"}>
           <div data-slot="view-scrim" aria-hidden="true" onClick={close} />
         </Show>
-        <aside
-          data-slot="view-detail"
-          aria-label={props.detailTitle}
-          onKeyDown={(event) => {
-            if (event.key === "Escape" && layout() !== "narrow") close()
-          }}
-        >
+        <aside data-slot="view-detail" aria-label={props.detailTitle}>
           <button type="button" data-slot="view-detail-close" onClick={close}>
             <Icon name={layout() === "narrow" ? "arrow-left" : "close"} />
             {layout() === "narrow" ? ctx.t("views.back") : ctx.t("views.close")}
