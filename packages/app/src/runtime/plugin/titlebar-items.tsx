@@ -60,10 +60,10 @@ function TitlebarItemButton(props: { item: TitlebarItem; vertical?: boolean }) {
     <div
       data-slot="titlebar-update"
       data-tone={props.item.tone}
-      class="group relative shrink-0 rounded-full bg-v2-background-bg-deep transition-[width] duration-150 ease-out [interpolate-size:allow-keywords] hover:z-30 hover:w-fit focus-within:z-30 focus-within:w-fit motion-reduce:transition-none"
+      class="group shrink-0 rounded-full bg-v2-background-bg-deep transition-[width] duration-150 ease-out [interpolate-size:allow-keywords] hover:z-30 hover:w-fit focus-within:z-30 focus-within:w-fit motion-reduce:transition-none"
       classList={{
         "absolute end-0 top-0 h-7 w-7 max-w-[100cqw]": props.vertical,
-        "me-3 h-5 w-5": !props.vertical,
+        "relative me-3 h-5 w-5": !props.vertical,
       }}
     >
       <button
