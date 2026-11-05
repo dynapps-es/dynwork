@@ -32,6 +32,8 @@ export interface Provided {
   /** Where every call goes, whatever a later transform or the user's config set as the provider's base URL. */
   readonly baseURL: string
   readonly default?: string
+  /** The client families the models were chosen for, sent as `x-inference-protocol` like the bridge's provider. */
+  readonly protocols: string
 }
 
 /** The provider for an apply, or undefined without models or on a base URL a JWT may not travel to. */
@@ -39,14 +41,19 @@ export function provider(input: DynWorkSync.Apply): Provided | undefined {
   const gateway = input.gateway
   const url = URL.canParse(input.instance.url) ? new URL(input.instance.url) : undefined
   if (!gateway || !url || !DynWorkMapping.secure(url)) return undefined
-  const models = [...new Map(gateway.models.map((model) => [model.id, model])).values()].map((model) => {
+  const allowed = families(input.manifest)
+  const models = [...new Map(gateway.models.map((model) => [model.id, model])).values()].flatMap((model) => {
+    const api = route(model, allowed)
+    if (!api) return []
     const base = Model.Info.default(providerID, Model.ID.make(model.id))
-    return {
-      ...base,
-      name: model.name || model.id,
-      package: packages[model.api],
-      limit: { context: model.context ?? base.limit.context, output: model.output ?? base.limit.output },
-    } satisfies Model.Info
+    return [
+      {
+        ...base,
+        name: model.name || model.id,
+        package: packages[api],
+        limit: { context: model.context ?? base.limit.context, output: model.output ?? base.limit.output },
+      } satisfies Model.Info,
+    ]
   })
   if (models.length === 0) return undefined
   const baseURL = `${url.origin}${url.pathname.replace(/\/+$/, "")}/v1`
@@ -61,7 +68,28 @@ export function provider(input: DynWorkSync.Apply): Provided | undefined {
     models,
     baseURL,
     default: models.some((model) => model.id === gateway.default) ? gateway.default : undefined,
+    protocols: allowed.join(","),
   }
+}
+
+/**
+ * The client families the instance lets OpenCode list models for: the manifest's `host_model_protocols` entry for
+ * DynWork's host (`opencode`, else `opencode-cli`), or OpenCode's own family, `openai`, without one, like the bridge
+ * (`HostClients::for_host`). So models served only to Claude clients, such as Claude Desktop's aliases, stay out.
+ */
+export function families(manifest: DynWorkSync.Manifest) {
+  return manifest.host_model_protocols?.opencode ?? manifest.host_model_protocols?.["opencode-cli"] ?? ["openai"]
+}
+
+// The route of a model the allowed families may list, preferring `/v1/messages`; undefined when none may. A model
+// without its client families is served to the family of its route.
+function route(model: DynWorkSync.Gateway["models"][number], allowed: ReadonlyArray<string>) {
+  const clients = (model.clients ?? [model.api === "chat" ? "openai" : "claude"]).filter((family) =>
+    allowed.includes(family),
+  )
+  if (clients.includes("claude")) return "messages"
+  if (clients.includes("openai")) return "chat"
+  return undefined
 }
 
 export interface Token {

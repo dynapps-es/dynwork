@@ -1,0 +1,296 @@
+/* The frame of every DynWork view (`./shell.tsx`). Tailwind does not scan dynwork/, so it styles itself with the
+   theme's v2 tokens. Its panel matches Home's: the shell insets, a raised base surface, 10px corners. */
+
+/* The primary button is the Dynapps brand color, as on the sign-in screen (`../signin/connect.css`): Midnight on light,
+   Unicorn Violet on dark. */
+[data-component="dynwork-view"] {
+  --dynwork-primary: #050543;
+  --dynwork-primary-hover: color-mix(in srgb, var(--dynwork-primary), white 16%);
+  --dynwork-primary-pressed: color-mix(in srgb, var(--dynwork-primary), black 40%);
+}
+
+:root[data-color-scheme="dark"] [data-component="dynwork-view"] {
+  --dynwork-primary: #951cf3;
+  --dynwork-primary-hover: color-mix(in srgb, var(--dynwork-primary), white 14%);
+  --dynwork-primary-pressed: color-mix(in srgb, var(--dynwork-primary), black 18%);
+}
+
+[data-component="dynwork-view"] {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-self: stretch;
+  min-height: 0;
+  min-width: 0;
+  margin: var(--shell-top-inset, 8px) var(--shell-inline-inset, 8px) var(--shell-bottom-inset, 8px);
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--v2-background-bg-base);
+  box-shadow: var(--v2-elevation-raised);
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
+
+  [data-component="button-v2"][data-variant="contrast"] {
+    background: var(--dynwork-primary);
+    color: #fff;
+    text-shadow: none;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.14),
+      0 1px 1.5px rgb(0 0 0 / 0.2);
+  }
+
+  [data-component="button-v2"][data-variant="contrast"]:is(:hover, [data-state="hover"]):not(:disabled) {
+    background: var(--dynwork-primary-hover);
+  }
+
+  [data-component="button-v2"][data-variant="contrast"]:is(:active, [data-state="pressed"]):not(:disabled) {
+    background: var(--dynwork-primary-pressed);
+  }
+
+  /* Sub-navigation: the left column. */
+  [data-slot="view-subnav"] {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 20px;
+    width: 232px;
+    padding: 40px 16px 24px 24px;
+    overflow-y: auto;
+  }
+
+  [data-slot="view-subnav-group"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  [data-slot="view-subnav-label"] {
+    padding: 0 8px 6px;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="view-subnav-item"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding-inline: 8px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--v2-text-text-base);
+    text-align: start;
+
+    &:is(:hover, :focus-visible) {
+      background: var(--v2-overlay-simple-overlay-hover);
+      outline: none;
+    }
+
+    &[data-state="pressed"] {
+      background: var(--v2-overlay-simple-overlay-pressed);
+    }
+
+    [data-slot="icon-svg"] {
+      flex: none;
+      color: var(--v2-icon-icon-muted);
+    }
+  }
+
+  [data-slot="view-subnav-text"] {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="view-subnav-count"] {
+    color: var(--v2-text-text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  [data-slot="view-subnav-footer"] {
+    margin-top: auto;
+    padding-inline: 8px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="view-subnav-select"] {
+    position: absolute;
+    inset: 12px 16px auto;
+    height: 32px;
+    padding-inline: 8px;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 8px;
+    background: var(--v2-background-bg-base);
+    color: var(--v2-text-text-base);
+    font: inherit;
+  }
+
+  /* Header and content. */
+  [data-slot="view-main"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;
+    padding: 40px 32px 24px;
+    overflow-y: auto;
+  }
+
+  [data-slot="view-header"] {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  [data-slot="view-heading"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  [data-slot="view-title-row"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+
+  [data-slot="view-title"] {
+    margin: 0;
+    font-size: 15px;
+    line-height: 20px;
+    font-weight: 600;
+  }
+
+  [data-slot="view-badge"],
+  [data-component="dynwork-demo-badge"] {
+    padding: 0 6px;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 16px;
+    color: var(--v2-text-text-muted);
+    white-space: nowrap;
+  }
+
+  [data-component="dynwork-demo-badge"] {
+    border-style: dashed;
+    color: var(--v2-state-fg-warning);
+  }
+
+  [data-slot="view-description"] {
+    max-width: 640px;
+    margin: 0;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="view-actions"] {
+    display: flex;
+    flex: none;
+    gap: 8px;
+  }
+
+  [data-slot="view-content"] {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 0;
+  }
+
+  [data-slot="view-placeholder"] {
+    margin: 0;
+    color: var(--v2-text-text-muted);
+  }
+
+  /* Detail pane: a drawer over the content, so the content keeps its width. */
+  [data-slot="view-detail"] {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: min(440px, 90%);
+    padding: 20px;
+    overflow-y: auto;
+    border-left: 1px solid var(--v2-border-border-muted);
+    background: var(--v2-background-bg-base);
+    box-shadow: var(--v2-elevation-raised);
+  }
+
+  [data-slot="view-detail-close"] {
+    display: flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 6px;
+    height: 28px;
+    padding-inline: 6px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--v2-text-text-muted);
+
+    &:is(:hover, :focus-visible) {
+      background: var(--v2-overlay-simple-overlay-hover);
+      color: var(--v2-text-text-base);
+      outline: none;
+    }
+  }
+
+  [data-slot="view-scrim"] {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: rgb(0 0 0 / 0.16);
+  }
+}
+
+/* Medium: a narrower column. */
+[data-component="dynwork-view"][data-layout="medium"] {
+  [data-slot="view-subnav"] {
+    width: 192px;
+    padding-inline: 16px 8px;
+  }
+
+  [data-slot="view-main"] {
+    padding-inline: 24px;
+  }
+}
+
+/* Narrow: the select sits above the header, and the detail pane replaces the content. */
+[data-component="dynwork-view"][data-layout="narrow"] {
+  flex-direction: column;
+
+  [data-slot="view-main"] {
+    padding: 16px;
+  }
+
+  &:has([data-slot="view-subnav-select"]) [data-slot="view-main"] {
+    padding-top: 60px;
+  }
+
+  [data-slot="view-header"] {
+    flex-direction: column;
+  }
+
+  &[data-detail] [data-slot="view-main"],
+  &[data-detail] [data-slot="view-subnav-select"] {
+    display: none;
+  }
+
+  [data-slot="view-detail"] {
+    position: static;
+    flex: 1;
+    width: auto;
+    padding: 16px;
+    border: 0;
+    box-shadow: none;
+  }
+}

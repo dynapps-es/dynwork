@@ -37,7 +37,7 @@ export function register(ctx: SetupContext<typeof definition>, live: Accessor<Li
 
   ctx.add(SettingsPage, {
     id: "accounts",
-    icon: "lock",
+    icon: "shield",
     get title() {
       return ctx.t("title")
     },

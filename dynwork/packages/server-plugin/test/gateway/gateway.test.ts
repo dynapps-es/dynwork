@@ -83,6 +83,64 @@ describe("provider", () => {
     ).toBeUndefined()
   })
 
+  test("host_model_protocols for OpenCode keeps only the models served to its families, on their route", () => {
+    const mixed = {
+      label: "A",
+      models: [
+        { id: "claude-x", api: "messages", clients: ["claude"] },
+        { id: "both-x", api: "messages", clients: ["claude", "openai"] },
+        { id: "gpt-x", api: "chat", clients: ["openai"] },
+        { id: "legacy-chat", api: "chat" },
+        { id: "legacy-messages", api: "messages" },
+      ],
+      default: "claude-x",
+    } satisfies DynWorkSync.Gateway
+    const listed = (manifest: DynWorkSync.Manifest) =>
+      DynWorkGateway.provider(apply(manifest, { gateway: mixed }))?.models.map((model) => [
+        String(model.id),
+        model.package === DynWorkGateway.packages.chat ? "chat" : "messages",
+      ])
+    // Without an entry for DynWork's host, OpenCode's own family, like the bridge: Claude-only models stay out.
+    const openai = [
+      ["both-x", "chat"],
+      ["gpt-x", "chat"],
+      ["legacy-chat", "chat"],
+    ]
+    expect(listed({ ...alpha, host_model_protocols: { "claude-code": ["claude"] } })).toEqual(openai)
+    expect(listed({ ...alpha, host_model_protocols: undefined })).toEqual(openai)
+    expect(
+      DynWorkGateway.provider(apply({ ...alpha, host_model_protocols: undefined }, { gateway: mixed }))?.protocols,
+    ).toBe("openai")
+    expect(listed(alpha)).toEqual([
+      ["claude-x", "messages"],
+      ["both-x", "messages"],
+      ["gpt-x", "chat"],
+      ["legacy-chat", "chat"],
+      ["legacy-messages", "messages"],
+    ])
+    // `openai` only: a model also served to `claude` stays, on the Chat Completions route; the default goes with its
+    // model.
+    expect(listed({ ...alpha, host_model_protocols: { opencode: ["openai"] } })).toEqual([
+      ["both-x", "chat"],
+      ["gpt-x", "chat"],
+      ["legacy-chat", "chat"],
+    ])
+    expect(
+      DynWorkGateway.provider(apply({ ...alpha, host_model_protocols: { opencode: ["openai"] } }, { gateway: mixed }))
+        ?.default,
+    ).toBeUndefined()
+    // The CLI packaging's entry applies when the desktop one is absent; unknown tags select nothing.
+    expect(listed({ ...alpha, host_model_protocols: { "opencode-cli": ["claude", "backend"] } })).toEqual([
+      ["claude-x", "messages"],
+      ["both-x", "messages"],
+      ["legacy-messages", "messages"],
+    ])
+    // A filter that selects no model leaves no provider, so nothing is locked to an empty gateway.
+    expect(
+      DynWorkGateway.provider(apply({ ...alpha, host_model_protocols: { opencode: [] } }, { gateway: mixed })),
+    ).toBe(undefined)
+  })
+
   test("the contract refuses model ids that are not plain ids", () => {
     const decode = Schema.decodeUnknownOption(DynWorkSync.Gateway)
     expect(decode({ label: "A", models: [{ id: "claude-sonnet-5-5[1m]", api: "messages" }] })._tag).toBe("None")

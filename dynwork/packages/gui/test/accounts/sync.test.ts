@@ -95,9 +95,9 @@ test("the gateway keeps only models the plugin can serve", () => {
     model_limits: { sized: { context_window: 0, max_output_tokens: 1.5 } },
   }
   expect(DynWorkSyncMain.gateway("  ", profile, [{ id: "sized", max_input_tokens: 4096, max_tokens: 1024 }])).toEqual({
-    label: "systemprompt",
+    label: "Governance",
     models: [
-      { id: "gpt-x", api: "chat" },
+      { id: "gpt-x", api: "chat", clients: ["openai"] },
       { id: "dup", api: "messages" },
       { id: "sized", api: "messages", context: 4096, output: 1024 },
     ],
@@ -112,7 +112,7 @@ test("the gateway keeps only models the plugin can serve", () => {
         { name: "bedrock", configured: true, clients: ["claude"], models: ["claude-x"] },
       ],
     }).models,
-  ).toEqual([{ id: "claude-x", api: "messages" }])
+  ).toEqual([{ id: "claude-x", api: "messages", clients: ["claude"] }])
 })
 
 test("token pushes a renewed JWT for the account's instance", async () => {

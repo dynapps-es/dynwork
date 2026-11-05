@@ -32,6 +32,8 @@ export const Counts = Schema.Struct({
   agents: Schema.Number,
   mcp: Schema.Number,
   rules: Schema.Number,
+  /** What the service left out, such as a plugin bundle file that does not match the manifest. */
+  warnings: Schema.optional(Schema.Array(Schema.String)),
 })
 export type Counts = typeof Counts.Type
 

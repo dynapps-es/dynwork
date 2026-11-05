@@ -5,6 +5,7 @@ import type definition from "./index"
 import { Remote } from "../remote/contract"
 import { registerRemote } from "../remote/ui/register"
 import { register } from "./ui/register"
+import { registerViews } from "../views/register"
 
 export type Client = IpcClient<(typeof Accounts)["spec"]>
 
@@ -22,6 +23,7 @@ const setup: Plugin.Setup<typeof definition> = (ctx) => {
     if (current() === live) setCurrent(undefined)
   })
   register(ctx, live)
+  registerViews(ctx)
   registerRemote(ctx, ctx.use(Remote))
 }
 

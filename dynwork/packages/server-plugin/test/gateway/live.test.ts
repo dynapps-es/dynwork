@@ -5,14 +5,21 @@ import { alpha } from "../fixture"
 import { boot, until } from "../service"
 
 // The `systemprompt` provider in a real OpenCode service, with real Session steps against a fake gateway that answers
-// like the instance's `/v1/messages`: the JWT and client header on every call, renewal, one recovery from a refusal,
-// sign-out after a second one, an expired JWT never sent, and the provider replaced on switch and gone on clear.
+// like the instance's `/v1/messages`: the JWT and client header on every call, the calls and tokens counted for the
+// heartbeat, renewal, one recovery from a refusal, sign-out after a second one, an expired JWT never sent, and the
+// provider replaced on switch and gone on clear.
 
 const token = (name: string) => `eyJhbGciOiJSUzI1NiJ9.${btoa(name).replace(/=+$/, "")}.c2ln`
 
 // The gateway accepts only the tokens in `valid`, like the instance accepts only live JWTs.
 const valid = new Set<string>()
-const calls: Array<{ path: string; authorization: string | null; client: string | null; apiKey: string | null }> = []
+const calls: Array<{
+  path: string
+  authorization: string | null
+  client: string | null
+  protocol: string | null
+  apiKey: string | null
+}> = []
 // The instance's MCP route records the JWT OpenCode connects with.
 const mcp: string[] = []
 const gateway = Bun.serve({
@@ -27,6 +34,7 @@ const gateway = Bun.serve({
       path,
       authorization,
       client: request.headers.get("x-systemprompt-client"),
+      protocol: request.headers.get("x-inference-protocol"),
       apiKey: request.headers.get("x-api-key"),
     })
     if (!valid.has(authorization?.replace(/^Bearer /, "") ?? ""))
@@ -72,7 +80,6 @@ const models = [
 ] satisfies DynWorkSync.Gateway["models"]
 const manifest = {
   ...alpha,
-  agents: alpha.agents.map((agent) => ({ ...agent, model: "claude-haiku-5-5" })),
   managed_mcp_servers: [{ id: "routed", name: "routed", url: `${gateway.url.origin}/api/v1/mcp/routed/mcp` }],
 }
 const hour = () => Date.now() + 3_600_000
@@ -161,12 +168,6 @@ test("the instance's models appear as the systemprompt provider", async () => {
     ["claude-haiku-5-5", "Claude Haiku 5.5"],
     ["claude-sonnet-5-5", "Claude Sonnet 5.5"],
   ])
-  // An instance agent whose model the gateway serves runs on it.
-  const agent: { data: { model?: { providerID: string; id: string } } } = await service.get(
-    "/api/agent/alpha-alpha_helper",
-    project,
-  )
-  expect(agent.data.model).toEqual({ providerID: "systemprompt", id: "claude-haiku-5-5" })
 }, 30_000)
 
 test("a step calls the instance's /v1/messages with the JWT and the client header", async () => {
@@ -179,10 +180,32 @@ test("a step calls the instance's /v1/messages with the JWT and the client heade
       path: "/v1/messages",
       authorization: `Bearer ${token("one")}`,
       client: "opencode",
+      protocol: "claude,openai",
       apiKey: null,
     })
   const database = await Bun.file(service.database).arrayBuffer()
   expect(Buffer.from(database).includes(token("one"))).toBe(false)
+}, 30_000)
+
+test("each gateway call and the tokens of its step are counted for the instance applied, for the heartbeat", async () => {
+  const before = await client.usage({ instance })
+  calls.length = 0
+  const started = Date.now()
+  await step()
+  // Each step is one call, answered with 1 input token and 1 output token.
+  const after = await until(
+    () => client.usage({ instance }),
+    (usage) => usage.tokens_out >= before.tokens_out + calls.length,
+  )
+  expect(after.forwarded - before.forwarded).toBe(calls.length)
+  expect(after.tokens_in - before.tokens_in).toBe(calls.length)
+  expect(after.tokens_out - before.tokens_out).toBe(calls.length)
+  expect(after.last_activity).toBeGreaterThanOrEqual(started)
+  expect(await client.usage({ instance: { key: "beta", url: instance.url } })).toEqual({
+    forwarded: 0,
+    tokens_in: 0,
+    tokens_out: 0,
+  })
 }, 30_000)
 
 test("after a renewal the old JWT is never sent again", async () => {
@@ -272,7 +295,19 @@ test("switching replaces the provider and clearing removes it", async () => {
     return listed.data.filter((model) => model.providerID === "systemprompt").map((model) => model.id)
   }
   expect(await ids()).toEqual(["claude-opus-5-5"])
+  // Another instance counts from zero
+  expect(await client.usage({ instance: { key: "beta", url: gateway.url.origin } })).toEqual({
+    forwarded: 0,
+    tokens_in: 0,
+    tokens_out: 0,
+  })
+  expect((await client.usage({ instance })).forwarded).toBe(0)
   await client.clear()
+  expect(await client.usage({ instance: { key: "beta", url: gateway.url.origin } })).toEqual({
+    forwarded: 0,
+    tokens_in: 0,
+    tokens_out: 0,
+  })
   expect(await until(ids, (value) => value.length === 0)).toEqual([])
   const response = await fetch(
     `${service.url}/api/provider/systemprompt?location[directory]=${encodeURIComponent(project)}`,

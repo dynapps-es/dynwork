@@ -1,14 +1,23 @@
-import { Agent, Model, Plugin, Rpc } from "@opencode/plugin/effect"
-import { Effect, Exit, Schema } from "effect"
+import { Plugin, Rpc } from "@opencode/plugin/effect"
+import { Effect, Exit, Schema, Stream } from "effect"
+import { DynWorkBundles } from "./bundles"
+import { DynWorkConfig } from "./config"
 import { DynWorkSync } from "./contract"
 import { DynWorkGateway } from "./gateway"
+import { DynWorkInstructions } from "./instructions"
 import { DynWorkMapping } from "./mapping"
 import { DynWorkShell } from "./shell"
+import { DynWorkSkills } from "./skills"
+import { DynWorkTelemetry } from "./telemetry"
+import { DynWorkUsage } from "./usage"
 
-// DynWork's server plugin. Main pushes the active instance's manifest, gateway models and JWT over `dynwork.sync`, and
-// the plugin adds its skills, agents, MCP servers, rules and `systemprompt` provider to the service in memory: nothing
-// reaches the database or the config files, and `clear` (sign-out) or the next `apply` (switch) leaves nothing of the
-// previous instance. Main pushes each renewed JWT with `token`, and answers the `refresh` event with one.
+// DynWork's server plugin. Main pushes the active instance's manifest, gateway models, plugin bundle files and JWT over
+// `dynwork.sync`, and the plugin adds its MCP servers and `systemprompt` provider to the service in memory, and writes
+// into the service's config dir the files the systemprompt bridge writes for OpenCode: its skills, its rules in the
+// managed block of the global `AGENTS.md`, its bundle agents, plugins and themes, and its `policies` and
+// `cli_defaults` in `opencode.json`. Nothing reaches the database, and `clear` (sign-out) or the
+// next `apply` (switch) leaves nothing of the previous instance. Main pushes each renewed JWT with `token`, and answers
+// the `refresh` event with one. While a manifest plugin owns governance, the bridge's hook events go to the instance.
 
 export const Definition = Rpc.define({
   id: DynWorkSync.id,
@@ -25,10 +34,27 @@ export const Definition = Rpc.define({
       input: Schema.toStandardSchemaV1(DynWorkSync.Token),
       output: Schema.toStandardSchemaV1(DynWorkSync.TokenAccepted),
     },
+    materialize: {
+      input: Schema.toStandardSchemaV1(DynWorkSync.Materialize),
+      output: Schema.toStandardSchemaV1(DynWorkSync.Materialized),
+    },
+    inspect: {
+      input: Schema.toStandardSchemaV1(DynWorkSync.Inspect),
+      output: Schema.toStandardSchemaV1(DynWorkSync.Inspected),
+    },
+    device: {
+      input: Schema.toStandardSchemaV1(DynWorkSync.Device),
+      output: Schema.toStandardSchemaV1(DynWorkSync.TokenAccepted),
+    },
+    usage: {
+      input: Schema.toStandardSchemaV1(DynWorkSync.UsageOf),
+      output: Schema.toStandardSchemaV1(DynWorkSync.Usage),
+    },
   },
   events: {
     refresh: { schema: Schema.toStandardSchemaV1(DynWorkSync.Refresh) },
     rejected: { schema: Schema.toStandardSchemaV1(DynWorkSync.Rejected) },
+    session: { schema: Schema.toStandardSchemaV1(DynWorkSync.Session) },
   },
 })
 
@@ -38,6 +64,8 @@ interface Store {
         readonly input: DynWorkSync.Apply
         mapped: DynWorkMapping.Mapped
         readonly provided: DynWorkGateway.Provided | undefined
+        /** Where governance events go, when a manifest plugin owns them (`DynWorkTelemetry.target`). */
+        readonly telemetry: DynWorkTelemetry.Target | undefined
       }
     | undefined
   /** The instance's JWT for model calls, held only here. */
@@ -46,6 +74,22 @@ interface Store {
   readonly reloads: Set<Effect.Effect<void>>
   /** One per Location: reconnects only its MCP servers, for a renewed JWT. */
   readonly mcpReloads: Set<Effect.Effect<void>>
+  /** The instance's hook client and tokens for governance events, held only here. */
+  readonly hooks: DynWorkTelemetry.Hooks
+  /** Per Session: its directory and the prompt last reported, like the bridge's plugin keeps them. */
+  readonly sessions: { readonly directories: Map<string, string>; readonly prompts: Map<string, string> }
+  /** Lifecycle events already reported: every Location's activation sees the same service events. */
+  readonly reported: Set<string>
+  /** The device credential main enrolled for the instance applied, held only here, for the events' device evidence. */
+  device: string | undefined
+  /** Sessions already reported to main for binding, by instance. */
+  readonly bound: Set<string>
+  /** Publishes `session` for main; set by the Location that registered the RPC last. */
+  emit: ((session: string) => void) | undefined
+  /** The gateway calls and tokens counted for the instance applied, which main reports in its heartbeat. */
+  usage: DynWorkUsage.Usage | undefined
+  /** Usage events already counted: every Location's activation sees the same service events. */
+  readonly counted: Set<string>
 }
 
 // The service activates the plugin once per Location, and each activation imports the module afresh (local plugin
@@ -58,10 +102,27 @@ const store: Store = Object.assign(slot.__dynworkSync ?? {}, {
   tokens: slot.__dynworkSync?.tokens ?? DynWorkGateway.tokens(),
   reloads: slot.__dynworkSync?.reloads ?? new Set<Effect.Effect<void>>(),
   mcpReloads: slot.__dynworkSync?.mcpReloads ?? new Set<Effect.Effect<void>>(),
+  hooks: slot.__dynworkSync?.hooks ?? DynWorkTelemetry.hooks(),
+  sessions: slot.__dynworkSync?.sessions ?? {
+    directories: new Map<string, string>(),
+    prompts: new Map<string, string>(),
+  },
+  reported: slot.__dynworkSync?.reported ?? new Set<string>(),
+  device: slot.__dynworkSync?.device,
+  bound: slot.__dynworkSync?.bound ?? new Set<string>(),
+  emit: slot.__dynworkSync?.emit,
+  usage: slot.__dynworkSync?.usage,
+  counted: slot.__dynworkSync?.counted ?? new Set<string>(),
 })
 slot.__dynworkSync = store
 
 const mapped = () => store.current?.mapped ?? DynWorkMapping.empty
+
+// Set only for DynWork's own service (the packaged prod build), whose config dir is DynWork's alone: the rules go to its
+// global `AGENTS.md` and the skills to its `skills` directory, which OpenCode watches and reloads by itself. A service
+// without it keeps the user's config dir, which the plugin never writes to: the rules go into each step's system
+// context and the skills into the service in memory instead.
+const configDir = process.env.OPENCODE_CONFIG_DIR || undefined
 
 // Every Location reloads, even when one fails; any failure then fails the call, so main never records a sync that did
 // not land everywhere and tries again.
@@ -75,6 +136,30 @@ const everywhere = (reloads: Set<Effect.Effect<void>>) =>
     }),
   )
 const reloadAll = everywhere(store.reloads)
+
+// One governance event, sent in the background: like the bridge's plugin, it never holds up or fails a step.
+const report = (body: Record<string, unknown> | undefined) =>
+  Effect.sync(() => {
+    const telemetry = store.current?.telemetry
+    const jwt = store.tokens.current?.jwt
+    const device = store.device
+    if (!body || !telemetry || !jwt) return
+    void DynWorkTelemetry.send(store.hooks, telemetry, jwt, body, device)
+    // Like the bridge's proxy, only an enrolled device queues the Session for binding to its receipts.
+    const session = typeof body.session_id === "string" ? body.session_id : undefined
+    const key = `${store.current?.input.instance.key}\u001f${session}`
+    if (!device || !session || store.bound.has(key)) return
+    store.bound.add(key)
+    bounded(store.bound)
+    store.emit?.(session)
+  })
+
+const directory = (sessionID: string) => store.sessions.directories.get(sessionID) ?? process.cwd()
+
+// Sessions that never end would keep their entries: only the most recent ones are kept.
+function bounded<T>(collection: Map<string, T> | Set<string>) {
+  if (collection.size > 1024) collection.delete(collection.keys().next().value ?? "")
+}
 
 export default Plugin.define({
   id: "dynwork",
@@ -100,30 +185,26 @@ export default Plugin.define({
     )
 
     // Transforms only copy values the mapping already built and decoded: one that throws disables the plugin.
-    yield* ctx.skill.transform((editor) => {
-      for (const skill of mapped().skills) editor.add(skill)
-    })
-    yield* ctx.agent.transform((editor) => {
-      for (const agent of mapped().agents)
-        editor.update(agent.id, (info) => {
-          info.name = Agent.Name.make(agent.name)
-          info.description = agent.description
-          info.system = agent.system
-          info.mode = agent.mode
-          if (agent.model) info.model = { providerID: DynWorkGateway.providerID, id: Model.ID.make(agent.model) }
-        })
-      const id = mapped().defaults.agent
-      if (id) editor.default(id)
-    })
+    if (!configDir)
+      yield* ctx.skill.transform((editor) => {
+        for (const skill of mapped().skills) editor.add(skill)
+      })
     yield* ctx.mcp.transform((editor) => {
       for (const [name, config] of mapped().mcp) editor.set(name, config)
     })
+    // Like the bridge's `policies` (deny `provider.use *`, allow `systemprompt`), the instance's gateway is the only
+    // provider while it is applied. Every provider reload runs this again, so one connected later is removed too.
+    // Providers declared in a config file's `providers` are added after external plugins: with a config dir of its own
+    // the service gets the bridge's `policies` in `opencode.json`, which remove those too.
     yield* ctx.provider.transform((editor) => {
       const provided = store.current?.provided
-      if (provided) editor.add({ info: provided.info, models: provided.models })
+      if (!provided) return
+      for (const record of editor.list()) editor.remove(record.provider.id)
+      editor.add({ info: provided.info, models: provided.models })
     })
     yield* ctx.model.transform((editor) => {
-      const model = mapped().defaults.model
+      // With a config dir of its own, `cli_defaults` sets `model` in `opencode.json` only where the user has not.
+      const model = configDir ? undefined : mapped().defaults.model
       if (model && editor.get(model.providerID, model.modelID)) editor.default.set(model.providerID, model.modelID)
       // The gateway's suggestion only fills an empty choice: a configured default model or `cli_defaults` wins.
       const suggested = store.current?.provided?.default
@@ -131,13 +212,22 @@ export default Plugin.define({
         editor.default.set(DynWorkGateway.providerID, suggested)
     })
 
-    // Rules go into the system prompt of every step instead of the Session's instruction entries: the system part is
-    // rebuilt for each model call, so it never piles up across steps, compaction cannot summarize it away, and a
-    // switch or sign-out takes effect on the next step of every Session without touching stored history.
+    // Without a config dir of its own, the rules go into the system part of each model call: it is rebuilt for every
+    // call, so it never piles up across steps and a switch or sign-out takes effect on the next step of every Session.
+    // The same hook reports each new prompt while governance telemetry is on.
     yield* ctx.session.hook("context", (event) =>
-      Effect.sync(() => {
-        const system = mapped().system
-        if (system) event.system.push({ type: "text", text: system })
+      Effect.suspend(() => {
+        const instructions = configDir ? undefined : mapped().instructions
+        if (instructions) event.system.push({ type: "text", text: instructions })
+        if (!store.current?.telemetry) return Effect.void
+        const body = DynWorkTelemetry.prompt(
+          event.messages,
+          event.sessionID,
+          directory(event.sessionID),
+          store.sessions.prompts,
+        )
+        bounded(store.sessions.prompts)
+        return report(body)
       }),
     )
 
@@ -154,15 +244,61 @@ export default Plugin.define({
         apply: (input) =>
           Effect.gen(function* () {
             const next = DynWorkMapping.map(input)
-            store.current = { input, mapped: next, provided: DynWorkGateway.provider(input) }
+            // Like the bridge, the block is written in full and only reported: OpenCode never reads rules past it.
+            const over = DynWorkInstructions.overBudget(next.instructions)
+            if (over)
+              yield* Effect.logWarning(
+                `dynwork: the rules block of AGENTS.md is ${over} characters, over OpenCode's ${DynWorkInstructions.budget}`,
+              )
+            if (next.skillFiles?.skipped.length)
+              yield* Effect.logWarning(
+                `dynwork: skills without a directory of their own, not written: ${next.skillFiles.skipped.join(", ")}`,
+              )
+            const warnings = configDir ? (next.owned?.warnings ?? []) : []
+            yield* Effect.forEach(warnings, (warning) => Effect.logWarning(`dynwork: ${warning}`), { discard: true })
+            // A failed write fails the call before anything changes, so main tries again.
+            if (configDir) {
+              yield* Effect.promise(() => DynWorkInstructions.write(configDir, next.instructions))
+              yield* Effect.promise(() => DynWorkSkills.write(configDir, next.skillFiles))
+              yield* Effect.promise(() => DynWorkBundles.write(configDir, next.owned))
+              yield* Effect.promise(() => DynWorkConfig.write(configDir, { locked: true, settings: next.settings }))
+            }
+            const telemetry = DynWorkTelemetry.target(input)
+            // The device credential belongs to the instance it was enrolled with: another one never receives it.
+            if (
+              store.current?.input.instance.key !== input.instance.key ||
+              store.current.input.instance.url !== input.instance.url
+            )
+              store.device = undefined
+            // A hook client and tokens of another instance are never sent to this one.
+            if (store.current?.telemetry?.base !== telemetry?.base) Object.assign(store.hooks, DynWorkTelemetry.hooks())
+            // Another instance starts its totals at zero, as a new bridge session does.
+            if (store.usage?.instance !== DynWorkUsage.id(input.instance))
+              store.usage = DynWorkUsage.start(input.instance)
+            store.current = { input, mapped: next, provided: DynWorkGateway.provider(input), telemetry }
             DynWorkGateway.push(store.tokens, { jwt: input.jwt, expiresAt: input.expiresAt })
             yield* reloadAll
-            return { skills: next.skills.length, agents: next.agents.length, mcp: next.mcp.length, rules: next.rules }
+            return {
+              skills: configDir ? (next.skillFiles?.files.length ?? 0) : next.skills.length,
+              agents: configDir ? (next.owned?.files.filter((file) => file.path.startsWith("agents/")).length ?? 0) : 0,
+              mcp: next.mcp.length,
+              rules: next.rules,
+              ...(warnings.length > 0 ? { warnings } : {}),
+            }
           }),
         clear: () =>
           Effect.gen(function* () {
             store.current = undefined
             DynWorkGateway.push(store.tokens, undefined)
+            Object.assign(store.hooks, DynWorkTelemetry.hooks())
+            store.device = undefined
+            store.usage = undefined
+            if (configDir) {
+              yield* Effect.promise(() => DynWorkInstructions.write(configDir, undefined))
+              yield* Effect.promise(() => DynWorkSkills.write(configDir, undefined))
+              yield* Effect.promise(() => DynWorkBundles.write(configDir, undefined))
+              yield* Effect.promise(() => DynWorkConfig.write(configDir, { locked: false }))
+            }
             yield* reloadAll
             return {}
           }),
@@ -183,8 +319,57 @@ export default Plugin.define({
             if (reconnect) yield* everywhere(store.mcpReloads)
             return { accepted: true }
           }),
+        // A skill's runtime files, which main reads from its publication bundle, go beside the SKILL.md `apply` wrote.
+        // Only for the instance applied, and only in a config dir of the service's own.
+        materialize: (input) =>
+          Effect.gen(function* () {
+            const current = store.current
+            if (!configDir) return { outcome: "unsupported" as const, files: [] }
+            if (current?.input.instance.key !== input.instance.key || current.input.instance.url !== input.instance.url)
+              return { outcome: "missing" as const, files: [] }
+            return yield* Effect.promise(() =>
+              DynWorkSkills.install(configDir, current.mapped.skillFiles, input.skill, input.files),
+            )
+          }),
+        device: (input) =>
+          Effect.sync(() => {
+            const current = store.current
+            if (current?.input.instance.key !== input.instance.key || current.input.instance.url !== input.instance.url)
+              return { accepted: false }
+            store.device = input.credential
+            return { accepted: true }
+          }),
+        usage: (input) => Effect.sync(() => DynWorkUsage.report(store.usage, input.instance)),
+        inspect: (input) =>
+          Effect.gen(function* () {
+            const current = store.current
+            if (
+              !configDir ||
+              current?.input.instance.key !== input.instance.key ||
+              current.input.instance.url !== input.instance.url
+            )
+              return { intact: false }
+            return {
+              intact: yield* Effect.promise(() =>
+                DynWorkSkills.inspect(configDir, current.mapped.skillFiles, input.skill, input.files),
+              ),
+            }
+          }),
       })
       .pipe(Effect.orDie)
+
+    const emit = (session: string) =>
+      Effect.runFork(
+        rpc.events
+          .emit("session", { instance: store.current?.input.instance.key ?? "", session })
+          .pipe(Effect.catchCause(() => Effect.logWarning("dynwork: could not report a Session for binding"))),
+      )
+    store.emit = emit
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        if (store.emit === emit) store.emit = undefined
+      }),
+    )
 
     // Main follows these events to renew or sign out; when it does not answer, the call just waits less long.
     const events: DynWorkGateway.Events = {
@@ -208,12 +393,17 @@ export default Plugin.define({
           if (!provided) return
           const jwt = yield* DynWorkGateway.authorize(store.tokens, events, event.sessionID)
           Object.keys(event.headers)
-            .filter((name) => ["authorization", "x-api-key", "x-systemprompt-client"].includes(name.toLowerCase()))
+            .filter((name) =>
+              ["authorization", "x-api-key", "x-systemprompt-client", "x-inference-protocol"].includes(
+                name.toLowerCase(),
+              ),
+            )
             .forEach((name) => delete event.headers[name])
           // authorize may wait for main: a switch or sign-out meanwhile leaves a JWT that is not this gateway's, so the
           // call goes without one and the retry hook picks up the instance that is current then.
           if (jwt && store.current?.provided === provided) event.headers.authorization = `Bearer ${jwt}`
           event.headers["x-systemprompt-client"] = DynWorkGateway.client
+          event.headers["x-inference-protocol"] = provided.protocols
           event.baseURL = provided.baseURL
         }),
       { providerID: DynWorkGateway.providerID },
@@ -230,6 +420,89 @@ export default Plugin.define({
             : { retry: false }
         }),
       { providerID: DynWorkGateway.providerID },
+    )
+
+    // The governance events of the bridge's `systemprompt-hooks.js` (`DynWorkTelemetry`), only while a manifest plugin
+    // owns governance: Session start and end, every tool result, and the end of each assistant turn (prompts are
+    // reported by the context hook above).
+    yield* ctx.event.subscribe({ types: ["session.created", "session.deleted"] }).pipe(
+      Stream.runForEach((event) =>
+        Effect.suspend(() => {
+          const sessionID = event.data.sessionID
+          const id = event.id ?? `${sessionID}:${event.type}`
+          if (store.reported.has(id)) return Effect.void
+          store.reported.add(id)
+          bounded(store.reported)
+          if (event.type === "session.created") {
+            store.sessions.directories.set(sessionID, event.data.location.directory)
+            bounded(store.sessions.directories)
+          }
+          const body = DynWorkTelemetry.lifecycle(event.type, sessionID, directory(sessionID), id)
+          if (event.type === "session.deleted") {
+            store.sessions.directories.delete(sessionID)
+            store.sessions.prompts.delete(sessionID)
+          }
+          return report(body)
+        }),
+      ),
+      Effect.forkScoped({ startImmediately: true }),
+    )
+    // OpenCode 2 publishes no `session.idle`, which the bridge's plugin listens to; this hook runs at the same point,
+    // when a Session finishes model work with no pending input.
+    yield* ctx.session.hook("experimental.idle", (event) =>
+      report(
+        DynWorkTelemetry.lifecycle(
+          "session.idle",
+          event.sessionID,
+          directory(event.sessionID),
+          `${event.sessionID}:session.idle:${Date.now()}`,
+        ),
+      ),
+    )
+    yield* ctx.tool.hook("execute.after", (event) =>
+      Effect.suspend(() =>
+        store.current?.telemetry
+          ? report(DynWorkTelemetry.tool(event, store.current.telemetry.skills, directory(event.sessionID)))
+          : Effect.void,
+      ),
+    )
+    // The session on each gateway call, where the bridge's proxy puts it, so the call lands on the events' context.
+    yield* ctx.session.hook(
+      "http.request",
+      (event) =>
+        Effect.gen(function* () {
+          if (!store.current?.telemetry) return
+          const request = event.request
+          event.request = yield* Effect.promise(() =>
+            DynWorkTelemetry.stamp(request, event.sessionID).catch(() => request),
+          )
+        }),
+      { providerID: DynWorkGateway.providerID },
+    )
+
+    // What the bridge's proxy counts for its heartbeat (`DynWorkUsage`): each answer of the instance's gateway, and the
+    // tokens of every step. While an instance is applied its gateway is the only provider, so every step is its own.
+    // Title and compaction calls count as calls; OpenCode keeps their tokens in an event plugins do not receive.
+    yield* ctx.session.hook(
+      "http.response",
+      (event) =>
+        Effect.sync(() => {
+          if (store.usage && store.current?.provided) DynWorkUsage.call(store.usage, event.response.ok, Date.now())
+        }),
+      { providerID: DynWorkGateway.providerID },
+    )
+    yield* ctx.event.subscribe({ types: ["session.step.ended", "session.step.failed"] }).pipe(
+      Stream.runForEach((event) =>
+        Effect.sync(() => {
+          const tokens = event.data.tokens
+          const id = event.id ?? `${event.data.sessionID}:${event.data.assistantMessageID}:${event.type}`
+          if (!tokens || store.counted.has(id)) return
+          store.counted.add(id)
+          bounded(store.counted)
+          if (store.usage && store.current?.provided) DynWorkUsage.tokens(store.usage, tokens)
+        }),
+      ),
+      Effect.forkScoped({ startImmediately: true }),
     )
   }),
 })

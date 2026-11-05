@@ -16,3 +16,9 @@ systemprompt, dynbrain and the Agent Farm. This checkout is the project's monore
 - Commits use the upstream convention with the `dynwork` scope, for example `feat(dynwork): add tenant picker`.
 - Never push to `anomalyco/opencode`. Never run upstream release or publish workflows.
 - `plans/` holds the local development plans (dev-plan). It is excluded from git and never pushed.
+
+## Bringing upstream OpenCode in
+
+When David asks to merge OpenCode's commits, sync with upstream or catch up with OpenCode, follow
+`dynwork/UPSTREAM-SYNC.md` end to end: pick the target, merge it in a throwaway worktree, resolve the DynWork seams,
+check, open and merge the PR, build and install DynWork, and report.

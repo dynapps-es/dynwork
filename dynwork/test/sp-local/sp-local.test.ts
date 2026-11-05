@@ -8,6 +8,7 @@ import {
   defaultProject,
   describeBody,
   expected,
+  fetchManifest,
   fixtureChanges,
   formatEnv,
   freePort,
@@ -18,6 +19,7 @@ import {
   localImage,
   manifestIds,
   missing,
+  openCodeHosts,
   mobileFixtureFile,
   mobileVerdict,
   parseEnv,
@@ -86,7 +88,8 @@ describe("manifest content", () => {
     skills: [{ id: "alpha_notes" }, { id: "alpha_review" }, { id: "who_am_i" }],
     agents: [{ id: "alpha_helper" }],
     managed_mcp_servers: [{ id: "alpha-docs" }],
-    rules: [{ id: "alpha_conventions" }],
+    rules: [{ id: "alpha_conventions", hosts: ["opencode", "opencode-cli"] }],
+    enabled_hosts: ["opencode", "opencode-cli"],
   }
 
   test("an instance with everything seeded misses nothing", () => {
@@ -94,8 +97,26 @@ describe("manifest content", () => {
   })
 
   test("names what is missing, and an instance never satisfies the other one", () => {
-    expect(missing("alpha", { ...full, agents: [], rules: undefined })).toEqual(["agents/alpha_helper", "rules/alpha_conventions"])
+    expect(missing("alpha", { ...full, agents: [], rules: undefined })).toEqual([
+      "agents/alpha_helper",
+      "rules/alpha_conventions",
+    ])
     expect(missing("beta", full)).toHaveLength(Object.values(expected.beta).flat().length)
+  })
+
+  test("a rule that names no OpenCode packaging reaches no host, so the instance still misses its catalog", () => {
+    expect(missing("alpha", { ...full, rules: [{ id: "alpha_conventions" }] })).toEqual([
+      "rules/alpha_conventions hosts",
+    ])
+    expect(missing("alpha", { ...full, rules: [{ id: "alpha_conventions", hosts: ["opencode"] }] })).toEqual([
+      "rules/alpha_conventions hosts",
+    ])
+  })
+
+  test("serves OpenCode and nothing else as the enabled hosts, in any order", () => {
+    expect(missing("alpha", { ...full, enabled_hosts: ["opencode-cli", "opencode"] })).toEqual([])
+    expect(missing("alpha", { ...full, enabled_hosts: [...openCodeHosts, "claude-code"] })).toEqual(["enabled_hosts"])
+    expect(missing("alpha", { ...full, enabled_hosts: undefined })).toEqual(["enabled_hosts"])
   })
 
   test("falls back to the name when an entry has no id", () => {
@@ -118,7 +139,10 @@ describe("manifest signature", () => {
   })
 
   test("rejects another key", () => {
-    const other = generateKeyPairSync("ed25519").publicKey.export({ format: "der", type: "spki" }).subarray(-32).toString("base64")
+    const other = generateKeyPairSync("ed25519")
+      .publicKey.export({ format: "der", type: "spki" })
+      .subarray(-32)
+      .toString("base64")
     expect(signatureValid({ payload, signature }, other)).toBe(false)
   })
 })
@@ -145,12 +169,16 @@ describe("capture redaction", () => {
     expect(redactUrl(`http://127.0.0.1:54321/cb?state=s3cr3t&code=${code}`, scope)).toBe(
       "http://127.0.0.1:<port>/cb?state=<redacted>&code=<redacted>",
     )
-    expect(redactUrl("http://localhost:18101/bridge-auth/device-link/approve", scope)).toBe("<instance>/bridge-auth/device-link/approve")
+    expect(redactUrl("http://localhost:18101/bridge-auth/device-link/approve", scope)).toBe(
+      "<instance>/bridge-auth/device-link/approve",
+    )
   })
 
   test("redacts a nested redirect as a URL, through relative locations", () => {
     const location = `/admin/login?redirect=${encodeURIComponent(`/bridge-auth/device-link?redirect=${encodeURIComponent("http://127.0.0.1:54321/cb")}`)}`
-    expect(redactUrl(location, scope)).toBe("/admin/login?redirect=/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb")
+    expect(redactUrl(location, scope)).toBe(
+      "/admin/login?redirect=/bridge-auth/device-link?redirect=http://127.0.0.1:<port>/cb",
+    )
   })
 
   test("keeps protocol vocabulary and other hosts and ports as they are", () => {
@@ -191,7 +219,9 @@ describe("capture redaction", () => {
   })
 
   test("scrubs page text of the port and codes and rounds the seconds left", () => {
-    expect(scrubText(`Helper\n 127.0.0.1:54321  ${code}  599\u00a0seconds`, scope)).toBe("Helper 127.0.0.1:<port> <code> 600 seconds")
+    expect(scrubText(`Helper\n 127.0.0.1:54321  ${code}  599\u00a0seconds`, scope)).toBe(
+      "Helper 127.0.0.1:<port> <code> 600 seconds",
+    )
   })
 })
 
@@ -212,12 +242,41 @@ describe("capture fixture", () => {
   })
 })
 
+// Against the running instances: `up` and `seed` first, then SP_LOCAL_ENV=.env.local bun test sp-local.test.ts.
+describe.skipIf(process.env.SP_LOCAL_ENV === undefined)("host catalog of the running instances", () => {
+  const instances = ["alpha", "beta"] as const
+
+  async function liveManifest(instance: (typeof instances)[number]) {
+    const env = parseEnv(await Bun.file(process.env.SP_LOCAL_ENV ?? "").text())
+    const manifest = await fetchManifest(
+      env[`SP_${instance.toUpperCase()}_URL`] ?? "",
+      env[`SP_${instance.toUpperCase()}_PAT`] ?? "",
+    )
+    if (manifest === undefined) throw new Error(`${instance} did not exchange its PAT, run seed`)
+    return manifest
+  }
+
+  test.each(instances)("%s rules name both OpenCode packagings", async (instance) => {
+    const manifest = await liveManifest(instance)
+    expect(manifest.rules?.map((rule) => rule.id)).toEqual([...expected[instance].rules])
+    manifest.rules?.forEach((rule) => expect(rule.hosts).toEqual(openCodeHosts))
+  })
+
+  test.each(instances)("%s enables the OpenCode hosts and no other", async (instance) => {
+    expect([...((await liveManifest(instance)).enabled_hosts ?? [])].sort()).toEqual([...openCodeHosts].sort())
+  })
+})
+
 describe("stack isolation", () => {
   test("without the variables the default stack keeps its project, ports and env file", async () => {
     expect(stackSettings({})).toEqual({ project: "dynwork-sp-local", portBase: 18101, envName: ".env.local" })
-    expect(stackSettings({ SP_LOCAL_PROJECT: "dynwork-sp-local", SP_LOCAL_PORT_BASE: "18101" })).toEqual(stackSettings({}))
+    expect(stackSettings({ SP_LOCAL_PROJECT: "dynwork-sp-local", SP_LOCAL_PORT_BASE: "18101" })).toEqual(
+      stackSettings({}),
+    )
     // compose names the project itself when `-p` is absent, so the file must agree with what the script passes
-    expect((await Bun.file(path.join(import.meta.dir, "compose.yml")).text()).match(/^name: (\S+)/m)?.[1]).toBe(defaultProject)
+    expect((await Bun.file(path.join(import.meta.dir, "compose.yml")).text()).match(/^name: (\S+)/m)?.[1]).toBe(
+      defaultProject,
+    )
     expect(defaultPortBase).toBe(18101)
   })
 

@@ -99,6 +99,10 @@ export const expected = {
   },
 } as const satisfies Record<Instance, Record<"skills" | "agents" | "mcp" | "rules", readonly string[]>>
 
+// What prod serves to a user who changed nothing: both OpenCode packagings. Claude Code and Claude Desktop are opt-in
+// there (`default_enabled: false`), Codex and Hermes are off; `content/host-catalog` makes the instances do the same.
+export const openCodeHosts = ["opencode", "opencode-cli"]
+
 const fixtureFile = path.join(dir, "fixtures", "device-link.json")
 
 export const mobileFixtureFile = path.join(dir, "fixtures", "mobile-auth.json")
@@ -201,7 +205,8 @@ export function formatEnv(values: Record<string, string>) {
 export function cardField(output: string, heading: string) {
   const card: { sections: { heading: string; content: unknown }[] } = JSON.parse(output)
   const section = card.sections.find((item) => item.heading === heading)
-  if (section === undefined || typeof section.content !== "string") throw new Error(`the CLI output has no "${heading}"`)
+  if (section === undefined || typeof section.content !== "string")
+    throw new Error(`the CLI output has no "${heading}"`)
   return section.content
 }
 
@@ -214,13 +219,14 @@ export function truncate(secret: string) {
   return `${secret.slice(0, 12)}…`
 }
 
-type Entry = { id?: string; name?: string }
+type Entry = { id?: string; name?: string; hosts?: string[] }
 
 export type Manifest = {
   skills: Entry[]
   agents: Entry[]
   managed_mcp_servers: Entry[]
   rules?: Entry[]
+  enabled_hosts?: string[]
 }
 
 export function manifestIds(manifest: Manifest) {
@@ -236,10 +242,17 @@ export function manifestIds(manifest: Manifest) {
 // Ids the instance should deliver but does not.
 export function missing(instance: Instance, manifest: Manifest) {
   const have = manifestIds(manifest)
-  return (["skills", "agents", "mcp", "rules"] as const).flatMap((group) => {
+  const absent = (["skills", "agents", "mcp", "rules"] as const).flatMap((group) => {
     const wanted: readonly string[] = expected[instance][group]
     return wanted.filter((id) => !have[group].includes(id)).map((id) => `${group}/${id}`)
   })
+  // A rule reaches a host only when its `hosts` name it, so the host catalog is part of what the instance must serve.
+  const unaimed = (manifest.rules ?? [])
+    .filter((rule) => !openCodeHosts.every((host) => rule.hosts?.includes(host)))
+    .map((rule) => `rules/${rule.id ?? rule.name} hosts`)
+  const hostsOk =
+    JSON.stringify([...(manifest.enabled_hosts ?? [])].sort()) === JSON.stringify([...openCodeHosts].sort())
+  return [...absent, ...unaimed, ...(hostsOk ? [] : ["enabled_hosts"])]
 }
 
 // The envelope carries a JCS string and an ed25519 signature over its exact bytes; the key is the raw 32 bytes in base64.
@@ -436,7 +449,18 @@ async function seedInstance(instance: Instance) {
     kept !== undefined && (await exchangePat(url(env, instance), kept)) !== undefined
       ? kept
       : cardField(
-          await cli(instance, "admin", "users", "api-key", "issue", "--user", user.id, "--name", `dynwork-local-${Date.now()}`, "--json"),
+          await cli(
+            instance,
+            "admin",
+            "users",
+            "api-key",
+            "issue",
+            "--user",
+            user.id,
+            "--name",
+            `dynwork-local-${Date.now()}`,
+            "--json",
+          ),
           "secret",
         )
 
@@ -453,14 +477,17 @@ async function seedInstance(instance: Instance) {
 
   const pending = await missingContent(instance, url(env, instance), pat)
   if (pending.length > 0) await loadContent(instance, url(env, instance), pat)
-  console.log(`seed ${instance}: ${userEmail}, PAT ${truncate(pat)}, content ${pending.length > 0 ? "loaded" : "already there"}`)
+  await setModelFilter(url(env, instance), pat)
+  console.log(
+    `seed ${instance}: ${userEmail}, PAT ${truncate(pat)}, content ${pending.length > 0 ? "loaded" : "already there"}`,
+  )
 }
 
 // The authoring tree under content/<instance> goes through the image's own `core marketplace import`; the agent through
 // `admin agents create`. The server reads its services tree at boot, so it restarts once the declarations are applied.
 async function loadContent(instance: Instance, base: string, pat: string) {
   const agent = expected[instance].agents[0]
-  await sh(instance, "rm -rf /tmp/content /tmp/out && mkdir -p /tmp/content")
+  await sh(instance, "rm -rf /tmp/content /tmp/out && mkdir -p /tmp/content", "root")
   await compose("cp", `${path.join(dir, "content", instance)}/.`, `${instance}:/tmp/content`)
   await cli(instance, "core", "marketplace", "import", "--from", "/tmp/content", "--into", "/tmp/out", "--strict")
   if ((await shExit(instance, `test -f /app/services/agents/${agent}.yaml`)) !== 0) {
@@ -500,11 +527,31 @@ async function loadContent(instance: Instance, base: string, pat: string) {
       ),
     ].join("\n"),
   )
+  await loadHostCatalog(instance)
   await cli(instance, "admin", "config", "apply", "--reason", "sp-local seed")
   await compose("restart", instance)
   await waitReady(instance)
   const stillMissing = await missingContent(instance, base, pat)
   if (stillMissing.length > 0) throw new Error(`${instance}: the manifest still lacks ${stillMissing.join(", ")}`)
+}
+
+// The image ships a catalog entry per host and none for Claude Code, and "absent from the catalog" means enabled. Prod's
+// two Claude entries (`default_enabled: false`) are copied from dynwork-config, so the manifest serves OpenCode only.
+async function loadHostCatalog(instance: Instance) {
+  await sh(instance, "rm -rf /tmp/external_agents && mkdir -p /tmp/external_agents", "root")
+  await compose(
+    "cp",
+    `${path.join(dir, "content", "host-catalog", "external_agents")}/.`,
+    `${instance}:/tmp/external_agents`,
+  )
+  await sh(
+    instance,
+    [
+      "set -e",
+      "cp /tmp/external_agents/*.yaml /app/services/external_agents/",
+      "grep -q -F -e '- ../external_agents/claude_code.yaml' /app/services/config/config.yaml || sed -i 's|^includes:|includes:\\n  - ../external_agents/claude_code.yaml|' /app/services/config/config.yaml",
+    ].join("\n"),
+  )
 }
 
 async function check() {
@@ -543,7 +590,9 @@ async function checkInstance(instance: Instance, env: Record<string, string>) {
     report()
     return failures
   }
-  lines.push(`  PAT ${truncate(pat)} -> JWT ${truncate(session.token)} ttl ${session.ttl}s, expires ${jwtExpiry(session.token).toISOString()}`)
+  lines.push(
+    `  PAT ${truncate(pat)} -> JWT ${truncate(session.token)} ttl ${session.ttl}s, expires ${jwtExpiry(session.token).toISOString()}`,
+  )
 
   const headers = { authorization: `Bearer ${session.token}` }
   const manifest = await fetch(`${base}/v1/bridge/manifest`, { headers: { ...headers, "cache-control": "no-cache" } })
@@ -566,8 +615,11 @@ async function checkInstance(instance: Instance, env: Record<string, string>) {
 
   const content: Manifest = JSON.parse(envelope.payload)
   const have = manifestIds(content)
-  lines.push(`  skills ${have.skills.length}, agents ${have.agents.length}, mcp ${have.mcp.length}, rules ${have.rules.length}`)
-  if (have.skills.length < 2 || have.agents.length < 1 || have.mcp.length < 1) fail("fewer skills, agents or mcp than seeded")
+  lines.push(
+    `  skills ${have.skills.length}, agents ${have.agents.length}, mcp ${have.mcp.length}, rules ${have.rules.length}`,
+  )
+  if (have.skills.length < 2 || have.agents.length < 1 || have.mcp.length < 1)
+    fail("fewer skills, agents or mcp than seeded")
   missing(instance, content).forEach((id) => fail(`the manifest lacks ${id}`))
   report()
   return failures
@@ -590,7 +642,9 @@ async function code(selected: readonly Instance[]) {
     const issued = await cli(instance, "admin", "bridge", "issue-code", "--user-id", userEmail, "--json")
     next[`SP_${instance.toUpperCase()}_EXCHANGE_CODE`] = cardField(issued, "code")
     next[`SP_${instance.toUpperCase()}_EXCHANGE_CODE_EXPIRES`] = cardField(issued, "expires_at")
-    console.log(`${instance}: exchange code ${truncate(cardField(issued, "code"))} valid until ${cardField(issued, "expires_at")}`)
+    console.log(
+      `${instance}: exchange code ${truncate(cardField(issued, "code"))} valid until ${cardField(issued, "expires_at")}`,
+    )
   }
   await saveEnv(next)
 }
@@ -769,7 +823,18 @@ async function observeLoginGate(run: Run) {
 async function registerPasskeys(run: Run) {
   const link = new URL(
     JSON.parse(
-      await cli(run.instance, "admin", "users", "webauthn", "generate-setup-token", "--email", userEmail, "--expires-minutes", "5", "--json"),
+      await cli(
+        run.instance,
+        "admin",
+        "users",
+        "webauthn",
+        "generate-setup-token",
+        "--email",
+        userEmail,
+        "--expires-minutes",
+        "5",
+        "--json",
+      ),
     ).content,
   )
   const setupToken = keepSecret(run, link.searchParams.get("token") ?? "")
@@ -852,8 +917,12 @@ async function developmentLogin(run: Run) {
   const jwt = keepSecret(run, stringField(issued, "access_token"))
   keepSecret(run, stringField(issued, "refresh_token"))
   const claims: unknown = JSON.parse(Buffer.from(jwt.split(".")[1] ?? "", "base64url").toString() || "{}")
-  console.log(`  development login: passkey on 127.0.0.1 "${passkeys.onAddress}", on localhost "${passkeys.onLocalhost}"`)
-  console.log(`  OAuth ${token.status}: JWT ${truncate(jwt)} for ${userEmail}, cookies after sign-in: ${cookies.length}`)
+  console.log(
+    `  development login: passkey on 127.0.0.1 "${passkeys.onAddress}", on localhost "${passkeys.onLocalhost}"`,
+  )
+  console.log(
+    `  OAuth ${token.status}: JWT ${truncate(jwt)} for ${userEmail}, cookies after sign-in: ${cookies.length}`,
+  )
   return {
     jwt,
     record: {
@@ -882,10 +951,17 @@ async function roundTrip(run: Run) {
   const pat = keepSecret(run, stringField(traded.body, "pat"))
   const minted = await patToJwt(run, pat)
   const again = await postJson(`${run.api}/v1/auth/bridge/session-pat`, { code, device_name: captureLabel })
-  console.log(`  consent: "${consent.title}", forms ${consent.forms.map((form) => `${form.action} [${form.fields.join(",")}]`).join(", ")}`)
-  console.log(`  callback ${hit.method} ${hit.url.pathname} ?${[...hit.url.searchParams.keys()].join("&")} (code ${code.length} chars)`)
-  console.log(`  session-pat ${traded.status}: PAT ${truncate(pat)}; /pat ${minted.status}: JWT ${truncate(minted.token)} ttl ${minted.ttl}s`)
-  if (traded.status !== 200 || minted.status !== 200 || minted.token === "") throw new Error("the device-link code did not become a PAT and a JWT")
+  console.log(
+    `  consent: "${consent.title}", forms ${consent.forms.map((form) => `${form.action} [${form.fields.join(",")}]`).join(", ")}`,
+  )
+  console.log(
+    `  callback ${hit.method} ${hit.url.pathname} ?${[...hit.url.searchParams.keys()].join("&")} (code ${code.length} chars)`,
+  )
+  console.log(
+    `  session-pat ${traded.status}: PAT ${truncate(pat)}; /pat ${minted.status}: JWT ${truncate(minted.token)} ttl ${minted.ttl}s`,
+  )
+  if (traded.status !== 200 || minted.status !== 200 || minted.token === "")
+    throw new Error("the device-link code did not become a PAT and a JWT")
   console.log("  PAT minted a JWT")
   console.log(`  second use of the code: ${again.status} ${stringField(again.body, "message")}`)
   return {
@@ -897,7 +973,9 @@ async function roundTrip(run: Run) {
         method: hit.method,
         path: hit.url.pathname,
         query: [...hit.url.searchParams.keys()],
-        code_format: /^[0-9a-f]{64}$/.test(code) ? "64 lowercase hex characters" : `unexpected (${code.length} characters)`,
+        code_format: /^[0-9a-f]{64}$/.test(code)
+          ? "64 lowercase hex characters"
+          : `unexpected (${code.length} characters)`,
         request_headers: hit.headers,
         referer: hit.referer === null ? null : redactUrl(hit.referer, run.scope),
         carries_bearer: hit.headers.includes("authorization"),
@@ -917,19 +995,35 @@ async function runExperiments(run: Run, jwt: string) {
       const target = template.replaceAll("<port>", String(run.scope.port))
       const shown = await asUser(run, jwt, `${devicePath}?redirect=${encodeURIComponent(target)}`)
       const approved = await asUser(run, jwt, `${devicePath}/approve`, new URLSearchParams({ redirect: target }))
-      return { redirect: template, page: shown.status, title: shown.title, approve: approved.status, location: approved.location }
+      return {
+        redirect: template,
+        page: shown.status,
+        title: shown.title,
+        approve: approved.status,
+        location: approved.location,
+      }
     }),
   )
   await run.page.goto(`${run.web}${devicePath}?redirect=${encodeURIComponent("https://evil.example/cb")}`)
   const rejected = scrubText(await run.page.locator("body").innerText(), run.scope)
   const accepted = redirects.filter((item) => item.approve === 303).map((item) => item.redirect)
   console.log(`  redirects accepted: ${accepted.join(" ")}`)
-  console.log(`  redirects rejected: ${redirects.filter((item) => item.approve !== 303).map((item) => `${item.redirect} (${item.page}/${item.approve})`).join(" ")}`)
+  console.log(
+    `  redirects rejected: ${redirects
+      .filter((item) => item.approve !== 303)
+      .map((item) => `${item.redirect} (${item.page}/${item.approve})`)
+      .join(" ")}`,
+  )
 
   const state = randomBytes(16).toString("hex")
   const stateShown = await asUser(run, jwt, `${devicePath}?redirect=${encodeURIComponent(callback)}&state=${state}`)
   const stateField = await asUser(run, jwt, `${devicePath}/approve`, new URLSearchParams({ redirect: callback, state }))
-  const stateInside = await asUser(run, jwt, `${devicePath}/approve`, new URLSearchParams({ redirect: `${callback}?state=${state}` }))
+  const stateInside = await asUser(
+    run,
+    jwt,
+    `${devicePath}/approve`,
+    new URLSearchParams({ redirect: `${callback}?state=${state}` }),
+  )
   const insideState = URL.parse(stateInside.rawLocation ?? "")?.searchParams.get("state")
   console.log(`  state as page parameter: echoed ${stateShown.html.includes(state)}, callback ${stateField.location}`)
   console.log(`  state inside the redirect: callback ${stateInside.location}, preserved ${insideState === state}`)
@@ -949,7 +1043,9 @@ async function runExperiments(run: Run, jwt: string) {
   const pasted = keepSecret(run, ((await run.page.locator("pre code").last().textContent()) ?? "").trim())
   const pastedPat = await postJson(`${run.api}/v1/auth/bridge/session-pat`, { code: pasted, device_name: captureLabel })
   const pastedJwt = await patToJwt(run, keepSecret(run, stringField(pastedPat.body, "pat")))
-  console.log(`  no redirect: "${prompt.title}" -> "${shown.title}", pasted code -> PAT ${pastedPat.status} -> JWT ${pastedJwt.status}`)
+  console.log(
+    `  no redirect: "${prompt.title}" -> "${shown.title}", pasted code -> PAT ${pastedPat.status} -> JWT ${pastedJwt.status}`,
+  )
 
   run.section = "experiments"
   const forSession = await asUser(run, jwt, `${devicePath}/approve`, new URLSearchParams({ redirect: callback }))
@@ -963,17 +1059,29 @@ async function runExperiments(run: Run, jwt: string) {
     body: new URLSearchParams({ redirect: callback }),
     redirect: "manual",
   })
-  const bare = await fetch(`${run.api}${devicePath}/approve`, { method: "POST", headers: { authorization: `Bearer ${jwt}` }, redirect: "manual" })
+  const bare = await fetch(`${run.api}${devicePath}/approve`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${jwt}` },
+    redirect: "manual",
+  })
   const empty = await postJson(`${run.api}/v1/auth/bridge/session-pat`, { code: "" })
   const unknown = await postJson(`${run.api}/v1/auth/bridge/session-pat`, { code: "0".repeat(64) })
-  console.log(`  code at /session ${session.status}; approve without a session ${anonymous.status}, without a form body ${bare.status}`)
+  console.log(
+    `  code at /session ${session.status}; approve without a session ${anonymous.status}, without a form body ${bare.status}`,
+  )
 
-  const issued = keepSecret(run, cardField(await cli("alpha", "admin", "bridge", "issue-code", "--user-id", userEmail, "--json"), "code"))
+  const issued = keepSecret(
+    run,
+    cardField(await cli("alpha", "admin", "bridge", "issue-code", "--user-id", userEmail, "--json"), "code"),
+  )
   const cliPat = await postJson(`${run.api}/v1/auth/bridge/session-pat`, { code: issued, device_name: captureLabel })
   const cliJwt = await patToJwt(run, keepSecret(run, stringField(cliPat.body, "pat")))
   const cliAgain = await postJson(`${run.api}/v1/auth/bridge/session-pat`, { code: issued })
-  console.log(`  paste-code flow (admin bridge issue-code): PAT ${cliPat.status}, JWT ${cliJwt.status}, second use ${cliAgain.status}`)
-  if (cliPat.status !== 200 || cliJwt.status !== 200 || cliAgain.status !== 401) throw new Error("the paste-code flow did not behave as recorded")
+  console.log(
+    `  paste-code flow (admin bridge issue-code): PAT ${cliPat.status}, JWT ${cliJwt.status}, second use ${cliAgain.status}`,
+  )
+  if (cliPat.status !== 200 || cliJwt.status !== 200 || cliAgain.status !== 401)
+    throw new Error("the paste-code flow did not behave as recorded")
 
   return {
     redirects,
@@ -981,10 +1089,14 @@ async function runExperiments(run: Run, jwt: string) {
     instance_hosts: {
       browser: new URL(run.web).hostname,
       http: new URL(run.api).hostname,
-      both_serve_the_consent_page: redirects[0]?.page === 200 && run.steps.some((step) => step.section === "round-trip" && step.status === 200),
+      both_serve_the_consent_page:
+        redirects[0]?.page === 200 && run.steps.some((step) => step.section === "round-trip" && step.status === 200),
     },
     state: {
-      as_page_parameter: { echoed_in_page: stateShown.html.includes(state), approve_with_state_field: stateField.location },
+      as_page_parameter: {
+        echoed_in_page: stateShown.html.includes(state),
+        approve_with_state_field: stateField.location,
+      },
       inside_redirect: { approve: stateInside.location, preserved: insideState === state },
     },
     deny: { method: denied.method, callback: redactUrl(denied.url.href, run.scope) },
@@ -995,7 +1107,10 @@ async function runExperiments(run: Run, jwt: string) {
       pat_to_jwt: { status: pastedJwt.status },
     },
     session_endpoint: { request: ["code"], status: session.status, body: describeBody(session.body) },
-    approve_without_session: { status: anonymous.status, location: redactUrl(anonymous.headers.get("location") ?? "", run.scope) },
+    approve_without_session: {
+      status: anonymous.status,
+      location: redactUrl(anonymous.headers.get("location") ?? "", run.scope),
+    },
     approve_without_form_body: { status: bare.status },
     bad_codes: {
       empty: { status: empty.status, body: describeBody(empty.body) },
@@ -1003,7 +1118,8 @@ async function runExperiments(run: Run, jwt: string) {
     },
     expired_code: {
       tested: false,
-      reason: "`admin bridge issue-code` takes no TTL and the page states 600 s; waiting it out was not worth a 10-minute capture",
+      reason:
+        "`admin bridge issue-code` takes no TTL and the page states 600 s; waiting it out was not worth a 10-minute capture",
     },
     cli_code: {
       command: "admin bridge issue-code --user-id <user>",
@@ -1017,8 +1133,9 @@ async function runExperiments(run: Run, jwt: string) {
 
 // Revokes every PAT this capture minted (they carry its device name), then shows what /pat answers for a revoked one.
 async function revokeCapturePats(run: Run, pat: string) {
-  const card: { sections: { content: { id: string; name: string; key_prefix: string; revoked_at: string | null }[] }[] } =
-    JSON.parse(await cli("alpha", "admin", "users", "api-key", "list", "--user", run.userId, "--json"))
+  const card: {
+    sections: { content: { id: string; name: string; key_prefix: string; revoked_at: string | null }[] }[]
+  } = JSON.parse(await cli("alpha", "admin", "users", "api-key", "list", "--user", run.userId, "--json"))
   // The list keeps revoked keys, and revoking one again fails: earlier captures left theirs there.
   const mine = (card.sections[0]?.content ?? []).filter((key) => key.name === captureLabel && key.revoked_at === null)
   for (const key of mine) {
@@ -1045,9 +1162,9 @@ async function readDevicePage(run: Run) {
     (await page.locator("form").all()).map(async (form) => ({
       action: await form.getAttribute("action"),
       method: await form.getAttribute("method"),
-      fields: (await Promise.all((await form.locator("input").all()).map((input) => input.getAttribute("name")))).filter(
-        (name) => name !== null,
-      ),
+      fields: (
+        await Promise.all((await form.locator("input").all()).map((input) => input.getAttribute("name")))
+      ).filter((name) => name !== null),
       button: scrubText(await form.locator("button").innerText(), run.scope),
     })),
   )
@@ -1083,13 +1200,20 @@ async function asUser(run: Run, jwt: string, target: string, form?: URLSearchPar
 }
 
 async function postJson(target: string, body: unknown) {
-  const response = await fetch(target, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+  const response = await fetch(target, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  })
   const parsed: unknown = await response.json().catch(() => null)
   return { status: response.status, body: parsed }
 }
 
 async function patToJwt(run: Run, pat: string) {
-  const response = await fetch(`${run.api}/v1/auth/bridge/pat`, { method: "POST", headers: { authorization: `Bearer ${pat}` } })
+  const response = await fetch(`${run.api}/v1/auth/bridge/pat`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${pat}` },
+  })
   const body: unknown = await response.json().catch(() => null)
   const token = keepSecret(run, stringField(body, "token"))
   keepSecret(run, stringField(body, "device_token"))
@@ -1111,7 +1235,9 @@ async function takeHit(hits: Hit[], pathname: string) {
 }
 
 async function launchBrowser() {
-  const playwright: { chromium: BrowserType } = await import(Bun.resolveSync("@playwright/test", path.join(repo, "packages/app")))
+  const playwright: { chromium: BrowserType } = await import(
+    Bun.resolveSync("@playwright/test", path.join(repo, "packages/app"))
+  )
   // The bundled Chromium of the pinned Playwright may not be downloaded on this Mac; the installed Chrome does the same.
   return playwright.chromium.launch().catch(() => playwright.chromium.launch({ channel: "chrome" }))
 }
@@ -1353,7 +1479,12 @@ async function probeAuthorize(run: Run, ids: { native: string; loopback: string;
       redirect: mobileRedirect,
       query: { code_challenge_method: "plain" },
     },
-    { name: "native client, state of 30 characters", client: "native", redirect: mobileRedirect, query: { state: "a".repeat(30) } },
+    {
+      name: "native client, state of 30 characters",
+      client: "native",
+      redirect: mobileRedirect,
+      query: { state: "a".repeat(30) },
+    },
     {
       name: "native client, state of 43 base64url characters",
       client: "native",
@@ -1477,7 +1608,11 @@ async function authorizeAndExchange(run: Run, clientId: string, template: string
   const bridge = await Promise.all(
     ["/v1/bridge/whoami", "/v1/bridge/profile", "/v1/bridge/manifest"].map(async (target) => {
       const response = await fetch(`${run.api}${target}`, {
-        headers: { authorization: `Bearer ${access}`, "x-systemprompt-client": "opencode", "cache-control": "no-cache" },
+        headers: {
+          authorization: `Bearer ${access}`,
+          "x-systemprompt-client": "opencode",
+          "cache-control": "no-cache",
+        },
         redirect: "manual",
       })
       const body: unknown = await response.json().catch(() => null)
@@ -1508,7 +1643,12 @@ async function authorizeAndExchange(run: Run, clientId: string, template: string
   // A code used twice: the second use is refused, and the tokens of its first use may be revoked with it (RFC 6749 4.1.2).
   const replayRound = await authorizeRound(run, clientId, template, {})
   const replayCode = keepSecret(run, URL.parse(replayRound.location ?? "")?.searchParams.get("code") ?? "")
-  const replayArgs = { grant_type: "authorization_code", code: replayCode, redirect_uri: redirect, code_verifier: replayRound.verifier }
+  const replayArgs = {
+    grant_type: "authorization_code",
+    code: replayCode,
+    redirect_uri: redirect,
+    code_verifier: replayRound.verifier,
+  }
   const first = await form(replayArgs)
   const firstBody: unknown = await first.json().catch(() => null)
   const firstRefresh = keepSecret(run, stringField(firstBody, "refresh_token"))
@@ -1545,7 +1685,8 @@ async function authorizeAndExchange(run: Run, clientId: string, template: string
 
   // RFC 7009 lets a public client revoke with its client_id alone; the instance may ask for more.
   const live = rotated === "" ? refresh : rotated
-  const revokeBody = (extra: Record<string, string>) => new URLSearchParams({ client_id: clientId, token: live, ...extra })
+  const revokeBody = (extra: Record<string, string>) =>
+    new URLSearchParams({ client_id: clientId, token: live, ...extra })
   const revokeUrl = `${run.api}/api/v1/core/oauth/revoke`
   const revokedAlone = await fetch(revokeUrl, { method: "POST", body: revokeBody({}) })
   const aloneBody: unknown = await revokedAlone.json().catch(() => null)
@@ -1716,13 +1857,18 @@ function compose(...args: string[]) {
 // Runs the instance's own CLI in its container; stdout is the command's result, its logs go to stderr.
 async function cli(instance: Instance, ...args: string[]) {
   const result = await compose("exec", "-T", instance, "/app/bin/systemprompt", ...args).nothrow()
-  if (result.exitCode !== 0) throw new Error(`${instance}: systemprompt ${args.slice(0, 3).join(" ")} failed\n${result.stderr.toString().slice(-600)}`)
+  if (result.exitCode !== 0)
+    throw new Error(
+      `${instance}: systemprompt ${args.slice(0, 3).join(" ")} failed\n${result.stderr.toString().slice(-600)}`,
+    )
   return result.stdout.toString()
 }
 
-async function sh(instance: Instance, script: string) {
-  const result = await compose("exec", "-T", instance, "sh", "-c", script).nothrow()
-  if (result.exitCode !== 0) throw new Error(`${instance}: ${script.split("\n")[0]} failed\n${result.stderr.toString().slice(-600)}`)
+// `compose cp` writes as root, so clearing a directory that an earlier run copied into needs root too.
+async function sh(instance: Instance, script: string, user = "app") {
+  const result = await compose("exec", "-T", "-u", user, instance, "sh", "-c", script).nothrow()
+  if (result.exitCode !== 0)
+    throw new Error(`${instance}: ${script.split("\n")[0]} failed\n${result.stderr.toString().slice(-600)}`)
 }
 
 async function shExit(instance: Instance, script: string) {
@@ -1741,23 +1887,46 @@ async function waitReady(instance: Instance) {
   throw new Error(`${instance} did not answer at ${base} within 240 s`)
 }
 
+// The harness serves only Anthropic models, which reach the `claude` family. OpenCode lists only `openai` models unless
+// the user sets a filter for it (the bridge's per-host model filter), so the seed sets `claude` and `openai` for both
+// OpenCode packagings, as a user would in the bridge.
+async function setModelFilter(base: string, pat: string) {
+  const session = await exchangePat(base, pat)
+  if (session === undefined) throw new Error("set the model filter: the PAT does not exchange")
+  for (const host of ["opencode", "opencode-cli"]) {
+    const response = await fetch(`${base}/v1/bridge/profile/host-model-filter`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${session.token}`, "content-type": "application/json" },
+      body: JSON.stringify({ host_id: host, model_protocols: ["claude", "openai"] }),
+    })
+    if (!response.ok) throw new Error(`set the model filter for ${host}: ${response.status} ${await response.text()}`)
+  }
+}
+
 export async function exchangePat(base: string, pat: string) {
-  const response = await fetch(`${base}/v1/auth/bridge/pat`, { method: "POST", headers: { authorization: `Bearer ${pat}` } }).catch(
-    () => undefined,
-  )
+  const response = await fetch(`${base}/v1/auth/bridge/pat`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${pat}` },
+  }).catch(() => undefined)
   if (response?.status !== 200) return undefined
   const body: { token: string; ttl: number } = JSON.parse(await response.text())
   return body
 }
 
-async function missingContent(instance: Instance, base: string, pat: string) {
+// The signed manifest of the instance's user, as the bridge fetches it (a PAT becomes a JWT first).
+export async function fetchManifest(base: string, pat: string): Promise<Manifest | undefined> {
   const session = await exchangePat(base, pat)
-  if (session === undefined) return ["a JWT"]
+  if (session === undefined) return undefined
   const response = await fetch(`${base}/v1/bridge/manifest`, {
     headers: { authorization: `Bearer ${session.token}`, "cache-control": "no-cache" },
   })
   const envelope: { payload: string } = JSON.parse(await response.text())
-  return missing(instance, JSON.parse(envelope.payload))
+  return JSON.parse(envelope.payload)
+}
+
+async function missingContent(instance: Instance, base: string, pat: string) {
+  const manifest = await fetchManifest(base, pat)
+  return manifest === undefined ? ["a JWT"] : missing(instance, manifest)
 }
 
 async function loadEnv(): Promise<Record<string, string>> {

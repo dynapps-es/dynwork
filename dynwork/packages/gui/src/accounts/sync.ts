@@ -27,6 +27,8 @@ export function make(endpoints: ServerEndpoints) {
       /** Without a profile the service gets no `systemprompt` provider. */
       readonly profile?: Profile
       readonly catalog?: Catalog
+      /** The plugin bundle files the plugin projects, fetched by main; the plugin checks them against the manifest. */
+      readonly files?: ReadonlyArray<DynWorkSync.BundleFile>
     }) =>
       client.apply({
         instance: instance(input.account),
@@ -34,11 +36,35 @@ export function make(endpoints: ServerEndpoints) {
         jwt: input.jwt,
         expiresAt: input.expiresAt,
         ...(input.profile ? { gateway: gateway(input.account.label, input.profile, input.catalog) } : {}),
+        ...(input.files ? { files: input.files } : {}),
       }),
     /** Pushes a renewed JWT; false when the service holds another instance. */
     token: (input: { readonly account: Account; readonly jwt: string; readonly expiresAt: number }) =>
       client.token({ instance: instance(input.account), jwt: input.jwt, expiresAt: input.expiresAt }),
     clear: client.clear,
+    /**
+     * Pushes the account's device credential for the governance events' device evidence, or drops it without one. The
+     * service holds it in memory only; false when it holds another instance.
+     */
+    device: (input: { readonly account: Account; readonly credential?: string }) =>
+      client.device({
+        instance: instance(input.account),
+        ...(input.credential === undefined ? {} : { credential: input.credential }),
+      }),
+    /** Writes a skill's runtime files beside its SKILL.md in the service and reads them back. */
+    materialize: (input: {
+      readonly account: Account
+      readonly skill: string
+      readonly files: ReadonlyArray<DynWorkSync.RuntimeFile>
+    }) => client.materialize({ instance: instance(input.account), skill: input.skill, files: input.files }),
+    /** Whether the runtime files a receipt recorded for a skill are still there. */
+    inspect: (input: {
+      readonly account: Account
+      readonly skill: string
+      readonly files: ReadonlyArray<DynWorkSync.Recorded>
+    }) => client.inspect({ instance: instance(input.account), skill: input.skill, files: input.files }),
+    /** What the service counted for the account's instance (gateway calls, tokens, last activity), for the heartbeat. */
+    usage: (input: { readonly account: Account }) => client.usage({ instance: instance(input.account) }),
     /**
      * Follows the plugin's events until `signal` aborts or the service closes the stream. On `refresh` with reason
      * `rejected` the gateway refused the JWT the plugin holds, so main mints a new one instead of handing out its
@@ -67,7 +93,8 @@ export function key(label: string) {
 
 /**
  * The gateway models for the plugin: the ids `profile` admits for the user, named and sized from the `models`
- * catalog, each with the route its provider is served on. A provider the instance has not configured is left out,
+ * catalog, each with the route its provider is served on and the client families it is served to, which the plugin
+ * filters by the manifest's `host_model_protocols`. A provider the instance has not configured is left out,
  * and so is any entry the plugin's contract would refuse, so one odd model never fails the whole apply.
  */
 export function gateway(label: string, profile: Profile, catalog: Catalog = []): DynWorkSync.Gateway {
@@ -83,6 +110,7 @@ export function gateway(label: string, profile: Profile, catalog: Catalog = []):
     const model = decodeModel({
       id,
       api,
+      ...(provider?.clients ? { clients: provider.clients } : {}),
       ...(entry?.display_name ? { name: entry.display_name } : {}),
       ...size("context", [limits?.context_window, entry?.max_input_tokens]),
       ...size("output", [limits?.max_output_tokens, entry?.max_tokens]),
@@ -92,7 +120,7 @@ export function gateway(label: string, profile: Profile, catalog: Catalog = []):
   // `default_model` may carry a context-window suffix such as `[1m]`, which is not part of the id.
   const suggested = profile.default_model?.replace(/\[[^\]]*\]$/, "")
   return {
-    label: label.trim().slice(0, 120) || "systemprompt",
+    label: label.trim().slice(0, 120) || "Governance",
     models,
     ...(suggested && models.some((model) => model.id === suggested) ? { default: suggested } : {}),
   }

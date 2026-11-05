@@ -5,7 +5,9 @@
 //
 //   bun dynwork/script/desktop.ts [--to <dir>]
 //
-// It only ever replaces that one bundle. The OpenCode app and its service are never touched.
+// It only ever replaces that one bundle, and removes the app bundle the pack leaves in packages/desktop/dist, so this
+// Mac only ever has one DynWork: Spotlight and "Open With" never offer an older build. The OpenCode app and its service
+// are never touched.
 import { $ } from "bun"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -67,5 +69,13 @@ await rm(install, { recursive: true, force: true })
 await $`ditto ${bundle} ${install}`
 
 await rm(staging, { recursive: true, force: true })
+
+// Forget the pack's own copy in Launch Services before removing it, then make the installed app the one it knows.
+const lsregister =
+  "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+const packed = path.join(desktop, "dist/mac-arm64/DynWork.app")
+await $`${lsregister} -u ${packed}`.nothrow().quiet()
+await rm(packed, { recursive: true, force: true })
+await $`${lsregister} -f ${install}`.nothrow().quiet()
 
 console.log(`Installed ${install} with CLI ${built} in ${Math.round((Date.now() - started) / 1000)} s`)

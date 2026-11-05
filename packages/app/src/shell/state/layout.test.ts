@@ -10,6 +10,10 @@ test.each(["settings", "connect"] as const)("%s has its own layout route", (type
   expect(currentRoute(`/${type}`, "")).toEqual({ type })
 })
 
+test("a plugin page has its own layout route", () => {
+  expect(currentRoute("/page/agents", "")).toEqual({ type: "page", id: "agents" })
+})
+
 describe("layout persistence", () => {
   const schema = Persistence.withInitial(layoutPersistence, initialLayout(ServerConnection.Key.make("local")))
   const decode = Schema.decodeUnknownSync(schema)
@@ -76,15 +80,15 @@ describe("layout persistence", () => {
     expect(
       decode({
         sidebar: { workspaces: { good: true, bad: "bad" } },
-        sessionView: { [key]: { scroll, pendingMessage: "message" } },
+        sessionView: { [key]: { scroll, reviewFile: "src/app.ts" } },
       }),
     ).toMatchObject({
       sidebar: { workspaces: {} },
-      sessionView: { [key]: { scroll: {}, pendingMessage: "message" } },
+      sessionView: { [key]: { scroll: {}, reviewFile: "src/app.ts" } },
     })
-    expect(
-      decode({ sessionView: { [key]: { scroll: { good: { x: 1, y: 2 } }, pendingMessage: 5 } } }).sessionView,
-    ).toEqual({ [key]: { scroll: {} } })
+    expect(decode({ sessionView: { [key]: { scroll: { good: { x: 1, y: 2 } }, reviewFile: 5 } } }).sessionView).toEqual(
+      { [key]: { scroll: {} } },
+    )
   })
 
   test("keeps scoped state and salvages valid tab entries", () => {

@@ -1,15 +1,17 @@
+import views from "../../views/en"
+
 export default {
-  title: "systemprompt",
+  title: "Governance",
   description:
     "Your skills, agents, MCP servers and rules come from the active instance. Sign in to as many instances as you need; one is active at a time.",
-  keywords: "accounts instances sign in sign out tenant systemprompt sync key trust",
+  keywords: "governance accounts instances sign in sign out tenant sync key trust",
   loading: "Loading your instances…",
   unavailable: "Accounts are unavailable right now.",
   "instances.title": "Instances",
-  "instances.label": "systemprompt instances",
+  "instances.label": "Governance instances",
   add: "Add instance",
   "add.title": "Connect another instance",
-  "add.description": "Sign in to another systemprompt instance. It joins your list; you choose when to make it active.",
+  "add.description": "Sign in to another governance instance. It joins your list; you choose when to make it active.",
   "badge.active": "Active",
   "badge.signedOut": "Signed out",
   "badge.keyChanged": "Key changed",
@@ -72,9 +74,10 @@ export default {
   "detail.content": "Synced content",
   "copy.label": "Copy",
   "copy.done": "Copied",
-  "pill.title": "systemprompt: {{label}}",
-  "pill.dialog.title": "systemprompt instances",
+  "pill.title": "Governance: {{label}}",
+  "pill.dialog.title": "Governance instances",
   "pill.dialog.description": "Switch the instance DynWork syncs from, or sync it now.",
   "pill.manage": "Manage instances",
   "pill.switch": "Switch to {{label}}",
+  ...views,
 }

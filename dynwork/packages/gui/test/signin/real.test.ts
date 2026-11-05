@@ -11,6 +11,13 @@ let alpha: Fake
 
 beforeAll(() => {
   alpha = startFake()
+  // The captured manifest was stamped this morning: stamp it now, as the instance does on every response, so the
+  // sync's clock-skew check (`not_before` within 5 min) takes it.
+  alpha.state.payload = {
+    ...alpha.state.payload,
+    manifest_version: `${new Date().toISOString().replace(/\.\d+Z$/, "Z")}-000001a19661c117`,
+    not_before: new Date(Date.now() - 60_000).toISOString(),
+  }
 })
 
 afterAll(() => {

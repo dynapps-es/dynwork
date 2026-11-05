@@ -149,6 +149,16 @@ The key is trusted on first use: the client pins it at sign-in and shows its fin
 SHA-256 of the 32 raw key bytes. When a manifest does not verify, the client fetches the served key again: a different
 key is a key change, the same key a bad signature.
 
+### Plugin bundle files (`SpPlugins`)
+
+`GET /v1/bridge/plugins/{plugin}/{path}` with the JWT answers `200` with the raw bytes of one file of a plugin the user
+is granted, the bytes the manifest's `plugins[].files[].sha256` covers: on the local 0.76 instance every file of alpha's
+two plugins matched its digest and size. An unknown file or plugin is `404` (`File not found`, `Plugin not found`), a
+bad JWT `401`. The route is the systemprompt bridge's (`gateway/fetch.rs`); `archive/<sha256>` under a plugin is the
+whole plugin as a tar.gz, not used. `SpPlugins.file` encodes each path segment, refuses a plugin id or a path that is
+not plain segments before sending anything, follows no redirect, and gives up past 8 MiB or 60 s; its errors map as
+below. The caller checks the bytes against the manifest before using them.
+
 ### How answers map to the client's errors
 
 The client refuses an `http:` base URL unless the host is `127.0.0.1`, `localhost` or `[::1]`, so a PAT or JWT never
@@ -165,7 +175,39 @@ unknown, and a `404` on `/v1/auth/bridge/capabilities` (instances before 0.76) m
 | discovery `contract` other than `"1"`, manifest schema above 1                                                                                                              | `Incompatible`                                                                                                                          |
 | any other status, a `3xx` (never followed, so a bearer never leaves the origin), a body that does not decode (with the field path), a discovery path that leaves the origin | `Protocol`                                                                                                                              |
 
-## 10. Mobile sign-in
+## 10. Skill runtime files: the consumer API (`SpConsumer`)
+
+A skill's runtime files (`config.yaml`, `references/*`, the `.systemprompt-source/<revision>/` copy) are not in the
+manifest. A skill with a `publication` (`{publication_id, resource_id, revision_id, generation, bundle_digest}`) has a
+bundle the systemprompt bridge fetches as an enrolled device. Unlike the sections above, the requests follow the
+bridge's code (`bin/bridge/src/feedback/{enrol,transport,readback}.rs`, read for the bridge-parity plan); every answer
+below was observed on the local 0.76 instance (`test/fixtures/consumer.json`):
+
+| Call                                                                                                | Credential            | Answer                                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/bridge/device` `{fingerprint, label}`                                                     | the user's JWT        | `200 {device_id, consumer_id, credential}`, the credential `sp_device_` plus 72 characters. The same fingerprint is the same `device_id`; each call issues a new credential                                                                    |
+| `GET /api/v1/consumer/resources/{resource}/publications/{publication}/bundle?host=open-code`        | the device credential | `200` the installation plan: the publication's ids, `host`, `canonical_files` (`{revision_id, path, digest, bytes, executable, content_check, mode_check}`) and `runtime_files` (`{path, bytes, executable}`, `bytes` an array of byte values) |
+| `POST /api/v1/consumer/receipts` (`ConsumerReceiptRequest`)                                         | the device credential | `200 {receipt_id, acknowledgement, acknowledged_at, fully_verified}`; `acknowledgement` is `accepted`, then `identical_retry` with the same `receipt_id` for the same receipt                                                                  |
+| `POST /api/v1/consumer/session-bindings` `{receipt_id, host, session_id}` (`SessionBindingRequest`) | the device credential | `200 {id, bound_at}`; the same binding again answers the same. A receipt this device did not post, or an unknown device credential, is `403` "Consumer evidence is unavailable to this identity"; a JWT is `401`; `host: opencode` is `422`    |
+
+- The fingerprint is the bridge's: hex SHA-256 of `systemprompt-bridge-device/v1\n<install id>\n<user id>`.
+  DynWork's install id is a random UUID kept with its accounts.
+- `host` is the instance's `EvaluatorClient` in kebab-case: OpenCode is `open-code`. `opencode` answers `400` "Invalid
+  request body, query or path parameters".
+- The consumer routes answer problem documents (`{type, title, status, detail}`): a JWT or an unknown credential on
+  them is `401` "Valid enrolled-device authentication is required". The client maps them like the rest (`401`
+  `Unauthorized`, `429` `RateLimited`, `5xx` and no answer within 20 s `Unreachable`, anything else `Protocol` with its
+  status). A plan whose ids, generation or digest differ from the manifest's publication is a `Protocol` error.
+- Each plan's runtime files are the bundle's files at their own paths, a copy of each under
+  `.systemprompt-source/<revision>/`, and a `SKILL.md` rendered for the host (`name: "alpha-notes"` quoted, unlike the
+  bridge's projection).
+- `SpConsumer.bind` posts a session binding: `session_id` is the session the governance events name (the v5 UUID the
+  bridge derives from OpenCode's `ses_…` id; 0.76 also takes the raw id).
+- The receipt reports every runtime file as read back from disk (`digest` SHA-256 hex, `bytes`, `executable`,
+  `content_check`, `mode_check`), and each canonical file checked against its `.systemprompt-source` copy.
+  `SpConsumer.receipt` builds it and refuses a readback that does not match the plan, as the bridge's `verify` does.
+
+## 11. Mobile sign-in
 
 How a phone signs in to a 0.76 instance, observed on both local instances with `bun dynwork/script/sp-local.ts mobile-auth-probe`
 (evidence: `dynwork/test/sp-local/fixtures/mobile-auth.json`, redacted like the device-link fixture). The device link of

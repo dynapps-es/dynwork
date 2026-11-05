@@ -8,6 +8,8 @@ import { DynWorkSync } from "@dynwork/server-plugin/contract"
 import { DynWorkAccounts } from "../accounts/accounts"
 import type { Counts, SyncError, SyncStatus } from "../accounts/contract"
 import { DynWorkSyncMain } from "../accounts/sync"
+import { DynWorkBundleFiles } from "./bundles"
+import type { DynWorkRuntime } from "./runtime"
 
 // The live sync (decision D4): one loop, for the active instance only, polls its signed manifest with the last ETag
 // and pushes the verified content to DynWork's service only when it changed. The plugin replaces the instance's whole
@@ -37,11 +39,20 @@ export type Options = {
   focused: boolean
   /** Called after every change of `status()`. */
   changed: (status: SyncStatus) => void
+  /** Delivers the skills' runtime files after an apply; without it they are not delivered. */
+  runtime?: Pick<DynWorkRuntime.Runtime, "capture" | "bind">
 }
 
-/** A manifest that verifies but must not be applied: another user's, or older than the last one applied. */
+/** The bridge's tolerance for a manifest's `not_before` against the local clock. */
+export const skewWindow = 5 * 60_000
+
+/**
+ * A manifest that verifies but must not be applied, as the systemprompt bridge refuses it: another user's, a
+ * `manifest_version` that is not newer than the last applied one (`replay`) or does not parse (`version`), or a
+ * `not_before` more than `skewWindow` from now (`skew`).
+ */
 export class Invalid extends Schema.TaggedError<Invalid>("DynWorkSyncEngine.Invalid")("Invalid", {
-  reason: Schema.Literals(["user", "issued_at"]),
+  reason: Schema.Literals(["user", "replay", "version", "skew"]),
 }) {}
 
 type Loop = {
@@ -54,9 +65,13 @@ type Loop = {
   timer?: ReturnType<typeof setTimeout>
   running: boolean
   again: boolean
+  // The next poll asks the instance for a fresh build (`Cache-Control: no-cache`): only "Sync now" does
+  fresh: boolean
   failures: number
   etag?: string
   manifest?: Manifest
+  // The `manifest_version` of the newest manifest admitted and not yet applied
+  version?: string
   gateway?: { profile?: Profile; catalog?: Catalog; at: number }
   // Digest of the content the plugin holds for this loop; undefined until an apply succeeds, and again when the
   // service may have lost it
@@ -64,6 +79,10 @@ type Loop = {
   counts?: Counts
   // The last JWT the plugin got, so a renewal is pushed once
   sent?: string
+  // The plugin bundle files fetched for this account, kept by digest across polls
+  readonly bundles: ReturnType<typeof DynWorkBundleFiles.make>
+  // Whether the skills' runtime files are all delivered for what the plugin holds: false until a capture says so
+  captured: boolean
 }
 
 export function make(options: Options) {
@@ -73,8 +92,8 @@ export function make(options: Options) {
   const current: { loop?: Loop } = {}
   // The served key's fingerprint of an account whose sync stopped on a key change, until the user trusts that key
   const halted = new Map<string, string>()
-  // The user and the newest `issued_at` applied per account in this process
-  const seen = new Map<string, { user: string; issuedAt?: number }>()
+  // The user of the last manifest admitted per account in this process
+  const seen = new Map<string, string>()
   // Plugin calls run one at a time, so a clear never overtakes the apply before it
   const queue = { tail: Promise.resolve() }
   const listening = new AbortController()
@@ -134,7 +153,10 @@ export function make(options: Options) {
       stopped: false,
       running: false,
       again: false,
+      fresh: false,
       failures: 0,
+      captured: false,
+      bundles: DynWorkBundleFiles.make(accounts),
     }
     current.loop = started
     request(started)
@@ -150,8 +172,9 @@ export function make(options: Options) {
     void serial(() => plugin.clear()).catch(() => undefined)
   }
 
-  const request = (loop: Loop) => {
+  const request = (loop: Loop, fresh = false) => {
     if (loop.stopped) return
+    loop.fresh ||= fresh
     if (loop.running) {
       loop.again = true
       return
@@ -194,14 +217,17 @@ export function make(options: Options) {
   }
 
   const attempt = async (loop: Loop) => {
+    const fresh = loop.fresh
+    loop.fresh = false
     const result = await accounts.withJwt(loop.id, (token) =>
-      Effect.runPromise(SpClient.manifest(loop.account.url, token, { key: loop.key, etag: loop.etag, fresh: true })),
+      Effect.runPromise(SpClient.manifest(loop.account.url, token, { key: loop.key, etag: loop.etag, fresh })),
     )
     if (loop.stopped) return
     if (result._tag === "Manifest") {
       admit(loop.id, result.manifest)
       loop.etag = result.etag
       loop.manifest = result.manifest
+      loop.version = result.manifest.manifest_version
     }
     if (loop.gateway === undefined || Date.now() - loop.gateway.at >= profileInterval) await models(loop)
     const manifest = loop.manifest
@@ -209,6 +235,7 @@ export function make(options: Options) {
     const digest = digestOf(manifest, loop.gateway)
     if (loop.pushed !== digest) {
       const session = await accounts.session(loop.id)
+      const files = await loop.bundles.fetch({ id: loop.id, url: loop.account.url }, plugged(manifest))
       const counts = await serial(() =>
         loop.stopped
           ? Promise.resolve(undefined)
@@ -219,14 +246,26 @@ export function make(options: Options) {
               expiresAt: session.expiresAt,
               profile: loop.gateway?.profile,
               catalog: loop.gateway?.catalog,
+              files,
             }),
       )
       if (loop.stopped || counts === undefined) return
       loop.pushed = digest
       loop.counts = counts
       loop.sent = session.token
+      loop.captured = false
     }
+    // Fully applied: the next manifest must be newer than this one
+    if (loop.version !== undefined) accounts.applied(loop.id, loop.version)
+    loop.version = undefined
     set({ status: "synced", account: loop.id, at: Date.now(), counts: loop.counts ?? empty })
+    // After the status, so a slow instance never holds it; within the poll, so polls still never overlap. Its
+    // failures are warnings: the next poll tries what is left.
+    if (options.runtime === undefined || loop.captured) return
+    const outcome = await options.runtime
+      .capture({ id: loop.id, account: loop.account, manifest }, serial)
+      .catch(() => undefined)
+    loop.captured = outcome !== undefined && outcome.remaining === 0 && !outcome.undelivered
   }
 
   // The user's models: on activate and every `profileInterval`. A failure keeps what was read before.
@@ -241,19 +280,19 @@ export function make(options: Options) {
     }
   }
 
-  // The signature only says the instance issued it: it must also be this user's, and not older than the last one.
+  // The signature only says the instance issued it. It must also be this user's, within the clock skew and newer than
+  // the last one fully applied. A 304 never gets here: the stored manifest was admitted when it came, and its
+  // `not_before` is as old as that.
   const admit = (id: string, manifest: Manifest) => {
-    const user = accounts.stored(id)?.userId
-    const last = seen.get(id)
-    const expected = user ?? last?.user
+    const expected = accounts.stored(id)?.userId ?? seen.get(id)
     if (expected !== undefined && manifest.user_id !== expected) throw new Invalid({ reason: "user" })
-    const issued = manifest.issued_at === undefined ? Number.NaN : Date.parse(manifest.issued_at)
-    const previous = last?.user === manifest.user_id ? last.issuedAt : undefined
-    if (previous !== undefined && !Number.isNaN(issued) && issued < previous) throw new Invalid({ reason: "issued_at" })
-    seen.set(id, {
-      user: manifest.user_id,
-      issuedAt: Number.isNaN(issued) ? previous : Math.max(issued, previous ?? issued),
-    })
+    const incoming = parseVersion(manifest.manifest_version)
+    const notBefore = manifest.not_before === undefined ? Number.NaN : Date.parse(manifest.not_before)
+    if (incoming === undefined) throw new Invalid({ reason: "version" })
+    if (!(Math.abs(notBefore - Date.now()) <= skewWindow)) throw new Invalid({ reason: "skew" })
+    const last = parseVersion(accounts.stored(id)?.manifestVersion)
+    if (last !== undefined && compareVersions(incoming, last) <= 0) throw new Invalid({ reason: "replay" })
+    seen.set(id, manifest.user_id)
   }
 
   // Records the key the instance now serves for the user to compare, and stops until it is trusted.
@@ -311,6 +350,12 @@ export function make(options: Options) {
         .then(() => accounts.signOut(loop.id))
         .catch(() => undefined)
     },
+    // A Session the plugin's governance events reported with the device evidence: bound to the device's receipts.
+    session: (event) => {
+      const loop = current.loop
+      if (loop === undefined || event.instance !== loop.instance) return
+      void options.runtime?.bind({ id: loop.id, account: loop.account, session: event.session }).catch(() => undefined)
+    },
   }
 
   // Follows the plugin's events for the life of the engine. A stream that ends means the service stopped or
@@ -337,9 +382,9 @@ export function make(options: Options) {
     update,
     /** Pass to the accounts' `renewed` option. */
     renewed,
-    /** Polls now ("Sync now"). */
+    /** Polls now ("Sync now"), asking the instance for a fresh build; every other poll may be answered from its memo. */
     now: () => {
-      if (current.loop !== undefined) request(current.loop)
+      if (current.loop !== undefined) request(current.loop, true)
     },
     /** Whether a DynWork window has focus; gaining it polls at once. */
     focus: (focused: boolean) => {
@@ -375,6 +420,7 @@ function digestOf(manifest: Manifest, gateway: Loop["gateway"]) {
     ...content.managed_mcp_servers.map((entry) => ["mcp", entry.id, entry] as const),
     ...content.rules.map((entry) => ["rule", entry.id, entry] as const),
     ...(content.marketplaces ?? []).map((entry) => ["marketplace", entry.id, entry] as const),
+    ...(content.plugins ?? []).map((entry) => ["plugin", entry.id, entry] as const),
     ["hosts", "", content.enabled_hosts ?? null] as const,
     ["profile", "", gateway?.profile ?? null] as const,
     ["catalog", "", gateway?.catalog ?? null] as const,
@@ -382,6 +428,26 @@ function digestOf(manifest: Manifest, gateway: Loop["gateway"]) {
     .map((entry) => `${entry[0]}:${entry[1]}:${hash(JSON.stringify(entry[2]))}`)
     .toSorted()
   return hash(entries.join("\n"))
+}
+
+// `<RFC3339>-<hex>`, at least 8 hex digits (`crates/shared/models/src/bridge/manifest_version.rs`). They order by
+// timestamp, then by suffix.
+const versionPattern = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))-([0-9a-fA-F]{8,})$/
+
+function parseVersion(raw: string | undefined) {
+  const found = raw === undefined ? null : versionPattern.exec(raw)
+  if (found === null) return undefined
+  const at = Date.parse(found[1] ?? "")
+  return Number.isNaN(at) ? undefined : { at, suffix: found[2] ?? "" }
+}
+
+function compareVersions(
+  a: NonNullable<ReturnType<typeof parseVersion>>,
+  b: NonNullable<ReturnType<typeof parseVersion>>,
+) {
+  if (a.at !== b.at) return a.at < b.at ? -1 : 1
+  if (a.suffix === b.suffix) return 0
+  return a.suffix < b.suffix ? -1 : 1
 }
 
 function hash(text: string) {
