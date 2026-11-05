@@ -12,7 +12,7 @@
 //
 // The screenshot defaults to plans/done/2026-10-dynwork-pilot/docs/smoke.png. With a theme id and a color scheme the
 // script stores them as the app's theme preference and reloads before it reads the colors, for example
-// `bun dynwork/script/smoke.ts /tmp/deep.png oc-2-deep dark`.
+// `bun dynwork/script/smoke.ts /tmp/dark.png oc-2 dark`.
 //
 // The view defaults to home. new-session and first-launch start as a fresh install, which opens on the new session
 // screen: new-session shoots that screen, applying the theme live, and first-launch shoots the first-launch splash when
