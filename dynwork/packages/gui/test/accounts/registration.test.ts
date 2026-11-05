@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { runsOn } from "@opencode/plugin/gui/host"
 import { createRoot } from "solid-js"
 import { Accounts } from "../../src/accounts/contract"
 import definition from "../../src/accounts"
@@ -14,6 +15,16 @@ describe("dynwork built-in", () => {
     expect(entry?.mainEntry).toBeFunction()
     // Every upstream built-in is still listed.
     expect(builtins.map((item) => item.id)).toEqual(expect.arrayContaining(["pairing", "updater", "goal"]))
+  })
+
+  test("OpenCode's pairing never runs, in main or in a window, and keeps its id", async () => {
+    const pairing = builtins.find((item) => item.id === "pairing")
+    expect(pairing).toBeDefined()
+    expect((["macos", "windows", "linux"] as const).filter((os) => runsOn(pairing ?? {}, os))).toEqual([])
+    const source = await Bun.file(
+      new URL("../../../../../packages/gui-plugins/src/renderer.ts", import.meta.url),
+    ).text()
+    expect(source).toContain("  pairing: { ...pairing, os: [], windowEntry: eager(pairingRenderer) },\n")
   })
 
   test("the window list composes it with its window entry", async () => {
