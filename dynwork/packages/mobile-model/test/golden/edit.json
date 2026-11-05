@@ -1,0 +1,128 @@
+{
+  "sessions": [
+    {
+      "id": "ses_e679138cfffeDch1hcgOhQ1Ic4",
+      "title": "edit",
+      "project": "edit",
+      "directory": "/work/edit",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558759677,
+      "background": 0
+    }
+  ],
+  "session": {
+    "row": {
+      "id": "ses_e679138cfffeDch1hcgOhQ1Ic4",
+      "title": "edit",
+      "project": "edit",
+      "directory": "/work/edit",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558759677,
+      "background": 0
+    },
+    "turns": [
+      {
+        "id": "msg_1986ec79e001vz3T5DfxkqsJA8",
+        "user": {
+          "id": "msg_1986ec79e001vz3T5DfxkqsJA8",
+          "text": "[scenario:edit] Change the greeting",
+          "files": 0
+        },
+        "blocks": [
+          {
+            "kind": "toolGroup",
+            "tools": [
+              {
+                "id": "toolu_edit_0_0",
+                "name": "edit",
+                "label": "edit hello.txt",
+                "status": "done",
+                "output": "Edited hello.txt (1 replacement)"
+              },
+              {
+                "id": "toolu_edit_1_0",
+                "name": "write",
+                "label": "write added.txt",
+                "status": "done",
+                "output": "Created file successfully: added.txt"
+              }
+            ],
+            "running": 0,
+            "failed": 0
+          },
+          {
+            "kind": "text",
+            "text": "I changed hello.txt and added added.txt.",
+            "streaming": false
+          },
+          {
+            "kind": "diffSummary",
+            "files": [
+              {
+                "file": "hello.txt",
+                "additions": 1,
+                "deletions": 1,
+                "status": "modified"
+              },
+              {
+                "file": "added.txt",
+                "additions": 3,
+                "deletions": 0,
+                "status": "added"
+              }
+            ],
+            "additions": 4,
+            "deletions": 1
+          }
+        ],
+        "status": "done",
+        "startedAt": 1793558759510,
+        "endedAt": 1793558759677
+      }
+    ],
+    "background": {
+      "items": []
+    },
+    "needs": [],
+    "children": [],
+    "info": {
+      "model": "fake/fake-1",
+      "cost": 0,
+      "familyCost": 0,
+      "tokens": {
+        "input": 303,
+        "output": 33,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "context": {
+        "tokens": {
+          "input": 102,
+          "output": 12,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "total": 114,
+        "model": "fake/fake-1",
+        "cost": 0,
+        "at": 1793558759676
+      },
+      "messages": {
+        "user": 1,
+        "assistant": 3
+      },
+      "compactions": 0,
+      "created": 1793558759279,
+      "updated": 1793558759677
+    }
+  },
+  "children": []
+}

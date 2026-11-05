@@ -2,6 +2,8 @@ import { createSignal, onCleanup, type Accessor } from "solid-js"
 import type { IpcClient, Live, Plugin } from "@opencode/plugin/gui"
 import { Accounts } from "./contract"
 import type definition from "./index"
+import { Remote } from "../remote/contract"
+import { registerRemote } from "../remote/ui/register"
 import { register } from "./ui/register"
 import { registerViews } from "../views/register"
 
@@ -22,6 +24,7 @@ const setup: Plugin.Setup<typeof definition> = (ctx) => {
   })
   register(ctx, live)
   registerViews(ctx)
+  registerRemote(ctx, ctx.use(Remote))
 }
 
 export default setup

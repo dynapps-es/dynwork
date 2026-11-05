@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@dynwork/mobile-model",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "typecheck": "bun check --no-script -b",
+    "typecheck:tsc": "tsc -b",
+    "test": "bun test --timeout 30000",
+    "test:hermes": "bun ../remote/script/hermes.ts --package .",
+    "golden": "bun script/golden.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@opencode/client": "workspace:*"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native": "catalog:"
+  },
+  "imports": {
+    "#fixtures": {
+      "bun": "./test/fixtures.bun.ts",
+      "default": "./test/fixtures.hermes.ts"
+    }
+  }
+}

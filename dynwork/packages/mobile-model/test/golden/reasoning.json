@@ -1,0 +1,94 @@
+{
+  "sessions": [
+    {
+      "id": "ses_e67914954ffeoP3SiRdrMKqx3B",
+      "title": "reasoning",
+      "project": "reasoning",
+      "directory": "/work/reasoning",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558755454,
+      "background": 0
+    }
+  ],
+  "session": {
+    "row": {
+      "id": "ses_e67914954ffeoP3SiRdrMKqx3B",
+      "title": "reasoning",
+      "project": "reasoning",
+      "directory": "/work/reasoning",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558755454,
+      "background": 0
+    },
+    "turns": [
+      {
+        "id": "msg_1986eb71e001Do0c4quIHPmYEA",
+        "user": {
+          "id": "msg_1986eb71e001Do0c4quIHPmYEA",
+          "text": "[scenario:reasoning] What is two plus two?",
+          "files": 0
+        },
+        "blocks": [
+          {
+            "kind": "reasoning",
+            "text": "The user asks for the sum. Two and two make four, so the answer is four.",
+            "running": false,
+            "durationMs": 2
+          },
+          {
+            "kind": "text",
+            "text": "Two plus two is four.",
+            "streaming": false
+          }
+        ],
+        "status": "done",
+        "startedAt": 1793558755320,
+        "endedAt": 1793558755454
+      }
+    ],
+    "background": {
+      "items": []
+    },
+    "needs": [],
+    "children": [],
+    "info": {
+      "model": "fake/fake-1",
+      "cost": 0,
+      "familyCost": 0,
+      "tokens": {
+        "input": 100,
+        "output": 10,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "context": {
+        "tokens": {
+          "input": 100,
+          "output": 10,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "total": 110,
+        "model": "fake/fake-1",
+        "cost": 0,
+        "at": 1793558755451
+      },
+      "messages": {
+        "user": 1,
+        "assistant": 1
+      },
+      "compactions": 0,
+      "created": 1793558755050,
+      "updated": 1793558755454
+    }
+  },
+  "children": []
+}

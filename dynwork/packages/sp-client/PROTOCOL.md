@@ -183,12 +183,12 @@ bundle the systemprompt bridge fetches as an enrolled device. Unlike the section
 bridge's code (`bin/bridge/src/feedback/{enrol,transport,readback}.rs`, read for the bridge-parity plan); every answer
 below was observed on the local 0.76 instance (`test/fixtures/consumer.json`):
 
-| Call                                                                                         | Credential            | Answer                                                                                                                                                                                                                                         |
-| -------------------------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /v1/bridge/device` `{fingerprint, label}`                                              | the user's JWT        | `200 {device_id, consumer_id, credential}`, the credential `sp_device_` plus 72 characters. The same fingerprint is the same `device_id`; each call issues a new credential                                                                    |
-| `GET /api/v1/consumer/resources/{resource}/publications/{publication}/bundle?host=open-code` | the device credential | `200` the installation plan: the publication's ids, `host`, `canonical_files` (`{revision_id, path, digest, bytes, executable, content_check, mode_check}`) and `runtime_files` (`{path, bytes, executable}`, `bytes` an array of byte values) |
-| `POST /api/v1/consumer/receipts` (`ConsumerReceiptRequest`)                                  | the device credential | `200 {receipt_id, acknowledgement, acknowledged_at, fully_verified}`; `acknowledgement` is `accepted`, then `identical_retry` with the same `receipt_id` for the same receipt                                                                  |
-| `POST /api/v1/consumer/session-bindings` `{receipt_id, host, session_id}` (`SessionBindingRequest`) | the device credential | `200 {id, bound_at}`; the same binding again answers the same. A receipt this device did not post, or an unknown device credential, is `403` "Consumer evidence is unavailable to this identity"; a JWT is `401`; `host: opencode` is `422` |
+| Call                                                                                                | Credential            | Answer                                                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/bridge/device` `{fingerprint, label}`                                                     | the user's JWT        | `200 {device_id, consumer_id, credential}`, the credential `sp_device_` plus 72 characters. The same fingerprint is the same `device_id`; each call issues a new credential                                                                    |
+| `GET /api/v1/consumer/resources/{resource}/publications/{publication}/bundle?host=open-code`        | the device credential | `200` the installation plan: the publication's ids, `host`, `canonical_files` (`{revision_id, path, digest, bytes, executable, content_check, mode_check}`) and `runtime_files` (`{path, bytes, executable}`, `bytes` an array of byte values) |
+| `POST /api/v1/consumer/receipts` (`ConsumerReceiptRequest`)                                         | the device credential | `200 {receipt_id, acknowledgement, acknowledged_at, fully_verified}`; `acknowledgement` is `accepted`, then `identical_retry` with the same `receipt_id` for the same receipt                                                                  |
+| `POST /api/v1/consumer/session-bindings` `{receipt_id, host, session_id}` (`SessionBindingRequest`) | the device credential | `200 {id, bound_at}`; the same binding again answers the same. A receipt this device did not post, or an unknown device credential, is `403` "Consumer evidence is unavailable to this identity"; a JWT is `401`; `host: opencode` is `422`    |
 
 - The fingerprint is the bridge's: hex SHA-256 of `systemprompt-bridge-device/v1\n<install id>\n<user id>`.
   DynWork's install id is a random UUID kept with its accounts.
@@ -207,8 +207,173 @@ below was observed on the local 0.76 instance (`test/fixtures/consumer.json`):
   `content_check`, `mode_check`), and each canonical file checked against its `.systemprompt-source` copy.
   `SpConsumer.receipt` builds it and refuses a readback that does not match the plan, as the bridge's `verify` does.
 
+## 11. Mobile sign-in
+
+How a phone signs in to a 0.76 instance, observed on both local instances with `bun dynwork/script/sp-local.ts mobile-auth-probe`
+(evidence: `dynwork/test/sp-local/fixtures/mobile-auth.json`, redacted like the device-link fixture). The device link of
+sections 1 to 8 cannot serve a phone: it accepts only `http://127.0.0.1:<port>` and `http://localhost:<port>` redirects
+(section 2) and a phone has no loopback listener the system browser can reach. What the probe asked is whether the
+instance's own OAuth server, the `oauth-client` mode the capabilities list, takes a native app redirect.
+
+**Verdict: core OAuth usable.** Every step the app needs worked on both instances: a native client registers
+`dynwork://auth/callback`, authorize accepts it with PKCE `S256`, the callback carries `code` and the same `state`, the
+code becomes an access token and a refresh token, the refresh token mints another one, and the access token is accepted
+by the bridge routes. No extension endpoint is needed for the protocol. One product limit decides how it is offered
+(the sign-in is a passkey, see "What it signs in with").
+
+### Discovery
+
+| Request                                       | Answer                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /v1/auth/bridge/capabilities`            | `200` `modes`: `pat`, `session`, `oauth-client`                                                                                                                                                                                                                                                                                           |
+| `GET /.well-known/oauth-authorization-server` | `200` RFC 8414 metadata, the same body at `/.well-known/openid-configuration`. `issuer` is the instance base URL. Endpoints under `/api/v1/core/oauth/`: `authorize`, `token`, `userinfo`, `introspect`, `revoke`, `register`                                                                                                             |
+| same, what it says                            | `response_types` `code`, `response_modes` `query`, `scopes` `user` and `admin`, `code_challenge_methods` **`S256` only**, token endpoint auth `none`, `client_secret_post`, `client_secret_basic`, `authorization_response_iss_parameter_supported` `true`; grants `authorization_code`, `refresh_token`, token exchange and `jwt-bearer` |
+| `GET /.well-known/oauth-protected-resource`   | `200` `resource` and `authorization_servers` are the base URL                                                                                                                                                                                                                                                                             |
+
+The `registration_client_uri` a registration returns names the container's own address (`http://localhost:8080/...`):
+use its path on the base URL the user typed, as with `--gateway` in section 5.
+
+### Registering a client
+
+`POST /api/v1/core/oauth/register`, JSON, **no credentials** (RFC 7591). A public client sends `client_name`,
+`redirect_uris`, `token_endpoint_auth_method: "none"`, `grant_types` (`authorization_code`, `refresh_token`),
+`response_types: ["code"]` and `application_type: "native"`. Answer `201` with `client_id` (`client_` and 32 hex
+characters), `registration_access_token` and `registration_client_uri`. `DELETE` on that URI with the token answers `204`.
+
+| `redirect_uris` entry                                                                     | `application_type: native`    | default (`web`)                                                                          |
+| ----------------------------------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------- |
+| `dynwork://auth/callback`, `dynwork:/auth/callback`, `com.dynapps.dynwork:/auth/callback` | `201`                         | `400` `invalid_client_metadata`: a private-use scheme "requires application_type native" |
+| `http://127.0.0.1/cb`, `http://127.0.0.1:<port>/cb`                                       | `201`                         | `201`                                                                                    |
+| `https://<any host>/...`, including a host that is not the instance                       | `201`                         | `201`                                                                                    |
+| `javascript:...`                                                                          | `400` "uses a refused scheme" | `400`                                                                                    |
+
+The app therefore registers once per instance at first sign-in (name "DynWork Mobile") and keeps the `client_id`; it
+does not need the registration token afterwards unless it deletes the client.
+
+### Authorize
+
+`GET /api/v1/core/oauth/authorize?response_type=code&client_id&redirect_uri&scope=user&state&code_challenge&code_challenge_method=S256`
+in the system browser (ASWebAuthenticationSession, Custom Tabs). Observed rules, with the instance not signed in:
+
+| Request                                                                           | Answer                                                                                                                  |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| registered `redirect_uri` (`dynwork://auth/callback`), PKCE `S256`, valid `state` | `200` sign-in page (section "What it signs in with")                                                                    |
+| another path, another host, a trailing slash or another scheme than registered    | `400` JSON `invalid_request`, "redirect_uri ... not registered for client": **exact match**, no redirect to the bad URI |
+| a loopback client registered as `http://127.0.0.1/cb`, asked with `:<port>/cb`    | `200`: the port may differ (RFC 8252 7.3). A different path, `localhost` instead of `127.0.0.1`: `400`                  |
+| unknown `client_id`                                                               | `400` "Invalid client_id"                                                                                               |
+| no `code_challenge`, `code_challenge_method=plain`                                | `303` to the redirect URI with `error=invalid_request` and `state`: PKCE with `S256` is required                        |
+| `state` shorter than 32 characters (16 and 30 refused), or missing                | `400` "CSRF token (state parameter) is invalid" / "is required". 32 hex, 43 base64url, 200 characters: accepted         |
+| `scope=admin` for a user without the role                                         | `303` to the redirect URI with an `error`                                                                               |
+
+The `state` is mandatory and at least 32 characters, so the app generates 32 random bytes as base64url (43 characters)
+and compares it on return.
+
+### The round trip
+
+After the sign-in the page shows a consent step ("DynWork mobile probe wants to access your account", the scope and
+where the browser will be sent) with Authorize and Cancel.
+
+| Step                                                                                                                                                                      | Observed                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Authorize                                                                                                                                                                 | `303` to `dynwork://auth/callback?code=<42 characters>&client_id=<id>&state=<same>&iss=<issuer>` (RFC 9207; its value was not recorded). The loopback client is sent to `http://127.0.0.1:<port>/cb?` the same way |
+| Cancel                                                                                                                                                                    | `303` to `dynwork://auth/callback?error=access_denied&error_description=...&state=<same>`                                                                                                                          |
+| `POST /api/v1/core/oauth/token` (`application/x-www-form-urlencoded`, no auth) with `grant_type=authorization_code`, `client_id`, `code`, `redirect_uri`, `code_verifier` | `200` `access_token` (RS256 JWT), `expires_in` **2592000** (30 days), `refresh_token`, `token_type` `Bearer`, `scope` `user`                                                                                       |
+| `grant_type=refresh_token`, `client_id`, `refresh_token`                                                                                                                  | `200` the same body with **a new refresh token**: it rotates, and the old one answers `400` `invalid_grant`                                                                                                        |
+| a code used twice                                                                                                                                                         | the second use is `400` `invalid_grant` "Invalid authorization code", **and the refresh token of the first use stops working** (RFC 6749 4.1.2)                                                                    |
+| wrong `code_verifier`, or a `redirect_uri` that differs at the token endpoint                                                                                             | `400` `invalid_grant` "Invalid authorization code"                                                                                                                                                                 |
+| `POST /api/v1/core/oauth/revoke` with `client_id` and `token`                                                                                                             | `401` with the client id alone; `200` when the request also carries `Authorization: Bearer <access token>`, and the refresh token is then dead                                                                     |
+| `GET /api/v1/core/oauth/userinfo`, bearer                                                                                                                                 | `200`                                                                                                                                                                                                              |
+
+The access token's claims: `aud` (`web`, `api`, `a2a`, `mcp`), `auth_time`, `client_id`, `email`, `exp`, `iat`, `iss`,
+`jti`, `nbf`, `rate_limit_tier`, `roles`, `scope`, `session_id`, `sub`, `token_type`, `user_type`, `username`.
+
+### The OAuth token on the bridge routes
+
+With `x-systemprompt-client: opencode` and the access token as bearer, `GET /v1/bridge/whoami`, `/v1/bridge/profile` and
+`/v1/bridge/manifest` answer `200` with the shapes of section 9. The token is not a PAT: `POST /v1/auth/bridge/pat`
+with it answers `401`. The phone's durable credential is therefore the **rotating refresh token** (keep it in the OS
+secure store, replace it on every refresh, and treat `invalid_grant` as signed out), not a `sp-live-` PAT.
+
+### What it signs in with
+
+The authorize page signs in with a **passkey** (WebAuthn) and nothing else: Microsoft Entra, the admin login of
+sections 2 and 3, is not offered on it. A user who has no passkey gets `401` "Authentication failed. Check the email
+address or register a passkey." The page's own "Create New Passkey" reaches `POST .../webauthn/register/start`, which
+answered `200` without credentials, even for an existing account; whether `finish` enrols one was not exercised. An
+instance whose users sign in with Entra only needs them to link a passkey first (the operator's
+`admin users webauthn generate-setup-token`, which the local probe uses). This is the one place where the phone differs
+from the desktop, whose device link rides the Entra login.
+
+### What phases 07 and 10 build on
+
+- The app registers `dynwork://auth/callback` as a native public client per instance, then runs authorize with PKCE
+  `S256` and a 43-character `state`. Phase 07 shrinks to the client registration, the passkey prerequisite and tests;
+  it adds no sign-in endpoint.
+- The app must not log or persist `code`, the access token or the refresh token outside the secure store.
+- Registration is open to anyone who can reach the instance, including `https://` redirects on any host. The consent page
+  shows the client's own `client_name`, so a look-alike client can ask for consent in the app's name. The app cannot
+  prevent that; the redirect it registers is the only one that reaches it.
+- On Android the custom scheme can be claimed by another installed app (RFC 8252 7.1); `S256` makes a stolen code
+  useless without the verifier, so the app never uses a challenge it did not generate.
+
+## 11. Mobile sign-in, path 1: the DynWork extension
+
+Path 1 is the default (decision A6, "Ambos"): the phone signs in like the desktop, through the system browser and the
+instance login (Entra on the Dynapps brand), and needs no passkey. It is the `dynwork-relay` extension of
+systemprompt-dynapps, not core, so it is written from its source and its tests, and observed on the mobile project's
+alpha (`sp-local.ts up --image local`). Core OAuth (section 10) is path 2, postponed to phase 19 (decision M9).
+`@dynwork/sp-client/mobile` (`SpMobile`) is the client; it runs on Hermes.
+
+Every route is under `/api/dynwork/mobile/v1` (under `/api/`, so core's session middleware tracks none of them):
+
+| Request                                                                              | Auth                                                   | Answer                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /discovery`                                                                     | none                                                   | `version` 1, `display_name`, `redirect_uri`, the route paths, `device_socket_path`, `code_challenge_methods` `["S256"]`. `404` on an instance without the extension: the app falls back to path 2                         |
+| `GET /authorize?redirect_uri&code_challenge&code_challenge_method&state&device_name` | the instance's browser session cookie (`access_token`) | `200` consent page; `307` to `/admin/login?redirect=<this path and query>` without a session; `400` page for any malformed parameter, before the session is looked at                                                     |
+| `POST /authorize/decision`, form `request`, `decision` (`allow` or `deny`)           | the same cookie                                        | `303` to `dynwork://auth/callback?code=<code>&state=<state>` or `?error=access_denied&state=<state>`; `400` page when the request is unknown, already answered, expired or another person's; `401` page without a session |
+| `POST /token`, JSON `code`, `code_verifier`, `peer_id`                               | none                                                   | `200` JSON `credential` (`dwm1_`), `peer_id`, `token` (JWT), `token_type` `Bearer`, `expires_in` 3600, `device_id`, `account` (`id`, `email`, `name`); `cache-control: no-store`                                          |
+| `POST /refresh`                                                                      | `Bearer <credential>`                                  | `200` the same without `credential` and `peer_id`                                                                                                                                                                         |
+| `GET /session`                                                                       | `Bearer <JWT>`                                         | `200` `user_id`, `email`, `name`, `device_id`, `expires_at` while the device is live                                                                                                                                      |
+| `POST /revoke`                                                                       | `Bearer <credential>`                                  | `204`: the device is revoked (sign-out)                                                                                                                                                                                   |
+
+Rules:
+
+- `redirect_uri` must be exactly `dynwork://auth/callback`; the relay never redirects anywhere a request names.
+- PKCE is `S256` only: `code_challenge` is 43 base64url characters, `code_challenge_method` may be omitted or `S256`.
+  `code_verifier` is 43 to 128 unreserved characters.
+- `state` is mandatory, 32 to 256 unreserved characters, returned verbatim on Allow and on Deny. The client accepts a
+  callback only with its own `state` (constant-time compare).
+- `device_name` is at most 64 printable characters (default `Phone`); it is shown on the consent page and names the
+  device in the devices list.
+- Only a browser session of a person opens the consent page: an `Authorization` header is never read there, and an
+  anonymous, delegated, plugin-scoped or purpose-bound token is a signed-out browser.
+- At most 10 consents per person are open at once (`429` page after that).
+- The code (`dwa1_` + 43 characters) lives 10 minutes from Allow and works once. Unknown, used, expired and
+  wrong-verifier all answer the same `400` `invalid_grant`, and a wrong verifier burns the code. A code presented
+  again revokes the device its first use created.
+- The credential is a phone row of the relay (`kind` `phone`, SHA-256 only): it opens the device socket
+  (`/api/dynwork/relay/v1/device`), shows up in the desktop's `GET /devices` and is removed by `DELETE /devices/{id}`.
+  Signing in again with the same peer id replaces the previous device of that peer.
+- The JWT lives one hour. Its only audience is `dynwork-mobile` and its purpose `dynwork-mobile`, so the bridge, MCP,
+  core session and the relay's desktop routes refuse it. `/refresh` re-reads the account: a suspended or deleted
+  account cannot refresh.
+- Errors are the relay's `{error, message}`: `invalid_grant` and `bad_request` (`400`), `unauthorized` (`401`),
+  `device_limit` and `peer_taken` (`409`).
+
+Locally there is no IdP. `sp-local.ts dev-login [alpha|beta]` prints a single-use, ten-minute link to the instance's
+own development login (`/admin/auth/dev/login`, mounted only on development, non-cloud profiles, which the image's
+generated profile is). Opening it sets the instance session cookie in that browser; the consent then shows with no
+IdP. `test/mobile/live.test.ts` does this with `fetch`; the app's end-to-end flows (phase 12) open the link in the
+device browser first, which shares its cookies with ASWebAuthenticationSession and Custom Tabs.
+
+Not observed: the Entra login in front of `/authorize` (no local IdP), and whether core's login honours a `redirect`
+under `/api/` after Entra the way it does for the device link.
+
 ## Not observed
 
+- Mobile sign-in: the Entra login on the authorize page (the local instance has none to offer), how long a refresh token
+  lives and whether an OAuth session shows in an administrator's token list, `register/finish`, and a rate limit on
+  client registration.
 - What an expired code answers (expected the `401` above; the CLI cannot mint a short-lived code and waiting 600 s was
   not done).
 - A real IdP login: the local instance has a dummy Entra secret. The capture signs in through the core OAuth page with

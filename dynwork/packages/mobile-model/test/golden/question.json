@@ -1,0 +1,116 @@
+{
+  "sessions": [
+    {
+      "id": "ses_e6790f6e2ffeF2YBPkIm43SdC6",
+      "title": "question",
+      "project": "question",
+      "directory": "/work/question",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558776924,
+      "background": 0
+    }
+  ],
+  "session": {
+    "row": {
+      "id": "ses_e6790f6e2ffeF2YBPkIm43SdC6",
+      "title": "question",
+      "project": "question",
+      "directory": "/work/question",
+      "desktop": "Studio Mac",
+      "status": "done",
+      "updated": 1793558776924,
+      "background": 0
+    },
+    "turns": [
+      {
+        "id": "msg_1986f0980001TXyHsV8r9YRXNe",
+        "user": {
+          "id": "msg_1986f0980001TXyHsV8r9YRXNe",
+          "text": "[scenario:question] Greet me",
+          "files": 0
+        },
+        "blocks": [
+          {
+            "kind": "question",
+            "id": "toolu_question_0_0",
+            "status": "answered",
+            "questions": [
+              {
+                "key": "q0",
+                "header": "Language",
+                "question": "Which language should the greeting use?",
+                "options": [
+                  {
+                    "label": "English",
+                    "description": "Say hello"
+                  },
+                  {
+                    "label": "Spanish",
+                    "description": "Say hola"
+                  }
+                ],
+                "multiple": false
+              }
+            ],
+            "answers": [
+              [
+                "Spanish"
+              ]
+            ]
+          },
+          {
+            "kind": "text",
+            "text": "Understood, I will greet in Spanish.",
+            "streaming": false
+          }
+        ],
+        "status": "done",
+        "startedAt": 1793558776349,
+        "endedAt": 1793558776924
+      }
+    ],
+    "background": {
+      "items": []
+    },
+    "needs": [],
+    "children": [],
+    "info": {
+      "model": "fake/fake-1",
+      "cost": 0,
+      "familyCost": 0,
+      "tokens": {
+        "input": 201,
+        "output": 21,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "context": {
+        "tokens": {
+          "input": 101,
+          "output": 11,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "total": 112,
+        "model": "fake/fake-1",
+        "cost": 0,
+        "at": 1793558776922
+      },
+      "messages": {
+        "user": 1,
+        "assistant": 2
+      },
+      "compactions": 0,
+      "created": 1793558776151,
+      "updated": 1793558776924
+    }
+  },
+  "children": []
+}

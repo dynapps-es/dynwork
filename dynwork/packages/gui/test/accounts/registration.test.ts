@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { runsOn } from "@opencode/plugin/gui/host"
 import { createRoot } from "solid-js"
 import { Accounts } from "../../src/accounts/contract"
+import { Remote } from "../../src/remote/contract"
 import definition from "../../src/accounts"
 import renderer, { connection } from "../../src/accounts/renderer"
 import { builtins } from "../../../../../packages/gui-plugins/src/main"
@@ -59,7 +60,8 @@ describe("dynwork built-in", () => {
       renderer(ctx as unknown as Parameters<typeof renderer>[0])
       return dispose
     })
-    expect(used).toEqual([Accounts])
+    // Remote control rides on the same built-in
+    expect(used).toEqual([Accounts, Remote])
     expect(connection()).toEqual({ status: "pending" })
     dispose()
     expect(connection()).toBeUndefined()

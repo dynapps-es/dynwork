@@ -1,17 +1,19 @@
 #!/usr/bin/env bun
-// Builds DynWork for this Mac (darwin-arm64) from the checkout and installs it as /Applications/Dynwork.app:
-// the CLI first, then the desktop app with the DynWork icons, packed unsigned and signed ad hoc.
+// Builds DynWork for this Mac (darwin-arm64) from the checkout and installs it as /Applications/Dynwork.app, or as
+// <dir>/Dynwork.app with --to: the CLI first, then the desktop app with the DynWork icons, packed unsigned and signed
+// ad hoc.
 //
-//   bun dynwork/script/desktop.ts
+//   bun dynwork/script/desktop.ts [--to <dir>]
 //
-// It only ever replaces /Applications/Dynwork.app, and removes the app bundle the pack leaves in packages/desktop/dist,
-// so this Mac only ever has one DynWork: Spotlight and "Open With" never offer an older build. The OpenCode app and its
-// service are never touched.
+// It only ever replaces that one bundle, and removes the app bundle the pack leaves in packages/desktop/dist, so this
+// Mac only ever has one DynWork: Spotlight and "Open With" never offer an older build. The OpenCode app and its service
+// are never touched.
 import { $ } from "bun"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { DynWorkIdentity } from "../packages/branding/src/identity"
+import { installTarget } from "./install-target"
 
 if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("DynWork builds for macOS arm64 only")
 
@@ -19,7 +21,7 @@ const root = path.resolve(import.meta.dir, "../..")
 
 const desktop = path.join(root, "packages/desktop")
 
-const install = `/Applications/${DynWorkIdentity.name}.app`
+const install = installTarget(process.argv.slice(2))
 
 const version: string = (await Bun.file(path.join(desktop, "package.json")).json()).version
 
@@ -60,6 +62,8 @@ const bundle = path.join(staging, `${DynWorkIdentity.name}.app`)
 await $`codesign --force --deep --sign - ${bundle}`
 
 await $`xattr -cr ${bundle}`
+
+await mkdir(path.dirname(install), { recursive: true })
 
 await rm(install, { recursive: true, force: true })
 

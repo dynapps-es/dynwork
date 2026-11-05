@@ -16,6 +16,8 @@ the next tag.
 | `script/sync-upstream.ts`             | The upstream sync (logic in `packages/build/src/sync.ts`): rebases the stack onto a newer upstream ref in a throwaway worktree, checks it and writes a report. See "Syncing with upstream"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `script/sp-local.ts`, `test/sp-local` | The local systemprompt harness (see "Local systemprompt instances"). `script/e2e-sp.ts` runs the whole flow against it (see "End to end")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | `packages/sp-client`                  | `@dynwork/sp-client`: the clean-room systemprompt 0.76 client, Effect and `fetch`, no OpenCode dependency. `SpClient` has `discover`, `deviceLinkUrl` and `parseCallback`, `exchangeCode`, `mintJwt` and `withJwt` (re-mints once on a refused JWT), `publicKey` and `fingerprint` (trust on first use), `manifest` (ed25519 over the JCS payload, ETag and 304), `profile`, `models` and `whoami`, and the errors `Unauthorized`, `RateLimited`, `Unreachable`, `SignatureInvalid`, `KeyChanged`, `Incompatible` and `Protocol`. It stores and logs no credential. `src/jcs.ts` is RFC 8785. `PROTOCOL.md` is the contract as observed (device link, code exchange, PAT to JWT, manifest, profile, models, error mapping). `bun test` runs the fake-instance tests; `SP_LOCAL_ENV=../../test/sp-local/.env.local bun test` adds the live ones against the local instances |
+| `packages/remote`                     | `@dynwork/remote`: the end-to-end-encrypted channel between DynWork Mobile and the desktop through the relay, on Bun, Electron and Hermes (no WebAssembly, no `node:` imports). Noise XX for pairing and IK for reconnects on `@noble` primitives, the pairing QR, a padded binary frame, a session with seq/ack resume, a bounded replay window and rekeying, and multiplexed HTTP, fetch-SSE and WebSocket streams with credit flow control. `relay-protocol.md` is what the relay sees and must do. `bun test` runs the published Noise vectors, decoder fuzzing and an in-memory relay; `bun run test:hermes` runs the same tests under React Native 0.88's Hermes                                                                                                                                                                                                     |
+| `packages/mobile-model`               | `@dynwork/mobile-model`: the pure layer that turns OpenCode's sessions and event stream into the compact mobile view model (turns of blocks: text, reasoning, tool groups, diff cards, subagents, todos, background work, permissions and questions). A tolerant reducer (idempotent, out-of-order, snapshot at any moment) plus the grouping rules of decision P2, tested against sessions recorded by `script/record-session.ts` on an isolated service with a fake provider, in Bun and under Hermes. `sync-upstream.ts` replays the fixtures after a rebase                                                                                                                                                                                                                                                                                                            |
 | `packages/gui`                        | `@dynwork/gui`: DynWork's own screens and main-process helpers. `src/signin`: the sign-in gate the desktop shows until the device is signed in. `src/service.ts`: the layout of DynWork's own background service (see "Background service"). `src/accounts`: the `dynwork` built-in GUI plugin that holds the systemprompt accounts in main (see "Accounts"). `src/sync`: the live sync engine (see "Live sync")                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `packages/server-plugin`              | `@dynwork/server-plugin`: the OpenCode server plugin DynWork's own service loads. It holds the active instance's content in memory (see "Server plugin"). `src/contract.ts` is the RPC contract and `src/client.ts` the caller main uses (only `effect`, so main can bundle them); `src/mapping.ts` turns a manifest into OpenCode items; `src/gateway.ts` builds the `systemprompt` provider and decides the JWT of each model call; `src/shell.ts` restores the user's XDG values in tool shells. `bun test` runs the mapping and contract tests and live tests against a real `opencode serve` (`test/gateway` drives real Session steps against a fake gateway)                                                                                                                                                                                                        |
 | `packages/branding/src`               | `outline.ts`: the wordmark letters, the symbol and the lockup geometry. `logo.tsx`, `wordmark.tsx` and `new-session-wordmark.tsx`: the Solid components the desktop build uses in place of upstream's logos. `lockup.tsx`: the lockup, ink letters in light and white in dark                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -205,6 +207,32 @@ accounts open from Settings only, and the interface never names systemprompt: it
 - Code: `packages/gui/src/views/` (one folder per view, its `demo.ts` holds the data), contract in its `README.md`.
 - Host seam: the built-in slots `sidebar.nav` and `page` and `BuiltinLayout.page(id)` (see `PATCHES.md`).
 - Remove them: drop `registerViews(ctx)` from `packages/gui/src/accounts/renderer.ts`.
+
+## Remote control
+
+Settings → Remote control lets DynWork Mobile drive this desktop with no inbound port: the desktop keeps one outbound
+WebSocket to the active instance's relay (the `dynwork-relay` systemprompt extension, `/api/dynwork/relay/v1/desktop`,
+with the account's JWT), and everything a phone says travels end-to-end encrypted with Noise (`@dynwork/remote`). The
+code is `packages/gui/src/remote/` and rides on the `dynwork` built-in, so it needs no upstream patch of its own.
+
+- **Off by default.** The first time it is turned on, a dialog says what a phone can do. The toggle, the desktop's key
+  (sealed by the OS secure store), the paired phones (public keys only), the used pairing tokens (SHA-256, pruned once
+  their pairing expires) and the last 50 connections persist in the plugin's storage.
+- **Follows the accounts.** Switching the active instance moves the tunnel; signing out or turning it off stops it and
+  ends the phones' sessions. The relay's lifetime close (4000) and shutdown (1012) reconnect at once, anything else with
+  backoff and a fresh JWT.
+- **Pairing.** "Pair a phone" mints a one-time `dwp1_` token on the relay and shows a QR holding it beside the
+  end-to-end secret and the desktop's key (`Keys.encodePairing`). The phone claims a device credential with the first
+  and proves the second inside the handshake.
+- **Proxy.** A phone reaches DynWork's OpenCode service (whatever `ServerEndpoints` resolves as `sidecar`) only through
+  the allowlist in `packages/gui/src/remote/allowlist.ts`: sessions, events, permissions, questions, agents, models,
+  projects and the server info. No terminals, shells, filesystem writes, config or credentials, and no WebSocket. The
+  phone's credentials and cookies never pass; requests run under an OpenCode session token the desktop mints with the
+  service's pairing endpoint and hands to the phone only inside the channel (`/dynwork/remote/v1/session`).
+- **Presence.** The relay's presence messages mark phones connected; the titlebar shows an indicator while one is.
+- **Revoke** ends the phone's sessions here at once and revokes its device on the relay (close 4003).
+- Upstream's own `pairing` never runs: `packages/gui-plugins/src/main.ts` and `src/renderer.ts` give that built-in
+  `os: []` (its OpenTunnel link is for the OpenCode app, and it drives the shared OpenCode service, decision A4).
 
 ## Local systemprompt instances
 
@@ -654,8 +682,12 @@ workspace installed (`BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun instal
 compiles the Icon Composer app icon). The result is unsigned apart from an ad-hoc signature, so it only runs on the Mac that built it.
 
 ```bash
-bun dynwork/script/desktop.ts
+bun dynwork/script/desktop.ts [--to <dir>]
 ```
+
+`--to <dir>` installs `<dir>/Dynwork.app` instead (a leading `~` is your home), so a development build can live beside
+an installed DynWork that another session uses; `script/install-target.ts` holds the rule and
+`packages/gui/test/remote/isolation.test.ts` pins the default.
 
 The script builds the CLI for this machine from `packages/cli` (release channel, version taken from
 `packages/desktop/package.json`), builds the desktop app on the prod channel, swaps in
@@ -666,12 +698,19 @@ only ever has one DynWork. It never touches `/Applications/OpenCode.app`. A run 
 To check the installed app, launch it in a throwaway profile:
 
 ```bash
-bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] [--with-foreign-service]
+bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] [--with-foreign-service] [--app <bundle>]
+bun dynwork/script/smoke.ts remote [screenshot] --app <bundle>
 ```
+
+`--app` launches another bundle, such as a `desktop.ts --to` build, and unregisters it from Launch Services when the
+run ends so the installed app keeps the `dynwork://` scheme. `remote` signs in to the alpha of the sp-local project named
+by `SP_LOCAL_PROJECT` (the mobile project runs the relay image), turns on Settings → Remote control, confirms, waits for
+the tunnel and shoots the pairing QR (by default `remote-qr.png` beside the bundle).
 
 The smoke test starts `/Applications/DynWork.app` with its own home, user data, XDG directories, database and config,
 and none of your `OPENCODE_*` variables, so it never attaches to or restarts a running OpenCode service. DynWork's own
-service runs inside that profile on its fixed port, so the smoke fails at once when a DynWork is already running. It
+service runs inside that profile on a free port the smoke picks (`DYNWORK_SERVICE_PORT`, read by
+`DynWorkService.port`), so a DynWork already running on the fixed port keeps it. It
 also exports an `OPENCODE_CONFIG_CONTENT` the way a login shell would and fails if DynWork's service loaded it.
 `--with-foreign-service` first starts an `opencode serve --service` from this checkout, with another version string, at
 the profile's default registration, as OpenCode.app's service would be; once DynWork is ready the smoke fails unless

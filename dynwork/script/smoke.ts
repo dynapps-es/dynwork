@@ -2,7 +2,13 @@
 // Launches the installed DynWork in an isolated profile, waits for its window, takes a screenshot and reads the
 // theme background colors over CDP, then stops the processes it started.
 //
-//   bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] [--with-foreign-service]
+//   bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] [--with-foreign-service] [--app <bundle>]
+//   bun dynwork/script/smoke.ts remote [screenshot] --app <bundle>
+//
+// --app launches another bundle than /Applications/DynWork.app, such as a `desktop.ts --to` build; the smoke then
+// unregisters it from Launch Services when it is done, so the installed app keeps the dynwork:// scheme. `remote` signs
+// in to the alpha of the sp-local project in SP_LOCAL_PROJECT (the mobile one runs the relay image), turns on Settings
+// -> Remote control, confirms, waits for the tunnel and shoots the pairing QR (default: remote-qr.png beside the bundle).
 //
 // The screenshot defaults to plans/done/2026-10-dynwork-pilot/docs/smoke.png. With a theme id and a color scheme the
 // script stores them as the app's theme preference and reloads before it reads the colors, for example
@@ -24,14 +30,14 @@
 // The profile follows packages/desktop/script/bench-startup.ts: its own home, userData, XDG directories, database,
 // config and service registration, a private service port and none of the developer's OPENCODE_* variables. It never
 // attaches to or restarts the developer's running OpenCode service. DynWork runs its own service under its userData, on
-// its fixed port (`DynWorkIdentity.servicePort`), so a DynWork already running on this Mac makes the smoke fail early.
+// a free port the smoke picks (DYNWORK_SERVICE_PORT), so a DynWork already running on its fixed port keeps it.
 //
 // --with-foreign-service plays OpenCode.app: before DynWork starts, an `opencode serve --service` from this checkout,
 // with another version string, registers at the default location of the profile. Once DynWork is ready the smoke checks
 // that the foreign service still runs with the same pid and that DynWork registered its own service under its userData.
 import { rm } from "node:fs/promises"
+import { homedir } from "node:os"
 import path from "node:path"
-import { DynWorkIdentity } from "../packages/branding/src/identity"
 import {
   type Cdp,
   alive,
@@ -39,6 +45,7 @@ import {
   fillConnect,
   freePort,
   health,
+  installed,
   launch,
   localInstance,
   mainWindow,
@@ -52,19 +59,34 @@ import {
   waitFor,
 } from "./desktop-profile"
 
-const args = process.argv.slice(2).filter((arg) => !arg.startsWith("--"))
+const argv = process.argv.slice(2)
+
+const appAt = argv.indexOf("--app")
+
+const app = appAt < 0 ? installed : path.resolve((argv[appAt + 1] ?? "").replace(/^~(?=$|\/)/, homedir()))
+
+const remoteMode = argv[0] === "remote"
+
+// Positional arguments: neither a flag nor the bundle after --app; `remote` names the mode
+const args = argv
+  .filter((arg, index) => !arg.startsWith("--") && (appAt < 0 || index !== appAt + 1))
+  .slice(remoteMode ? 1 : 0)
 
 const withForeign = process.argv.includes("--with-foreign-service")
 
-const screenshot = path.resolve(repo, args[0] ?? "plans/done/2026-10-dynwork-pilot/docs/smoke.png")
+const screenshot = path.resolve(
+  repo,
+  args[0] ??
+    (remoteMode ? path.join(path.dirname(app), "remote-qr.png") : "plans/done/2026-10-dynwork-pilot/docs/smoke.png"),
+)
 
-const themeID = args[1]
+const themeID = remoteMode ? undefined : args[1]
 
-const colorScheme = args[2]
+const colorScheme = remoteMode ? undefined : args[2]
 
-const view = args[3] ?? "home"
+const view = remoteMode ? "remote" : (args[3] ?? "home")
 
-const width = args[4] ? Number(args[4]) : undefined
+const width = !remoteMode && args[4] ? Number(args[4]) : undefined
 
 const signInViews = ["signin", "signin-choose", "signin-finalizing", "signin-done", "signin-pat"]
 
@@ -83,13 +105,15 @@ const beta = accountsViews.includes(view) ? await localInstance("BETA") : undefi
 // Stands in for an OPENCODE_CONFIG_CONTENT exported by the login shell, which DynWork's service must never see.
 const shellConfig = JSON.stringify({ username: "dynwork-smoke-shell-config" })
 
-if (!(await portFree(DynWorkIdentity.servicePort)))
-  throw new Error(`Port ${DynWorkIdentity.servicePort} is in use: quit DynWork before running the smoke`)
+// DynWork's own service listens here instead of its fixed port, which a DynWork already running may hold
+const servicePort = await freePort()
+
+if (!(await portFree(servicePort))) throw new Error(`Port ${servicePort} is in use`)
 
 const target = await profile({
   prefix: "dynwork-smoke-",
   onboarded: view !== "new-session" && view !== "first-launch",
-  extra: { OPENCODE_CONFIG_CONTENT: shellConfig },
+  extra: { OPENCODE_CONFIG_CONTENT: shellConfig, DYNWORK_SERVICE_PORT: String(servicePort) },
 })
 
 const root = target.root
@@ -106,17 +130,23 @@ const cdpPort = await freePort()
 
 const foreign = withForeign ? await startForeign() : undefined
 
-const app = launch(target, cdpPort)
+const started = launch(target, cdpPort, app)
 
-console.log(`smoke: pid ${app.pid}, root ${root}, cdp ${cdpPort}`)
+console.log(`smoke: ${app}, pid ${started.pid}, root ${root}, cdp ${cdpPort}, service port ${servicePort}`)
 
 const result = await run()
   .then(async (value) => ({ ...value, service: await services() }))
   .catch((error: unknown) => error)
 
-await stop(root, [app.pid, ...(foreign ? [foreign.service.pid] : [])], [registration, ownRegistration])
+await stop(root, [started.pid, ...(foreign ? [foreign.service.pid] : [])], [registration, ownRegistration])
 
 await rm(root, { recursive: true, force: true })
+
+// Launching a bundle registers it with Launch Services; a build beside the installed app must not keep the scheme
+if (app !== installed)
+  await Bun.$`/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -u ${app}`
+    .quiet()
+    .nothrow()
 
 if (result instanceof Error) throw result
 
@@ -163,7 +193,7 @@ async function run() {
       )
   }
 
-  if (view === "home" || accountsViews.includes(view) || pageViews.includes(view)) {
+  if (view === "home" || view === "remote" || accountsViews.includes(view) || pageViews.includes(view)) {
     await cdp.send("Page.reload")
     // The old document stays alive for a moment after the reload call.
     await Bun.sleep(1000)
@@ -183,6 +213,7 @@ async function run() {
   if (accountsViews.includes(view)) return accounts(cdp)
 
   if (pageViews.includes(view)) return page(cdp)
+  if (view === "remote") return remote(cdp)
 
   return shoot(cdp)
 }
@@ -269,6 +300,45 @@ async function accounts(cdp: Cdp) {
   }
 
   return shoot(cdp)
+}
+
+// Opens Settings -> Remote control through the pill's menu, turns it on, confirms what a phone can do, waits for the
+// tunnel to the relay and shoots the pairing QR.
+async function remote(cdp: Cdp) {
+  const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
+  const click = (selector: string) => cdp.value(`document.querySelector(${JSON.stringify(selector)}).click()`)
+  const clickText = (text: string) =>
+    cdp.value<boolean>(
+      `(() => { const found = [...document.querySelectorAll("button, a, [role=tab], [role=button]")].find((element) => element.textContent.trim() === ${JSON.stringify(text)}); found?.click(); return !!found })()`,
+    )
+  const pill = '[data-slot="titlebar-update"] button[aria-label^="systemprompt"]'
+
+  await waitFor("the titlebar pill", async () => seen(pill), 30_000)
+  await click(pill)
+  await waitFor("the pill's menu", async () => seen('[data-component="accounts-pill-menu"]'), 5_000)
+  await click('[data-slot="accounts-pill-actions"] > button:last-child')
+  await waitFor("the settings screen", async () => seen('[data-testid="settings-screen"]'), 10_000)
+  await waitFor(
+    "the Remote control page",
+    async () => (await clickText("Remote control")) && seen('[data-component="remote-page"]'),
+    10_000,
+  )
+  await click('[data-action="remote-toggle"] [data-slot="switch-input"]')
+  await waitFor("the confirmation", async () => clickText("Turn on"), 5_000)
+  await waitFor(
+    "the tunnel to the relay",
+    async () => seen('[data-slot="remote-status"][data-status="connected"]'),
+    45_000,
+  ).catch(async (error: Error) => {
+    const status = await cdp.value<string>(`document.querySelector('[data-slot="remote-status"]')?.textContent ?? ""`)
+    throw new Error(`${error.message}; the page says: ${status}`)
+  })
+  await click('[data-action="remote-pair"]')
+  await waitFor("the pairing QR", async () => seen('[data-slot="remote-qr"] svg'), 15_000)
+  const status = await cdp.value<string>(`document.querySelector('[data-slot="remote-status"]').textContent`)
+  console.log(`smoke: remote control ${status}`)
+
+  return { ...(await shoot(cdp)), remote: { status, qr: true } }
 }
 
 // Shoots the sign-in screen once the startup splash has faded from it, after driving it to the view's step.
@@ -517,8 +587,8 @@ async function services() {
   if (!(await Bun.$`ps -p ${own.pid} -o command=`.nothrow().text()).includes(root))
     throw new Error(`DynWork's service ${own.pid} does not run from the profile`)
 
-  if (new URL(own.url).port !== String(DynWorkIdentity.servicePort))
-    throw new Error(`DynWork's service listens on ${own.url}, not on port ${DynWorkIdentity.servicePort}`)
+  if (new URL(own.url).port !== String(servicePort))
+    throw new Error(`DynWork's service listens on ${own.url}, not on port ${servicePort}`)
 
   // The config documents and sources the service loaded, lowest to highest priority.
   const loaded = await fetch(new URL("/api/config", own.url), { headers: authorization(own) }).then((response) =>

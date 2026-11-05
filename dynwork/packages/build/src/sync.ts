@@ -146,11 +146,17 @@ async function run(input: {
       .filter((entry) => entry.isDirectory())
       .map((entry) => `dynwork/packages/${entry.name}`)
       .sort()
+    // The session recorder replays the fixtures of `@dynwork/mobile-model` against the rebased server: a changed event or
+    // message shape fails here, before a phone meets it
+    const recorder = await Bun.file(path.join(worktree, "dynwork/script/record-session.ts")).exists()
     const planned = [
       ...packages.flatMap((dir) => [
         { name: `${path.basename(dir)} test`, cwd: dir, argv: ["bun", "run", "test"] },
         { name: `${path.basename(dir)} typecheck`, cwd: dir, argv: ["bun", "run", "typecheck"] },
       ]),
+      ...(recorder
+        ? [{ name: "session shapes", cwd: ".", argv: ["bun", "dynwork/script/record-session.ts", "--check"] }]
+        : []),
       { name: "desktop typecheck", cwd: "packages/desktop", argv: ["bun", "run", "typecheck"] },
       // Only the bundle: no CLI download, no packing, nothing installed in /Applications or launched.
       ...(input.checks === "no-build"

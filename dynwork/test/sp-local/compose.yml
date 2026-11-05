@@ -3,7 +3,11 @@
 name: dynwork-sp-local
 
 x-instance: &instance
-  image: ghcr.io/systempromptio/systemprompt-dynapps:0.76.0
+  # `sp-local.ts up` writes SP_IMAGE: the published release, or with `--image local` the relay image it builds.
+  image: ${SP_IMAGE:-ghcr.io/systempromptio/systemprompt-dynapps:0.76.0}
+  # The published image is amd64 only; the local one is built for this machine. Explicit, so DOCKER_DEFAULT_PLATFORM
+  # (linux/amd64 on this Mac) does not decide it.
+  platform: ${SP_PLATFORM:-linux/amd64}
   depends_on:
     postgres:
       condition: service_healthy
