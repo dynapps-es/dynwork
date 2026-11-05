@@ -3,7 +3,8 @@ import { builtinContext } from "@opencode/plugin/gui/builtin"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
 import { For, Show } from "solid-js"
-import { navRows } from "./entries"
+import { navRows, robot } from "./entries"
+import { RobotIcon } from "./robot"
 import "./nav.css"
 
 /**
@@ -27,7 +28,7 @@ export function ViewsNav(props: { place: "sidebar" | "drawer" | "titlebar" }) {
               class="!w-9 shrink-0"
               data-component="dynwork-nav-icon"
               data-action={`dynwork-${row.id}`}
-              icon={<Icon name={row.icon} />}
+              icon={<Glyph icon={row.icon} />}
               state={row.active() ? "pressed" : undefined}
               onClick={row.open}
               title={row.label()}
@@ -47,11 +48,19 @@ export function ViewsNav(props: { place: "sidebar" | "drawer" | "titlebar" }) {
             aria-current={row.active() ? "page" : undefined}
             onClick={row.open}
           >
-            <Icon name={row.icon} />
+            <Glyph icon={row.icon} />
             <span data-slot="dynwork-nav-label">{row.label()}</span>
           </button>
         </Show>
       )}
     </For>
+  )
+}
+
+function Glyph(props: { icon: ReturnType<typeof navRows>[number]["icon"] }) {
+  return (
+    <Show when={props.icon !== robot} fallback={<RobotIcon />}>
+      <Icon name={props.icon} />
+    </Show>
   )
 }

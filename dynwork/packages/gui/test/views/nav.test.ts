@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { createSignal } from "solid-js"
-import { navRows } from "../../src/views/entries"
+import { navRows, robot } from "../../src/views/entries"
 import en from "../../src/views/en"
 
 // The window context as far as the rows use it: the real English table, a route path the test moves, and a layout
@@ -22,7 +22,7 @@ describe("the DynWork sidebar rows", () => {
   test("show Agents and Brain, in that order; the governance settings are not a row", () => {
     const view = setup()
     expect(view.rows.map((row) => row.label())).toEqual(["Agents", "Brain"])
-    expect(view.rows.map((row) => row.icon)).toEqual(["cube", "brain"])
+    expect(view.rows.map((row) => row.icon)).toEqual([robot, "brain"])
   })
 
   test("highlight the routed view's row and follow the route; Agents holds the routines too", () => {
