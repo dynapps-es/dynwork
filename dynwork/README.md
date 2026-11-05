@@ -573,6 +573,9 @@ tests and typechecks of every `dynwork/packages/*`; upstream's own workflows are
 
 ## Syncing with upstream
 
+The recurring process that moves `main` (a merge of the upstream target through a PR, then build and install) is
+`UPSTREAM-SYNC.md`. The script below rebases a throwaway copy and stays useful as a rehearsal.
+
 ```bash
 bun dynwork/script/sync-upstream.ts <target-ref> [--report <path>] [--from <ref>] [--no-build] [--quick] [--keep]
 ```

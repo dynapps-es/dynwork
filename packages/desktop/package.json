@@ -17,8 +17,7 @@
     "migration": "bun run script/migration.ts",
     "build": "bun run script/build.ts",
     "pack": "bun run script/pack.ts",
-    "preview": "electron-vite preview",
-    "bench:startup": "bun run script/bench-startup.ts"
+    "preview": "electron-vite preview"
   },
   "main": "./out/main/index.js",
   "dependencies": {
@@ -34,6 +33,7 @@
     "@dynwork/build": "workspace:*",
     "@dynwork/gui": "workspace:*",
     "@effect/platform-node": "catalog:",
+    "@hona/strobe": "catalog:",
     "@lydell/node-pty": "catalog:",
     "@opencode/app": "workspace:*",
     "@opencode/gui-plugins": "workspace:*",

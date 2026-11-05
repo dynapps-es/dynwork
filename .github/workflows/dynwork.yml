@@ -27,11 +27,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      # The patch guard diffs HEAD against the upstream tag in dynwork/UPSTREAM; the fork does not carry upstream's tags.
-      - name: Fetch the upstream tag
+      # The patch guard diffs HEAD against the upstream base in dynwork/UPSTREAM, which the fork does not carry: a tag, or
+      # the full hash of an upstream dev commit (dynwork/UPSTREAM-SYNC.md).
+      - name: Fetch the upstream base
         run: |
-          TAG=$(cat dynwork/UPSTREAM)
-          git fetch --no-tags --depth=1 https://github.com/anomalyco/opencode.git "refs/tags/${TAG}:refs/tags/${TAG}"
+          BASE=$(cat dynwork/UPSTREAM)
+          if [[ "$BASE" =~ ^[0-9a-f]{40}$ ]]; then
+            git fetch --no-tags --depth=1 https://github.com/anomalyco/opencode.git "$BASE"
+          else
+            git fetch --no-tags --depth=1 https://github.com/anomalyco/opencode.git "refs/tags/${BASE}:refs/tags/${BASE}"
+          fi
 
       # Bun is pinned by the root packageManager, like upstream's setup-bun action.
       - name: Setup Bun

@@ -22,8 +22,12 @@ export function startSidecarProbe() {
     .catch(() => undefined)
 }
 
-export function sidecarProbe() {
-  return probe ?? Promise.resolve(undefined)
+/** The probe's result, once: a later connect must not adopt a service that may have exited since boot. */
+export function takeSidecarProbe() {
+  const result = probe ?? Promise.resolve(undefined)
+  probe = undefined
+
+  return result
 }
 
 function bundledVersion() {
