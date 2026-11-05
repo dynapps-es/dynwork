@@ -1,9 +1,16 @@
 import { createMemo, For, Show } from "solid-js"
 import { syncSpinPhase } from "@opencode/ui/hooks"
 import { Icon } from "@opencode/ui/icon"
-import { TitlebarItem } from "@opencode/plugin/gui"
+import { TitlebarItem, type ComposerPillTone } from "@opencode/plugin/gui"
 import { usePluginHost } from "./host"
 import "./titlebar-items.css"
+
+// A pill with a tone takes its state's foreground for the icon and its state's background, like a composer pill.
+const tones: Record<ComposerPillTone, string> = {
+  success: "bg-v2-state-bg-success text-v2-state-fg-success",
+  warning: "bg-v2-state-bg-warning text-v2-state-fg-warning",
+  danger: "bg-v2-state-bg-danger text-v2-state-fg-danger",
+}
 
 /** TitlebarItem contributions shown in the titlebar. */
 export function useTitlebarItems() {
@@ -52,7 +59,7 @@ function TitlebarItemButton(props: { item: TitlebarItem; vertical?: boolean }) {
   return (
     <div
       data-slot="titlebar-update"
-      class="group relative shrink-0 rounded-full bg-v2-background-bg-deep transition-[width] duration-150 ease-out [interpolate-size:allow-keywords] hover:z-30 hover:w-fit focus-within:z-30 focus-within:w-fit motion-reduce:transition-none"
+      class={`group relative shrink-0 rounded-full ${props.item.tone ? tones[props.item.tone] : "bg-v2-background-bg-deep text-v2-icon-icon-accent"} transition-[width] duration-150 ease-out [interpolate-size:allow-keywords] hover:z-30 hover:w-fit focus-within:z-30 focus-within:w-fit motion-reduce:transition-none`}
       classList={{
         "h-7 w-7 self-start": props.vertical,
         "me-3 h-5 w-5": !props.vertical,
@@ -60,7 +67,7 @@ function TitlebarItemButton(props: { item: TitlebarItem; vertical?: boolean }) {
     >
       <button
         type="button"
-        class="relative z-10 flex h-full w-full items-center overflow-hidden rounded-full text-v2-icon-icon-accent transition-[background-color] duration-150 ease-out focus-visible:outline-none disabled:opacity-60 motion-reduce:transition-none [app-region:no-drag]"
+        class="relative z-10 flex h-full w-full items-center overflow-hidden rounded-full transition-[background-color] duration-150 ease-out focus-visible:outline-none disabled:opacity-60 motion-reduce:transition-none [app-region:no-drag]"
         classList={{ "justify-start": props.vertical, "justify-end": !props.vertical }}
         onClick={() => props.item.run?.()}
         disabled={!!props.item.busy}

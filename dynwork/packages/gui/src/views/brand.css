@@ -1,0 +1,23 @@
+/* The sidebar's brand (`./brand.tsx`), in the sidebar's text color. Tailwind does not scan dynwork/. */
+[data-component="dynwork-sidebar-brand"] {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 12px 6px 2px;
+  color: var(--v2-text-text-base);
+
+  svg {
+    flex: none;
+    fill: currentColor;
+  }
+
+  [data-slot="dynwork-brand-symbol"] {
+    width: 18px;
+    height: 18px;
+  }
+
+  [data-slot="dynwork-brand-wordmark"] {
+    width: 63px;
+    height: 14px;
+  }
+}

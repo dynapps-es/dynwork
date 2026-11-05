@@ -594,6 +594,8 @@ export interface TitlebarItem {
   readonly busy?: boolean
   /** Shows the pill pressed (`aria-pressed`). */
   readonly pressed?: boolean
+  /** Colors the pill's icon by status, like a composer pill; omit it for the accent color. */
+  readonly tone?: ComposerPillTone
   /** Runs when the user clicks the pill. Omit it for an item that only shows. */
   run?(): void
 }

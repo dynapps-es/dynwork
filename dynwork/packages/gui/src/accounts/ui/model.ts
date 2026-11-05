@@ -110,7 +110,11 @@ export function short(fingerprint: string) {
   return `${algorithm ? `${algorithm}:` : ""}${hash.slice(0, 16)}…`
 }
 
-/** The titlebar pill: its icon says how the sync stands, since the pill has no room for a dot. */
+/**
+ * The titlebar pill: its icon and tone say how the sync stands, since the pill has no room for a dot. Green once
+ * synced, red when the sync failed, amber while a new key waits for the user's trust; the accent while it syncs or
+ * waits to.
+ */
 export function pill(state: State) {
   const account = active(state)
 
@@ -118,10 +122,11 @@ export function pill(state: State) {
   const sync = syncOf(account, state)
   const shown = { account, name: name(account, state), sync }
 
-  if (pending(account) || sync.kind === "error") return { ...shown, icon: "circle-exclamation" as const }
-  if (sync.kind === "syncing") return { ...shown, icon: "refresh" as const }
-  if (sync.kind === "synced") return { ...shown, icon: "circle-check" as const }
-  return { ...shown, icon: "server" as const }
+  if (sync.kind === "error") return { ...shown, icon: "circle-exclamation" as const, tone: "danger" as const }
+  if (pending(account)) return { ...shown, icon: "circle-exclamation" as const, tone: "warning" as const }
+  if (sync.kind === "syncing") return { ...shown, icon: "refresh" as const, tone: undefined }
+  if (sync.kind === "synced") return { ...shown, icon: "circle-check" as const, tone: "success" as const }
+  return { ...shown, icon: "server" as const, tone: undefined }
 }
 
 function pending(account: Account) {
