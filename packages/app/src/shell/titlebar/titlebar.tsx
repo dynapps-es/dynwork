@@ -809,7 +809,11 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
                               </Show>
                             </div>
                             <Show when={titlebarItems.ids().length > 0}>
-                              <div data-slot="vertical-tabs-footer" class="mt-2 flex w-full shrink-0 flex-col">
+                              <div
+                                data-slot="vertical-tabs-footer"
+                                class="@container mt-2 flex w-full shrink-0 items-center justify-end gap-1"
+                              >
+                                <PluginSlot at="sidebar.footer" input={{}} />
                                 <TitlebarItems items={titlebarItems} vertical />
                               </div>
                             </Show>

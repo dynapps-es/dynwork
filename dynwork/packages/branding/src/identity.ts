@@ -1,7 +1,7 @@
 export * as DynWorkIdentity from "./identity"
 
 // The prod channel of the desktop app ships as DynWork. Dev and beta keep the upstream identity.
-export const name = "DynWork"
+export const name = "Dynwork"
 
 // The desktop main process keeps userData under the app id, so DynWork never shares it with an installed OpenCode.
 export const appId = "es.dynapps.dynwork"

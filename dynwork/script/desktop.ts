@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-// Builds DynWork for this Mac (darwin-arm64) from the checkout and installs it as /Applications/DynWork.app, or as
-// <dir>/DynWork.app with --to: the CLI first, then the desktop app with the DynWork icons, packed unsigned and signed
+// Builds DynWork for this Mac (darwin-arm64) from the checkout and installs it as /Applications/Dynwork.app, or as
+// <dir>/Dynwork.app with --to: the CLI first, then the desktop app with the DynWork icons, packed unsigned and signed
 // ad hoc.
 //
 //   bun dynwork/script/desktop.ts [--to <dir>]
@@ -12,6 +12,7 @@ import { $ } from "bun"
 import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { DynWorkIdentity } from "../packages/branding/src/identity"
 import { installTarget } from "./install-target"
 
 if (process.platform !== "darwin" || process.arch !== "arm64") throw new Error("DynWork builds for macOS arm64 only")
@@ -56,7 +57,7 @@ const staging = await mkdtemp(path.join(tmpdir(), "dynwork-install-"))
 
 await $`tar -xf ${path.join(root, "dist/desktop/opencode-desktop-mac-arm64.app.tar")} -C ${staging}`
 
-const bundle = path.join(staging, "DynWork.app")
+const bundle = path.join(staging, `${DynWorkIdentity.name}.app`)
 
 await $`codesign --force --deep --sign - ${bundle}`
 
@@ -73,7 +74,7 @@ await rm(staging, { recursive: true, force: true })
 // Forget the pack's own copy in Launch Services before removing it, then make the installed app the one it knows.
 const lsregister =
   "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-const packed = path.join(desktop, "dist/mac-arm64/DynWork.app")
+const packed = path.join(desktop, `dist/mac-arm64/${DynWorkIdentity.name}.app`)
 await $`${lsregister} -u ${packed}`.nothrow().quiet()
 await rm(packed, { recursive: true, force: true })
 await $`${lsregister} -f ${install}`.nothrow().quiet()

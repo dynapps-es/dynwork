@@ -117,6 +117,8 @@ export interface BuiltinSlotMap extends SlotMap {
     /** Where the rows render: the sidebar, the tabs drawer that replaces it under 768px, or the horizontal titlebar (icons only). */
     readonly place: "sidebar" | "drawer" | "titlebar"
   }
+  /** The foot of the vertical sidebar, under its titlebar pills. */
+  readonly "sidebar.footer": Record<never, never>
   /** The main area of a page route (`/page/:id`), opened with `layout.page(id)`. */
   readonly page: {
     /** The routed page's id. Reactive: it follows the route. */

@@ -10,8 +10,8 @@ const config = getConfig()
 // (~/Library/Application Support/<appId>), registers another URL scheme or renames the files the install picks up.
 test.each([
   { key: "appId", actual: config.appId, expected: "es.dynapps.dynwork" },
-  { key: "productName", actual: config.productName, expected: "DynWork" },
-  { key: "protocols", actual: config.protocols, expected: { name: "DynWork", schemes: ["dynwork"] } },
+  { key: "productName", actual: config.productName, expected: "Dynwork" },
+  { key: "protocols", actual: config.protocols, expected: { name: "Dynwork", schemes: ["dynwork"] } },
   { key: "artifactName", actual: config.artifactName, expected: "dynwork-desktop-${os}-${arch}.${ext}" },
   {
     key: "publish",

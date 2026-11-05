@@ -63,6 +63,7 @@ export function register(ctx: SetupContext<typeof definition>, live: Accessor<Li
       label: `${pill.name} · ${status}`,
       title: `${ctx.t("pill.title", { label: pill.name })} · ${status}`,
       icon: pill.icon,
+      tone: pill.tone,
       run: () => {
         ctx.dialogs.open((dialog) => (
           <Menu

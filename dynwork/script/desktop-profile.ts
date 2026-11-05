@@ -9,10 +9,11 @@ import { mkdir, mkdtemp } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { DynWorkIdentity } from "../packages/branding/src/identity"
 
 export const repo = path.resolve(import.meta.dir, "../..")
 
-export const installed = "/Applications/DynWork.app"
+export const installed = `/Applications/${DynWorkIdentity.name}.app`
 
 export type Cdp = Awaited<ReturnType<typeof connect>>
 
@@ -67,7 +68,7 @@ export async function profile(input: { prefix: string; onboarded: boolean; extra
 export function launch(target: Profile, cdpPort: number, bundle = installed, extra: string[] = []) {
   return Bun.spawn(
     [
-      path.join(bundle, "Contents/MacOS/DynWork"),
+      path.join(bundle, "Contents/MacOS", DynWorkIdentity.name),
       `--remote-debugging-port=${cdpPort}`,
       "--use-mock-keychain",
       ...extra,

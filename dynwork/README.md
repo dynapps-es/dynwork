@@ -685,7 +685,7 @@ compiles the Icon Composer app icon). The result is unsigned apart from an ad-ho
 bun dynwork/script/desktop.ts [--to <dir>]
 ```
 
-`--to <dir>` installs `<dir>/DynWork.app` instead (a leading `~` is your home), so a development build can live beside
+`--to <dir>` installs `<dir>/Dynwork.app` instead (a leading `~` is your home), so a development build can live beside
 an installed DynWork that another session uses; `script/install-target.ts` holds the rule and
 `packages/gui/test/remote/isolation.test.ts` pins the default.
 

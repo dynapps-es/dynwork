@@ -21,7 +21,7 @@ const setup: Plugin.MainSetup = (ctx) => {
     store: ctx.storage.store("accounts", { schema: DynWorkAccounts.Store, initial: DynWorkAccounts.initial }),
     secure: safeStorage,
     open: (url) => shell.openExternal(url),
-    deviceName: `DynWork on ${hostname()}`,
+    deviceName: `Dynwork on ${hostname()}`,
     changed: () => {
       provider.changed()
       engine.current?.update()
