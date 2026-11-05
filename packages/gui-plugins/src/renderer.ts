@@ -47,7 +47,8 @@ export const builtins = compose({
   review: { ...review, windowEntry: eager(reviewRenderer) },
   details: { ...details, windowEntry: eager(detailsRenderer) },
   browser: { ...browser, windowEntry: eager(browserRenderer) },
-  pairing: { ...pairing, windowEntry: eager(pairingRenderer) },
+  // DynWork pairs phones with its own Remote control, so OpenCode's pairing never runs: no OS. Its id stays reserved.
+  pairing: { ...pairing, os: [], windowEntry: eager(pairingRenderer) },
   updater: { ...updater, windowEntry: eager(updaterRenderer) },
   ssh: { ...ssh, windowEntry: eager(sshRenderer) },
   wsl: { ...wsl, windowEntry: eager(wslRenderer) },
