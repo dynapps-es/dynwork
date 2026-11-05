@@ -1,22 +1,28 @@
-/* Dynwork's primary buttons (submit and contrast): flat Dynapps midnight with white text, turning Dynapps lilac on
-   hover, in both color schemes. The upstream styles sit in the `components` layer, so these unlayered rules win; the
-   disabled opacity stays theirs, which keeps an enabled button from ever looking disabled. */
-:root {
+/* The Dynapps theme's primary buttons (submit and contrast): flat, white text, no ring, in Dynapps midnight on light and
+   Unicorn Violet on dark, turning the print violet on hover. Other themes keep upstream's look. The upstream styles sit
+   in the `components` layer, so these unlayered rules win; the disabled opacity stays theirs, which keeps an enabled
+   button from ever looking disabled. */
+:root[data-theme="oc-2"] {
   --dynwork-primary: #01007c;
   --dynwork-primary-hover: #7b00dc;
-}
 
-:is([data-component="button-v2"], [data-component="icon-button-v2"]):is(
-  [data-variant="submit"],
-  [data-variant="contrast"]
-) {
-  background-image: none;
-  background-color: var(--dynwork-primary);
-  color: #ffffff;
-  text-shadow: none;
+  &[data-color-scheme="dark"] {
+    --dynwork-primary: #951cf3;
+  }
 
-  &:is(:hover, [data-state="hover"], :active, [data-state="pressed"]):not(:disabled) {
+  :is([data-component="button-v2"], [data-component="icon-button-v2"]):is(
+    [data-variant="submit"],
+    [data-variant="contrast"]
+  ) {
     background-image: none;
-    background-color: var(--dynwork-primary-hover);
+    background-color: var(--dynwork-primary);
+    color: #ffffff;
+    text-shadow: none;
+    box-shadow: none;
+
+    &:is(:hover, [data-state="hover"], :active, [data-state="pressed"]):not(:disabled) {
+      background-image: none;
+      background-color: var(--dynwork-primary-hover);
+    }
   }
 }

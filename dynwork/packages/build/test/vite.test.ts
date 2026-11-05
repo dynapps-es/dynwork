@@ -35,9 +35,7 @@ describe("alias contract", () => {
   })
 
   test("every alias replacement is an existing file", async () => {
-    const replacements = [
-      ...new Set([...DynWorkVite.aliases.main, ...DynWorkVite.aliases.renderer].map((a) => a.replacement)),
-    ]
+    const replacements = [...new Set([...DynWorkVite.aliases.main, ...DynWorkVite.aliases.renderer].map((a) => a.replacement))]
 
     expect(replacements.length).toBe(3)
     expect(await Promise.all(replacements.map((file) => Bun.file(file).exists()))).toEqual(replacements.map(() => true))
@@ -59,9 +57,11 @@ describe("alias contract", () => {
         (specifier) => themeAlias.find.test(specifier),
       ),
     ).toEqual([true, true, true])
-    expect(
-      ["./themes/oc-2-deep.json", "./themes/oc-1.json", "./oc-2.json"].map((s) => themeAlias.find.test(s)),
-    ).toEqual([false, false, false])
+    expect(["./themes/oc-2-deep.json", "./themes/oc-1.json", "./oc-2.json"].map((s) => themeAlias.find.test(s))).toEqual([
+      false,
+      false,
+      false,
+    ])
   })
 })
 
@@ -87,34 +87,6 @@ describe("swapped modules", () => {
 
     expect(Object.keys(ours)).toEqual(Object.keys(upstream))
     expect(ours.id).toBe(upstream.id)
-  })
-})
-
-describe("single theme plugin", () => {
-  const transform = (code: string, id: string) => {
-    const hook = DynWorkVite.singleTheme.transform
-
-    if (typeof hook !== "function") throw new Error("transform is not a function")
-
-    return hook.call({} as never, code, id)
-  }
-
-  // If upstream renames the folder or changes the call, the glob no longer matches and every theme is listed again.
-  test("the theme context still globs the themes folder", async () => {
-    expect(await Bun.file(DynWorkVite.themeContext).text()).toMatch(DynWorkVite.themeGlob)
-  })
-
-  test("keeps only the bundled default in the theme context", async () => {
-    const code = await Bun.file(DynWorkVite.themeContext).text()
-    const out = await transform(code, DynWorkVite.themeContext)
-
-    if (typeof out !== "string") throw new Error("the theme context was not transformed")
-    expect(out).toContain('("./themes/oc-2.json")')
-    expect(out).not.toContain("./themes/*.json")
-  })
-
-  test("leaves every other module alone", async () => {
-    expect(await transform('import.meta.glob("./themes/*.json")', "/abs/other.tsx")).toBeUndefined()
   })
 })
 
@@ -150,16 +122,11 @@ describe("plugins", () => {
     expect(hook(plugins[0])).toEqual({ resolve: { alias: DynWorkVite.aliases.main } })
   })
 
-  test("renderer carries the theme and logo aliases, the new session plugin and the single theme plugin", () => {
+  test("renderer carries the theme and logo aliases and the new session plugin", () => {
     const plugins = DynWorkVite.renderer()
 
-    expect(plugins.map((plugin) => plugin.name)).toEqual([
-      "dynwork:renderer-aliases",
-      "dynwork:new-session-wordmark",
-      "dynwork:single-theme",
-    ])
+    expect(plugins.map((plugin) => plugin.name)).toEqual(["dynwork:renderer-aliases", "dynwork:new-session-wordmark"])
     expect(hook(plugins[0])).toEqual({ resolve: { alias: DynWorkVite.aliases.renderer } })
     expect(plugins[1].enforce).toBe("pre")
-    expect(plugins[2].enforce).toBe("pre")
   })
 })
