@@ -6,7 +6,6 @@ import en from "../../../src/views/agents/en"
 import {
   buildAgent,
   createAgentsModel,
-  detailAgent,
   emptyNewAgent,
   filters,
   matches,
@@ -106,21 +105,14 @@ describe("selection and tabs", () => {
     expect(tabs.map((tab) => (model.tab(tab), model.state.tab))).toEqual([...tabs])
   })
 
-  test("a wide window shows the first agent until one is selected", () => {
+  test("the detail opens only once a row is selected, at every width", () => {
     const model = create()
-    expect(detailAgent("wide", model.selected(), model.visible())?.id).toBe("mr-review")
-    model.select("flow-tester")
-    expect(detailAgent("wide", model.selected(), model.visible())?.id).toBe("flow-tester")
-  })
-
-  test.each(["medium", "narrow"] as const)("a %s window shows the detail only once a row is selected", (layout) => {
-    const model = create()
-    expect(detailAgent(layout, model.selected(), model.visible())).toBeUndefined()
+    expect(model.selected()).toBeUndefined()
     model.select("brain-curator")
-    expect(detailAgent(layout, model.selected(), model.visible())?.id).toBe("brain-curator")
-    // Back (or Close) clears it and the list shows again.
+    expect(model.selected()?.id).toBe("brain-curator")
+    // Close, the scrim, Escape or Back clear it and the list shows alone again.
     model.deselect()
-    expect(detailAgent(layout, model.selected(), model.visible())).toBeUndefined()
+    expect(model.selected()).toBeUndefined()
   })
 
   test("the row's trigger reads from its schedule", () => {

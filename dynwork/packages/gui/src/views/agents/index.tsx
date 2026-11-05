@@ -1,24 +1,23 @@
 import { usePlugin } from "@opencode/plugin/gui"
-import { builtinContext } from "@opencode/plugin/gui/builtin"
 import { Button } from "@opencode/ui/button"
 import { Show } from "solid-js"
 import { AgentDetail } from "./detail"
 import { NewAgentDialog } from "./dialog"
 import { AgentList } from "./list"
 import { farm, routinesOn } from "./demo"
-import { createAgentsModel, detailAgent, startSimulation } from "./model"
-import { createViewLayout, ViewShell } from "../shell"
+import { createAgentsModel, startSimulation } from "./model"
+import { device } from "../device"
+import { ViewShell } from "../shell"
+import { workNav } from "../work"
 import "./agents.css"
 
 /** The Agents view: the Agent Farm's agents on built-in demo data, kept in memory. */
 export default function AgentsView() {
   const ctx = usePlugin()
-  const host = builtinContext(ctx)
-  const layout = createViewLayout()
   const model = createAgentsModel()
   startSimulation(model)
 
-  const current = () => detailAgent(layout(), model.selected(), model.visible())
+  const current = model.selected
   const add = () => ctx.dialogs.open((dialog) => <NewAgentDialog model={model} close={dialog.close} />)
 
   return (
@@ -26,27 +25,16 @@ export default function AgentsView() {
       view="agents"
       title={ctx.t("agents.title")}
       badge={ctx.t("agents.badge")}
-      description={ctx.t("agents.description")}
+      description={ctx.t("agents.description", { device: device(ctx).inline })}
       actions={
         <Button variant="contrast" icon="plus" onClick={add}>
           {ctx.t("agents.new")}
         </Button>
       }
-      nav={{
-        groups: [
-          {
-            label: ctx.t("agents.nav.farm"),
-            items: [{ id: "agents", label: ctx.t("agents.nav.agents"), icon: "mcp", count: model.state.agents.length }],
-          },
-          {
-            label: ctx.t("agents.nav.mac"),
-            items: [{ id: "routines", label: ctx.t("agents.nav.routines"), icon: "task", count: routinesOn }],
-          },
-        ],
+      nav={workNav(ctx, {
         selected: "agents",
-        select: (id) => {
-          if (id !== "agents") host.layout.page(id)
-        },
+        agents: model.state.agents.length,
+        routines: routinesOn,
         footer: (
           <div data-slot="agents-farm-status">
             <span data-slot="agents-connected">
@@ -56,7 +44,7 @@ export default function AgentsView() {
             <span>{ctx.t("agents.nav.account", { host: farm.host, user: farm.user })}</span>
           </div>
         ),
-      }}
+      })}
       detail={<Show when={current()}>{(agent) => <AgentDetail agent={agent()} model={model} add={add} />}</Show>}
       detailTitle={current()?.name}
       onCloseDetail={model.deselect}

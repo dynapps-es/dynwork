@@ -44,12 +44,6 @@ export function lastState(routine: Pick<Routine, "history">) {
   return routine.history[0]?.state
 }
 
-/** The routine the detail pane shows: the one picked, or on a wide window the first, so the pane is never empty. */
-export function pickSelected(picked: string | undefined, ids: readonly string[], wide: boolean) {
-  if (picked && ids.includes(picked)) return picked
-  return wide ? ids[0] : undefined
-}
-
 /**
  * The routines the view lists, in memory and seeded from the demo data. Call it inside a component or root: its Run
  * now timers are cleared when the owner is disposed.

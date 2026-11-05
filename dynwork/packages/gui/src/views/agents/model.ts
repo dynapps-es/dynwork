@@ -1,6 +1,5 @@
 import { onCleanup } from "solid-js"
 import { createStore, produce } from "solid-js/store"
-import type { ViewLayout } from "../shell"
 import { catalog, demoAgents, schedules, timezone, type Agent, type AgentRun, type AgentStatus } from "./demo"
 
 export const filters = ["all", "running", "idle", "failed"] as const
@@ -92,12 +91,6 @@ export function buildAgent(input: NewAgent, taken: readonly string[], now = new 
       upcoming: [repo ? `Cloning ${repo}${branch ? ` at ${branch}` : ""}` : "Reading the task", `Working on: ${task}`],
     } satisfies Agent,
   }
-}
-
-/** The agent the detail pane shows: the selected one, or in a wide window the first listed while none is selected. */
-export function detailAgent(layout: ViewLayout, selected: Agent | undefined, visible: readonly Agent[]) {
-  if (layout === "wide") return selected ?? visible[0]
-  return selected
 }
 
 /** The in-memory state of the Agents view, seeded from the demo data. Every change stays in this store. */

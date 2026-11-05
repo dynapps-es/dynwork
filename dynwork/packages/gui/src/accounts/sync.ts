@@ -120,7 +120,7 @@ export function gateway(label: string, profile: Profile, catalog: Catalog = []):
   // `default_model` may carry a context-window suffix such as `[1m]`, which is not part of the id.
   const suggested = profile.default_model?.replace(/\[[^\]]*\]$/, "")
   return {
-    label: label.trim().slice(0, 120) || "systemprompt",
+    label: label.trim().slice(0, 120) || "Governance",
     models,
     ...(suggested && models.some((model) => model.id === suggested) ? { default: suggested } : {}),
   }

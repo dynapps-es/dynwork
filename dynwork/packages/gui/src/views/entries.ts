@@ -2,15 +2,13 @@ import type { IconName } from "@opencode/plugin/gui"
 import type { BuiltinContext } from "@opencode/plugin/gui/builtin"
 
 /**
- * The DynWork rows of the sidebar, in order. A row with `settings` opens that settings page; the others open the view
- * of the same id in the main area (`./route`).
+ * The DynWork rows of the sidebar, in order. Each opens the view of its id in the main area (`./route`) and stays
+ * highlighted on every page in `pages`: Agents holds both the Agent Farm's agents and this computer's routines. The
+ * governance settings are reached from Settings only.
  */
-export const entries: readonly { id: string; icon: IconName; label: string; settings?: string }[] = [
-  { id: "agents", icon: "mcp", label: "views.nav.agents" },
-  { id: "routines", icon: "task", label: "views.nav.routines" },
-  { id: "brain", icon: "file-document", label: "views.nav.brain" },
-  // The real Accounts page (`../accounts/ui/register.tsx`), not a demo copy.
-  { id: "systemprompt", icon: "lock", label: "views.nav.systemprompt", settings: "accounts" },
+export const entries: readonly { id: string; icon: IconName; label: string; pages: readonly string[] }[] = [
+  { id: "agents", icon: "cube", label: "views.nav.agents", pages: ["agents", "routines"] },
+  { id: "brain", icon: "brain", label: "views.nav.brain", pages: ["brain"] },
 ]
 
 /** What `ViewsNav` shows for each entry: its label, whether its page is the routed one, and how to open it. */
@@ -21,7 +19,7 @@ export function navRows(ctx: Pick<BuiltinContext, "t" | "router" | "layout">) {
     id: entry.id,
     icon: entry.icon,
     label: () => ctx.t(entry.label),
-    active: () => routed() === `/page/${entry.id}`,
-    open: () => (entry.settings ? ctx.layout.settings(entry.settings) : ctx.layout.page(entry.id)),
+    active: () => entry.pages.some((page) => routed() === `/page/${page}`),
+    open: () => ctx.layout.page(entry.id),
   }))
 }

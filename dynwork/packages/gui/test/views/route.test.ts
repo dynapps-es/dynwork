@@ -22,10 +22,10 @@ describe("the page route", () => {
     expect(views.get("settings")).toBeUndefined()
   })
 
-  test("every sidebar row has its label and every view its title", () => {
+  test("every sidebar row has its label, every view its title, and every view a row that holds it", () => {
     const table: Record<string, string> = en
     expect(entries.filter((entry) => !table[entry.label])).toEqual([])
     expect([...views.keys()].filter((id) => !table[`${id}.title`])).toEqual([])
-    expect(entries.filter((entry) => !entry.settings).map((entry) => entry.id)).toEqual([...views.keys()])
+    expect(entries.flatMap((entry) => entry.pages).toSorted()).toEqual([...views.keys()].toSorted())
   })
 })

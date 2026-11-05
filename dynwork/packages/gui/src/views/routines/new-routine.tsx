@@ -6,6 +6,7 @@ import { Textarea } from "@opencode/ui/textarea"
 import { For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { dayName, draftErrors, emptyDraft, repeats, type Draft } from "./schedule"
+import { device } from "../device"
 
 const week = [1, 2, 3, 4, 5, 6, 0]
 
@@ -25,7 +26,10 @@ export function NewRoutine(props: { add(draft: Draft): void; close(): void }) {
   return (
     <Dialog fit>
       <DialogHeader>
-        <DialogTitleGroup title={ctx.t("routines.new.title")} description={ctx.t("routines.new.description")} />
+        <DialogTitleGroup
+          title={ctx.t("routines.new.title")}
+          description={ctx.t("routines.new.description", { device: device(ctx).inline })}
+        />
       </DialogHeader>
       <DialogBody>
         <form data-component="dynwork-new-routine" id="dynwork-new-routine" onSubmit={submit}>

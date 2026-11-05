@@ -14,7 +14,11 @@ to open a page (`BuiltinLayout.page`):
   sidebar; `place` says which. `./nav.tsx` renders the entries of `./entries.ts`.
 - `page`: the main area of the `/page/:id` route. `./route.tsx` mounts the view whose id the route names.
 - `ctx.layout.page(id)` (through `builtinContext`) routes to `/page/<id>`, the way `ctx.layout.settings(page)` opens
-  settings. The systemprompt row opens the real Accounts settings page instead of a view.
+  settings.
+
+The sidebar has two rows: Agents, whose sub-navigation (`./work.ts`) holds the Agent Farm's agents under Cloud and the
+routines under "This Mac" ("This PC" on Windows, "This computer" elsewhere; `./device.ts`), and Brain. The governance
+accounts are reached from Settings only, and no visible string names the platform behind them.
 
 ## Adding to a view
 
@@ -46,7 +50,8 @@ A view renders `ViewShell` from `./shell.tsx`, reads strings with `usePlugin().t
 - **Sub-navigation.** `nav` takes groups of rows (`label`, optional `icon` and `count`), the selected row's id, `select`,
   and an optional `footer` under the column. Omit it for a view without one.
 - **Detail pane.** The pane shows while `detail` is set; `onCloseDetail` clears it. `detailTitle` is its accessible
-  name.
+  name. It is a drawer over the content, so opening it never squeezes the content; tables still follow their own
+  width with container queries.
 - **Primary buttons.** `Button` with `variant="contrast"` takes the brand color inside the shell: Midnight on light,
   Unicorn Violet on dark.
 
@@ -55,11 +60,11 @@ A view renders `ViewShell` from `./shell.tsx`, reads strings with `usePlugin().t
 `createViewLayout()` answers from the window width, like the host's own breakpoints, and the shell puts the answer on
 `data-layout`:
 
-| Layout   | Width        | Sub-navigation  | Detail pane                                        |
-| -------- | ------------ | --------------- | -------------------------------------------------- |
-| `wide`   | 1200px or up | Left column     | Third column                                       |
-| `medium` | 768–1199px   | Narrower column | Drawer over the content; Close or Escape closes it |
-| `narrow` | under 768px  | Select on top   | Replaces the content, with Back                    |
+| Layout   | Width        | Sub-navigation  | Detail pane                                                   |
+| -------- | ------------ | --------------- | ------------------------------------------------------------- |
+| `wide`   | 1200px or up | Left column     | Drawer over the content; Close, the scrim or Escape closes it |
+| `medium` | 768–1199px   | Narrower column | Drawer over the content; Close, the scrim or Escape closes it |
+| `narrow` | under 768px  | Select on top   | Replaces the content, with Back                               |
 
 Style a view with plain CSS under `[data-component="dynwork-view"][data-view="<view>"]` and the theme's v2 tokens:
 Tailwind does not scan `dynwork/`.

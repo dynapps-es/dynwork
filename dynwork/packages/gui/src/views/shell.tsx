@@ -12,7 +12,7 @@ export interface ViewNavItem {
   readonly count?: number
 }
 
-/** A titled group of sub-navigation rows, such as the mockup's "Agent Farm" and "This Mac". */
+/** A titled group of sub-navigation rows, such as "Cloud" and "This Mac". */
 export interface ViewNavGroup {
   readonly label?: string
   readonly items: readonly ViewNavItem[]
@@ -33,9 +33,10 @@ export type ViewLayout = "wide" | "medium" | "narrow"
 
 /**
  * The frame every DynWork view renders in: a header (title, badge, the Demo data marker, description, actions), an
- * optional sub-navigation, the content, and an optional detail pane. It follows the window width:
- * - `wide` (1200px and up): sub-navigation, content and detail side by side.
- * - `medium` (768 to 1199px): the detail pane is a drawer over the content, closed with its Close button or Escape.
+ * optional sub-navigation, the content, and an optional detail pane. The detail pane is a drawer over the content, so
+ * opening it never squeezes the content, closed with its Close button, the scrim or Escape. It follows the window width:
+ * - `wide` (1200px and up): a wide sub-navigation column.
+ * - `medium` (768 to 1199px): a narrower sub-navigation column.
  * - `narrow` (under 768px): the sub-navigation is a select above the header, and the detail pane replaces the content
  *   as a full-width page with Back.
  *
@@ -129,22 +130,20 @@ export function ViewShell(props: {
         <div data-slot="view-content">{props.children}</div>
       </div>
       <Show when={open()}>
-        <Show when={layout() === "medium"}>
+        <Show when={layout() !== "narrow"}>
           <div data-slot="view-scrim" aria-hidden="true" onClick={close} />
         </Show>
         <aside
           data-slot="view-detail"
           aria-label={props.detailTitle}
           onKeyDown={(event) => {
-            if (event.key === "Escape" && layout() === "medium") close()
+            if (event.key === "Escape" && layout() !== "narrow") close()
           }}
         >
-          <Show when={layout() !== "wide"}>
-            <button type="button" data-slot="view-detail-close" onClick={close}>
-              <Icon name={layout() === "narrow" ? "arrow-left" : "close"} />
-              {layout() === "narrow" ? ctx.t("views.back") : ctx.t("views.close")}
-            </button>
-          </Show>
+          <button type="button" data-slot="view-detail-close" onClick={close}>
+            <Icon name={layout() === "narrow" ? "arrow-left" : "close"} />
+            {layout() === "narrow" ? ctx.t("views.back") : ctx.t("views.close")}
+          </button>
           {detail()}
         </aside>
       </Show>

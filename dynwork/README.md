@@ -196,11 +196,11 @@ shows it yet.
 
 ## Demo views
 
-Agents (Agent Farm), Routines (this Mac) and Brain are demo screens of the November 2026 vision: they run on built-in
-data ported from the mockup, show a "Demo data" marker and make no network call, Ipc or service request. They open from
-rows under New session in the vertical sidebar (after Home in the tabs drawer of a window under 768px, and as icons
-after Search in the horizontal titlebar), on the
-`/page/:id` route; the systemprompt row opens the real Settings page.
+Agents (Agent Farm, under Cloud), Routines (under This Mac) and Brain are demo screens of the November 2026 vision: they
+run on built-in data ported from the mockup, show a "Demo data" marker and make no network call, Ipc or service request.
+They open from two rows under New session in the vertical sidebar, Agents and Brain (after Home in the tabs drawer of a
+window under 768px, and as icons after Search in the horizontal titlebar), on the `/page/:id` route. The governance
+accounts open from Settings only, and the interface never names systemprompt: it reads "Governance".
 
 - Code: `packages/gui/src/views/` (one folder per view, its `demo.ts` holds the data), contract in its `README.md`.
 - Host seam: the built-in slots `sidebar.nav` and `page` and `BuiltinLayout.page(id)` (see `PATCHES.md`).

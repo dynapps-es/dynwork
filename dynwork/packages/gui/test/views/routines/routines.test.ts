@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test"
 import { createRoot } from "solid-js"
-import { createViewLayout } from "../../../src/views/shell"
 import { demoRoutines } from "../../../src/views/routines/demo"
 import {
   dayName,
@@ -11,7 +10,7 @@ import {
   type Draft,
   type Schedule,
 } from "../../../src/views/routines/schedule"
-import { createRoutines, isRunning, lastState, pickSelected, summary } from "../../../src/views/routines/store"
+import { createRoutines, isRunning, lastState, summary } from "../../../src/views/routines/store"
 
 // Monday 3 November 2025, 10:00 local time.
 const monday = () => new Date(2025, 10, 3, 10, 0)
@@ -196,37 +195,5 @@ describe("the next run", () => {
   test("waits a week for the same weekday once its time has passed", () => {
     expect(next({ repeat: "weekly", time: "09:00", days: [1] }, monday())).toBe("Mon 10 Nov 09:00")
     expect(next({ repeat: "custom", time: "09:00", days: [1, 3] }, monday())).toBe("Wed 5 Nov 09:00")
-  })
-})
-
-describe("the selected routine", () => {
-  const ids = ["a", "b"]
-  const resize = (width: number) => window.happyDOM.setViewport({ width })
-
-  afterEach(() => resize(1024))
-
-  test("follows the shell's layout: nothing is picked by default in a narrow window, so the list shows first", () => {
-    // happy-dom misses the first change of a query that already matches, so the window starts medium.
-    resize(1024)
-    createRoot((dispose) => {
-      const layout = createViewLayout()
-      resize(600)
-      expect(layout()).toBe("narrow")
-      expect(pickSelected(undefined, ids, layout() === "wide")).toBeUndefined()
-      resize(1400)
-      expect(layout()).toBe("wide")
-      expect(pickSelected(undefined, ids, layout() === "wide")).toBe("a")
-      dispose()
-    })
-  })
-
-  test("is the one picked while it exists", () => expect(pickSelected("b", ids, true)).toBe("b"))
-  test("falls back to the first on a wide window", () => {
-    expect(pickSelected(undefined, ids, true)).toBe("a")
-    expect(pickSelected("gone", ids, true)).toBe("a")
-  })
-  test("is none on a narrow or medium window until one is picked", () => {
-    expect(pickSelected(undefined, ids, false)).toBeUndefined()
-    expect(pickSelected("gone", ids, false)).toBeUndefined()
   })
 })
