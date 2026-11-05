@@ -598,8 +598,8 @@ there by hand.
 
 ## Icons
 
-`packages/branding/icons/source.svg` is the only hand-edited icon file: the Dynapps symbol (the gradient path of the
-brand skill's `Dynapps_Logo_Vertical_Color_White.svg`) centered on a Midnight squircle in the macOS Big Sur grid. Every
+`packages/branding/icons/source.svg` is the only hand-edited icon file: the Dynapps symbol (the path of the brand
+skill's `Dynapps_Logo_Vertical_Color_White.svg`) in black, centered on a white squircle in the macOS Big Sur grid. Every
 other file in that folder is generated and committed. Regenerate them after changing the source:
 
 ```bash
@@ -609,6 +609,12 @@ bun run icons
 
 This needs `rsvg-convert` (`brew install librsvg`) and `iconutil` (macOS). Each size is rendered straight from the SVG,
 so the output is deterministic and never downsampled.
+
+The script also writes `icon.icon`, the Icon Composer package macOS 26 and later draw the app icon from: the symbol
+alone, filled by appearance, black on a white squircle in light mode and white on a black one in dark mode. The PNGs and
+`icon.icns` (older macOS, the DMG, the other platforms) are always the light icon. Packaging compiles `icon.icon` with
+`actool`, so building DynWork needs full Xcode, not just the command line tools. To see both appearances without
+building, render them with Icon Composer's `ictool` (`--rendition Default` and `--rendition Dark`).
 
 ## Logo
 
@@ -622,7 +628,7 @@ positions within 0.01 px without kerning, 0.16 px off with it; `l` stem 4.52 px 
 200 px, no kerning, one path per letter, moved to a tight `0 0 867 194` box (baseline at 148). The static font keeps
 overlapping contours, which a stroked outline would show, so each letter went through Skia PathOps `simplify`
 (pathkit-wasm 1.0.0) and was rounded to two decimals. Nothing reads the font at runtime. The lockup reuses the symbol
-path and gradient of `icons/source.svg` at the proportions of `cloud_theme/static/img/login/dyncloud-logo.png`, whose
+path of `icons/source.svg`, in its brand gradient, at the proportions of `cloud_theme/static/img/login/dyncloud-logo.png`, whose
 ascender is also 148 px: a 243.5 px symbol centred 190 px left of the "d" and 91.5 px below the ascender line.
 
 The desktop build (`packages/build`) swaps three upstream modules for the components in `src/` (see `PATCHES.md`):
@@ -641,8 +647,8 @@ wordmark.
 ## Build and install on macOS
 
 Builds DynWork for Apple Silicon from this checkout and installs it as `/Applications/DynWork.app`. It needs the
-workspace installed (`BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun install`), Bun 1.4.4 and the Xcode command
-line tools. The result is unsigned apart from an ad-hoc signature, so it only runs on the Mac that built it.
+workspace installed (`BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun install`), Bun 1.4.4 and full Xcode (`actool`
+compiles the Icon Composer app icon). The result is unsigned apart from an ad-hoc signature, so it only runs on the Mac that built it.
 
 ```bash
 bun dynwork/script/desktop.ts
