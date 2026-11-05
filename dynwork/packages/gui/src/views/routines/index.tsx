@@ -1,36 +1,29 @@
 import { usePlugin } from "@opencode/plugin/gui"
-import { builtinContext } from "@opencode/plugin/gui/builtin"
 import { Button } from "@opencode/ui/button"
 import { createSignal } from "solid-js"
 import { RoutineDetail } from "./detail"
 import { RoutineList } from "./list"
 import { NewRoutine } from "./new-routine"
-import { createRoutines, pickSelected } from "./store"
+import { createRoutines } from "./store"
 import { demoAgents } from "../agents/demo"
-import { createViewLayout, ViewShell } from "../shell"
+import { device } from "../device"
+import { ViewShell } from "../shell"
+import { workNav } from "../work"
 import "./routines.css"
 
-/** The Routines view: what runs on this Mac on a schedule. Demo data in memory; nothing is fetched. */
+/** The Routines view: what runs on this computer on a schedule. Demo data in memory; nothing is fetched. */
 export default function RoutinesView() {
   const ctx = usePlugin()
-  const layout = createViewLayout()
+  const here = device(ctx)
   const routines = createRoutines()
   const [picked, setPicked] = createSignal<string>()
-  const selected = () =>
-    routines.list().find(
-      (routine) =>
-        routine.id ===
-        pickSelected(
-          picked(),
-          routines.list().map((item) => item.id),
-          layout() === "wide",
-        ),
-    )
+  // A routine removed while open closes the pane.
+  const selected = () => routines.list().find((routine) => routine.id === picked())
 
   const remove = async (id: string, name: string) => {
     const confirmed = await ctx.dialogs.confirm({
       title: ctx.t("routines.remove.title", { name }),
-      description: ctx.t("routines.remove.description"),
+      description: ctx.t("routines.remove.description", { device: here.inline }),
       confirm: ctx.t("routines.detail.remove"),
       danger: true,
     })
@@ -41,8 +34,8 @@ export default function RoutinesView() {
     <ViewShell
       view="routines"
       title={ctx.t("routines.title")}
-      badge={ctx.t("routines.badge")}
-      description={ctx.t("routines.description")}
+      badge={here.label}
+      description={ctx.t("routines.description", { device: here.inline })}
       actions={
         <Button
           variant="contrast"
@@ -56,23 +49,12 @@ export default function RoutinesView() {
           {ctx.t("routines.new")}
         </Button>
       }
-      nav={{
-        groups: [
-          {
-            label: ctx.t("routines.nav.farm"),
-            items: [{ id: "agents", label: ctx.t("routines.nav.agents"), icon: "mcp", count: demoAgents().length }],
-          },
-          {
-            label: ctx.t("routines.nav.mac"),
-            items: [
-              { id: "routines", label: ctx.t("routines.nav.routines"), icon: "task", count: routines.enabledCount() },
-            ],
-          },
-        ],
+      nav={workNav(ctx, {
         selected: "routines",
-        select: (id) => builtinContext(ctx).layout.page(id),
+        agents: demoAgents().length,
+        routines: routines.enabledCount(),
         footer: <span>{ctx.t("routines.nav.status")}</span>,
-      }}
+      })}
       detail={
         selected() ? (
           <RoutineDetail

@@ -45,7 +45,7 @@ describe("the window entry's contributions", () => {
   test("a settings page of its own, found by search, and a titlebar pill", () => {
     const view = setup(undefined)
     const page = view.added.find((entry) => entry.registry === SettingsPage)?.item as SettingsPage
-    expect(page).toMatchObject({ id: "accounts", icon: "lock", title: "title" })
+    expect(page).toMatchObject({ id: "accounts", icon: "shield", title: "title" })
     expect(page.page).toBeUndefined()
     expect(page.entries).toEqual([{ id: "accounts", title: "title", keywords: "keywords" }])
     expect(view.added.some((entry) => entry.registry === TitlebarItem)).toBe(true)

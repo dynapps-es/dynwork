@@ -62,7 +62,7 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* The table. Its columns follow its own width, so it holds in every layout and beside the detail pane. */
+  /* The table. Its columns follow its own width, so it holds in every layout. */
   [data-slot="agents-list"] {
     display: flex;
     flex-direction: column;
@@ -105,12 +105,23 @@
     }
   }
 
+  /* Narrow tables drop the instance column, then the last run. `[data-row] >` outranks the cells' own `[data-meta]`. */
   @container (max-width: 520px) {
     [data-row] {
       grid-template-columns: 20px minmax(0, 1fr) 84px;
     }
 
-    [data-slot="agents-instance"] {
+    [data-row] > [data-slot="agents-instance"] {
+      display: none;
+    }
+  }
+
+  @container (max-width: 360px) {
+    [data-row] {
+      grid-template-columns: 20px minmax(0, 1fr);
+    }
+
+    [data-row] > :last-child {
       display: none;
     }
   }

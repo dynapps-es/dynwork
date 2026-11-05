@@ -71,7 +71,8 @@ const signInViews = ["signin", "signin-choose", "signin-finalizing", "signin-don
 const accountsViews = ["accounts", "accounts-add", "accounts-pill"]
 
 // The demo views open from their entry: a sidebar row, a tabs-drawer row or a titlebar icon, by the tab layout and width.
-const pageViews = ["agents", "routines", "brain"]
+// A `-detail` view also opens the first row's detail pane before it shoots.
+const pageViews = ["agents", "routines", "brain", "agents-detail", "routines-detail"]
 
 // Alpha's URL and PAT; read only by the views that sign in.
 const alpha = view === "signin" || view === "first-launch" ? undefined : await localInstance("ALPHA")
@@ -186,24 +187,42 @@ async function run() {
   return shoot(cdp)
 }
 
-// Opens a demo view through its entry and shoots it. Under 768px the entry is in the tabs drawer, opened first.
+// Opens a demo view through its entry and shoots it. Under 768px the entry is in the tabs drawer, opened first. Routines
+// sit under the Agents entry, behind its sub-navigation (a select under 768px).
 async function page(cdp: Cdp) {
   const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
-  const entry = `[data-action="dynwork-${view}"]`
+  const name = view.replace(/-detail$/, "")
+  const entry = `[data-action="dynwork-${name === "routines" ? "agents" : name}"]`
   // The drawer's trigger is the button around the current tab's title.
   if (!(await seen(entry)) && (await seen('[data-slot="mobile-tab-title"]')))
     await cdp.value(`document.querySelector('[data-slot="mobile-tab-title"]').closest("button").click()`)
   await waitFor(`the ${view} entry`, async () => seen(entry), 30_000)
   await cdp.value(`document.querySelector(${JSON.stringify(entry)}).click()`)
-  await waitFor(`the ${view} view`, async () => seen(`[data-component="dynwork-view"][data-view="${view}"]`), 10_000)
+  if (name === "routines") {
+    await waitFor("the agents view", async () => seen('[data-component="dynwork-view"][data-view="agents"]'), 10_000)
+    await cdp.value(`(() => {
+      const select = document.querySelector('[data-slot="view-subnav-select"]')
+      if (select) {
+        select.value = "routines"
+        select.dispatchEvent(new Event("change", { bubbles: true }))
+        return
+      }
+      ;[...document.querySelectorAll('[data-slot="view-subnav-item"]')].find((item) => item.textContent.includes("Routines")).click()
+    })()`)
+  }
+  await waitFor(`the ${name} view`, async () => seen(`[data-component="dynwork-view"][data-view="${name}"]`), 10_000)
+  if (view.endsWith("-detail")) {
+    await cdp.value(`document.querySelector('[data-slot="${name}-row"]').click()`)
+    await waitFor("the detail pane", async () => seen('[data-slot="view-detail"]'), 5_000)
+  }
   return shoot(cdp)
 }
 
-// Opens Settings -> systemprompt through the pill's menu, adds beta in the dialog and shoots the page.
+// Opens Settings -> Governance through the pill's menu, adds beta in the dialog and shoots the page.
 async function accounts(cdp: Cdp) {
   const seen = (selector: string) => cdp.value<boolean>(`!!document.querySelector(${JSON.stringify(selector)})`)
   const click = (selector: string) => cdp.value(`document.querySelector(${JSON.stringify(selector)}).click()`)
-  const pill = '[data-slot="titlebar-update"] button[aria-label^="systemprompt"]'
+  const pill = '[data-slot="titlebar-update"] button[aria-label^="Governance"]'
   const openMenu = async () => {
     await waitFor("the titlebar pill", async () => seen(pill), 30_000)
     await click(pill)
@@ -212,7 +231,7 @@ async function accounts(cdp: Cdp) {
 
   await openMenu()
   await click('[data-slot="accounts-pill-actions"] > button:last-child')
-  await waitFor("the systemprompt page", async () => seen('[data-action="accounts-add"]'), 10_000)
+  await waitFor("the Governance page", async () => seen('[data-action="accounts-add"]'), 10_000)
   await waitFor("one instance", async () => seen('[data-component="accounts-instance"]'), 10_000)
 
   // The first key an instance offers waits for the user's trust: pin alpha's, and leave beta's waiting below.

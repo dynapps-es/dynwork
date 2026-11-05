@@ -27,11 +27,13 @@
     font-weight: 530;
   }
 
+  /* The table. Its columns follow its own width, so it holds in every layout. */
   [data-slot="routines-list"] {
     display: flex;
     flex-direction: column;
     gap: 2px;
     padding: 4px;
+    container-type: inline-size;
     border-radius: 10px;
     background: var(--v2-background-bg-layer-01);
   }
@@ -302,22 +304,30 @@
   text-decoration: underline;
 }
 
-/* Medium and narrow: the list drops the last-result column. */
-[data-component="dynwork-view"][data-view="routines"]:not([data-layout="wide"]) {
-  [data-slot="routines-list"] [data-part="row"] {
-    grid-template-columns: 44px minmax(0, 1fr) minmax(0, 150px);
-  }
+/* Narrow tables drop the last result, then the schedule. */
+@container (max-width: 600px) {
+  [data-component="dynwork-view"][data-view="routines"] {
+    [data-slot="routines-list"] [data-part="row"] {
+      grid-template-columns: 44px minmax(0, 1fr) minmax(0, 150px);
+    }
 
-  [data-slot="routines-last-col"] {
-    display: none;
+    [data-slot="routines-list"] [data-slot="routines-last-col"] {
+      display: none;
+    }
   }
 }
 
-/* A wide window with the detail open: room for the last result is tight, so it tightens first. */
-[data-component="dynwork-view"][data-view="routines"][data-layout="wide"]
-  [data-slot="routines-list"]
-  [data-part="row"] {
-  grid-template-columns: 44px minmax(0, 1fr) minmax(0, 150px) minmax(0, 110px);
+@container (max-width: 400px) {
+  [data-component="dynwork-view"][data-view="routines"] {
+    [data-slot="routines-list"] [data-part="row"] {
+      grid-template-columns: 44px minmax(0, 1fr);
+    }
+
+    /* The schedule column, in the head and in every row. */
+    [data-slot="routines-list"] [data-part="row"] > :nth-child(3) {
+      display: none;
+    }
+  }
 }
 
 /* The New routine dialog renders outside the view, so it carries its own brand color and layout. */

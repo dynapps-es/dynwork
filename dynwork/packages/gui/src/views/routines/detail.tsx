@@ -3,6 +3,7 @@ import { Button } from "@opencode/ui/button"
 import { For, Show } from "solid-js"
 import { scheduleText } from "./schedule"
 import { isRunning, summary, type Routine } from "./store"
+import { device } from "../device"
 
 /** One routine: what it runs, where and when, its run history, and the actions Run now, Pause and Remove. */
 export function RoutineDetail(props: { routine: Routine; run(): void; toggle(): void; remove(): void }) {
@@ -18,7 +19,7 @@ export function RoutineDetail(props: { routine: Routine; run(): void; toggle(): 
             {ctx.t(props.routine.enabled ? "routines.detail.on" : "routines.detail.paused")}
           </span>
         </div>
-        <span data-slot="routines-sub">{ctx.t("routines.detail.runsOn")}</span>
+        <span data-slot="routines-sub">{ctx.t("routines.detail.runsOn", { device: device(ctx).inline })}</span>
       </div>
       <div data-slot="routine-actions">
         <Button variant="neutral" icon="outline-video" disabled={running()} onClick={() => props.run()}>

@@ -209,19 +209,20 @@
     color: var(--v2-text-text-muted);
   }
 
-  /* Detail pane: a third column when wide. */
+  /* Detail pane: a drawer over the content, so the content keeps its width. */
   [data-slot="view-detail"] {
+    position: absolute;
+    inset: 0 0 0 auto;
+    z-index: 2;
     display: flex;
-    flex: none;
     flex-direction: column;
     gap: 12px;
-    width: 400px;
-    margin: 40px 32px 24px 0;
+    width: min(440px, 90%);
     padding: 20px;
     overflow-y: auto;
-    border: 1px solid var(--v2-border-border-muted);
-    border-radius: 10px;
+    border-left: 1px solid var(--v2-border-border-muted);
     background: var(--v2-background-bg-base);
+    box-shadow: var(--v2-elevation-raised);
   }
 
   [data-slot="view-detail-close"] {
@@ -247,11 +248,11 @@
     position: absolute;
     inset: 0;
     z-index: 1;
-    background: rgb(0 0 0 / 0.24);
+    background: rgb(0 0 0 / 0.16);
   }
 }
 
-/* Medium: a narrower column, and the detail pane is a drawer over the content. */
+/* Medium: a narrower column. */
 [data-component="dynwork-view"][data-layout="medium"] {
   [data-slot="view-subnav"] {
     width: 192px;
@@ -260,17 +261,6 @@
 
   [data-slot="view-main"] {
     padding-inline: 24px;
-  }
-
-  [data-slot="view-detail"] {
-    position: absolute;
-    inset: 0 0 0 auto;
-    z-index: 2;
-    width: min(420px, 90%);
-    margin: 0;
-    border-width: 0 0 0 1px;
-    border-radius: 0;
-    box-shadow: var(--v2-elevation-raised);
   }
 }
 
@@ -296,11 +286,11 @@
   }
 
   [data-slot="view-detail"] {
+    position: static;
     flex: 1;
     width: auto;
-    margin: 0;
     padding: 16px;
     border: 0;
-    border-radius: 0;
+    box-shadow: none;
   }
 }
