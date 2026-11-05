@@ -2,12 +2,12 @@
 export default {
   "remote.title": "Remote control",
   "remote.description":
-    "Use DynWork from your phone. The phone talks to this computer through your systemprompt instance, end-to-end encrypted: the instance only passes on what it cannot read.",
+    "Use Dynwork from your phone. The phone talks to this computer through your Governance instance, end-to-end encrypted: the instance only passes on what it cannot read.",
   "remote.keywords": "remote control phone mobile pair qr relay tunnel",
   "remote.unavailable": "Remote control is unavailable right now.",
   "remote.toggle.title": "Allow paired phones to connect",
   "remote.toggle.description":
-    "Off by default. While it is on, DynWork keeps an outbound connection to the active instance.",
+    "Off by default. While it is on, Dynwork keeps an outbound connection to the active instance.",
   "remote.confirm.title": "Turn on remote control?",
   "remote.confirm.description":
     "A phone you pair can read and write your sessions, send prompts, change the agent and model, and answer permission requests and questions, as if it were this computer. It cannot open terminals, run shell commands or write files directly. You can revoke a phone at any time.",
@@ -23,9 +23,9 @@ export default {
   "remote.pair": "Pair a phone",
   "remote.pair.title": "Pair a phone",
   "remote.pair.description":
-    "Scan this code with DynWork on your phone, signed in to {{instance}}. It works once and stops working at {{time}}.",
+    "Scan this code with Dynwork on your phone, signed in to {{instance}}. It works once and stops working at {{time}}.",
   "remote.pair.qr": "Pairing code",
-  "remote.pair.failed": "DynWork could not create a pairing code.",
+  "remote.pair.failed": "Dynwork could not create a pairing code.",
   "remote.pair.close": "Done",
   "remote.phones.title": "Paired phones",
   "remote.phones.empty": "No phone is paired with this computer yet.",
