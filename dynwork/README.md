@@ -172,8 +172,9 @@ no-cache`; polls, focus and activation let the instance answer from its memo, li
 - The content the plugin reads is digested entry by entry (kind, id, digest of the entry, sorted), with the profile and
   the models catalog. `apply` runs only when that changes: a 304 or a re-signed copy of the same content pushes nothing.
   The plugin replaces the instance's whole namespace on each `apply` (design point 3: whole-namespace replace).
-- The profile and the `/v1/models` catalog are read when the loop starts and again every 30 min; a failed read keeps
-  the previous ones.
+- The profile and the `/v1/models` catalog are read when the loop starts, every 5 min, on Sync now and when a window
+  regains focus: the manifest does not version them, so a new model or a changed model rule never reaches its poll. A
+  failed read keeps the previous ones.
 - Failures are statuses, never exceptions. `unreachable` and `rate-limited` back off 30 s, 1, 2, 4 min, capped at 5
   (at least the instance's `Retry-After`); `service` (DynWork's service did not take the call) retries after 2 s,
   doubling up to the poll interval; the others wait one poll interval. `key-changed` records the served key with
