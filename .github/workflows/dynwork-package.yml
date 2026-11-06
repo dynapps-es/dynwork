@@ -4,8 +4,6 @@ name: dynwork package
 # as workflow artifacts. Nothing is published or released.
 on:
   workflow_dispatch:
-  push:
-    branches: [test-builds]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
