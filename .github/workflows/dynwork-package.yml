@@ -1,0 +1,48 @@
+name: dynwork package
+
+# Internal test builds of DynWork, unsigned by Apple or Microsoft: `dynwork/script/package.ts` on each runner, uploaded
+# as workflow artifacts. Nothing is published or released.
+on:
+  workflow_dispatch:
+  push:
+    branches: [test-builds]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUN_CONFIG_REGISTRY: https://registry.npmjs.org/
+
+jobs:
+  package:
+    name: package ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: windows-x64, host: windows-2025 }
+    runs-on: ${{ matrix.host }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Set up Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Package
+        run: bun dynwork/script/package.ts
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+
+      - name: Upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: dynwork-${{ matrix.target }}
+          path: dist/dynwork
+          if-no-files-found: error
+          retention-days: 30
