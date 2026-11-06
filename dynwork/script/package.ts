@@ -31,8 +31,10 @@ const base = Object.fromEntries(Object.entries(process.env).filter((entry) => !e
 
 const started = Date.now()
 
-// As in `desktop.ts`: the CLI on its "latest" channel, without the web UI the desktop never serves.
-await $`bun run build --single --skip-install --skip-web-ui`
+// As in `desktop.ts`: the CLI on its "latest" channel, without the web UI the desktop never serves. An x64 desktop
+// bundles the baseline CLI, which runs on CPUs without AVX2.
+const baseline = cpu === "x64" ? ["--baseline"] : []
+await $`bun run build --single ${baseline} --skip-install --skip-web-ui`
   .cwd(path.join(root, "packages/cli"))
   .env({ ...base, OPENCODE_CHANNEL: "latest", OPENCODE_VERSION: version })
 
@@ -47,10 +49,12 @@ await cp(path.join(root, "dynwork/packages/branding/icons"), path.join(desktop, 
 
 await rm(path.join(desktop, "dist"), { recursive: true, force: true })
 
-// "-" signs ad hoc: Apple Silicon runs no unsigned code, and an ad hoc signature needs no Apple certificate.
+// "-" signs ad hoc: Apple Silicon runs no unsigned code, and an ad hoc signature needs no Apple certificate. Without
+// a team the hardened runtime's library validation would refuse Electron's own frameworks, so it stays off, as in the
+// bundle `desktop.ts` installs.
 const flags = [`--${os}`, `--${cpu}`, "--publish", "never", "--config", "electron-builder.config.ts"]
 await (os === "mac"
-  ? $`bunx electron-builder ${flags} -c.mac.target=dmg -c.mac.identity=-`
+  ? $`bunx electron-builder ${flags} -c.mac.target=dmg -c.mac.identity=- -c.mac.hardenedRuntime=false`
   : $`bunx electron-builder ${flags} -c.win.target=nsis`
 ).cwd(desktop).env(env)
 
