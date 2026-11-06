@@ -5,9 +5,10 @@ import { tmpdir } from "node:os"
 import path from "node:path"
 import { $ } from "bun"
 
-// Regenerates every file in icons/ from icons/source.svg, the light icon: the PNGs and icon.icns, which macOS before 26
-// and the other platforms use, and icon.icon, the Icon Composer package macOS 26 and later draw the icon from. Each PNG
-// size is rendered straight from the SVG, never downsampled from a bigger render (see packages/desktop/icons/README.md).
+// Regenerates every file in icons/ from icons/source.svg, the light icon: the PNGs, icon.icns, which macOS before 26
+// and the other platforms use, icon.ico for Windows, and icon.icon, the Icon Composer package macOS 26 and later draw
+// the icon from. Each PNG size is rendered straight from the SVG, never downsampled from a bigger render (see
+// packages/desktop/icons/README.md).
 const root = path.join(import.meta.dir, "..", "icons")
 const source = path.join(root, "source.svg")
 
@@ -39,6 +40,31 @@ await Promise.all(
     { size: 256, name: "dock.png" },
   ].map((item) => render(item.size, path.join(root, item.name))),
 )
+// icon.ico, which Windows and its installer use: PNG images inside an ICO directory, as Windows Vista and later read.
+const sizes = [16, 24, 32, 48, 64, 128, 256]
+const images = await Promise.all(
+  sizes.map(async (size) => {
+    const file = path.join(temp, `ico-${size}.png`)
+    await render(size, file)
+    return new Uint8Array(await Bun.file(file).arrayBuffer())
+  }),
+)
+const header = Buffer.alloc(6 + 16 * sizes.length)
+header.writeUInt16LE(1, 2)
+header.writeUInt16LE(sizes.length, 4)
+images.reduce((offset, image, index) => {
+  const entry = 6 + 16 * index
+  // 0 stands for 256 in the one-byte width and height
+  header.writeUInt8(sizes[index] % 256, entry)
+  header.writeUInt8(sizes[index] % 256, entry + 1)
+  header.writeUInt16LE(1, entry + 4)
+  header.writeUInt16LE(32, entry + 6)
+  header.writeUInt32LE(image.length, entry + 8)
+  header.writeUInt32LE(offset, entry + 12)
+  return offset + image.length
+}, header.length)
+await Bun.write(path.join(root, "icon.ico"), new Blob([header, ...images]))
+
 await rm(temp, { recursive: true, force: true })
 
 // Icon Composer draws the squircle itself and fills it with the document's fill, so the package holds the aperture
