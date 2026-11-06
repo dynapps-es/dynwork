@@ -153,6 +153,22 @@ export default function RemotePage(props: { remote: Accessor<Live<Client>> }) {
 function PairingDialog(props: { pairing: Accessor<Pairing>; instance: string; close: () => void }) {
   const ctx = usePlugin<typeof definition>()
   const svg = () => renderSVG(props.pairing().qr, { border: 4, blackColor: "currentColor", whiteColor: "transparent" })
+  const [copied, setCopied] = createSignal(false)
+  // The same text the QR holds, for a phone that cannot scan it: Dynwork on the phone takes it under "Enter the code
+  // manually".
+  const copy = async () => {
+    const done = await navigator.clipboard.writeText(props.pairing().qr).then(
+      () => true,
+      () => false,
+    )
+    if (!done) {
+      const { showToast } = await import("@opencode/ui/toast")
+      showToast({ title: ctx.t("remote.pair.copyFailed") })
+      return
+    }
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
   return (
     <Dialog fit containerClass="max-w-[min(400px,calc(100vw-32px))]">
       <DialogHeader>
@@ -172,9 +188,14 @@ function PairingDialog(props: { pairing: Accessor<Pairing>; instance: string; cl
           aria-label={ctx.t("remote.pair.qr")}
           innerHTML={svg()}
         />
-        <Button variant="neutral" onClick={props.close}>
-          {ctx.t("remote.pair.close")}
-        </Button>
+        <div class="flex gap-2 [&>*]:flex-1">
+          <Button data-action="remote-copy" variant="ghost" icon={copied() ? "check" : "copy"} onClick={() => void copy()}>
+            {ctx.t(copied() ? "remote.pair.copied" : "remote.pair.copy")}
+          </Button>
+          <Button variant="neutral" onClick={props.close}>
+            {ctx.t("remote.pair.close")}
+          </Button>
+        </div>
       </DialogBody>
     </Dialog>
   )
