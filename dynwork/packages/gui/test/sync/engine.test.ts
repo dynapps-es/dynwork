@@ -133,7 +133,13 @@ async function boot(options: { focused?: boolean; instances?: Fake[]; store?: Re
         request.path === "/v1/bridge/manifest" &&
         jwts.has(request.headers.authorization?.replace(/^Bearer /, "") ?? ""),
     )
-  return { ...fake, accounts, engine, statuses, id, polls }
+  // This test's profile reads: each comes with a read of the models catalog
+  const reads = (instance: Fake) =>
+    instance.state.requests.filter(
+      (request) =>
+        request.path === "/v1/bridge/profile" && jwts.has(request.headers.authorization?.replace(/^Bearer /, "") ?? ""),
+    )
+  return { ...fake, accounts, engine, statuses, id, polls, reads }
 }
 
 // Runs the next due timer and returns how long after `from` it fell due.
@@ -393,6 +399,29 @@ describe("acceptance like the bridge", () => {
     next()
     await settled(context, 5)
     expect(context.polls(alpha)[4]?.headers["cache-control"]).toBeUndefined()
+  })
+  test("the user's models are read every 5 min, at once on Sync now and on a regained focus, not on every poll", async () => {
+    const context = await boot({ focused: false })
+    await settled(context, 1)
+    // Sign-in reads the profile too, so only the reads after the first poll count
+    const base = context.reads(alpha).length
+    const after = () => context.reads(alpha).length - base
+
+    expect(next()).toBe(DynWorkSyncEngine.profileInterval)
+    await settled(context, 2)
+    expect(after()).toBe(1)
+
+    context.engine.focus(true)
+    await settled(context, 3)
+    expect(after()).toBe(2)
+
+    next()
+    await settled(context, 4)
+    expect(after()).toBe(2)
+
+    context.engine.now()
+    await settled(context, 5)
+    expect(after()).toBe(3)
   })
 })
 

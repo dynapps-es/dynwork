@@ -23,8 +23,8 @@ export const jitter = 0.2
 export const unfocusedInterval = 300_000
 /** The longest wait after an unreachable or rate-limiting instance. */
 export const backoffCap = 300_000
-/** How often the profile and the models catalog are read again. */
-export const profileInterval = 1_800_000
+/** How often the profile and the models catalog are read again; Sync now and a regained focus read them at once. */
+export const profileInterval = 300_000
 /** The first wait after DynWork's own service did not answer; it may still be starting. */
 export const serviceRetry = 2_000
 /** The wait before following the plugin's events again after the stream ended. */
@@ -67,6 +67,9 @@ type Loop = {
   again: boolean
   // The next poll asks the instance for a fresh build (`Cache-Control: no-cache`): only "Sync now" does
   fresh: boolean
+  // The next poll reads the profile and the models catalog again, which the manifest does not version: Sync now and a
+  // regained focus set it
+  reread: boolean
   failures: number
   etag?: string
   manifest?: Manifest
@@ -154,6 +157,7 @@ export function make(options: Options) {
       running: false,
       again: false,
       fresh: false,
+      reread: false,
       failures: 0,
       captured: false,
       bundles: DynWorkBundleFiles.make(accounts),
@@ -172,9 +176,10 @@ export function make(options: Options) {
     void serial(() => plugin.clear()).catch(() => undefined)
   }
 
-  const request = (loop: Loop, fresh = false) => {
+  const request = (loop: Loop, fresh = false, reread = fresh) => {
     if (loop.stopped) return
     loop.fresh ||= fresh
+    loop.reread ||= reread
     if (loop.running) {
       loop.again = true
       return
@@ -229,7 +234,10 @@ export function make(options: Options) {
       loop.manifest = result.manifest
       loop.version = result.manifest.manifest_version
     }
-    if (loop.gateway === undefined || Date.now() - loop.gateway.at >= profileInterval) await models(loop)
+    if (loop.gateway === undefined || loop.reread || Date.now() - loop.gateway.at >= profileInterval) {
+      loop.reread = false
+      await models(loop)
+    }
     const manifest = loop.manifest
     if (loop.stopped || manifest === undefined) return
     const digest = digestOf(manifest, loop.gateway)
@@ -382,15 +390,18 @@ export function make(options: Options) {
     update,
     /** Pass to the accounts' `renewed` option. */
     renewed,
-    /** Polls now ("Sync now"), asking the instance for a fresh build; every other poll may be answered from its memo. */
+    /**
+     * Polls now ("Sync now"), asking the instance for a fresh build and reading the user's models again; every other
+     * poll may be answered from its memo.
+     */
     now: () => {
       if (current.loop !== undefined) request(current.loop, true)
     },
-    /** Whether a DynWork window has focus; gaining it polls at once. */
+    /** Whether a DynWork window has focus; gaining it polls at once and reads the user's models again. */
     focus: (focused: boolean) => {
       const was = life.focused
       life.focused = focused
-      if (focused && !was && current.loop !== undefined) request(current.loop)
+      if (focused && !was && current.loop !== undefined) request(current.loop, false, true)
     },
     dispose: () => {
       life.disposed = true
