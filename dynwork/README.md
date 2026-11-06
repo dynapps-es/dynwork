@@ -731,3 +731,25 @@ may create `Default Project` in your real `~/Documents` (Electron reads it from 
 
 Run the app normally from Finder. Its data lives in `~/Library/Application Support/es.dynapps.dynwork`, its background
 service's in the `service` folder inside it (see "Background service"), so DynWork and OpenCode run side by side.
+
+## Internal test builds
+
+Packs DynWork for testers inside Dynapps, unsigned by Apple or Microsoft: a DMG for Apple Silicon Macs and an NSIS
+installer for Windows x64. Nothing is notarized, published or offered by the updater.
+
+```bash
+bun dynwork/script/package.ts
+```
+
+It builds for the machine it runs on and writes `dist/dynwork/dynwork-desktop-mac-arm64.dmg` or
+`dist/dynwork/dynwork-desktop-win-x64.exe`. The DMG's app is signed ad hoc without the hardened runtime, like the app
+`desktop.ts` installs. The Windows installer is built by the `dynwork package` workflow
+(`.github/workflows/dynwork-package.yml`, run it from the Actions tab) and kept as a workflow artifact for 30 days.
+
+Testers open it once past the system's warning:
+
+- **macOS**: open the DMG and drag Dynwork to Applications. The first launch says Apple could not verify it: open System
+  Settings → Privacy & Security and choose Open Anyway. If macOS says the app is damaged, run
+  `xattr -dr com.apple.quarantine /Applications/Dynwork.app` in Terminal and open it again.
+- **Windows**: run the installer. SmartScreen says Windows protected the PC: choose More info → Run anyway. It installs
+  for the current user, with no administrator rights.
