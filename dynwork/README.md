@@ -644,7 +644,7 @@ so the output is deterministic and never downsampled.
 
 The script also writes `icon.icon`, the Icon Composer package macOS 26 and later draw the app icon from: the symbol
 alone, filled by appearance, black on a white squircle in light mode and white on a black one in dark mode. The PNGs and
-`icon.icns` (older macOS, the DMG, the other platforms) are always the light icon. Packaging compiles `icon.icon` with
+`icon.icns` (older macOS, the DMG, the other platforms) and `icon.ico` (Windows and its installer) are always the light icon. Packaging compiles `icon.icon` with
 `actool`, so building DynWork needs full Xcode, not just the command line tools. To see both appearances without
 building, render them with Icon Composer's `ictool` (`--rendition Default` and `--rendition Dark`).
 

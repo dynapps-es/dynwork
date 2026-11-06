@@ -53,10 +53,13 @@ await rm(path.join(desktop, "dist"), { recursive: true, force: true })
 // a team the hardened runtime's library validation would refuse Electron's own frameworks, so it stays off, as in the
 // bundle `desktop.ts` installs.
 const flags = [`--${os}`, `--${cpu}`, "--publish", "never", "--config", "electron-builder.config.ts"]
-await (os === "mac"
-  ? $`bunx electron-builder ${flags} -c.mac.target=dmg -c.mac.identity=- -c.mac.hardenedRuntime=false`
-  : $`bunx electron-builder ${flags} -c.win.target=nsis`
-).cwd(desktop).env(env)
+await (
+  os === "mac"
+    ? $`bunx electron-builder ${flags} -c.mac.target=dmg -c.mac.identity=- -c.mac.hardenedRuntime=false`
+    : $`bunx electron-builder ${flags} -c.win.target=nsis`
+)
+  .cwd(desktop)
+  .env(env)
 
 const ext = os === "mac" ? ".dmg" : ".exe"
 
