@@ -23,8 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: mac-arm64, host: macos-15 }
-          - { target: mac-x64, host: macos-15-intel }
+          - { target: mac-arm64, host: macos-26 }
+          - { target: mac-x64, host: macos-26-intel }
           - { target: windows-x64, host: windows-2025 }
     runs-on: ${{ matrix.host }}
     timeout-minutes: 60
