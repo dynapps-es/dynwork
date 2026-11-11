@@ -42,7 +42,8 @@ const built = (await $`${cli} --version`.env(base).text()).trim()
 
 if (built !== `opencode v${version}`) throw new Error(`The CLI reports "${built}", expected "opencode v${version}"`)
 
-const env = { ...base, OPENCODE_CHANNEL: "prod", OPENCODE_VERSION: version }
+// The app carries DynWork's version; the CLI keeps upstream's.
+const env = { ...base, OPENCODE_CHANNEL: "prod", OPENCODE_VERSION: DynWorkIdentity.version }
 
 await $`bun run build`.cwd(desktop).env(env)
 

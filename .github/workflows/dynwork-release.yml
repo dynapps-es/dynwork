@@ -1,0 +1,65 @@
+name: dynwork release
+
+# Publishes a DynWork release when a `dynwork-v<version>` tag is pushed: the tag must match the version in
+# `dynwork/packages/branding/src/identity.ts`, and `dynwork/releases/<version>.md` holds its notes. The installers come
+# from `dynwork package`, and the release becomes the latest, the one the download links and the Windows updater read.
+on:
+  push:
+    tags:
+      - dynwork-v*
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check the tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Match the tag with the version and its notes
+        id: version
+        run: |
+          version="${GITHUB_REF_NAME#dynwork-v}"
+          grep -qx "export const version = \"$version\"" dynwork/packages/branding/src/identity.ts || {
+            echo "::error::$GITHUB_REF_NAME does not match the version in dynwork/packages/branding/src/identity.ts"
+            exit 1
+          }
+          test -s "dynwork/releases/$version.md" || {
+            echo "::error::dynwork/releases/$version.md is missing"
+            exit 1
+          }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  package:
+    needs: check
+    uses: ./.github/workflows/dynwork-package.yml
+
+  release:
+    name: publish the release
+    needs: [check, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Download the installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: dynwork-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          { cat "dynwork/releases/$VERSION.md"; echo; cat dynwork/releases/install.md; } > notes.md
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --latest --title "Dynwork $VERSION" --notes-file notes.md

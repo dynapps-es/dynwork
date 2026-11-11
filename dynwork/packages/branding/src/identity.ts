@@ -8,7 +8,12 @@ export const appId = "es.dynapps.dynwork"
 
 export const scheme = "dynwork"
 
-// No releases are published yet, so the updater fails quietly until the first one.
+// DynWork's own version: the desktop app, its installers and its GitHub releases (tag `dynwork-v<version>`) carry it.
+// The bundled CLI keeps upstream's version, which names its service and staged copies. Bump it for every release.
+export const version = "0.1.0"
+
+// The latest GitHub release. Windows updates from its latest.yml; macOS finds none, since Squirrel.Mac refuses an
+// update signed ad hoc, and testers install a new DMG themselves.
 export const updateFeed = "https://github.com/dynapps-es/dynwork/releases/latest/download/"
 
 export const rpmPackage = "dynwork"
