@@ -197,6 +197,10 @@ export function transitionModelSelection(
   }
 
   if (event.type === "commit.reconciled") {
+    // Another client (DynWork's phone) changed the Session's selection: it replaces a different local one.
+    if (prev?.phase === "override" && !matchesDurable(selectionTarget(prev), event.durable))
+      return settle(state, event.sessionID, normalize(undefined, undefined, prev.choices))
+
     if (prev?.phase !== "awaiting-ack" || !matchesDurable(prev.target, event.durable)) return same
 
     return settle(state, event.sessionID, release(prev, prev.target, event.visible))
