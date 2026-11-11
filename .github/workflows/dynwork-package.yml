@@ -1,9 +1,10 @@
 name: dynwork package
 
-# Internal test builds of DynWork, unsigned by Apple or Microsoft: `dynwork/script/package.ts` on each runner, uploaded
-# as workflow artifacts. Nothing is published or released.
+# DynWork's installers, unsigned by Apple or Microsoft: `dynwork/script/package.ts` on each runner, uploaded as workflow
+# artifacts. `dynwork release` calls it for a release; run it from the Actions tab for a build that publishes nothing.
 on:
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,6 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - { target: mac-arm64, host: macos-26 }
+          - { target: mac-x64, host: macos-26-intel }
           - { target: windows-x64, host: windows-2025 }
     runs-on: ${{ matrix.host }}
     timeout-minutes: 60

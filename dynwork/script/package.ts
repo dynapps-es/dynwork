@@ -1,13 +1,15 @@
 #!/usr/bin/env bun
-// Packs DynWork for internal testers, unsigned by Apple or Microsoft, into dist/dynwork: the DMG on macOS (signed ad
-// hoc, as `desktop.ts` installs it) and the NSIS installer on Windows, for the machine it runs on.
+// Packs DynWork, unsigned by Apple or Microsoft, into dist/dynwork for the machine it runs on: the DMG on macOS (signed
+// ad hoc, as `desktop.ts` installs it), and on Windows the NSIS installer with the latest.yml its updater reads. The
+// `dynwork release` workflow attaches them to a GitHub release.
 //
 //   bun dynwork/script/package.ts
 //
-// Testers open the app past Gatekeeper or SmartScreen once (dynwork/README.md, "Internal test builds").
+// Users open the app past Gatekeeper or SmartScreen once (dynwork/README.md, "Releases").
 import { $ } from "bun"
 import { cp, mkdir, readdir, rm } from "node:fs/promises"
 import path from "node:path"
+import { DynWorkIdentity } from "../packages/branding/src/identity"
 
 const os = new Map([
   ["darwin", "mac"],
@@ -24,6 +26,7 @@ const desktop = path.join(root, "packages/desktop")
 
 const out = path.join(root, "dist/dynwork")
 
+// Upstream's version, which the CLI keeps; the app carries DynWork's.
 const version: string = (await Bun.file(path.join(desktop, "package.json")).json()).version
 
 // The developer's OPENCODE_* variables would change the channel, version or service of the build.
@@ -38,7 +41,7 @@ await $`bun run build --single ${baseline} --skip-install --skip-web-ui`
   .cwd(path.join(root, "packages/cli"))
   .env({ ...base, OPENCODE_CHANNEL: "latest", OPENCODE_VERSION: version })
 
-const env = { ...base, OPENCODE_CHANNEL: "prod", OPENCODE_VERSION: version }
+const env = { ...base, OPENCODE_CHANNEL: "prod", OPENCODE_VERSION: DynWorkIdentity.version }
 
 await $`bun run build`.cwd(desktop).env(env)
 
@@ -61,17 +64,27 @@ await (
   .cwd(desktop)
   .env(env)
 
-const ext = os === "mac" ? ".dmg" : ".exe"
+// Installer names carry no version, so the latest release's download links stay the same. For the same reason no
+// blockmap ships: the updater would read the new one as the installed version's and skip the download it needs.
+const files =
+  os === "mac"
+    ? [`${DynWorkIdentity.artifactPrefix}-mac-${cpu}.dmg`]
+    : [`${DynWorkIdentity.artifactPrefix}-win-${cpu}.exe`, "latest.yml"]
 
-const files = (await readdir(path.join(desktop, "dist"))).filter((file) => file.endsWith(ext))
+const packed = await readdir(path.join(desktop, "dist"))
 
-if (files.length !== 1) throw new Error(`Expected one ${ext} in packages/desktop/dist, found ${files.join(", ")}`)
+const missing = files.filter((file) => !packed.includes(file))
+
+if (missing.length > 0)
+  throw new Error(`packages/desktop/dist lacks ${missing.join(", ")}, it holds ${packed.join(", ")}`)
 
 await mkdir(out, { recursive: true })
 
-await cp(path.join(desktop, "dist", files[0]), path.join(out, files[0]))
+await Promise.all(files.map((file) => cp(path.join(desktop, "dist", file), path.join(out, file))))
 
 // The pack's own app bundle would show up in Spotlight and "Open With" next to the installed one.
 await rm(path.join(desktop, "dist"), { recursive: true, force: true })
 
-console.log(`Packed dist/dynwork/${files[0]} (v${version}) in ${Math.round((Date.now() - started) / 1000)} s`)
+console.log(
+  `Packed ${files.map((file) => `dist/dynwork/${file}`).join(", ")} (Dynwork ${DynWorkIdentity.version}, CLI ${version}) in ${Math.round((Date.now() - started) / 1000)} s`,
+)
