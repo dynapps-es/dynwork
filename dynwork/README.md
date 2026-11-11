@@ -732,21 +732,35 @@ may create `Default Project` in your real `~/Documents` (Electron reads it from 
 Run the app normally from Finder. Its data lives in `~/Library/Application Support/es.dynapps.dynwork`, its background
 service's in the `service` folder inside it (see "Background service"), so DynWork and OpenCode run side by side.
 
-## Internal test builds
+## Releases
 
-Packs DynWork for testers inside Dynapps, unsigned by Apple or Microsoft: a DMG for Apple Silicon Macs and an NSIS
-installer for Windows x64. Nothing is notarized, published or offered by the updater.
+DynWork has its own version, `version` in `packages/branding/src/identity.ts`: the desktop app, its installers and its
+GitHub releases carry it, while the bundled CLI keeps upstream's version (it names the CLI's service and staged
+copies). Installers are unsigned by Apple or Microsoft: a DMG for Apple Silicon and one for Intel Macs, and an NSIS
+installer for Windows x64.
 
-```bash
-bun dynwork/script/package.ts
-```
+To release:
 
-It builds for the machine it runs on and writes `dist/dynwork/dynwork-desktop-mac-arm64.dmg` or
-`dist/dynwork/dynwork-desktop-win-x64.exe`. The DMG's app is signed ad hoc without the hardened runtime, like the app
-`desktop.ts` installs. The Windows installer is built by the `dynwork package` workflow
-(`.github/workflows/dynwork-package.yml`, run it from the Actions tab) and kept as a workflow artifact for 30 days.
+1. Bump `version` in `identity.ts` and write the notes in `releases/<version>.md`: a headline, a short paragraph and
+   one bullet per change users notice, in English, from the PRs merged since the last release. `releases/install.md`
+   (which file to download and how to open it) is appended to every release.
+2. Merge that PR, then tag main and push the tag:
 
-Testers open it once past the system's warning:
+   ```bash
+   git tag dynwork-v<version> origin/main && git push origin dynwork-v<version>
+   ```
+
+The `dynwork release` workflow (`.github/workflows/dynwork-release.yml`) checks the tag against the version and the
+notes, builds the three installers with `dynwork package` and publishes the release as the latest. Installer names
+carry no version, so `https://github.com/dynapps-es/dynwork/releases/latest/download/<file>` always serves the newest
+one. Windows updates itself from the release's `latest.yml`. macOS cannot: Squirrel.Mac refuses an update signed ad
+hoc, so Mac users download the new DMG.
+
+`bun dynwork/script/package.ts` packs the installer for the machine it runs on into `dist/dynwork`, and the
+`dynwork package` workflow (run from the Actions tab) builds all three as workflow artifacts without publishing
+anything. The DMG's app is signed ad hoc without the hardened runtime, like the app `desktop.ts` installs.
+
+Users open the app once past the system's warning:
 
 - **macOS**: open the DMG and drag Dynwork to Applications. The first launch says Apple could not verify it: open System
   Settings → Privacy & Security and choose Open Anyway. If macOS says the app is damaged, run
