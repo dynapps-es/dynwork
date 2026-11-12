@@ -250,16 +250,37 @@ test("without OPENCODE_CONFIG_DIR the skills are added in memory and no file is 
   expect((await content(sharedA, shared))[0]).toEqual([])
 }, 30_000)
 
-test("while an instance's gateway is applied it is the only provider, and clear brings the others back", async () => {
+test("while an instance's gateway is applied it is the only provider and the only one offered, and clear brings the others back", async () => {
   const providers = async (directory: string) =>
     ((await service.get("/api/provider", directory)) as { data: Array<{ id: string }> }).data
       .map((entry) => entry.id)
       .toSorted()
-  const before = await providers(projectA)
+  const integrations = async (directory: string) =>
+    ((await service.get("/api/integration", directory)) as { data: Array<{ id: string }> }).data.map(
+      (entry) => entry.id,
+    )
+  const connect = (integration: string) =>
+    fetch(
+      `${service.url}/api/integration/${integration}/connect/key?location[directory]=${encodeURIComponent(projectA)}`,
+      {
+        method: "POST",
+        headers: { ...service.headers, "content-type": "application/json" },
+        body: JSON.stringify({ key: "sk-test" }),
+      },
+    )
+  // A provider the user connected before signing in.
+  expect((await connect("anthropic")).status).toBe(204)
+  const before = await until(
+    () => providers(projectA),
+    (ids) => ids.includes("anthropic"),
+  )
   // OpenCode's free provider is offered while signed out, and so is the one the user declared in config.
   expect(before).toContain("opencode")
   expect(before).toContain("mine")
   expect(before).not.toContain("systemprompt")
+  const offered = await integrations(projectA)
+  expect(offered).toContain("openai")
+  expect(offered).toContain("claude-agent")
   // Without gateway models the lock holds all the same: the policies leave no provider.
   await client.apply({
     instance: { key: "alpha", url: instance.url.origin },
@@ -291,23 +312,19 @@ test("while an instance's gateway is applied it is the only provider, and clear 
       (ids) => ids.length === 1,
     ),
   ).toEqual(["systemprompt"])
-  // A provider the user connects while the instance is active is not offered either.
-  const connected = await fetch(
-    `${service.url}/api/integration/anthropic/connect/key?location[directory]=${encodeURIComponent(projectA)}`,
-    {
-      method: "POST",
-      headers: { ...service.headers, "content-type": "application/json" },
-      body: JSON.stringify({ key: "sk-ant-test" }),
-    },
-  )
-  expect(connected.status).toBe(204)
-  expect(await providers(projectA)).toEqual(["systemprompt"])
+  // Nor is a provider offered that would vanish once connected, connected or not, and connecting one is refused.
+  const blocked = await integrations(projectA)
+  expect(blocked).not.toContain("anthropic")
+  expect(blocked).not.toContain("openai")
+  expect(blocked).not.toContain("claude-agent")
+  expect((await connect("openai")).status).toBe(404)
   await client.clear()
   const after = await until(
     () => providers(projectA),
     (ids) => ids.includes("anthropic"),
   )
-  expect(after).toEqual([...before, "anthropic"].toSorted())
+  expect(after).toEqual(before)
+  expect(await integrations(projectA)).toEqual(offered)
   expect(
     await until(
       () => providers(projectB),
