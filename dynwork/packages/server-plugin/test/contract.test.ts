@@ -3,7 +3,7 @@ import type { Plugin } from "@opencode/plugin/effect"
 import { Effect, Stream } from "effect"
 import plugin, { Definition } from "../src/index"
 import { DynWorkShell } from "../src/shell"
-import { apply } from "./fixture"
+import { alpha, apply, jwt } from "./fixture"
 
 // Runs the plugin against a recording context. It pins every public plugin API DynWork relies on (hook, transform
 // and RPC names): if upstream renames one, the type check or this test fails instead of the content silently vanishing.
@@ -21,11 +21,15 @@ function record() {
     },
     reload: () => Effect.sync(() => void used.push(`${name}.reload`)),
   })
-  const hook = (name: string) => (event: string, callback: (event: never) => Effect.Effect<void>) => {
-    used.push(`${name}.hook(${event})`)
-    hooks[`${name}.${event}`] = callback
-    return registration
-  }
+  // A hook for one provider is keyed `<name>.<event>@<provider>`
+  const hook =
+    (name: string) =>
+    (event: string, callback: (event: never) => Effect.Effect<void>, options?: { providerID?: string }) => {
+      const provider = options?.providerID ? `@${options.providerID}` : ""
+      used.push(`${name}.hook(${event})${provider}`)
+      hooks[`${name}.${event}${provider}`] = callback
+      return registration
+    }
   const ctx = {
     skill: domain("skill"),
     agent: domain("agent"),
@@ -84,13 +88,17 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
     "session.hook(context)",
     "shell.hook(create.before)",
     "rpc.register(dynwork.sync)",
-    "session.hook(model.request)",
-    "session.hook(retry)",
+    "session.hook(model.request)@systemprompt",
+    "session.hook(context)@claude-agent",
+    "session.hook(compaction)@claude-agent",
+    "session.hook(generate)@claude-agent",
+    "session.hook(title)@claude-agent",
+    "session.hook(retry)@systemprompt",
     "event.subscribe(session.created,session.deleted)",
     "session.hook(experimental.idle)",
     "tool.hook(execute.after)",
-    "session.hook(http.request)",
-    "session.hook(http.response)",
+    "session.hook(http.request)@systemprompt",
+    "session.hook(http.response)@systemprompt",
     "event.subscribe(session.step.ended,session.step.failed)",
   ])
 })
@@ -139,6 +147,37 @@ test("apply fills every transform and the system prompt, and clear empties them"
         expect(yield* recorded.handlers.clear!()).toEqual({})
         const cleared = yield* run()
         expect(cleared).toEqual({ added: [], mcp: {}, system: [] })
+      }),
+    ),
+  )
+})
+
+test("while the gateway is applied, each Claude Agent call goes to it with the identity in its own header", async () => {
+  const recorded = record()
+  await Effect.runPromise(
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* plugin.effect(recorded.ctx)
+        const call = (kind: string) => {
+          const event = { sessionID: "ses_agent", options: {} as Record<string, unknown> }
+          return Effect.as(recorded.hooks[`session.${kind}@claude-agent`]!(event as never), event.options)
+        }
+        // Signed out, Claude Code keeps its own connection
+        expect(yield* call("context")).toEqual({})
+
+        yield* recorded.handlers.apply!(
+          apply(alpha, { gateway: { label: "Alpha", models: [{ id: "claude-x", api: "messages" }] } }),
+        )
+        const routed = {
+          claudeCodeConnection: {
+            settings: { baseURL: "http://127.0.0.1:18101/v1" },
+            headers: { "x-systemprompt-authorization": `Bearer ${jwt}` },
+          },
+        }
+        for (const kind of ["context", "compaction", "generate", "title"]) expect(yield* call(kind)).toEqual(routed)
+
+        yield* recorded.handlers.clear!()
+        expect(yield* call("context")).toEqual({})
       }),
     ),
   )

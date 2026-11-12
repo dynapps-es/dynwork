@@ -2,7 +2,7 @@ export * as DynWorkGateway from "./gateway"
 
 import { Model, Provider } from "@opencode/plugin/effect"
 import { Effect, Option } from "effect"
-import type { DynWorkSync } from "./contract"
+import { DynWorkSync } from "./contract"
 import { DynWorkMapping } from "./mapping"
 
 // The instance gateway as the `systemprompt` provider. Calls go to the instance's own base URL plus `/v1`, never to
@@ -19,6 +19,19 @@ export const skew = 60_000
 
 /** How long a model call waits for main to push a newer JWT. */
 export const refreshWait = 15_000
+
+/**
+ * The Claude Agent provider (`claude-agent`), which runs the user's Claude Code with their claude.ai login. While the
+ * gateway is applied each of its calls goes to the gateway with the systemprompt identity in `identityHeader`, so the
+ * instance serves it with the user's own subscription where its catalog says so (a `kind: caller` credential).
+ */
+export const agentID = "claude-agent"
+
+/** The gateway reads the systemprompt identity here when the client's `Authorization` is its own login. */
+export const identityHeader = "x-systemprompt-authorization"
+
+/** The option under which Claude Agent takes a call's connection (`ClaudeQueryOptions.CONNECTION_OPTION` in core). */
+export const connectionOption = "claudeCodeConnection"
 
 /** The AI SDK package for each gateway route. */
 export const packages = {
@@ -131,15 +144,22 @@ export function push(tokens: Tokens, token: Token | undefined) {
 
 /**
  * The JWT for a Session's next call: the held one while fresh, else a newer one from main. An expired JWT is never
- * sent: without a fresh one the call goes without, the gateway refuses it, and `refused` decides.
+ * sent: without a fresh one the call goes without, the gateway refuses it, and `refused` decides. A call that holds
+ * the JWT for a whole turn (`ahead`) needs one that lasts `DynWorkSync.ahead` more.
  */
-export const authorize = Effect.fnUntraced(function* (tokens: Tokens, events: Events, sessionID: string) {
+export const authorize = Effect.fnUntraced(function* (
+  tokens: Tokens,
+  events: Events,
+  sessionID: string,
+  ahead = false,
+) {
   const held = tokens.current
   const token =
-    held === undefined || held.expiresAt - skew > Date.now()
+    held === undefined || held.expiresAt - (ahead ? DynWorkSync.ahead : skew) > Date.now()
       ? held
       : // No newer JWT in time: the held one while it lasts, unless a sign-out or switch cleared it meanwhile
-        ((yield* renew(tokens, events, held, "expired")) ?? (tokens.current === held ? held : undefined))
+        ((yield* renew(tokens, events, held, ahead ? "ahead" : "expired")) ??
+        (tokens.current === held ? held : undefined))
   const jwt = token !== undefined && token.expiresAt > Date.now() ? token.jwt : undefined
   remember(tokens.sent, sessionID, jwt)
   return jwt

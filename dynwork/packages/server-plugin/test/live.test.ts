@@ -250,7 +250,7 @@ test("without OPENCODE_CONFIG_DIR the skills are added in memory and no file is 
   expect((await content(sharedA, shared))[0]).toEqual([])
 }, 30_000)
 
-test("while an instance's gateway is applied it is the only provider and the only one offered, and clear brings the others back", async () => {
+test("while an instance's gateway is applied it is the only provider and only Claude Agent is offered besides, and clear brings the others back", async () => {
   const providers = async (directory: string) =>
     ((await service.get("/api/provider", directory)) as { data: Array<{ id: string }> }).data
       .map((entry) => entry.id)
@@ -312,11 +312,18 @@ test("while an instance's gateway is applied it is the only provider and the onl
       (ids) => ids.length === 1,
     ),
   ).toEqual(["systemprompt"])
+  // With gateway models Claude Agent is allowed too: its calls go to the gateway.
+  expect(JSON.parse(await Bun.file(path.join(service.config, "opencode.json")).text()).policies).toEqual([
+    { effect: "deny", action: "provider.use", resource: "*" },
+    { effect: "allow", action: "provider.use", resource: "systemprompt" },
+    { effect: "allow", action: "provider.use", resource: "claude-agent" },
+  ])
   // Nor is a provider offered that would vanish once connected, connected or not, and connecting one is refused.
+  // Claude Agent stays on offer.
   const blocked = await integrations(projectA)
   expect(blocked).not.toContain("anthropic")
   expect(blocked).not.toContain("openai")
-  expect(blocked).not.toContain("claude-agent")
+  expect(blocked).toContain("claude-agent")
   expect((await connect("openai")).status).toBe(404)
   await client.clear()
   const after = await until(
