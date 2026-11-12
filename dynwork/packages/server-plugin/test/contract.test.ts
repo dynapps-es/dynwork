@@ -31,6 +31,7 @@ function record() {
     agent: domain("agent"),
     mcp: domain("mcp"),
     provider: domain("provider"),
+    integration: domain("integration"),
     model: domain("model"),
     session: { hook: hook("session") },
     shell: { hook: hook("shell") },
@@ -78,6 +79,7 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
     "skill.transform",
     "mcp.transform",
     "provider.transform",
+    "integration.transform",
     "model.transform",
     "session.hook(context)",
     "shell.hook(create.before)",
@@ -126,6 +128,7 @@ test("apply fills every transform and the system prompt, and clear empties them"
           "agent.reload",
           "mcp.reload",
           "provider.reload",
+          "integration.reload",
           "model.reload",
         ])
         const filled = yield* run()

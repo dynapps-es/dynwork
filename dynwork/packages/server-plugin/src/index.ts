@@ -90,6 +90,8 @@ interface Store {
   usage: DynWorkUsage.Usage | undefined
   /** Usage events already counted: every Location's activation sees the same service events. */
   readonly counted: Set<string>
+  /** The integrations of the providers the instance blocks, recorded by the provider transform. */
+  blocked: ReadonlySet<string>
 }
 
 // The service activates the plugin once per Location, and each activation imports the module afresh (local plugin
@@ -113,6 +115,7 @@ const store: Store = Object.assign(slot.__dynworkSync ?? {}, {
   emit: slot.__dynworkSync?.emit,
   usage: slot.__dynworkSync?.usage,
   counted: slot.__dynworkSync?.counted ?? new Set<string>(),
+  blocked: slot.__dynworkSync?.blocked ?? new Set<string>(),
 })
 slot.__dynworkSync = store
 
@@ -123,6 +126,10 @@ const mapped = () => store.current?.mapped ?? DynWorkMapping.empty
 // without it keeps the user's config dir, which the plugin never writes to: the rules go into each step's system
 // context and the skills into the service in memory instead.
 const configDir = process.env.OPENCODE_CONFIG_DIR || undefined
+
+// While an instance is applied, its gateway is the only provider: with a config dir of its own the bridge's `policies`
+// block the others even without gateway models.
+const locked = () => store.current !== undefined && (configDir !== undefined || store.current.provided !== undefined)
 
 // Every Location reloads, even when one fails; any failure then fails the call, so main never records a sync that did
 // not land everywhere and tries again.
@@ -170,7 +177,8 @@ export default Plugin.define({
         ctx.skill.reload(),
         ctx.agent.reload(),
         ctx.mcp.reload(),
-        ctx.provider.reload().pipe(Effect.andThen(ctx.model.reload())),
+        // The integration transform hides what the provider transform blocked.
+        ctx.provider.reload().pipe(Effect.andThen(ctx.integration.reload()), Effect.andThen(ctx.model.reload())),
       ],
       { discard: true, concurrency: "unbounded" },
     )
@@ -197,10 +205,18 @@ export default Plugin.define({
     // Providers declared in a config file's `providers` are added after external plugins: with a config dir of its own
     // the service gets the bridge's `policies` in `opencode.json`, which remove those too.
     yield* ctx.provider.transform((editor) => {
+      const records = editor.list()
+      store.blocked = new Set(records.map((record) => record.provider.integrationID ?? record.provider.id))
       const provided = store.current?.provided
       if (!provided) return
-      for (const record of editor.list()) editor.remove(record.provider.id)
+      for (const record of records) editor.remove(record.provider.id)
       editor.add({ info: provided.info, models: provided.models })
+    })
+    // Nor does the connect dialog offer a provider that would vanish once connected. Only providers name the
+    // integration they use, so the provider transform records them; MCP servers' and other integrations stay.
+    yield* ctx.integration.transform((editor) => {
+      if (!locked()) return
+      for (const id of store.blocked) editor.remove(id)
     })
     yield* ctx.model.transform((editor) => {
       // With a config dir of its own, `cli_defaults` sets `model` in `opencode.json` only where the user has not.
