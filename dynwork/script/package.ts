@@ -53,6 +53,10 @@ await rm(path.join(desktop, "resources/icons"), { recursive: true, force: true }
 
 await cp(path.join(root, "dynwork/packages/branding/icons"), path.join(desktop, "resources/icons"), { recursive: true })
 
+const summary = "Dynapps' desktop app for working with AI agents"
+
+const description = `${DynWorkIdentity.name} brings the skills, agents and models Dynapps Governance publishes to an AI agent.`
+
 // The deb installs the AppStream metainfo the prod config names after the app id; upstream's build writes OpenCode's.
 if (os === "linux")
   await Bun.write(
@@ -63,12 +67,12 @@ if (os === "linux")
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <name>${DynWorkIdentity.name}</name>
-  <summary>Dynapps' desktop app for working with AI agents</summary>
+  <summary>${summary}</summary>
   <developer id="es.dynapps">
     <name>Dynapps</name>
   </developer>
   <description>
-    <p>${DynWorkIdentity.name} brings the skills, agents and models Dynapps Governance publishes to an AI agent.</p>
+    <p>${description}</p>
   </description>
   <launchable type="desktop-id">${DynWorkIdentity.appId}.desktop</launchable>
   <content_rating type="oars-1.1" />
@@ -81,14 +85,22 @@ await rm(path.join(desktop, "dist"), { recursive: true, force: true })
 // "-" signs ad hoc: Apple Silicon runs no unsigned code, and an ad hoc signature needs no Apple certificate. Without
 // a team the hardened runtime's library validation would refuse Electron's own frameworks, so it stays off, as in the
 // bundle `desktop.ts` installs. Linux names its targets on the command line, which replaces the config's list; the rpm
-// it leaves out would need rpmbuild on the runner.
+// it leaves out would need rpmbuild on the runner. The deb's maintainer, homepage and description would otherwise come
+// from upstream's package.json.
 const flags = [`--${cpu}`, "--publish", "never", "--config", "electron-builder.config.ts"]
+const debian = [
+  "-c.linux.maintainer=Dynapps",
+  "-c.linux.vendor=Dynapps",
+  `-c.linux.synopsis=${summary}`,
+  `-c.linux.description=${description}`,
+  "-c.extraMetadata.homepage=https://github.com/dynapps-es/dynwork",
+]
 await (
   os === "mac"
     ? $`bunx electron-builder --mac ${flags} -c.mac.target=dmg -c.mac.identity=- -c.mac.hardenedRuntime=false`
     : os === "win"
       ? $`bunx electron-builder --win ${flags} -c.win.target=nsis`
-      : $`bunx electron-builder --linux deb AppImage ${flags}`
+      : $`bunx electron-builder --linux deb AppImage ${flags} ${debian}`
 )
   .cwd(desktop)
   .env(env)
