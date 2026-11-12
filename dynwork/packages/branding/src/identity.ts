@@ -13,7 +13,8 @@ export const scheme = "dynwork"
 export const version = "0.1.0"
 
 // The latest GitHub release. Windows updates from its latest.yml; macOS finds none, since Squirrel.Mac refuses an
-// update signed ad hoc, and testers install a new DMG themselves.
+// update signed ad hoc, and testers install a new DMG themselves. Linux finds none either and installs a new deb or
+// AppImage the same way.
 export const updateFeed = "https://github.com/dynapps-es/dynwork/releases/latest/download/"
 
 export const rpmPackage = "dynwork"

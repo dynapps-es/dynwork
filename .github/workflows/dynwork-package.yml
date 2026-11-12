@@ -26,6 +26,7 @@ jobs:
           - { target: mac-arm64, host: macos-26 }
           - { target: mac-x64, host: macos-26-intel }
           - { target: windows-x64, host: windows-2025 }
+          - { target: linux-x64, host: ubuntu-24.04 }
     runs-on: ${{ matrix.host }}
     timeout-minutes: 60
     steps:
