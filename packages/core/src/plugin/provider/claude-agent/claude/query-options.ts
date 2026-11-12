@@ -28,10 +28,8 @@ const ISOLATION_ENV = {
   MCP_TOOL_TIMEOUT: undefined,
 }
 
-// A plugin's request hook routes one call with `{ settings?, headers? }` under this option, such as through a gateway
-// whose credential renews between calls. It replaces the provider's connection for that call.
+// A request hook routes one call with `{ settings?, headers? }` here, replacing the provider's connection for it.
 export const CONNECTION_OPTION = "claudeCodeConnection"
-
 export const isConnection = Schema.is(
   Schema.Struct({
     settings: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
