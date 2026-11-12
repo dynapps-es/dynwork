@@ -36,11 +36,13 @@ const base = Object.fromEntries(Object.entries(process.env).filter((entry) => !e
 const started = Date.now()
 
 // As in `desktop.ts`: the CLI on its "latest" channel, without the web UI the desktop never serves. An x64 desktop
-// bundles the baseline CLI, which runs on CPUs without AVX2.
+// bundles the baseline CLI, which runs on CPUs without AVX2. On Linux `--single --baseline` also picks the musl
+// baseline build, whose pty package `--skip-install` leaves out, so Linux names the glibc target the desktop bundles.
 const baseline = cpu === "x64" ? ["--baseline"] : []
+const target = os === "linux" ? { OPENCODE_TARGET: `linux-${cpu}${cpu === "x64" ? "-baseline" : ""}` } : {}
 await $`bun run build --single ${baseline} --skip-install --skip-web-ui`
   .cwd(path.join(root, "packages/cli"))
-  .env({ ...base, OPENCODE_CHANNEL: "latest", OPENCODE_VERSION: version })
+  .env({ ...base, ...target, OPENCODE_CHANNEL: "latest", OPENCODE_VERSION: version })
 
 const env = { ...base, OPENCODE_CHANNEL: "prod", OPENCODE_VERSION: DynWorkIdentity.version }
 
