@@ -751,8 +751,8 @@ service's in the `service` folder inside it (see "Background service"), so DynWo
 
 DynWork has its own version, `version` in `packages/branding/src/identity.ts`: the desktop app, its installers and its
 GitHub releases carry it, while the bundled CLI keeps upstream's version (it names the CLI's service and staged
-copies). Installers are unsigned by Apple or Microsoft: a DMG for Apple Silicon and one for Intel Macs, and an NSIS
-installer for Windows x64.
+copies). Installers are unsigned by Apple or Microsoft: a DMG for Apple Silicon and one for Intel Macs, an NSIS
+installer for Windows x64, and a deb and an AppImage for Linux x64.
 
 To release:
 
@@ -766,13 +766,14 @@ To release:
    ```
 
 The `dynwork release` workflow (`.github/workflows/dynwork-release.yml`) checks the tag against the version and the
-notes, builds the three installers with `dynwork package` and publishes the release as the latest. Installer names
+notes, builds the installers with `dynwork package` and publishes the release as the latest. Installer names
 carry no version, so `https://github.com/dynapps-es/dynwork/releases/latest/download/<file>` always serves the newest
 one. Windows updates itself from the release's `latest.yml`. macOS cannot: Squirrel.Mac refuses an update signed ad
-hoc, so Mac users download the new DMG.
+hoc, so Mac users download the new DMG. Linux ships no `latest-linux.yml` either, so Linux users install the new deb
+or AppImage; Check for Updates there only reports that it could not check, and nothing checks on its own.
 
 `bun dynwork/script/package.ts` packs the installer for the machine it runs on into `dist/dynwork`, and the
-`dynwork package` workflow (run from the Actions tab) builds all three as workflow artifacts without publishing
+`dynwork package` workflow (run from the Actions tab) builds them all as workflow artifacts without publishing
 anything. The DMG's app is signed ad hoc without the hardened runtime, like the app `desktop.ts` installs.
 
 Users open the app once past the system's warning:
@@ -782,3 +783,7 @@ Users open the app once past the system's warning:
   `xattr -dr com.apple.quarantine /Applications/Dynwork.app` in Terminal and open it again.
 - **Windows**: run the installer. SmartScreen says Windows protected the PC: choose More info → Run anyway. It installs
   for the current user, with no administrator rights.
+- **Linux**: on Debian or Ubuntu, `sudo apt install ./dynwork-desktop-linux-amd64.deb` installs Dynwork in
+  `/opt/Dynwork` with a launcher in the applications menu; `sudo apt remove dynwork` removes it. Elsewhere,
+  `chmod +x dynwork-desktop-linux-x86_64.AppImage` and run it (it needs FUSE 2, `libfuse2`). Sign-in keeps the token
+  in the desktop keyring (GNOME Keyring or KWallet).
