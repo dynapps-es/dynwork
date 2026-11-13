@@ -170,7 +170,8 @@ test("while the gateway is applied, each Claude Agent call goes to it with the i
         )
         const routed = {
           claudeCodeConnection: {
-            settings: { baseURL: "http://127.0.0.1:18101/v1" },
+            // Claude Code posts to `<baseURL>/v1/messages`
+            settings: { baseURL: "http://127.0.0.1:18101" },
             headers: { "x-systemprompt-authorization": `Bearer ${jwt}` },
           },
         }
