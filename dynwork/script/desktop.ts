@@ -23,7 +23,12 @@ const desktop = path.join(root, "packages/desktop")
 
 const install = installTarget(process.argv.slice(2))
 
-const version: string = (await Bun.file(path.join(desktop, "package.json")).json()).version
+// Every local build gets its own CLI version, so the installed app replaces the staged CLI and the running service even
+// when the checkout has uncommitted changes.
+const version = DynWorkIdentity.cliVersion(
+  (await Bun.file(path.join(desktop, "package.json")).json()).version,
+  `local.${Date.now()}`,
+)
 
 // The developer's OPENCODE_* variables would change the channel, version or service of the build.
 const base = Object.fromEntries(Object.entries(process.env).filter((entry) => !entry[0].startsWith("OPENCODE_")))
@@ -42,7 +47,7 @@ const built = (await $`${cli} --version`.env(base).text()).trim()
 
 if (built !== `opencode v${version}`) throw new Error(`The CLI reports "${built}", expected "opencode v${version}"`)
 
-// The app carries DynWork's version; the CLI keeps upstream's.
+// The app carries DynWork's version.
 const env = { ...base, OPENCODE_CHANNEL: "prod", OPENCODE_VERSION: DynWorkIdentity.version }
 
 await $`bun run build`.cwd(desktop).env(env)
