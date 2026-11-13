@@ -10,7 +10,7 @@ export const scheme = "dynwork"
 
 // DynWork's own version: the desktop app, its installers and its GitHub releases (tag `dynwork-v<version>`) carry it.
 // Bump it for every release.
-export const version = "0.1.0"
+export const version = "0.1.1"
 
 // The bundled CLI's version: upstream's, marked with DynWork's version and the build. The desktop keeps running a staged
 // CLI and its service while their version is the bundled one's, so with upstream's alone a DynWork update would keep
