@@ -498,8 +498,8 @@ Claude Agent (`claude-agent`, the user's Claude Code with their claude.ai login)
 is applied it stays, and so does its integration and an `allow provider.use claude-agent` statement in the config dir's
 `policies`. Each of its calls goes to the gateway instead: the `context`, `compaction`, `generate` and `title` hooks for
 `claude-agent` put the call's own connection under `claudeCodeConnection` in its options (a seam in core's Claude Agent,
-`ClaudeQueryOptions.CONNECTION_OPTION`), with the gateway's base URL and the JWT in `x-systemprompt-authorization`, and
-nothing of the provider's own settings. Claude Code keeps sending its login in `Authorization`, and the instance serves
+`ClaudeQueryOptions.CONNECTION_OPTION`), with the instance's URL as the base URL (without `/v1`: Claude Code appends
+`/v1/messages` itself) and the JWT in `x-systemprompt-authorization`, and nothing of the provider's own settings. Claude Code keeps sending its login in `Authorization`, and the instance serves
 the call with the user's own subscription when its catalog deploys that model on a `kind: caller` credential
 (systemprompt 0.81; an older instance refuses the call with a `401`), or with the platform key when it deploys it on
 one. Claude Code holds the JWT for the whole turn, so a call starts with one that lasts at least `DynWorkSync.ahead`

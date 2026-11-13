@@ -447,7 +447,8 @@ export default Plugin.define({
               if (!provided) return
               const jwt = yield* DynWorkGateway.authorize(store.tokens, events, event.sessionID, true)
               event.options[DynWorkGateway.connectionOption] = {
-                settings: { baseURL: provided.baseURL },
+                // Claude Code appends `/v1/messages` to its base URL itself
+                settings: { baseURL: provided.baseURL.replace(/\/v1$/, "") },
                 // A switch or sign-out while authorize waited leaves a JWT that is not this gateway's
                 headers:
                   jwt && store.current?.provided === provided
