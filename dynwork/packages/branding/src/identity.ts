@@ -10,7 +10,7 @@ export const scheme = "dynwork"
 
 // DynWork's own version: the desktop app, its installers and its GitHub releases (tag `dynwork-v<version>`) carry it.
 // The bundled CLI keeps upstream's version, which names its service and staged copies. Bump it for every release.
-export const version = "0.1.0"
+export const version = "0.1.1"
 
 // The latest GitHub release. Windows updates from its latest.yml; macOS finds none, since Squirrel.Mac refuses an
 // update signed ad hoc, and testers install a new DMG themselves. Linux finds none either and installs a new deb or
