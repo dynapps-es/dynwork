@@ -204,10 +204,11 @@ export default Plugin.define({
     // provider while it is applied. Every provider reload runs this again, so one connected later is removed too.
     // Providers declared in a config file's `providers` are added after external plugins: with a config dir of its own
     // the service gets the bridge's `policies` in `opencode.json`, which remove those too.
+    // Claude Agent stays while the gateway is applied: each of its calls goes to the gateway (the hooks below).
     yield* ctx.provider.transform((editor) => {
-      const records = editor.list()
-      store.blocked = new Set(records.map((record) => record.provider.integrationID ?? record.provider.id))
       const provided = store.current?.provided
+      const records = editor.list().filter((record) => !(provided && record.provider.id === DynWorkGateway.agentID))
+      store.blocked = new Set(records.map((record) => record.provider.integrationID ?? record.provider.id))
       if (!provided) return
       for (const record of records) editor.remove(record.provider.id)
       editor.add({ info: provided.info, models: provided.models })
@@ -260,6 +261,7 @@ export default Plugin.define({
         apply: (input) =>
           Effect.gen(function* () {
             const next = DynWorkMapping.map(input)
+            const provided = DynWorkGateway.provider(input)
             // Like the bridge, the block is written in full and only reported: OpenCode never reads rules past it.
             const over = DynWorkInstructions.overBudget(next.instructions)
             if (over)
@@ -277,7 +279,13 @@ export default Plugin.define({
               yield* Effect.promise(() => DynWorkInstructions.write(configDir, next.instructions))
               yield* Effect.promise(() => DynWorkSkills.write(configDir, next.skillFiles))
               yield* Effect.promise(() => DynWorkBundles.write(configDir, next.owned))
-              yield* Effect.promise(() => DynWorkConfig.write(configDir, { locked: true, settings: next.settings }))
+              yield* Effect.promise(() =>
+                DynWorkConfig.write(configDir, {
+                  locked: true,
+                  agent: provided !== undefined,
+                  settings: next.settings,
+                }),
+              )
             }
             const telemetry = DynWorkTelemetry.target(input)
             // The device credential belongs to the instance it was enrolled with: another one never receives it.
@@ -291,7 +299,7 @@ export default Plugin.define({
             // Another instance starts its totals at zero, as a new bridge session does.
             if (store.usage?.instance !== DynWorkUsage.id(input.instance))
               store.usage = DynWorkUsage.start(input.instance)
-            store.current = { input, mapped: next, provided: DynWorkGateway.provider(input), telemetry }
+            store.current = { input, mapped: next, provided, telemetry }
             DynWorkGateway.push(store.tokens, { jwt: input.jwt, expiresAt: input.expiresAt })
             yield* reloadAll
             return {
@@ -423,6 +431,34 @@ export default Plugin.define({
           event.baseURL = provided.baseURL
         }),
       { providerID: DynWorkGateway.providerID },
+    )
+    // Claude Agent's calls go to the instance's gateway with the systemprompt identity in a header of their own, so
+    // Claude Code keeps the user's claude.ai login and the instance serves them with the user's own subscription where
+    // its catalog says so. The connection is the call's own, never the provider's: a base URL set in the user's config
+    // never receives the JWT. Claude Code holds the JWT for the whole turn, so one that runs out sooner is renewed first.
+    yield* Effect.forEach(
+      ["context", "compaction", "generate", "title"] as const,
+      (kind) =>
+        ctx.session.hook(
+          kind,
+          (event) =>
+            Effect.gen(function* () {
+              const provided = store.current?.provided
+              if (!provided) return
+              const jwt = yield* DynWorkGateway.authorize(store.tokens, events, event.sessionID, true)
+              event.options[DynWorkGateway.connectionOption] = {
+                // Claude Code appends `/v1/messages` to its base URL itself
+                settings: { baseURL: provided.baseURL.replace(/\/v1$/, "") },
+                // A switch or sign-out while authorize waited leaves a JWT that is not this gateway's
+                headers:
+                  jwt && store.current?.provided === provided
+                    ? { [DynWorkGateway.identityHeader]: `Bearer ${jwt}` }
+                    : {},
+              }
+            }),
+          { providerID: DynWorkGateway.agentID },
+        ),
+      { discard: true },
     )
     // A refused call (401) runs once more with a newer JWT instead of failing the step.
     yield* ctx.session.hook(

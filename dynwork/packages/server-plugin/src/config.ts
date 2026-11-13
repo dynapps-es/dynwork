@@ -72,12 +72,19 @@ export const policies = [
   { effect: "allow", action: "provider.use", resource: "systemprompt" },
 ]
 
+/** Claude Agent is allowed too while its calls go to the instance's gateway, which only exists with gateway models. */
+export const agent = { effect: "allow", action: "provider.use", resource: "claude-agent" }
+
 /**
- * Merges into `<directory>/opencode.json` the `policies` while `locked` (ahead of the user's own; taken out again
- * otherwise, and the file removed once nothing else is left in it) and `settings`' keys where absent, then selects
- * `settings`' theme in `cli.json`. A file that is not a JSON object is refused rather than rewritten.
+ * Merges into `<directory>/opencode.json` the `policies` while `locked`, with `agent` when Claude Agent goes through the
+ * gateway (ahead of the user's own; taken out again otherwise, and the file removed once nothing else is left in it)
+ * and `settings`' keys where absent, then selects `settings`' theme in `cli.json`. A file that is not a JSON object is
+ * refused rather than rewritten.
  */
-export async function write(directory: string, input: { readonly locked: boolean; readonly settings?: Settings }) {
+export async function write(
+  directory: string,
+  input: { readonly locked: boolean; readonly agent?: boolean; readonly settings?: Settings },
+) {
   const file = path.join(directory, "opencode.json")
   const original = await read(file)
   const settings = input.settings
@@ -91,7 +98,10 @@ export async function write(directory: string, input: { readonly locked: boolean
   )
   const next = Object.fromEntries(
     input.locked
-      ? [...filled.filter((entry) => entry[0] !== "policies"), ["policies", [...policies, ...foreign]]]
+      ? [
+          ...filled.filter((entry) => entry[0] !== "policies"),
+          ["policies", [...policies, ...(input.agent ? [agent] : []), ...foreign]],
+        ]
       : filled.flatMap((entry) => {
           if (entry[0] !== "policies" || !Array.isArray(entry[1])) return [entry]
           return foreign.length === 0 ? [] : [["policies", foreign]]
@@ -114,7 +124,7 @@ async function select(directory: string, theme: NonNullable<Settings["theme"]>) 
 }
 
 function ours(policy: unknown) {
-  return policies.some(
+  return [...policies, agent].some(
     (own) =>
       isObject(policy) &&
       Object.keys(policy).length === 3 &&

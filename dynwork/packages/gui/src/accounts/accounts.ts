@@ -239,11 +239,11 @@ export function make(options: Options) {
   }
 
   // The account's JWT, its expiry and the instance session it was minted for, minted on demand; `fresh` mints a new one
-  // even while the held one is valid (the gateway refused it). For main code only (gateway, sync, heartbeat); never sent
-  // to a window.
-  const session = async (id: string, fresh = false) => {
+  // even while the held one is valid (the gateway refused it), and `margin` is how long the held one must still last.
+  // For main code only (gateway, sync, heartbeat); never sent to a window.
+  const session = async (id: string, fresh = false, margin = 60_000) => {
     const held = sessions.get(id)
-    if (!fresh && held !== undefined && held.cipher === cipherOf(find(id)) && held.expiresAt - 60_000 > Date.now())
+    if (!fresh && held !== undefined && held.cipher === cipherOf(find(id)) && held.expiresAt - margin > Date.now())
       return { token: held.token, expiresAt: held.expiresAt, sessionId: held.sessionId }
     const minted = await mint(id)
     return { token: minted.token, expiresAt: minted.expiresAt, sessionId: minted.sessionId }

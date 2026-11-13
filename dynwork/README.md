@@ -490,7 +490,21 @@ provider headers do. Like the bridge's `policies` (deny `provider.use *`, allow 
 gateway is applied the same transform removes every other provider first, OpenCode's free one included, and every
 provider reload runs it again, so a provider connected meanwhile is not offered either; `clear` brings them all back. An
 apply without gateway models (no profile, or a filter that selects none) locks nothing. Providers declared in a config
-file's `providers` table are added by OpenCode's config plugin, which runs after external plugins, so they stay.
+file's `providers` table are added by OpenCode's config plugin, which runs after external plugins, so they stay. The
+transform records the integration of every provider it removes, and an integration transform removes those too, so the
+connect dialog never offers a provider that would vanish once connected (MCP servers' integrations stay).
+
+Claude Agent (`claude-agent`, the user's Claude Code with their claude.ai login) is the one exception: while the gateway
+is applied it stays, and so does its integration and an `allow provider.use claude-agent` statement in the config dir's
+`policies`. Each of its calls goes to the gateway instead: the `context`, `compaction`, `generate` and `title` hooks for
+`claude-agent` put the call's own connection under `claudeCodeConnection` in its options (a seam in core's Claude Agent,
+`ClaudeQueryOptions.CONNECTION_OPTION`), with the instance's URL as the base URL (without `/v1`: Claude Code appends
+`/v1/messages` itself) and the JWT in `x-systemprompt-authorization`, and nothing of the provider's own settings. Claude Code keeps sending its login in `Authorization`, and the instance serves
+the call with the user's own subscription when its catalog deploys that model on a `kind: caller` credential
+(systemprompt 0.81; an older instance refuses the call with a `401`), or with the platform key when it deploys it on
+one. Claude Code holds the JWT for the whole turn, so a call starts with one that lasts at least `DynWorkSync.ahead`
+(10 min) more: the hook asks main for a newer one with `refresh` reason `ahead`, on which main mints one when its own
+runs out within that margin. A new JWT relaunches the Claude Code process on the next call; its Session resumes.
 
 The JWT is never part of the provider, a credential row or the database (decision T6). `ctx.session.hook("model.request",
 …, {providerID: "systemprompt"})` adds `authorization: Bearer <jwt>` and `x-systemprompt-client: opencode` to every
@@ -508,7 +522,8 @@ changed by the user's config never receives the JWT. Freshness:
 {instance}`, on which main signs the instance out.
 - Main follows both events with `DynWorkSyncMain.make(...).listen(handlers, signal)` (`GET /api/event?types=…` on the
   sidecar); events published while nobody listens are lost and the call just gives up after its wait. On `rejected`
-  reasons main must mint a new JWT rather than hand out its cached one.
+  reasons main must mint a new JWT rather than hand out its cached one, and on `ahead` one that lasts
+  `DynWorkSync.ahead` more.
 
 ### Governance telemetry
 

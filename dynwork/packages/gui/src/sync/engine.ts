@@ -345,9 +345,10 @@ export function make(options: Options) {
     refresh: (event) => {
       const loop = current.loop
       if (loop === undefined || event.instance !== loop.instance) return
-      // A refused JWT is never handed out again: mint another one
+      // A refused JWT is never handed out again: mint another one. One that must last a whole Claude Agent turn is
+      // minted again when it runs out within `ahead`.
       void accounts
-        .session(loop.id, event.reason === "rejected")
+        .session(loop.id, event.reason === "rejected", event.reason === "ahead" ? DynWorkSync.ahead : undefined)
         .then((session) => push(loop, session))
         .catch(() => undefined)
     },

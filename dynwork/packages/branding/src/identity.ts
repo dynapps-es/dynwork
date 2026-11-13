@@ -9,8 +9,15 @@ export const appId = "es.dynapps.dynwork"
 export const scheme = "dynwork"
 
 // DynWork's own version: the desktop app, its installers and its GitHub releases (tag `dynwork-v<version>`) carry it.
-// The bundled CLI keeps upstream's version, which names its service and staged copies. Bump it for every release.
+// Bump it for every release.
 export const version = "0.1.1"
+
+// The bundled CLI's version: upstream's, marked with DynWork's version and the build. The desktop keeps running a staged
+// CLI and its service while their version is the bundled one's, so with upstream's alone a DynWork update would keep
+// the previous build's CLI and service.
+export function cliVersion(upstream: string, build: string) {
+  return `${upstream}-dynwork.${version}+${build}`
+}
 
 // The latest GitHub release. Windows updates from its latest.yml; macOS finds none, since Squirrel.Mac refuses an
 // update signed ad hoc, and testers install a new DMG themselves. Linux finds none either and installs a new deb or

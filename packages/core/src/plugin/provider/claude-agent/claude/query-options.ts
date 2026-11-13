@@ -2,6 +2,7 @@ export * as ClaudeQueryOptions from "./query-options.js"
 
 import type { LanguageModelV3FunctionTool } from "@ai-sdk/provider"
 import type { Options } from "@anthropic-ai/claude-agent-sdk"
+import { Schema } from "effect"
 import { ToolHooks } from "../tools/hooks.js"
 import type { PendingTools } from "../tools/pending.js"
 import { ToolServer } from "../tools/server.js"
@@ -26,6 +27,15 @@ const ISOLATION_ENV = {
   // Caps every OpenCode tool call, which would fail subagents and permission prompts that run longer
   MCP_TOOL_TIMEOUT: undefined,
 }
+
+// A request hook routes one call with `{ settings?, headers? }` here, replacing the provider's connection for it.
+export const CONNECTION_OPTION = "claudeCodeConnection"
+export const isConnection = Schema.is(
+  Schema.Struct({
+    settings: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+    headers: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  }),
+)
 
 export function connectionEnv(connection: {
   readonly settings?: Readonly<Record<string, unknown>>
