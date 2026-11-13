@@ -27,8 +27,11 @@ const desktop = path.join(root, "packages/desktop")
 
 const out = path.join(root, "dist/dynwork")
 
-// Upstream's version, which the CLI keeps; the app carries DynWork's.
-const version: string = (await Bun.file(path.join(desktop, "package.json")).json()).version
+// The CLI carries upstream's version marked with DynWork's and the commit; the app carries DynWork's.
+const version = DynWorkIdentity.cliVersion(
+  (await Bun.file(path.join(desktop, "package.json")).json()).version,
+  (await $`git rev-parse --short=10 HEAD`.cwd(root).text()).trim(),
+)
 
 // The developer's OPENCODE_* variables would change the channel, version or service of the build.
 const base = Object.fromEntries(Object.entries(process.env).filter((entry) => !entry[0].startsWith("OPENCODE_")))
