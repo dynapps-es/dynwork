@@ -178,6 +178,23 @@ describe("authorize", () => {
     expect(h.tokens.sent.get("ses_a")).toBe("one")
   })
 
+  test("a call that holds the JWT for a whole turn renews one that runs out within `ahead`", async () => {
+    const h = harness((tokens) => DynWorkGateway.push(tokens, { jwt: "two", expiresAt: later() }))
+    DynWorkGateway.push(h.tokens, { jwt: "one", expiresAt: later(DynWorkSync.ahead / 2) })
+    // A plain call takes it while it lasts more than a minute
+    expect(await run(DynWorkGateway.authorize(h.tokens, h.events, "ses_a"))).toBe("one")
+    expect(h.heard).toEqual([])
+    expect(await run(DynWorkGateway.authorize(h.tokens, h.events, "ses_a", true))).toBe("two")
+    expect(h.heard).toEqual(["refresh:ahead"])
+  })
+
+  test("a turn starts with the JWT held when main has no newer one in time", async () => {
+    const h = harness()
+    DynWorkGateway.push(h.tokens, { jwt: "one", expiresAt: later(DynWorkSync.ahead / 2) })
+    expect(await run(DynWorkGateway.authorize(h.tokens, h.events, "ses_a", true))).toBe("one")
+    expect(h.heard).toEqual(["refresh:ahead"])
+  })
+
   test("after a renewal only the new JWT goes out", async () => {
     const h = harness()
     DynWorkGateway.push(h.tokens, { jwt: "one", expiresAt: later() })

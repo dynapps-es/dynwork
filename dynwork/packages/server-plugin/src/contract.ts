@@ -157,13 +157,20 @@ export type Device = typeof Device.Type
 
 /**
  * Events the plugin publishes for main. `refresh`: a model call needs a newer JWT than the plugin holds (it expired,
- * or the gateway refused it), so main mints one and pushes it with `token`. `rejected`: the gateway refused the JWT
- * main minted in answer to a refusal, so the plugin stopped sending it and main signs the instance out.
+ * the gateway refused it, or it runs out within `ahead` and the call may outlive it), so main mints one and pushes it
+ * with `token`. `rejected`: the gateway refused the JWT main minted in answer to a refusal, so the plugin stopped
+ * sending it and main signs the instance out.
  */
 export const Refresh = Schema.Struct({
   instance: Schema.String,
-  reason: Schema.Literals(["expired", "rejected"]),
+  reason: Schema.Literals(["expired", "rejected", "ahead"]),
 })
+
+/**
+ * How long a JWT must still last when a Claude Agent call starts: Claude Code holds it for the whole turn, many
+ * gateway calls long, and cannot ask for another.
+ */
+export const ahead = 10 * 60_000
 export type Refresh = typeof Refresh.Type
 
 export const Rejected = Schema.Struct({ instance: Schema.String })

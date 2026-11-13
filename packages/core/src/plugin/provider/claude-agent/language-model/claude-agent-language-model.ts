@@ -6,6 +6,7 @@ import type {
   LanguageModelV3FunctionTool,
   LanguageModelV3StreamResult,
 } from "@ai-sdk/provider"
+import { ClaudeQueryOptions } from "../claude/query-options.js"
 import type { ClaudeSessions } from "../claude/sessions.js"
 import type { EffortLevel } from "@anthropic-ai/claude-agent-sdk"
 import { Provider } from "@opencode/schema/provider"
@@ -48,6 +49,7 @@ export class Model implements LanguageModelV3 {
     const loaded = settings?.[ClaudeSystemPrompt.INSTRUCTIONS_OPTION]
     const instructions = typeof loaded === "string" ? loaded : undefined
     const effort = parseEffort(settings?.effort)
+    const routed = settings?.[ClaudeQueryOptions.CONNECTION_OPTION]
     const primary = kind === "primary"
     const branch = kind === "generate" || kind === "compaction"
     const sessionID = primary ? session : undefined
@@ -73,7 +75,9 @@ export class Model implements LanguageModelV3 {
               model: this.modelId,
               effort,
               maxOutputTokens: options.maxOutputTokens,
-              connection: this.connection,
+              connection: ClaudeQueryOptions.isConnection(routed)
+                ? ClaudeQueryOptions.connectionEnv(routed)
+                : this.connection,
               system,
               prompt: options.prompt,
               tools: offered,
