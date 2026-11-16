@@ -88,7 +88,8 @@ describe("the local backend", () => {
         parentID: anchorID,
         agent: "build",
         model: { providerID: "anthropic", id: "claude-sonnet-5-5" },
-        metadata: { dynwork: { routine: routine.ref.id, role: "run", trigger: "manual" } },
+        // A run is a conversation of its own: the app gives it the standard composer, not the subagent bar.
+        metadata: { conversation: true, dynwork: { routine: routine.ref.id, role: "run", trigger: "manual" } },
         permissions: [
           { action: "edit", resource: "*", effect: "deny" },
           { action: "shell", resource: "*", effect: "deny" },

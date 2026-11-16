@@ -14,8 +14,8 @@ import "./runs.css"
 
 /**
  * The Runs panel, on a routine's conversation (its anchor and each of its runs): the routine in a line, Run now, Pause
- * and Edit, its runs by day with their state and an unread dot, and at the foot, while a run is routed, a box to reply
- * to it and "Open as a chat". A run is a link the app's router opens in place, inside the anchor's tab.
+ * and Edit, and its runs by day with their state and an unread dot. A run is a link the app's router opens in place,
+ * inside the anchor's tab, where the app's own composer continues it.
  */
 export function RunsPanel(props: { session: MountedSession }) {
   const ctx = usePlugin()
@@ -33,16 +33,7 @@ export function RunsPanel(props: { session: MountedSession }) {
       routines: client()?.state()?.routines ?? [],
     })
   }
-  const model = createRunsModel({
-    client,
-    routine,
-    routed: () => props.session.id,
-    // The routed session's own server: the run's conversation lives there, and the window's client reaches it.
-    session: {
-      prompt: (session, text) => props.session.server.client.session.prompt({ sessionID: session, text }),
-      fork: (session) => props.session.server.client.session.fork({ sessionID: session }).then((info) => info.id),
-    },
-  })
+  const model = createRunsModel({ client, routine, routed: () => props.session.id })
 
   // While the panel is on screen it watches, so runs move as they happen.
   createEffect(() => {
@@ -69,11 +60,6 @@ export function RunsPanel(props: { session: MountedSession }) {
       },
     ),
   )
-
-  const fork = async () => {
-    const id = await model.fork()
-    if (id) ctx.tabs.open({ server: props.session.server.id, id }, { focus: true })
-  }
 
   return (
     <div data-component="dynwork-runs">
@@ -111,47 +97,6 @@ export function RunsPanel(props: { session: MountedSession }) {
             </Show>
           </Show>
         </div>
-        <Show when={model.canReply()} fallback={<p data-slot="runs-hint">{ctx.t("runs.reply.hint")}</p>}>
-          <form
-            data-slot="runs-reply"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void model.reply()
-            }}
-          >
-            <label for="dynwork-runs-reply">{ctx.t("runs.reply.label")}</label>
-            <textarea
-              id="dynwork-runs-reply"
-              rows={3}
-              placeholder={ctx.t("runs.reply.placeholder")}
-              value={model.state.reply}
-              onInput={(event) => model.setReply(event.currentTarget.value)}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return
-                event.preventDefault()
-                void model.reply()
-              }}
-            />
-            <div data-slot="runs-reply-actions">
-              <Button
-                variant="ghost"
-                icon="speech-bubble"
-                title={ctx.t("runs.fork.title")}
-                disabled={model.busy("fork")}
-                onClick={() => void fork()}
-              >
-                {ctx.t("runs.fork")}
-              </Button>
-              <Button
-                type="submit"
-                variant="contrast"
-                disabled={model.busy("reply") || model.state.reply.trim() === ""}
-              >
-                {ctx.t("runs.reply.send")}
-              </Button>
-            </div>
-          </form>
-        </Show>
       </Show>
     </div>
   )

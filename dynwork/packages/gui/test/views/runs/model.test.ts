@@ -31,24 +31,9 @@ async function setup() {
     return found
   }
   const [routed, setRouted] = createSignal("")
-  const sent: Array<{ session: string; text: string }> = []
-  const forked: string[] = []
   const [routine, setRoutine] = createSignal<Routine>()
-  const model = createRoot(() =>
-    createRunsModel({
-      client: () => wire.client,
-      routine,
-      routed,
-      session: {
-        prompt: async (session, text) => void sent.push({ session, text }),
-        fork: async (session) => {
-          forked.push(session)
-          return `ses_fork_${session}`
-        },
-      },
-    }),
-  )
-  return { time, local, wire, model, find, setRouted, setRoutine, sent, forked }
+  const model = createRoot(() => createRunsModel({ client: () => wire.client, routine, routed }))
+  return { time, local, wire, model, find, setRouted, setRoutine }
 }
 
 describe("which sessions are a routine's", () => {
@@ -161,26 +146,6 @@ describe("the Runs panel", () => {
     expect(isFailure(page) ? undefined : page.items.find((run) => run.ref.id === unread.ref.id)?.unread).toBe(false)
   })
 
-  test("a reply goes to the routed run's session and a fork answers the new conversation", async () => {
-    const { model, find, setRoutine, setRouted, sent, forked } = await setup()
-    const tickets = find("Weekly ticket summary")
-    setRoutine(tickets)
-    await model.load()
-    const run = model.runs()[0]
-    if (!run || run.conversation.kind !== "session") throw new Error("no run")
-    expect(model.canReply()).toBe(false)
-    setRouted(run.conversation.session)
-    expect(model.canReply()).toBe(true)
-    model.setReply("   ")
-    expect(await model.reply()).toBe(false)
-    model.setReply("Add the totals, please.")
-    expect(await model.reply()).toBe(true)
-    expect(sent).toEqual([{ session: run.conversation.session, text: "Add the totals, please." }])
-    expect(model.state.reply).toBe("")
-    expect(await model.fork()).toBe(`ses_fork_${run.conversation.session}`)
-    expect(forked).toEqual([run.conversation.session])
-  })
-
   test("pause and resume switch the routine off and on through the Ipc", async () => {
     const { model, find, setRoutine, wire } = await setup()
     setRoutine(find("Weekly ticket summary"))
@@ -201,7 +166,7 @@ describe("the Runs panel", () => {
     expect(routineHref({ ...tickets, last: undefined, conversation: { kind: "none" } })).toBeUndefined()
   })
 
-  test("on the anchor there is no current run and nothing to reply to", async () => {
+  test("on the anchor there is no current run", async () => {
     const { model, find, setRoutine, setRouted } = await setup()
     const tickets = find("Weekly ticket summary")
     if (tickets.conversation.kind !== "session") throw new Error("no anchor")
@@ -209,7 +174,5 @@ describe("the Runs panel", () => {
     setRouted(tickets.conversation.anchor)
     await model.load()
     expect(model.current()).toBeUndefined()
-    expect(model.canReply()).toBe(false)
-    expect(await model.fork()).toBeUndefined()
   })
 })

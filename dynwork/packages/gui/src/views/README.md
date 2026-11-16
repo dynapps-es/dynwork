@@ -95,17 +95,19 @@ narrow window it is an entry of the More drawer.
 | File        | Role                                                                                                                  |
 | ----------- | --------------------------------------------------------------------------------------------------------------------- |
 | `model.ts`  | Which sessions are a routine's (`marker`, `routineOf`), the links, the runs by day, and the panel's state and actions |
-| `panel.tsx` | The panel: the routine in a line with Run now, Pause or Resume and Edit, the runs by day, the reply box               |
-| `runs.css`  | One column that wraps at any width; the reply box stays at the foot while the list scrolls                            |
+| `panel.tsx` | The panel: the routine in a line with Run now, Pause or Resume and Edit, and the runs by day                          |
+| `runs.css`  | One column that wraps at any width                                                                                    |
 | `en.ts`     | Its strings                                                                                                           |
 
 - Each run shows its mark, its time, its state and duration, and an unread dot. A run is a link that opens it in place;
   the routed run is highlighted.
 - A run on screen that has finished is marked read: the routines Ipc's `viewed`, which marks the run's session viewed
   at its `time.idle` (upstream marks only the root session viewed, never a child).
-- A child session has no composer upstream. While a run is routed, the foot of the panel has a "Reply to this run" box,
-  which prompts the run's session through the window's own client, so the answer shows in the conversation, and "Open
-  as a chat", which forks the run into a top-level conversation and opens it in a tab.
+- A run is continued in place. Upstream gives a child session no composer, only the subagent bar; a run's session has
+  `metadata.conversation: true`, which DynWork's patch (`packages/app/src/session/subagent.ts`) reads to give it the
+  app's standard composer, with attachments, the agent and model pickers and commands, and its timeline's revert and
+  fork. The panel has no reply box of its own, and no "Open as a chat": the timeline's fork already copies a run into a
+  top-level conversation.
 - Edit opens the routine's detail in the Agents view (`../agents/focus.ts`), where the form is.
 
 Not seen in a real window yet (phase 06 of the plan): that a link from a plugin opens the child in the anchor's tab, that

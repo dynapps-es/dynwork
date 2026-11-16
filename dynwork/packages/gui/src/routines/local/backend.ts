@@ -366,6 +366,8 @@ export function make(options: Options): Local {
       const definition = stored.definition
       const title = `${definition.name} · ${stamp(at, definition.schedule?.timezone)}`
       // Every run carries its own permissions and metadata, or it would inherit the anchor's (docs/04-ui.md §A.3.1).
+      // `conversation: true` has the app treat the child as a conversation of its own, with the standard composer,
+      // rather than as a subagent's read-only session (DynWork's patch in `packages/app/src/session/subagent.ts`).
       const child = await call(() =>
         client.session.create({
           parentID: parent,
@@ -375,7 +377,7 @@ export function make(options: Options): Local {
           permissions: (denied[String(definition.options.permissions ?? "read-only")] ?? denied["read-only"]!).map(
             (action) => ({ action, resource: "*", effect: "deny" as const }),
           ),
-          metadata: { dynwork: { backend, routine, role: "run", trigger: "manual" } },
+          metadata: { conversation: true, dynwork: { backend, routine, role: "run", trigger: "manual" } },
         }),
       )
       if (isFailure(child)) return child

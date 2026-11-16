@@ -1,7 +1,7 @@
 /* The Runs panel: a column in the session's side region (320px wide by default, as narrow as the host lets it), or the
    More drawer on a narrow window. Everything stacks in one column and wraps: the head's actions wrap under the name, a
-   run row ellipsizes its line, the reply box takes the full width. Nothing scrolls sideways. Tailwind does not scan
-   dynwork/, so it styles itself with the theme's v2 tokens; the run marks repeat the Agents view's, scoped here. */
+   run row ellipsizes its line. Nothing scrolls sideways. Tailwind does not scan dynwork/, so it styles itself with the
+   theme's v2 tokens; the run marks repeat the Agents view's, scoped here. */
 
 [data-component="dynwork-runs"] {
   display: flex;
@@ -138,8 +138,7 @@
     background: var(--v2-background-bg-accent);
   }
 
-  [data-slot="runs-empty"],
-  [data-slot="runs-hint"] {
+  [data-slot="runs-empty"] {
     margin: 0;
     color: var(--v2-text-text-faint);
     font-size: 12px;
@@ -161,48 +160,5 @@
       min-width: 0;
       overflow-wrap: anywhere;
     }
-  }
-
-  /* The reply box stays at the foot while the list scrolls above it. */
-  [data-slot="runs-reply"] {
-    position: sticky;
-    bottom: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding-top: 10px;
-    border-top: 1px solid var(--v2-border-border-muted);
-    background: var(--v2-background-bg-base);
-
-    label {
-      color: var(--v2-text-text-muted);
-      font-size: 12px;
-      font-weight: 500;
-    }
-
-    textarea {
-      box-sizing: border-box;
-      width: 100%;
-      min-width: 0;
-      padding: 8px 10px;
-      border: 1px solid var(--v2-border-border-base);
-      border-radius: 8px;
-      background: var(--v2-background-bg-layer-01);
-      color: inherit;
-      font: inherit;
-      resize: vertical;
-
-      &:focus-visible {
-        border-color: var(--v2-border-border-focus);
-        outline: none;
-      }
-    }
-  }
-
-  [data-slot="runs-reply-actions"] {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    gap: 6px;
   }
 }

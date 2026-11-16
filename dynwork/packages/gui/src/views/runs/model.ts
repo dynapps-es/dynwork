@@ -6,8 +6,8 @@ import { isFailure, type Failure, type Routine, type Run } from "../../routines/
 import { refKey, sameRef } from "../agents/model"
 
 // The Runs panel's state, apart from how it is drawn (docs/04-ui.md §A.3.3): which sessions are a routine's, the
-// routine's runs over the routines Ipc, the run the window routes, and what the panel does with it (reply, fork, mark
-// read). The panel lists itself only on a routine's sessions: its anchor and its runs.
+// routine's runs over the routines Ipc, the run the window routes, and marking it read. The panel lists itself only on a
+// routine's sessions: its anchor and its runs. A run is continued in its own conversation, with the app's composer.
 
 /** The panel's host key, `${plugin}:${tab}`. */
 export const panelKey = "dynwork:runs"
@@ -108,20 +108,11 @@ export function days(runs: readonly Run[], now: number, zone?: string): Day[] {
   }, [])
 }
 
-/** What the panel asks of the routed session's server, through the window's own client. */
-export interface Sessions {
-  /** Sends `text` to the run's session; its answer shows in the conversation. */
-  prompt(session: string, text: string): Promise<unknown>
-  /** Copies the run into a top-level conversation and answers its id. */
-  fork(session: string): Promise<string>
-}
-
 export function createRunsModel(input: {
   client: () => Client | undefined
   routine: () => Routine | undefined
   /** The session the window routes. */
   routed: () => string
-  session: Sessions
 }) {
   const [state, setState] = createStore({
     /** Whose runs `runs` holds, so another routine's never show. */
@@ -130,7 +121,6 @@ export function createRunsModel(input: {
     next: undefined as string | undefined,
     loading: false,
     failure: undefined as Failure | undefined,
-    reply: "",
     busy: {} as Record<string, boolean>,
   })
 
@@ -156,9 +146,7 @@ export function createRunsModel(input: {
     /** The routed run, when the window shows one of the routine's runs rather than its anchor. */
     current: () =>
       owned().find((run) => run.conversation.kind === "session" && run.conversation.session === input.routed()),
-    canReply: () => model.current() !== undefined,
     busy: (key: string) => state.busy[key] === true,
-    setReply: (text: string) => setState("reply", text),
     dismiss: () => setState("failure", undefined),
 
     /** The routine's runs, the first page or, with `more`, the next one. */
@@ -222,25 +210,6 @@ export function createRunsModel(input: {
       const ref = { backend: routine.ref.backend, id: routine.ref.id }
       const failure = await act("toggle", () => (routine.state === "paused" ? client.resume(ref) : client.pause(ref)))
       if (failure) setState("failure", failure)
-    },
-
-    /** Sends the reply box to the routed run. Answers whether it went. */
-    async reply() {
-      const run = model.current()
-      const text = state.reply.trim()
-      if (!run || run.conversation.kind !== "session" || text === "") return false
-      const session = run.conversation.session
-      const sent = await act("reply", () => input.session.prompt(session, text).then(() => true))
-      if (sent) setState("reply", "")
-      return sent === true
-    },
-
-    /** Copies the routed run into a conversation of its own; answers the new session's id. */
-    async fork() {
-      const run = model.current()
-      if (!run || run.conversation.kind !== "session") return undefined
-      const session = run.conversation.session
-      return act("fork", () => input.session.fork(session))
     },
   }
   return model

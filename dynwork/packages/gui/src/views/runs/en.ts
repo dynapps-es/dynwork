@@ -14,10 +14,4 @@ export default {
   "runs.more": "Show more",
   "runs.unavailable": "Routines are not available in this window.",
   "runs.dismiss": "Dismiss",
-  "runs.reply.label": "Reply to this run",
-  "runs.reply.placeholder": "Reply to this run…",
-  "runs.reply.send": "Send",
-  "runs.reply.hint": "Open a run to reply to it or continue it as a chat.",
-  "runs.fork": "Open as a chat",
-  "runs.fork.title": "Continue this run in a conversation of its own, with the full composer",
 }

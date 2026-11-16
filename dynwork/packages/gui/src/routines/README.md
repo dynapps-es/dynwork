@@ -87,9 +87,12 @@ speaks the public HTTP API. Model (i) of docs/04-ui.md §A.3: one conversation p
   new folder moves it (`POST /api/session/:id/move`). If the user deleted it, the next run makes a new one.
 - **Run.** "Run now" creates a child (`parentID` = anchor) titled `<name> · <when>` (children get no automatic title),
   with the routine's agent and model (`<provider>/<model>`, as `options("models")` answers) and its own `permissions` and
-  `metadata.dynwork = { backend, routine, role: "run", trigger }`, so nothing is inherited from the anchor. The
-  `permissions` field denies tools: read only denies `edit` and `shell`, edit files denies `shell`. Then `POST
-/api/session/:id/prompt` with the instructions (a skill goes as the prompt's `skills`). The run's id is its session's.
+  `metadata = { conversation: true, dynwork: { backend, routine, role: "run", trigger } }`, so nothing is inherited from
+  the anchor. `conversation: true` has the app show the run as a conversation of its own, with the standard composer,
+  instead of a subagent's read-only session (DynWork's patch in `packages/app/src/session/subagent.ts`); runs made before
+  it lack the key and stay read-only. The `permissions` field denies tools: read only denies `edit` and `shell`, edit
+  files denies `shell`. Then `POST /api/session/:id/prompt` with the instructions (a skill goes as the prompt's
+  `skills`). The run's id is its session's.
 - **State.** Read from the session: `queued` until `time.busy`, `running` until `time.idle` catches up with an
   `outcome`, then `ok`, `failed` (`reason: "error"`) or `cancelled`. A session that is gone makes the run `failed` with
   `reason: "deleted"`. A run that ended keeps its state: a reply later goes on in the conversation, not in the run.
