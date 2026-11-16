@@ -13,7 +13,10 @@
   "exports": {
     "./vite": "./src/vite.ts",
     "./patches": "./src/patches.ts",
-    "./sync": "./src/sync.ts"
+    "./sync": "./src/sync.ts",
+    "./channel-build": "./src/channel-build.ts",
+    "./canary": "./src/canary.ts",
+    "./install": "./src/install.ts"
   },
   "dependencies": {
     "@dynwork/branding": "workspace:*"

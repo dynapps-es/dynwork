@@ -1,22 +1,26 @@
 import { describe, expect, test } from "bun:test"
 import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { DynWorkService } from "../../src/service"
-import { defaultInstall, installTarget } from "../../../../script/install-target"
+import { defaultChannel, installTarget, localChannel } from "../../../../script/install-target"
 
-// The plan's isolation from another DynWork on this Mac (decision M6): builds install where asked, and an isolated run
-// moves DynWork's service off its fixed port. Neither changes what a plain build or a normal launch does.
+// The plan's isolation from another DynWork on this Mac (decision M6): each channel installs to its own app, and an
+// isolated run moves DynWork's service off its fixed port. Neither changes what a plain build or a normal launch does.
 describe("install and service isolation", () => {
-  test("desktop.ts still installs to /Applications/Dynwork.app by default", () => {
-    expect(defaultInstall).toBe("/Applications/Dynwork.app")
-    expect(installTarget([])).toBe("/Applications/Dynwork.app")
-    expect(installTarget(["--other"])).toBe("/Applications/Dynwork.app")
+  test("desktop.ts installs to the canary slot by default, and never over internal's app", () => {
+    expect(defaultChannel).toBe("canary")
+    expect(localChannel([])).toBe("canary")
+    expect(installTarget(localChannel([]))).toBe("/Applications/Dynwork Canary.app")
+    expect(installTarget(localChannel(["--channel", "dev"]))).toBe("/Applications/Dynwork Dev.app")
+    expect(installTarget(localChannel(["--channel=canary"]))).toBe("/Applications/Dynwork Canary.app")
   })
 
-  test("--to installs into the directory given, with ~ as the home directory", () => {
-    expect(installTarget(["--to", "/tmp/builds"])).toBe("/tmp/builds/Dynwork.app")
-    expect(installTarget(["--to", "~/ai/dynwork/build"], "/Users/me")).toBe("/Users/me/ai/dynwork/build/Dynwork.app")
-    expect(() => installTarget(["--to"])).toThrow("--to takes a directory")
-    expect(() => installTarget(["--to", "--x"])).toThrow("--to takes a directory")
+  test("a local build cannot be sent to internal, to an unknown channel or to an arbitrary directory", () => {
+    expect(() => localChannel(["--channel", "internal"])).toThrow('Unknown channel "internal"')
+    expect(() => localChannel(["--channel", "prod"])).toThrow('Unknown channel "prod"')
+    expect(() => localChannel(["--channel"])).toThrow("--channel takes a channel")
+    expect(() => localChannel(["--channel", "--x"])).toThrow("--channel takes a channel")
+    expect(() => localChannel(["/tmp/builds"])).toThrow('Unknown argument "/tmp/builds"')
+    expect(() => localChannel(["--other"])).toThrow('Unknown argument "--other"')
   })
 
   test("the service keeps its fixed port unless DYNWORK_SERVICE_PORT names another unprivileged one", () => {

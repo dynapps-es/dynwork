@@ -1,3 +1,4 @@
+import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { hostname } from "node:os"
 import { app, safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
@@ -21,7 +22,7 @@ const setup: Plugin.MainSetup = (ctx) => {
     store: ctx.storage.store("accounts", { schema: DynWorkAccounts.Store, initial: DynWorkAccounts.initial }),
     secure: safeStorage,
     open: (url) => shell.openExternal(url),
-    deviceName: `Dynwork on ${hostname()}`,
+    deviceName: `${DynWorkIdentity.name} on ${hostname()}`,
     changed: () => {
       provider.changed()
       engine.current?.update()

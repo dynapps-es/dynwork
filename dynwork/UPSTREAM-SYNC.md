@@ -50,8 +50,10 @@ día con OpenCode". Run it end to end: merge, check, PR, merge the PR, build and
    count, the conflicts and the check results. When CI ("patch guard and tests") is green, `gh pr merge --merge` (a
    merge commit: never squash or rebase, which would flatten upstream's history).
 9. **Build and install** from the updated `main`: `bun dynwork/script/desktop.ts` (needs full Xcode for the icon). It
-   replaces `/Applications/DynWork.app` and leaves no other copy. Quit DynWork first; the first launch after an install
-   may ask for the Keychain, which David approves.
+   installs `/Applications/Dynwork Canary.app` (the canary channel) and leaves no other copy; it never touches
+   `/Applications/Dynwork.app`, which is only updated with `bun dynwork/script/install.ts internal` from a published
+   release, when David asks. The script quits Dynwork Canary if it is open; the first launch after an install may ask
+   for the Keychain, which David approves.
 10. **Smoke it live** (Playwright over CDP with `noDefaults: true`, DynWork launched with
     `--remote-debugging-port`): the app signs in, the Agents and Brain views open, a row opens the drawer and Escape
     closes it, Cmd+, opens Settings from a view, Settings shows Governance and no Pairing. Confirm

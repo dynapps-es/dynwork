@@ -5,13 +5,19 @@
 //
 //   bun dynwork/script/package.ts
 //
+// DYNWORK_CHANNEL picks the channel to pack (internal when unset), and DYNWORK_VERSION the app version of a canary build.
+// The pack ends by reading the identity back from the packed app: it fails if a canary carries internal's app id or feed.
+//
+//   DYNWORK_CHANNEL=canary DYNWORK_VERSION=0.1.2-canary.0 bun dynwork/script/package.ts
+//
 // Users open the app past Gatekeeper or SmartScreen once (dynwork/README.md, "Releases").
 import { $ } from "bun"
 import { cp, mkdir, readdir, rm } from "node:fs/promises"
 import path from "node:path"
 import { DynWorkIdentity } from "../packages/branding/src/identity"
+import { ChannelBuild } from "../packages/build/src/channel-build"
 
-const os = new Map([
+const os = new Map<string, "mac" | "win" | "linux">([
   ["darwin", "mac"],
   ["win32", "win"],
   ["linux", "linux"],
@@ -27,10 +33,16 @@ const desktop = path.join(root, "packages/desktop")
 
 const out = path.join(root, "dist/dynwork")
 
-// The CLI carries upstream's version marked with DynWork's and the commit; the app carries DynWork's.
+const channel = DynWorkIdentity.channel
+
+// The app carries DynWork's version, or the canary's; the CLI carries upstream's marked with it and the commit. The
+// commit never goes in the app version: macOS and Windows take build metadata badly.
+const appVersion = ChannelBuild.appVersion(process.env.DYNWORK_VERSION)
+
 const version = DynWorkIdentity.cliVersion(
   (await Bun.file(path.join(desktop, "package.json")).json()).version,
   (await $`git rev-parse --short=10 HEAD`.cwd(root).text()).trim(),
+  appVersion,
 )
 
 // The developer's OPENCODE_* variables would change the channel, version or service of the build.
@@ -47,14 +59,21 @@ await $`bun run build --single ${baseline} --skip-install --skip-web-ui`
   .cwd(path.join(root, "packages/cli"))
   .env({ ...base, ...target, OPENCODE_CHANNEL: "latest", OPENCODE_VERSION: version })
 
-const env = { ...base, OPENCODE_CHANNEL: "prod", OPENCODE_VERSION: DynWorkIdentity.version }
+// The desktop build fixes DYNWORK_CHANNEL into its bundles, and electron-builder's config reads it for the app id, the
+// feed and the artifact names.
+const env = { ...base, DYNWORK_CHANNEL: channel, OPENCODE_CHANNEL: "prod", OPENCODE_VERSION: appVersion }
 
 await $`bun run build`.cwd(desktop).env(env)
 
-// The upstream build copies the OpenCode icons just before bundling; swap them in before packing.
+// The upstream build copies the OpenCode icons just before bundling; swap them in before packing. A channel with a
+// folder of its own in icons/ uses it; the others use the icons beside it, without the channels' folders.
 await rm(path.join(desktop, "resources/icons"), { recursive: true, force: true })
 
-await cp(path.join(root, "dynwork/packages/branding/icons"), path.join(desktop, "resources/icons"), { recursive: true })
+await ChannelBuild.copyIcons(
+  path.join(root, "dynwork/packages/branding/icons"),
+  channel,
+  path.join(desktop, "resources/icons"),
+)
 
 const summary = "Dynapps' desktop app for working with AI agents"
 
@@ -98,12 +117,14 @@ const debian = [
   `-c.linux.description=${description}`,
   "-c.extraMetadata.homepage=https://github.com/dynapps-es/dynwork",
 ]
+// A channel other than internal packs under its own package name, which names its deb and the updater's cache folder.
+const named = ChannelBuild.builderFlags(channel)
 await (
   os === "mac"
-    ? $`bunx electron-builder --mac ${flags} -c.mac.target=dmg -c.mac.identity=- -c.mac.hardenedRuntime=false`
+    ? $`bunx electron-builder --mac ${flags} ${named} -c.mac.target=dmg -c.mac.identity=- -c.mac.hardenedRuntime=false`
     : os === "win"
-      ? $`bunx electron-builder --win ${flags} -c.win.target=nsis`
-      : $`bunx electron-builder --linux deb AppImage ${flags} ${debian}`
+      ? $`bunx electron-builder --win ${flags} ${named} -c.win.target=nsis`
+      : $`bunx electron-builder --linux deb AppImage ${flags} ${named} ${debian}`
 )
   .cwd(desktop)
   .env(env)
@@ -112,15 +133,7 @@ await (
 // blockmap ships: the updater would read the new one as the installed version's and skip the download it needs.
 // Linux ships no latest-linux.yml: like macOS it never updates itself, and users install the new deb or AppImage.
 // electron-builder names the architecture as each format does, amd64 in the deb and x86_64 in the AppImage.
-const files =
-  os === "mac"
-    ? [`${DynWorkIdentity.artifactPrefix}-mac-${cpu}.dmg`]
-    : os === "win"
-      ? [`${DynWorkIdentity.artifactPrefix}-win-${cpu}.exe`, "latest.yml"]
-      : [
-          `${DynWorkIdentity.artifactPrefix}-linux-${cpu === "x64" ? "amd64" : cpu}.deb`,
-          `${DynWorkIdentity.artifactPrefix}-linux-${cpu === "x64" ? "x86_64" : cpu}.AppImage`,
-        ]
+const files = ChannelBuild.artifacts({ channel, os, cpu })
 
 const packed = await readdir(path.join(desktop, "dist"))
 
@@ -128,6 +141,65 @@ const missing = files.filter((file) => !packed.includes(file))
 
 if (missing.length > 0)
   throw new Error(`packages/desktop/dist lacks ${missing.join(", ")}, it holds ${packed.join(", ")}`)
+
+// The pack must carry the channel's identity: if the channel did not reach the build, a canary would install over
+// internal. Read it back from the packed app before anything is published.
+const dist = path.join(desktop, "dist")
+
+const wanted = ChannelBuild.expected(channel, appVersion)
+
+if (os === "mac") {
+  const found = await ChannelBuild.locateMac(dist)
+  const plist = path.join(found.app, "Contents/Info.plist")
+  const read = async (key: string) => (await $`plutil -extract ${key} raw -o - ${plist}`.text()).trim()
+  const update = await ChannelBuild.readUpdate(path.join(found.resources, "app-update.yml"))
+
+  ChannelBuild.assertCarries(
+    path.basename(found.app),
+    channel,
+    {
+      app: wanted.app,
+      identifier: wanted.identifier,
+      version: wanted.version,
+      feed: wanted.feed,
+      cacheDir: wanted.cacheDir,
+    },
+    {
+      app: path.basename(found.app),
+      identifier: await read("CFBundleIdentifier"),
+      version: await read("CFBundleShortVersionString"),
+      feed: update.url,
+      cacheDir: update.cacheDir,
+    },
+  )
+}
+
+if (os === "win") {
+  const found = await ChannelBuild.locateWin(dist)
+  const update = await ChannelBuild.readUpdate(path.join(found.resources, "app-update.yml"))
+  const latest = await ChannelBuild.readLatest(path.join(dist, "latest.yml"))
+
+  ChannelBuild.assertCarries(
+    found.resources,
+    channel,
+    { feed: wanted.feed, cacheDir: wanted.cacheDir },
+    {
+      feed: update.url,
+      cacheDir: update.cacheDir,
+    },
+  )
+  ChannelBuild.assertCarries("latest.yml", channel, { version: wanted.version, path: files[0] }, latest)
+}
+
+if (os === "linux")
+  ChannelBuild.assertCarries(
+    files[0],
+    channel,
+    { debPackage: wanted.debPackage },
+    {
+      debPackage: (await $`dpkg-deb -f ${path.join(dist, files[0])} Package`.text()).trim(),
+    },
+  )
 
 await mkdir(out, { recursive: true })
 
@@ -137,5 +209,5 @@ await Promise.all(files.map((file) => cp(path.join(desktop, "dist", file), path.
 await rm(path.join(desktop, "dist"), { recursive: true, force: true })
 
 console.log(
-  `Packed ${files.map((file) => `dist/dynwork/${file}`).join(", ")} (Dynwork ${DynWorkIdentity.version}, CLI ${version}) in ${Math.round((Date.now() - started) / 1000)} s`,
+  `Packed ${files.map((file) => `dist/dynwork/${file}`).join(", ")} (${DynWorkIdentity.name} ${appVersion}, CLI ${version}) in ${Math.round((Date.now() - started) / 1000)} s`,
 )

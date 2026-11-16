@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test"
+import { describe, expect, test } from "bun:test"
 import path from "node:path"
+import { DynWorkIdentity } from "../src/identity"
 
 const root = path.join(import.meta.dir, "..", "icons")
 
@@ -44,5 +45,62 @@ test("icon.icon fills the aperture and its background by appearance", async () =
   expect(fills(layer["fill-specializations"])).toEqual({
     light: "srgb:0.00000,0.00000,0.00000,1.00000",
     dark: "srgb:1.00000,1.00000,1.00000,1.00000",
+  })
+})
+
+const channels = Object.keys(DynWorkIdentity.table).filter((channel) => channel !== "internal")
+
+const files = [
+  "icon.png",
+  "32x32.png",
+  "64x64.png",
+  "128x128.png",
+  "128x128@2x.png",
+  "dock.png",
+  "icon.icns",
+  "icon.ico",
+]
+
+// The package picks `icons/<channel>/` when it exists, and electron-builder reads these files by name from it.
+describe.each(channels)("the %s icons", (channel) => {
+  const folder = path.join(root, channel)
+
+  test.each(files)("%s exists and is not internal's", async (name) => {
+    const own = await Bun.file(path.join(folder, name)).bytes()
+
+    expect(own.length).toBeGreaterThan(0)
+    expect(Buffer.from(own).equals(Buffer.from(await Bun.file(path.join(root, name)).bytes()))).toBe(false)
+  })
+
+  test("the PNGs have the same sizes as internal's", async () => {
+    const sizes = async (dir: string) =>
+      Promise.all(
+        files
+          .filter((name) => name.endsWith(".png"))
+          .map(async (name) => {
+            const view = new DataView(await Bun.file(path.join(dir, name)).arrayBuffer())
+            return [name, view.getUint32(16), view.getUint32(20)]
+          }),
+      )
+
+    expect(await sizes(folder)).toEqual(await sizes(root))
+  })
+
+  test("icon.icon is tinted in both appearances and still draws the aperture", async () => {
+    const composer = path.join(folder, "icon.icon")
+    const icon = await Bun.file(path.join(composer, "icon.json")).json()
+    const internal = await Bun.file(path.join(root, "icon.icon/icon.json")).json()
+    const layer = icon.groups[0].layers[0]
+
+    expect(icon["fill-specializations"]).not.toEqual(internal["fill-specializations"])
+    expect(await Bun.file(path.join(composer, "Assets", layer["image-name"])).exists()).toBe(true)
+  })
+
+  test("source.svg is the symbol on the channel's squircle", async () => {
+    const svg = await Bun.file(path.join(folder, "source.svg")).text()
+    const internal = await Bun.file(path.join(root, "source.svg")).text()
+
+    expect(svg).not.toBe(internal)
+    expect(svg.match(/<path d="([^"]+)"/)?.[1]).toBe(internal.match(/<path d="([^"]+)"/)?.[1])
   })
 })

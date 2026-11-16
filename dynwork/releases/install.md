@@ -18,3 +18,8 @@
   (`chmod +x dynwork-desktop-linux-x86_64.AppImage`) and run it; it needs FUSE 2 (`libfuse2`). Signing in keeps your
   token in the desktop keyring (GNOME Keyring or KWallet). Linux does not update itself: install the new file from the
   latest release.
+
+Install only these files: they are the internal channel, **Dynwork**. The canary builds (`dynwork-canary-desktop-*`, on
+the `dynwork-canary` prerelease) are for the team that develops DynWork and update on every merge; they install beside
+Dynwork and keep their own accounts and data, but do not use them for your work. On Linux install the deb or the
+AppImage, not both: they are the same app and would show twice in the applications menu.

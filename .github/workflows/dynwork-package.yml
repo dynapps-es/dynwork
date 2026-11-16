@@ -1,13 +1,50 @@
 name: dynwork package
 
 # DynWork's installers, unsigned by Apple or Microsoft: `dynwork/script/package.ts` on each runner, uploaded as workflow
-# artifacts. `dynwork release` calls it for a release; run it from the Actions tab for a build that publishes nothing.
+# artifacts named `dynwork-<channel>-<target>`. `dynwork release` calls it for a release; run it from the Actions tab for
+# a build that publishes nothing. `channel` is the release channel to pack (internal, canary or dev), `version` the app
+# version of a canary build (empty: DynWork's own), `targets` a JSON list of the platforms to build and `ref` the commit
+# to build (empty: the one the workflow runs at; `dynwork canary` passes the commit its green run was for).
 on:
   workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel to pack (internal, canary or dev)
+        type: string
+        default: internal
+      version:
+        description: App version, for a canary build such as 0.1.2-canary.0 (empty uses DynWork's own)
+        type: string
+        default: ""
+      targets:
+        description: JSON list of the targets to build
+        type: string
+        default: '["mac-arm64","mac-x64","windows-x64","linux-x64"]'
+      ref:
+        description: Commit to build (empty builds the one the workflow runs at)
+        type: string
+        default: ""
   workflow_call:
+    inputs:
+      channel:
+        description: Release channel to pack (internal, canary or dev)
+        type: string
+        default: internal
+      version:
+        description: App version, for a canary build such as 0.1.2-canary.0 (empty uses DynWork's own)
+        type: string
+        default: ""
+      targets:
+        description: JSON list of the targets to build
+        type: string
+        default: '["mac-arm64","mac-x64","windows-x64","linux-x64"]'
+      ref:
+        description: Commit to build (empty builds the one the workflow runs at)
+        type: string
+        default: ""
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.channel }}
   cancel-in-progress: true
 
 permissions:
@@ -17,21 +54,58 @@ env:
   BUN_CONFIG_REGISTRY: https://registry.npmjs.org/
 
 jobs:
+  plan:
+    name: plan the targets
+    runs-on: ubuntu-24.04
+    outputs:
+      include: ${{ steps.plan.outputs.include }}
+    steps:
+      - name: Pick the runners of the targets
+        id: plan
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          case "$CHANNEL" in
+            internal | canary | dev) ;;
+            *)
+              echo "::error::channel must be internal, canary or dev, not \"$CHANNEL\""
+              exit 1
+              ;;
+          esac
+          if [ -n "$VERSION" ] && ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'; then
+            echo "::error::version must be major.minor.patch with an optional -prerelease, and no +build"
+            exit 1
+          fi
+          all='[
+            {"target":"mac-arm64","host":"macos-26"},
+            {"target":"mac-x64","host":"macos-26-intel"},
+            {"target":"windows-x64","host":"windows-2025"},
+            {"target":"linux-x64","host":"ubuntu-24.04"}
+          ]'
+          include=$(jq -c --argjson targets "$TARGETS" '[.[] | select(.target as $t | $targets | index($t))]' <<<"$all")
+          want=$(jq 'unique | length' <<<"$TARGETS")
+          if [ "$(jq length <<<"$include")" -ne "$want" ] || [ "$want" -eq 0 ]; then
+            echo "::error::targets must be a non-empty list of mac-arm64, mac-x64, windows-x64 or linux-x64, not $TARGETS"
+            exit 1
+          fi
+          echo "include=$include" >> "$GITHUB_OUTPUT"
+
   package:
-    name: package ${{ matrix.target }}
+    name: package ${{ inputs.channel }} ${{ matrix.target }}
+    needs: plan
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { target: mac-arm64, host: macos-26 }
-          - { target: mac-x64, host: macos-26-intel }
-          - { target: windows-x64, host: windows-2025 }
-          - { target: linux-x64, host: ubuntu-24.04 }
+        include: ${{ fromJSON(needs.plan.outputs.include) }}
     runs-on: ${{ matrix.host }}
     timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Set up Bun
         uses: ./.github/actions/setup-bun
@@ -40,11 +114,14 @@ jobs:
         run: bun dynwork/script/package.ts
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          # Never empty: `inputs.channel` defaults to internal, and DynWorkIdentity throws on an empty channel.
+          DYNWORK_CHANNEL: ${{ inputs.channel }}
+          DYNWORK_VERSION: ${{ inputs.version }}
 
       - name: Upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: dynwork-${{ matrix.target }}
+          name: dynwork-${{ inputs.channel }}-${{ matrix.target }}
           path: dist/dynwork
           if-no-files-found: error
           retention-days: 30

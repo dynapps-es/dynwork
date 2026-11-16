@@ -9,7 +9,7 @@ the next tag.
 | Path                                  | Contents                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `PATCHES.md`                          | Every upstream file we modify, why, and the risk on upstream updates                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `packages/branding`                   | `@dynwork/branding`: the prod app identity (`src/identity.ts`) that the desktop package reads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `packages/branding`                   | `@dynwork/branding`: the app identity per channel (`src/identity.ts`) that the desktop package reads                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `packages/branding/logo`              | `wordmark.svg`: "dynwork" outlined, in `currentColor`. `lockup.svg`: the Dynapps symbol in its gradient left of the wordmark                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `packages/build`                      | `@dynwork/build`: the build seam. `src/vite.ts` exports `DynWorkVite`, the aliases and plugins that swap the theme and the logos, which `packages/desktop/electron.vite.config.ts` spreads into its main and renderer plugins. `test/vite.test.ts` fails when an upstream specifier, module or export a swap relies on moves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `script/patches.ts`                   | The patch guard (`bun dynwork/script/patches.ts`, logic in `packages/build/src/patches.ts`). `UPSTREAM` holds the upstream tag the stack sits on                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
@@ -250,7 +250,7 @@ from it is `packages/sp-client/PROTOCOL.md`.
 bun dynwork/script/desktop.ts && bun dynwork/script/e2e-sp.ts [screenshot dir]
 ```
 
-`e2e-sp.ts` runs the installed `/Applications/DynWork.app` in an isolated profile (the smoke's, from
+`e2e-sp.ts` runs the installed `/Applications/Dynwork Canary.app` (or the channel `DYNWORK_CHANNEL` names) in an isolated profile (the smoke's, from
 `dynwork/script/desktop-profile.ts`) against the two local instances: `sp-local up/seed/check`; sign in to alpha with
 its PAT on the sign-in screen; add beta in Settings with a one-time code from `admin bridge issue-code` (the
 device-link page's paste flow; the browser link itself needs the instance's Entra login); alpha's skills, agents, MCP
@@ -691,25 +691,79 @@ Tailwind only scans upstream folders, so these components style themselves with 
 `src/wordmark.css`, never with utility classes of their own. The settings About page keeps upstream's animated OpenCode
 wordmark.
 
-## Build and install on macOS
+## Channels
 
-Builds DynWork for Apple Silicon from this checkout and installs it as `/Applications/DynWork.app`. It needs the
-workspace installed (`BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun install`), Bun 1.4.4 and full Xcode (`actool`
-compiles the Icon Composer app icon). The result is unsigned apart from an ad-hoc signature, so it only runs on the Mac that built it.
+DynWork ships as channels that install side by side. Each has its own app id, so its own userData (accounts, sessions,
+settings), URL scheme, background-service port, update feed and artifact names. `DYNWORK_CHANNEL` picks one when the
+build or the dev app starts; unset it is `internal`, which is DynWork exactly as it has always shipped, and an unknown
+value throws when `DynWorkIdentity` loads.
+
+| Channel    | Name           | App id                      | Scheme           | Port           | Update feed                                                | Artifacts and packages                       |
+| ---------- | -------------- | --------------------------- | ---------------- | -------------- | ---------------------------------------------------------- | -------------------------------------------- |
+| `internal` | Dynwork        | `es.dynapps.dynwork`        | `dynwork`        | 17495 (0x4457) | `releases/latest/download/`                                | `dynwork-desktop-*`, `dynwork`               |
+| `canary`   | Dynwork Canary | `es.dynapps.dynwork.canary` | `dynwork-canary` | 17496          | `releases/download/dynwork-canary/` (a rolling prerelease) | `dynwork-canary-desktop-*`, `dynwork-canary` |
+| `dev`      | Dynwork Dev    | `es.dynapps.dynwork.dev`    | `dynwork-dev`    | 17497          | none (an empty string: dev builds are never published)     | `dynwork-dev-desktop-*`, `dynwork-dev`       |
+
+- The channel is not OpenCode's: the desktop keeps `OPENCODE_CHANNEL=prod` for every DynWork channel, because only
+  that one gets DynWork's own service (`gui/src/service.ts`).
+- The build fixes the channel into the main and renderer bundles (`DynWorkVite`, a `define` on
+  `process.env.DYNWORK_CHANNEL`), so a packaged app ignores the environment it is launched in.
+- A channel other than `internal` shows a pill ("Canary", "Dev") next to the brand at the sidebar's foot, and enrols
+  its device as `<name> on <hostname>`, so Governance lists each install apart.
+- `packages/branding/test/identity.test.ts` fails when two channels share a name, app id, scheme, port, feed or package
+  name, or when a port falls on one of OpenCode's or in the range Windows reserves.
+- "Install CLI" still writes the one `~/.opencode/bin/opencode` shared by every install.
+
+### Packing a channel
+
+`DYNWORK_CHANNEL` picks the channel `script/package.ts` packs, and `DYNWORK_VERSION` the app version of a canary build
+(`0.1.2-canary.0`: major.minor.patch with an optional prerelease, never `+build`; unset it is `identity.ts`'s). The
+commit goes only in the bundled CLI's version. Channel builds are packed in CI: the `dynwork package`
+workflow takes the inputs `channel` (`internal`, `canary` or `dev`), `version` and `targets` (a JSON list of
+`mac-arm64`, `mac-x64`, `windows-x64` and `linux-x64`) and names its artifacts `dynwork-<channel>-<target>`. An optional
+`ref` is the commit to build (empty: the one the workflow runs at); `dynwork canary` passes the commit of the green run:
 
 ```bash
-bun dynwork/script/desktop.ts [--to <dir>]
+gh workflow run dynwork-package.yml --ref <branch> -f channel=canary -f version=0.1.2-canary.0 -f targets='["mac-arm64"]'
 ```
 
-`--to <dir>` installs `<dir>/Dynwork.app` instead (a leading `~` is your home), so a development build can live beside
-an installed DynWork that another session uses; `script/install-target.ts` holds the rule and
-`packages/gui/test/remote/isolation.test.ts` pins the default.
+What differs from internal's pack, and nothing else does:
 
-The script builds the CLI for this machine from `packages/cli` (release channel, version taken from
-`packages/desktop/package.json`), builds the desktop app on the prod channel, swaps in
-`dynwork/packages/branding/icons` before packing, signs ad hoc, clears quarantine and replaces
-`/Applications/DynWork.app`. It then removes the app bundle the pack leaves in `packages/desktop/dist`, so the Mac
-only ever has one DynWork. It never touches `/Applications/OpenCode.app`. A run takes about a minute.
+- The icons come from `packages/branding/icons/<channel>/` when that folder exists (`bun run icons` in
+  `packages/branding` regenerates them with a tint: canary yellow, dev violet), else from `icons/`.
+- A channel other than internal packs with `-c.extraMetadata.name=<package>`, so its deb and the updater's cache
+  folder are its own. Internal passes no such flag: its Windows installs keep the cache folder they have.
+- Installers are named from the channel's `artifactPrefix`.
+- After packing, the script reads the identity back from the packed app and throws on any mismatch, so a build in which
+  the channel did not reach the bundle never ships. macOS: `CFBundleIdentifier`, `CFBundleShortVersionString` and the
+  `.app` name of `Info.plist`, and the feed and cache folder of `app-update.yml`. Windows: the feed and cache folder of
+  the unpacked app's `app-update.yml`, and the version and installer of `latest.yml`. Linux: the deb's `Package`
+  (`dpkg-deb -f`). The logic that is not packing (versions, artifact names, flags, what to expect, the readers of the
+  `.yml` files) is `packages/build/src/channel-build.ts`, tested by `packages/build/test/channel-build.test.ts`.
+
+## Build and install on macOS
+
+Each channel is one app in `/Applications`, and every install replaces that app and only that app: `Dynwork.app`
+(internal), `Dynwork Canary.app` (canary) and `Dynwork Dev.app` (dev) never share a bundle, a service or a profile, and an
+install quits only the app of its own channel (by bundle id). The installs are per channel because the two ways in are:
+
+- **A published build**, for internal and canary: `bun dynwork/script/install.ts <internal|canary>`. It needs the
+  `gh` CLI signed in. It downloads the channel's DMG (`dynwork-desktop-mac-<arch>.dmg` of the latest `dynwork-v*`
+  release for internal, `dynwork-canary-desktop-mac-<arch>.dmg` of the rolling `dynwork-canary` prerelease for canary),
+  quits that channel's app, copies the bundle in, clears quarantine and tells Launch Services. Internal is only ever
+  installed this way, never from a local build.
+- **A local build**, for canary (the default) and dev: `bun dynwork/script/desktop.ts [--channel <canary|dev>]`. It
+  builds the CLI for this machine from `packages/cli` (release channel), builds the desktop app on the prod channel with
+  the channel's `DYNWORK_CHANNEL`, version `<next patch>-<channel>.local.<timestamp>` and icons, signs ad hoc, and
+  installs to `/Applications/<channel name>.app`. It needs the workspace installed
+  (`BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun install`), Bun 1.4.4 and full Xcode (`actool` compiles the Icon
+  Composer app icon). The result runs only on the Mac that built it. It then removes the app bundle the pack leaves in
+  `packages/desktop/dist`. It never touches `Dynwork.app`, `/Applications/OpenCode.app` or their services. A run takes
+  about a minute. There is no `--to`: a build never goes to another folder.
+
+`script/install-target.ts` holds the local channel rule and `packages/build/src/install.ts` the rest (tag, artifact,
+bundle id of each channel); `packages/build/test/install.test.ts` and `packages/gui/test/remote/isolation.test.ts` pin
+them. `script/mac-install.ts` is the one install step both scripts share.
 
 To check the installed app, launch it in a throwaway profile:
 
@@ -718,8 +772,9 @@ bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] 
 bun dynwork/script/smoke.ts remote [screenshot] --app <bundle>
 ```
 
-`--app` launches another bundle, such as a `desktop.ts --to` build, and unregisters it from Launch Services when the
-run ends so the installed app keeps the `dynwork://` scheme. `remote` signs in to the alpha of the sp-local project named
+The smoke launches the installed Dynwork Canary app, or that of the channel `DYNWORK_CHANNEL` names. `--app` launches another
+bundle, such as one packed elsewhere, and unregisters it from Launch Services when the run ends so the installed app keeps
+its scheme. `remote` signs in to the alpha of the sp-local project named
 by `SP_LOCAL_PROJECT` (the mobile project runs the relay image), turns on Settings → Remote control, confirms, waits for
 the tunnel and shoots the pairing QR (by default `remote-qr.png` beside the bundle).
 
@@ -773,8 +828,31 @@ hoc, so Mac users download the new DMG. Linux ships no `latest-linux.yml` either
 or AppImage; Check for Updates there only reports that it could not check, and nothing checks on its own.
 
 `bun dynwork/script/package.ts` packs the installer for the machine it runs on into `dist/dynwork`, and the
-`dynwork package` workflow (run from the Actions tab) builds them all as workflow artifacts without publishing
+`dynwork package` workflow (run from the Actions tab; see "Packing a channel" for its inputs) builds them as workflow artifacts without publishing
 anything. The DMG's app is signed ad hoc without the hardened runtime, like the app `desktop.ts` installs.
+
+### The canary channel
+
+Every green `dynwork` run on `main` is followed by the `dynwork canary` workflow
+(`.github/workflows/dynwork-canary.yml`), which packs the canary channel for macOS arm64 and publishes it to the one
+rolling prerelease `dynwork-canary` (`https://github.com/dynapps-es/dynwork/releases/tag/dynwork-canary`):
+
+- **Version**: `X.Y.(Z+1)-canary.<run number>` from DynWork's own version (`bun dynwork/script/canary.ts version <run>`,
+  `packages/build/src/canary.ts`), so each build outranks the previous one and the internal version it follows, and
+  yields to the next internal release.
+- **One release, replaced**: every build moves the tag `dynwork-canary` to the built commit and overwrites the
+  installers (`--clobber`), the installers first and `latest.yml` last. Older builds stay as 30-day workflow artifacts.
+  The notes name the version and the commit.
+- **Other platforms and branches**: run `dynwork canary` from the Actions tab with a `ref` (default `main`) and `targets`
+  (default `["mac-arm64"]`; any of `mac-arm64`, `mac-x64`, `windows-x64`, `linux-x64`). It publishes to the same
+  prerelease, which is how to try a branch on a Mac. A newer run cancels one in progress; a run publishes only when every
+  target built. The ref must contain `dynwork/script/canary.ts`.
+- **Never the latest**: Windows installs of the internal channel follow `releases/latest`. The workflow creates and edits
+  the release with `--prerelease --latest=false`, and its last step fails the run, loudly, unless the release is a
+  prerelease and `releases/latest` is still an internal `dynwork-v<major>.<minor>.<patch>` release
+  (`bun dynwork/script/canary.ts guard`). If a canary ever shows as the latest release, stop and delete or edit it before
+  anything else.
+- macOS cannot update itself (see above): the canary Mac installs the DMG from the prerelease.
 
 Users open the app once past the system's warning:
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // End to end against the two local systemprompt instances (`bun dynwork/script/sp-local.ts`), on the installed
-// /Applications/DynWork.app in an isolated profile:
+// app of a channel in an isolated profile: Dynwork Canary.app, the one `desktop.ts` installs, unless DYNWORK_CHANNEL
+// names another channel's installed app:
 //
 //   bun dynwork/script/e2e-sp.ts [screenshot dir]
 //
@@ -24,7 +25,6 @@
 import { mkdir, realpath, rm } from "node:fs/promises"
 import { hostname, tmpdir } from "node:os"
 import path from "node:path"
-import { DynWorkIdentity } from "../packages/branding/src/identity"
 import {
   type Cdp,
   type Profile,
@@ -33,6 +33,7 @@ import {
   fillConnect,
   freePort,
   health,
+  identity,
   installed,
   launch,
   localInstance,
@@ -117,8 +118,9 @@ async function main() {
     return "both instances answer with their seeded content"
   })
 
-  if (!(await portFree(DynWorkIdentity.servicePort)))
-    throw new Error(`Port ${DynWorkIdentity.servicePort} is in use: quit DynWork before running the e2e`)
+  // Only the channel under test needs its port: another channel running on its own port does not get in the way.
+  if (!(await portFree(identity.servicePort)))
+    throw new Error(`Port ${identity.servicePort} is in use: quit ${identity.name} before running the e2e`)
 
   const alpha = await localInstance("ALPHA")
   const beta = await localInstance("BETA")

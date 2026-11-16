@@ -5,8 +5,9 @@
 //   bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] [--with-foreign-service] [--app <bundle>]
 //   bun dynwork/script/smoke.ts remote [screenshot] --app <bundle>
 //
-// --app launches another bundle than /Applications/DynWork.app, such as a `desktop.ts --to` build; the smoke then
-// unregisters it from Launch Services when it is done, so the installed app keeps the dynwork:// scheme. `remote` signs
+// The smoke launches the installed Dynwork Canary.app, or the installed app of the channel DYNWORK_CHANNEL names.
+// --app launches another bundle, such as a build packed elsewhere; the smoke then unregisters it from Launch Services
+// when it is done, so the installed app keeps its scheme. `remote` signs
 // in to the alpha of the sp-local project in SP_LOCAL_PROJECT (the mobile one runs the relay image), turns on Settings
 // -> Remote control, confirms, waits for the tunnel and shoots the pairing QR (default: remote-qr.png beside the bundle).
 //
