@@ -126,9 +126,6 @@ function RoutineCard(props: { routine: Routine; model: AgentsModel }) {
       <span data-slot="agents-card-meta">
         <Tag tone={status().tone}>{ctx.t(status().key, status().params)}</Tag>
         <span>{scheduleText(ctx.t, props.routine.definition.schedule)}</span>
-        <span data-slot="agents-sep" aria-hidden="true">
-          ·
-        </span>
         <WhereBadge routine={props.routine} capabilities={capabilities()} />
       </span>
     </button>

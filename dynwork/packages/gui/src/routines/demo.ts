@@ -158,7 +158,7 @@ export function local(now: () => number) {
       due: t - 7 * DAY - 27 * MINUTE,
       started: t - 7 * DAY,
       finished: t - 7 * DAY + 4 * MINUTE,
-      summary: "Planned for 08:45; DynWork was closed and ran it when it opened.",
+      summary: "Planned for 08:45; Dynwork was closed and ran it when it opened.",
     }),
     run("tickets-3", "tickets", {
       state: "missed",
@@ -166,7 +166,7 @@ export function local(now: () => number) {
       title: "Mon 2 Nov, 08:45",
       due: t - 14 * DAY,
       conversation: { kind: "none" },
-      summary: "DynWork stayed closed past the catch-up window.",
+      summary: "Dynwork stayed closed past the catch-up window.",
     }),
     run("tickets-4", "tickets", {
       state: "failed",
@@ -357,7 +357,7 @@ export function remote(now: () => number) {
       title: "Wed 11 Nov, 12:05",
       started: t - 5 * DAY,
       finished: t - 5 * DAY + 2 * MINUTE,
-      summary: "Started from the chat, outside DynWork.",
+      summary: "Started from the chat, outside Dynwork.",
     }),
     run("crm-3", "crm", {
       state: "failed",

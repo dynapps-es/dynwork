@@ -100,7 +100,7 @@ describe("the detail's facts, the same layout for both kinds", () => {
       ["Catch up missed runs within (hours)", "6"],
     ])
     expect(grouped.permissions.map((fact) => [fact.label, fact.value])).toEqual([
-      ["Permissions", "Edit files and run commands"],
+      ["Access", "Edit files and run commands"],
       ["Ask me when something else is needed", true],
     ])
     expect(grouped.notifications.map((fact) => fact.value)).toEqual(["Only when something fails"])

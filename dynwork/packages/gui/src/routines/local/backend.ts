@@ -49,7 +49,7 @@ export const fields: readonly Field[] = [
   {
     key: "permissions",
     section: "permissions",
-    label: "Permissions",
+    label: "Access",
     kind: "select",
     choices: [
       { value: "read-only", label: "Read only" },

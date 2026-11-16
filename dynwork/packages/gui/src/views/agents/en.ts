@@ -2,7 +2,7 @@
 export default {
   "agents.title": "Agents",
   "agents.description":
-    "Everything your agents do on their own, in one list. Local routines run on {{device}}, with your folders, skills and connectors, while DynWork is open; remote ones run on the Agent Farm, even with your laptop closed.",
+    "Everything your agents do on their own, in one list. Local routines run on {{device}}, with your folders, skills and connectors, while Dynwork is open; remote ones run on the Agent Farm, even with your laptop closed.",
   "agents.new": "New routine",
   "agents.loading": "Loading routines…",
   "agents.unavailable": "Routines are not available in this window.",
@@ -84,7 +84,7 @@ export default {
   "agents.run.skipped": "Skipped",
   "agents.run.cancelled": "Cancelled",
   "agents.run.line": "{{state}} · {{detail}}",
-  "agents.run.outside": "Started outside DynWork",
+  "agents.run.outside": "Started outside Dynwork",
   "agents.duration.short": "under a minute",
   "agents.duration.minutes": "{{minutes}} min",
   "agents.duration.hours": "{{hours}} h {{minutes}} min",
@@ -93,7 +93,7 @@ export default {
   "agents.templates.empty":
     "Templates are published by Governance for your organization. Using one creates a routine of yours that you can edit. None are published yet.",
   "agents.activity.hint":
-    "Every run, local and remote, newest first. It includes Agent Farm tasks started outside DynWork, such as from the chat.",
+    "Every run, local and remote, newest first. It includes Agent Farm tasks started outside Dynwork, such as from the chat.",
   "agents.activity.empty": "No runs yet.",
 
   "agents.detail.back": "Agents",
@@ -115,7 +115,7 @@ export default {
   "agents.detail.repeats": "Repeats",
   "agents.detail.upcoming": "Next runs",
   "agents.detail.where": "Where and with what",
-  "agents.detail.whereLocal": "{{device}} · only while DynWork is open",
+  "agents.detail.whereLocal": "{{device}} · only while Dynwork is open",
   "agents.detail.whereRemote": "{{label}} · keeps going with your laptop closed",
   "agents.detail.agent": "Agent {{agent}}",
   "agents.detail.model": "Model {{model}}",
@@ -144,7 +144,7 @@ export default {
   "agents.form.description": "The same form for local and remote routines: what changes is where it runs.",
   "agents.form.where": "Where it runs",
   "agents.form.where.local.title": "Local · this device",
-  "agents.form.where.local.text": "With your folders, skills and connectors. Only while DynWork is open.",
+  "agents.form.where.local.text": "With your folders, skills and connectors. Only while Dynwork is open.",
   "agents.form.where.remote.title": "Remote · {{label}}",
   "agents.form.where.remote.text":
     "In the Dynapps cloud, even with your laptop closed. Works on a repository, without approvals.",
@@ -197,7 +197,7 @@ export default {
   "agents.form.block.local": "On this device",
   "agents.form.block.remote": "On {{label}}",
   "agents.form.device": "Device that runs it",
-  "agents.form.device.hint": "Only this device runs it, even if you have DynWork on others.",
+  "agents.form.device.hint": "Only this device runs it, even if you have Dynwork on others.",
   "agents.form.options.hint": "Options the backend declares: they appear here without the form changing.",
   "agents.form.folder.choose": "Choose…",
   "agents.form.folder.title": "Choose a folder",
