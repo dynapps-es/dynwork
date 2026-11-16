@@ -9,9 +9,10 @@ import type { Capabilities, Change, Choice, Definition, Failure, Routine, Run, R
  *
  * `routines/conformance.ts` (in `test/`) is the suite every backend passes before it is registered.
  */
-// JESÚS: the Agent Farm's backend implements this interface in `routines/farm/`, over a farm HTTP client that lives in
-// main (the farm token never reaches a window). Each method's farm endpoint is in the table of `docs/04-ui.md` §B.4,
-// and `routines/farm/README.md` lists them again. It is done when `test/routines/conformance.ts` passes against it.
+// JESÚS: the Agent Farm's backend implements this `Backend` interface in `routines/farm/`, over a farm HTTP client that
+// lives in main (the farm token never reaches a window). Each method's farm endpoint is in the table of
+// `routines/farm/README.md`, and in the comment on each method in `routines/farm/backend.ts`. It is done when
+// `test/routines/conformance.ts` passes against it.
 export interface Backend {
   /** Stable for the life of the backend; a routine's `ref.backend` is this. */
   readonly id: string

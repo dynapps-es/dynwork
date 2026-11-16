@@ -19,6 +19,7 @@ window                                    main process
 | `fake.ts`     | An in-memory backend with an injectable clock: `Fake.make(options)`                                                      |
 | `demo.ts`     | The two seeded fakes (`local`, `farm`) shaped like the approved mockup, and `register`, which adds those not taken       |
 | `local/`      | The local backend: anchor and run sessions on DynWork's service, definitions and history in the plugin's storage         |
+| `farm/`       | The Agent Farm backend's skeleton and its handover `README.md` for Jesús Vargas: off unless `DYNWORK_ROUTINES_FARM=1`    |
 | `main.ts`     | The main-process setup: the registry, the local backend, the demos and the Ipc. Called from `accounts/main.ts`           |
 | `client.ts`   | The window's live Ipc client, handed over by `accounts/renderer.ts` for the views to read                                |
 
@@ -63,7 +64,9 @@ fails: a backend that cannot serve says so in `status`.
 
 Register one with `registry.register(backend)`; a second with the same id replaces the first, which is how a real backend
 takes the place of its demo. `main.ts` registers the local one and marks where the Agent Farm's goes (`routines/farm/`,
-delivered to Jesús Vargas). The demos are added after them, only for ids nothing took: today only the farm's.
+delivered to Jesús Vargas: a skeleton that answers "not implemented" and reports itself `disabled`, registered in place of
+the farm's demo only with `DYNWORK_ROUTINES_FARM=1`). The demos are added after them, only for ids nothing took: today
+only the farm's, unless that switch is on.
 
 A backend is done when `test/routines/conformance.ts` passes against it: create, list, read back, edit (in place or
 replacing), pause, resume, start, finish, unread and viewed, paging, cancel, remove, `not-found` everywhere, `invalid` with

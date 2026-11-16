@@ -34,9 +34,10 @@ export function marker(metadata: unknown): Marker | undefined {
   return decoded._tag === "Some" ? decoded.value.dynwork : undefined
 }
 
-// JESÚS: a farm routine has no session here (docs/04-ui.md §B.5): its runs are read in the Agents view's viewer, so the
-// panel never lists itself for one. If the farm's runs are later imported as sessions under an anchor, write the same
-// `metadata.dynwork` with `backend: "farm"` on them and the panel follows with no change.
+// JESÚS: a farm routine has no session here (docs/04-ui.md §B.5): its `Run`s carry
+// `conversation: { kind: "transcript" }` and are read in the Agents view's viewer through `transcript(run)`, so the panel never lists itself for one. If the
+// farm's runs are later imported as sessions under an anchor, write the same `metadata.dynwork` with `backend: "farm"`
+// on them and the panel follows with no change.
 /**
  * The routine a session belongs to, while the routine exists: by the session's metadata, else (its data not loaded
  * yet) as a routine's anchor, a child of it (`parent`), or its newest run, from the Ipc's state. A removed routine's

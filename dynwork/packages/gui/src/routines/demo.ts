@@ -1,8 +1,9 @@
 export * as RoutinesDemo from "./demo"
 
 import type { Registry } from "./backend"
-import type { Capabilities, Choice, Field, Routine, Run, Transcript } from "./contract"
+import type { Capabilities, Routine, Run, Transcript } from "./contract"
 import { RoutinesFake } from "./fake"
+import { RoutinesFarm } from "./farm/backend"
 import { RoutinesLocal } from "./local/backend"
 
 // The demo backends: fictional routines and runs shaped like the approved mockup (`docs/mockup-agents.html`), kept in
@@ -15,7 +16,7 @@ const DAY = 24 * HOUR
 const ZONE = "Europe/Madrid"
 
 export const localId = "local"
-export const farmId = "farm"
+export const farmId = RoutinesFarm.id
 
 /** Adds the demo backends whose id nothing has registered, and answers those it added. */
 export function register(registry: Registry, now: () => number) {
@@ -23,62 +24,6 @@ export function register(registry: Registry, now: () => number) {
   added.forEach((fake) => registry.register(fake))
   return added
 }
-
-const select = (key: string, section: string, label: string, choices: readonly Choice[], fallback?: string): Field => ({
-  key,
-  section,
-  label,
-  kind: "select",
-  choices,
-  default: fallback,
-})
-
-const farmFields: readonly Field[] = [
-  { key: "repository", section: "workspace", label: "Repository", kind: "repo", required: true },
-  { key: "branch", section: "workspace", label: "Branch or tag", kind: "text", default: "main" },
-  {
-    key: "access",
-    section: "workspace",
-    label: "Repository access",
-    kind: "select",
-    lookup: "credentials:git_token",
-    help: "A stored credential the farm uses to clone.",
-  },
-  { key: "plugins", section: "plugins", label: "Plugins", kind: "multiselect", lookup: "plugins", max: 10 },
-  { key: "timeLimit", section: "limits", label: "Time limit (minutes)", kind: "number", min: 1, max: 60, default: 15 },
-  { key: "capped", section: "limits", label: "Cap the cost", kind: "toggle", default: false },
-  {
-    key: "budget",
-    section: "limits",
-    label: "Most to spend per run (EUR)",
-    kind: "number",
-    min: 0.1,
-    max: 50,
-    required: true,
-    when: { key: "capped", equals: true },
-  },
-  select(
-    "overlap",
-    "schedule",
-    "If the previous run is still going",
-    [
-      { value: "skip", label: "Skip this one" },
-      { value: "allow", label: "Run anyway" },
-    ],
-    "skip",
-  ),
-  select(
-    "profile",
-    "advanced",
-    "Profile",
-    [
-      { value: "standard", label: "Standard" },
-      { value: "large", label: "Large" },
-    ],
-    "standard",
-  ),
-  { key: "label", section: "advanced", label: "Label", kind: "text" },
-]
 
 const localCapabilities = (label: string): Omit<Capabilities, "backend" | "quota"> => ({
   kind: "local",
@@ -91,18 +36,6 @@ const localCapabilities = (label: string): Omit<Capabilities, "backend" | "quota
   actions: { edit: "in-place", reply: "in-place", cancel: true },
   fields: RoutinesLocal.fields,
 })
-
-const farmCapabilities: Omit<Capabilities, "backend" | "quota"> = {
-  kind: "remote",
-  label: "Agent Farm",
-  status: "ready",
-  instructions: ["prompt", "agent"],
-  agent: "none",
-  model: "agent",
-  schedule: { window: true, minimum: 5 },
-  actions: { edit: "replace", reply: "resume", cancel: true },
-  fields: farmFields,
-}
 
 /** The routines of this computer: two of them wait on a result, one on another device, one is paused. */
 export function local(now: () => number) {
@@ -463,7 +396,7 @@ export function remote(now: () => number) {
 
   return RoutinesFake.make({
     id: farmId,
-    capabilities: farmCapabilities,
+    capabilities: RoutinesFarm.base,
     // The team holds 4 of the 20 schedules; this user's three scheduled routines make 7.
     quota: { max: 20, others: 4, shared: true },
     routines,

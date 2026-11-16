@@ -103,9 +103,10 @@ export function RunViewer(props: { viewer: Viewer; model: AgentsModel }) {
       <Show when={capabilities()?.actions.reply === "resume"}>
         <div data-slot="agents-viewer-foot">
           <span data-slot="agents-hint">{ctx.t("agents.viewer.continueHint")}</span>
-          {/* JESÚS: Continue starts a farm task with `session_ref` of this run (`resumable`), which comes back as a new run
-              of the routine. The contract has no method for it yet: add one (for example `reply({ backend, run, text })`,
-              as phase 04 does for local runs) and call it here. */}
+          {/* JESÚS: Continue is the farm's `Capabilities.actions.reply` `resume`: a farm task with `session_ref` of
+              this run (`resumable`), which comes back as a new `Run` of the routine. The contract has no method for
+              it yet: add one (for example `reply({ backend, run, text })`, as phase 04 does for local runs) and call
+              it here. */}
           <Button variant="contrast" icon="outline-video" disabled title={ctx.t("agents.reason.soon")}>
             {ctx.t("agents.viewer.continue")}
           </Button>

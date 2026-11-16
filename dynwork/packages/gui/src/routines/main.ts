@@ -7,6 +7,7 @@ import type { MainContext } from "@opencode/plugin/gui/main"
 import { RoutinesBackend } from "./backend"
 import { Routines, type Definition, type Run } from "./contract"
 import { RoutinesDemo } from "./demo"
+import { RoutinesFarm } from "./farm/backend"
 import { RoutinesIpc } from "./ipc"
 import { RoutinesLocal } from "./local/backend"
 
@@ -20,6 +21,8 @@ export interface Options {
   label: string
   /** A local run ended `failed`: main tells the user (an Electron notification, which needs no window). */
   failed?: (run: Run, routine: Definition) => void
+  /** Registers the Agent Farm skeleton in place of the remote demo (`RoutinesFarm.enabled`). A development switch. */
+  farm?: boolean
 }
 
 // The routines' main side, set up by the `dynwork` built-in's main entry next to the accounts: the registry of backends
@@ -40,9 +43,12 @@ export function setup(ctx: MainContext, options: Options) {
   })
   ctx.onCleanup(local.dispose)
   registry.register(local)
-  // JESÚS: the Agent Farm backend registers here under the id `farm`, as `registry.register(FarmBackend.make(...))`, once
-  // its credential is in `safeStorage` and `routines/farm/` exists. It must pass `test/routines/conformance.ts`; the
-  // Ipc, the registry and the views need nothing else. Registering later (after the user signs in) replaces the demo.
+  // JESÚS: the real Agent Farm `Backend` registers here under the id `farm`, as
+  // `registry.register(RoutinesFarm.make(...))`, with the farm's URL and a function that reads its token from
+  // `safeStorage` in main. It must pass `test/routines/conformance.ts`; the `Routines` Ipc, the registry and the views
+  // need nothing else. Registering it after the user signs in replaces whatever holds the id `farm`: the demo, or this
+  // skeleton.
+  if (options.farm) registry.register(RoutinesFarm.make())
   const demos = RoutinesDemo.register(registry, Date.now)
   const timer = setInterval(() => demos.forEach((demo) => demo.settle()), SETTLE)
   ctx.onCleanup(() => clearInterval(timer))

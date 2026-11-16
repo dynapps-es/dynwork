@@ -33,7 +33,8 @@ export function implementation(registry: Registry, notify: Notify): IpcImpl<(typ
   const snapshot = new Map<string, { capabilities: Capabilities; routines: readonly Routine[] }>()
   // The newest read each backend has begun, so that one that answers late does not replace a newer one.
   const reads = new Map<string, number>()
-  // JESÚS: one subscription per backend, shared by every window, so the farm's poll runs once however many windows watch.
+  // JESÚS: one `Backend.watch` subscription per backend, shared by every window, so the farm's poll runs once however
+  // many windows watch.
   const live = new Map<string, { backend: Backend; stop: () => void }>()
   const windows = { watching: 0 }
 

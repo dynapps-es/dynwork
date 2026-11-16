@@ -3,6 +3,7 @@ import type { Schema } from "effect"
 import type { Caller } from "@opencode/plugin/gui"
 import type { MainContext } from "@opencode/plugin/gui/main"
 import { isFailure, Routines, type Run } from "../../src/routines/contract"
+import { RoutinesFarm } from "../../src/routines/farm/backend"
 import { RoutinesMain } from "../../src/routines/main"
 import { MINUTE, storage } from "./fixture"
 
@@ -13,7 +14,7 @@ afterEach(() => {
 
 // The part of main's context the routines use: `provide` keeps the implementation and answers a provider that counts,
 // `storage` keeps values as the plugin's storage does, and no service is running yet.
-function stand(stored = new Map<string, unknown>()) {
+function stand(stored = new Map<string, unknown>(), options: Partial<RoutinesMain.Options> = {}) {
   const provided: { token?: unknown; impl?: Record<string, (input: unknown, caller: Caller) => unknown> } = {}
   const cleanups: Array<() => void> = []
   const pushed = { changed: 0, runs: [] as Run[] }
@@ -37,7 +38,7 @@ function stand(stored = new Map<string, unknown>()) {
   }
   // SAFETY: the routines' setup reads only `provide`, `onCleanup`, `storage` and `serverEndpoints`, which the stand-in
   // provides.
-  const registry = RoutinesMain.setup(ctx as unknown as MainContext, { label: "Test Mac" })
+  const registry = RoutinesMain.setup(ctx as unknown as MainContext, { label: "Test Mac", ...options })
   const caller: Caller = { window: 1, signal: new AbortController().signal }
   const call = (name: string, input?: unknown) => provided.impl?.[name]?.(input, caller)
   return { provided, cleanups, pushed, registry, call, stored }
@@ -82,6 +83,24 @@ describe("main", () => {
     const list = await second.call("list", { backend: "local" })
     expect((list as Array<{ ref: { id: string } }>).map((routine) => routine.ref.id)).toEqual([created.ref.id])
     second.cleanups.forEach((cleanup) => cleanup())
+  })
+
+  test("the farm skeleton takes the demo's place only when the development switch is on, and says it is disabled", async () => {
+    const off = stand()
+    expect((await off.registry.get("farm")?.capabilities())?.status).toBe("ready")
+    off.cleanups.forEach((cleanup) => cleanup())
+
+    const on = stand(undefined, { farm: true })
+    expect(on.registry.list().map((backend) => backend.id)).toEqual(["local", "farm"])
+    await on.call("refresh")
+    const state = on.call("state", 1) as {
+      backends: Array<{ backend: string; status: string; detail?: string }>
+      routines: Array<{ ref: { backend: string } }>
+    }
+    expect(state.backends.find((backend) => backend.backend === "farm")?.status).toBe("disabled")
+    expect(state.routines.filter((routine) => routine.ref.backend === "farm")).toHaveLength(0)
+    expect(RoutinesFarm.isNotImplemented(await on.call("list", { backend: "farm" }))).toBe(true)
+    on.cleanups.forEach((cleanup) => cleanup())
   })
 
   test("a backend registered afterwards takes the demo's id, and the windows are told", async () => {

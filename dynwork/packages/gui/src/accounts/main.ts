@@ -3,6 +3,7 @@ import { hostname } from "node:os"
 import { app, Notification, safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
 import { RemoteMain } from "../remote/main"
+import { RoutinesFarm } from "../routines/farm/backend"
 import { RoutinesMain } from "../routines/main"
 import { DynWorkSyncEngine } from "../sync/engine"
 import { DynWorkHeartbeat } from "../sync/heartbeat"
@@ -74,6 +75,7 @@ const setup: Plugin.MainSetup = (ctx) => {
   // fails is told with a system notification, which shows with no window open; nothing else notifies.
   RoutinesMain.setup(ctx, {
     label: hostname().replace(/\.local$/, ""),
+    farm: RoutinesFarm.enabled(process.env),
     failed: (run, routine) => {
       if (!Notification.isSupported()) return
       new Notification({ title: `${routine.name} failed`, body: run.title }).show()
