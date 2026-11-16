@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { DynWorkIdentity } from "@dynwork/branding/identity"
 import path from "node:path"
 import { DynWorkVite } from "../src/vite"
 
@@ -35,7 +36,9 @@ describe("alias contract", () => {
   })
 
   test("every alias replacement is an existing file", async () => {
-    const replacements = [...new Set([...DynWorkVite.aliases.main, ...DynWorkVite.aliases.renderer].map((a) => a.replacement))]
+    const replacements = [
+      ...new Set([...DynWorkVite.aliases.main, ...DynWorkVite.aliases.renderer].map((a) => a.replacement)),
+    ]
 
     expect(replacements.length).toBe(3)
     expect(await Promise.all(replacements.map((file) => Bun.file(file).exists()))).toEqual(replacements.map(() => true))
@@ -57,11 +60,9 @@ describe("alias contract", () => {
         (specifier) => themeAlias.find.test(specifier),
       ),
     ).toEqual([true, true, true])
-    expect(["./themes/oc-2-deep.json", "./themes/oc-1.json", "./oc-2.json"].map((s) => themeAlias.find.test(s))).toEqual([
-      false,
-      false,
-      false,
-    ])
+    expect(
+      ["./themes/oc-2-deep.json", "./themes/oc-1.json", "./oc-2.json"].map((s) => themeAlias.find.test(s)),
+    ).toEqual([false, false, false])
   })
 })
 
@@ -115,18 +116,62 @@ describe("new session wordmark plugin", () => {
 })
 
 describe("plugins", () => {
-  test("main carries the theme alias only", () => {
+  test("main carries the channel and the theme alias", () => {
     const plugins = DynWorkVite.main()
 
-    expect(plugins.map((plugin) => plugin.name)).toEqual(["dynwork:main-aliases"])
-    expect(hook(plugins[0])).toEqual({ resolve: { alias: DynWorkVite.aliases.main } })
+    expect(plugins.map((plugin) => plugin.name)).toEqual(["dynwork:channel", "dynwork:main-aliases"])
+    expect(hook(plugins[1])).toEqual({ resolve: { alias: DynWorkVite.aliases.main } })
   })
 
-  test("renderer carries the theme and logo aliases and the new session plugin", () => {
+  test("renderer carries the channel, the theme and logo aliases and the new session plugin", () => {
     const plugins = DynWorkVite.renderer()
 
-    expect(plugins.map((plugin) => plugin.name)).toEqual(["dynwork:renderer-aliases", "dynwork:new-session-wordmark"])
-    expect(hook(plugins[0])).toEqual({ resolve: { alias: DynWorkVite.aliases.renderer } })
-    expect(plugins[1].enforce).toBe("pre")
+    expect(plugins.map((plugin) => plugin.name)).toEqual([
+      "dynwork:channel",
+      "dynwork:renderer-aliases",
+      "dynwork:new-session-wordmark",
+    ])
+    expect(hook(plugins[1])).toEqual({ resolve: { alias: DynWorkVite.aliases.renderer } })
+    expect(plugins[2].enforce).toBe("pre")
+  })
+
+  // DynWorkIdentity reads this exact expression, so the define must key on the same text.
+  test.each([
+    { process: "main", plugin: () => DynWorkVite.main()[0] },
+    { process: "renderer", plugin: () => DynWorkVite.renderer()[0] },
+  ])("the $process bundle fixes the build-time channel", (row) => {
+    expect(hook(row.plugin())).toEqual({
+      define: { "process.env.DYNWORK_CHANNEL": JSON.stringify(DynWorkIdentity.channel) },
+    })
+  })
+
+  // The define replaces the expression the identity reads, so a packaged app never reads the user's environment: with
+  // the plugin's own define applied, the identity source holds no `process.env` read and carries the build's channel.
+  test("the define leaves no runtime environment read in the identity", async () => {
+    const define = hook(DynWorkVite.main()[0])
+    const built = await new Bun.Transpiler({ loader: "ts", define: define?.define }).transform(
+      await Bun.file(path.join(repo, "dynwork/packages/branding/src/identity.ts")).text(),
+    )
+
+    expect(built).not.toContain("process.env")
+    expect(built).toContain(JSON.stringify(DynWorkIdentity.channel))
+  })
+
+  test("a build run with DYNWORK_CHANNEL=canary fixes canary", () => {
+    const run = Bun.spawnSync({
+      cmd: [
+        process.execPath,
+        "-e",
+        `import { DynWorkVite } from ${JSON.stringify(path.join(import.meta.dir, "../src/vite.ts"))}
+const config = DynWorkVite.channel.config
+console.log(JSON.stringify(typeof config === "function" ? config.call({}, {}, { command: "build", mode: "production" }) : undefined))`,
+      ],
+      env: { ...process.env, DYNWORK_CHANNEL: "canary" },
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    expect(run.stderr.toString()).toBe("")
+    expect(JSON.parse(run.stdout.toString())).toEqual({ define: { "process.env.DYNWORK_CHANNEL": '"canary"' } })
   })
 })

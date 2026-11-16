@@ -1,3 +1,4 @@
+import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { fileURLToPath } from "node:url"
 import type { Plugin } from "vite"
 
@@ -29,6 +30,14 @@ const newSessionWordmark: Plugin = {
   },
 }
 
+// Fixes the channel into the bundle: `DynWorkIdentity` reads `process.env.DYNWORK_CHANNEL`, and without this a packaged
+// app would take its app id, scheme and port from whatever environment the user launches it in. The build runs with the
+// channel it packages, so the value is the one the identity resolved when this config loaded.
+const channel: Plugin = {
+  name: "dynwork:channel",
+  config: () => ({ define: { "process.env.DYNWORK_CHANNEL": JSON.stringify(DynWorkIdentity.channel) } }),
+}
+
 const aliases = { main: [defaultTheme], renderer: [defaultTheme, ...logos] }
 
 const aliasing = (name: string, alias: typeof logos): Plugin => ({
@@ -39,10 +48,11 @@ const aliasing = (name: string, alias: typeof logos): Plugin => ({
 // Every build-time swap DynWork makes. The desktop config spreads `main()` and `renderer()` into the plugins of its
 // own process and holds no swap of its own, so a new swap lands here and not in an upstream file.
 export const DynWorkVite = {
-  // The alias tables and the resolve plugin are also data, for the contract test.
+  // The alias tables and the plugins are also data, for the contract test.
   aliases,
   newSessionView,
   newSessionWordmark,
-  main: (): Plugin[] => [aliasing("dynwork:main-aliases", aliases.main)],
-  renderer: (): Plugin[] => [aliasing("dynwork:renderer-aliases", aliases.renderer), newSessionWordmark],
+  channel,
+  main: (): Plugin[] => [channel, aliasing("dynwork:main-aliases", aliases.main)],
+  renderer: (): Plugin[] => [channel, aliasing("dynwork:renderer-aliases", aliases.renderer), newSessionWordmark],
 }

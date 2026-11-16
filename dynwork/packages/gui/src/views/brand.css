@@ -23,4 +23,15 @@
     width: 63px;
     height: 14px;
   }
+
+  [data-slot="dynwork-brand-channel"] {
+    flex: none;
+    padding: 0 6px;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 16px;
+    color: var(--v2-text-text-muted);
+    white-space: nowrap;
+  }
 }

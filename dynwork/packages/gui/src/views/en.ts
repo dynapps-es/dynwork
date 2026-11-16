@@ -15,6 +15,8 @@ export default {
   "views.device.windows.inline": "this PC",
   "views.device.linux": "This computer",
   "views.device.linux.inline": "this computer",
+  "views.channel.canary": "Canary",
+  "views.channel.dev": "Dev",
   "views.demo": "Demo data",
   "views.demo.title": "Built-in sample data. Nothing here is read from or sent to a server.",
   "views.back": "Back",
