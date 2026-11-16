@@ -10,6 +10,7 @@ import { panelKey, routineOf } from "./runs/model"
 import { RunsPanel } from "./runs/panel"
 import "./badges.css"
 import "./primary.css"
+import "./titlebar.css"
 
 /** The DynWork views: their rows in the sidebar (and the narrow window's tabs drawer), their pages, the brand at the
  * sidebar's foot, and the Runs panel on a routine's conversation. */
