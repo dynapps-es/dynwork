@@ -1,14 +1,11 @@
 import agents from "./agents/en"
 import brain from "./brain/en"
-import routines from "./routines/en"
+import runs from "./runs/en"
 
 // The views' strings, merged into the `dynwork` built-in's table. Each view owns the table in its folder.
 export default {
   "views.nav.agents": "Agents",
   "views.nav.brain": "Brain",
-  "views.work.cloud": "Cloud",
-  "views.work.agents": "Agents",
-  "views.work.routines": "Routines",
   "views.device.macos": "This Mac",
   "views.device.macos.inline": "this Mac",
   "views.device.windows": "This PC",
@@ -23,6 +20,6 @@ export default {
   "views.close": "Close",
   "views.subnav": "Sections",
   ...agents,
-  ...routines,
   ...brain,
+  ...runs,
 }

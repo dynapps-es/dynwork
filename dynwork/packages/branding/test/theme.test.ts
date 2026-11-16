@@ -65,10 +65,12 @@ describe("brand roles", () => {
     { mode: "light", role: "text-interactive-base", brand: "#01007C" },
     { mode: "light", role: "v2-state-fg-danger", brand: "#F13C42" },
     { mode: "light", role: "v2-state-fg-warning", brand: "#FF911F" },
+    { mode: "light", role: "v2-state-fg-success", brand: "#1E9E4F" },
     { mode: "dark", role: "text-interactive-base", brand: "#951CF3" },
     { mode: "dark", role: "v2-background-bg-accent", brand: "#951CF3" },
     { mode: "dark", role: "v2-state-fg-danger", brand: "#FF575D" },
     { mode: "dark", role: "v2-state-fg-warning", brand: "#FF7E23" },
+    { mode: "dark", role: "v2-state-fg-success", brand: "#3DD68C" },
   ] as const)("$mode $role keeps the hue of $brand", (row) => {
     const delta = Math.abs(hexToOklch(color(resolved[row.mode], row.role)).h - hexToOklch(row.brand).h)
 
@@ -92,6 +94,31 @@ describe("contrast", () => {
     const tokens = resolved[row.mode]
 
     expect(contrastRatio(color(tokens, row.text), color(tokens, row.background))).toBeGreaterThanOrEqual(row.min)
+  })
+})
+
+describe("states", () => {
+  const states = (["light", "dark"] as const).flatMap((mode) =>
+    ["info", "success", "warning", "danger"].map((state) => ({ mode, state })),
+  )
+
+  // Badges and alerts write the state colour on its own background; errors also sit as plain text on the page.
+  test.each(states)("$mode $state text reads on its background and on the page", (row) => {
+    const tokens = resolved[row.mode]
+    const text = color(tokens, `v2-state-fg-${row.state}`)
+
+    expect(contrastRatio(text, color(tokens, `v2-state-bg-${row.state}`))).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(text, color(tokens, "v2-background-bg-base"))).toBeGreaterThanOrEqual(4.5)
+  })
+
+  // The derived backgrounds were almost the page colour (1.03:1), so badges read as white chips and alerts as
+  // borderless boxes. A tinted background and a border that both stand out keep the shape visible.
+  test.each(states)("$mode $state background and border stand out", (row) => {
+    const tokens = resolved[row.mode]
+    const background = color(tokens, `v2-state-bg-${row.state}`)
+
+    expect(contrastRatio(background, color(tokens, "v2-background-bg-base"))).toBeGreaterThanOrEqual(1.08)
+    expect(contrastRatio(color(tokens, `v2-state-border-${row.state}`), background)).toBeGreaterThanOrEqual(1.2)
   })
 })
 

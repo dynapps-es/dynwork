@@ -1,0 +1,515 @@
+/* The routine form. It renders in the app's dialog, outside the Agents view, so its rules hang from its own component
+   and from the container class it gives the dialog. Tailwind does not scan dynwork/: it styles itself with the theme's
+   v2 tokens.
+
+   Widths: a wide window gets a dialog of up to 760px; under 768px (the shell's narrow layout, down to a ~360px phone) the
+   dialog becomes a sheet over the whole window, with the buttons pinned under a scrolling body. Inside, the fields sit in
+   a grid that fills columns of at least 240px and drops to one, so a narrow sheet is a single column. Nothing scrolls
+   sideways: every control may shrink (`min-width: 0`) and long text wraps. */
+
+/* The dialog's own size rules have three attribute selectors; this is four so it wins whatever the load order. */
+[data-component="dialog-v2"][data-size] [data-slot="dialog-container"].agents-form-dialog {
+  width: min(calc(100vw - 32px), 760px);
+  height: min(calc(100dvh - 48px), 860px);
+
+  @media (max-width: 767px) {
+    width: 100vw;
+    height: 100dvh;
+    border-radius: 0;
+  }
+}
+
+[data-component="agents-form"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
+
+  [data-slot="form-scroll"] {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 18px;
+    min-height: 0;
+    padding: 4px 20px 20px;
+    overflow-x: hidden;
+    overflow-y: auto;
+
+    @media (max-width: 767px) {
+      padding: 4px 16px 20px;
+    }
+  }
+
+  [data-slot="dialog-footer"] {
+    flex-wrap: wrap;
+    align-items: center;
+    border-top: 1px solid var(--v2-border-border-muted);
+    /* The sheet reaches the bottom edge of a phone: keep the buttons above its home indicator. */
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+
+  [data-slot="form-footnote"] {
+    margin-inline-end: auto;
+    min-width: 0;
+    color: var(--v2-text-text-faint);
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  /* One field: label, control, hint, problem. */
+  [data-slot="form-field"] {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+
+    &[data-wide] {
+      grid-column: 1 / -1;
+    }
+
+    [data-component="text-input-v2"],
+    [data-component="textarea-v2"] {
+      width: 100%;
+      min-width: 0;
+    }
+  }
+
+  [data-slot="form-label"] {
+    color: var(--v2-text-text-base);
+    font-weight: 500;
+  }
+
+  [data-slot="form-hint"] {
+    color: var(--v2-text-text-faint);
+    font-size: 12px;
+    line-height: 16px;
+    overflow-wrap: anywhere;
+
+    &[data-tone="warning"] {
+      color: var(--v2-state-fg-warning);
+    }
+  }
+
+  [data-slot="form-error"] {
+    color: var(--v2-state-fg-danger);
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  [data-slot="form-orphan"] {
+    display: block;
+  }
+
+  [data-slot="form-static"] {
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+    color: var(--v2-text-text-muted);
+    overflow-wrap: anywhere;
+  }
+
+  [data-slot="form-grid"] {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+    gap: 14px 12px;
+
+    &[data-compact] {
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
+    }
+  }
+
+  [data-slot="form-inline"] {
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+
+    [data-component="text-input-v2"] {
+      flex: 1;
+    }
+  }
+
+  /* A native select, drawn like the app's inputs. */
+  [data-slot="form-select"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: 32px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--v2-background-bg-base);
+    box-shadow: var(--v2-elevation-input);
+    color: var(--v2-text-text-base);
+    font: inherit;
+
+    &:focus-visible {
+      outline: none;
+      box-shadow:
+        0 0 0 1px var(--v2-border-border-focus),
+        var(--v2-elevation-input);
+    }
+
+    &[aria-invalid="true"] {
+      box-shadow: 0 0 0 1px var(--v2-state-border-danger);
+    }
+  }
+
+  /* Where it runs: two cards, one column when they do not fit side by side. */
+  [data-slot="form-where"] {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+    gap: 10px;
+
+    button {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      min-width: 0;
+      padding: 12px;
+      border: 0;
+      border-radius: 10px;
+      background: var(--v2-background-bg-layer-01);
+      color: var(--v2-text-text-muted);
+      font: inherit;
+      text-align: start;
+
+      [data-slot="icon-svg"] {
+        flex: none;
+        margin-top: 2px;
+        color: var(--v2-icon-icon-muted);
+      }
+
+      > span {
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      b {
+        display: block;
+        margin-bottom: 2px;
+        color: var(--v2-text-text-base);
+        font-weight: 600;
+      }
+
+      small {
+        display: block;
+        margin-top: 4px;
+        color: var(--v2-text-text-faint);
+        font-size: 12px;
+      }
+
+      &[data-state="pressed"] {
+        background: var(--v2-background-bg-base);
+        box-shadow:
+          inset 0 0 0 1.5px var(--v2-border-border-focus),
+          var(--v2-elevation-raised);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--v2-border-border-focus);
+        outline-offset: 2px;
+      }
+    }
+  }
+
+  [data-slot="form-where-fixed"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    color: var(--v2-text-text-muted);
+  }
+
+  /* Segments (the kind of instructions) and tabs. */
+  [data-slot="form-segments"],
+  [data-slot="form-tabs"] {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-self: flex-start;
+    gap: 2px;
+    padding: 2px;
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-02);
+
+    button {
+      height: 24px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--v2-text-text-muted);
+      font: inherit;
+
+      &[data-state="pressed"],
+      &[aria-checked="true"] {
+        background: var(--v2-background-bg-base);
+        color: var(--v2-text-text-base);
+        box-shadow: var(--v2-elevation-raised);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--v2-border-border-focus);
+      }
+    }
+  }
+
+  /* The trigger: a select and the time, day, cron and zone it needs, wrapping onto the next line. */
+  [data-slot="form-trigger"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+
+    > * {
+      flex: 0 1 auto;
+      width: auto;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    [data-slot="form-select"] {
+      width: auto;
+    }
+
+    [data-component="text-input-v2"] {
+      width: auto;
+      flex: 0 1 140px;
+    }
+
+    @media (max-width: 767px) {
+      > * {
+        flex: 1 1 100%;
+        width: 100%;
+      }
+
+      [data-component="text-input-v2"] {
+        flex: 1 1 100%;
+      }
+    }
+  }
+
+  [data-slot="form-preview"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+  }
+
+  [data-slot="form-chip"] {
+    padding: 0 8px;
+    border-radius: 6px;
+    background: var(--v2-background-bg-layer-02);
+    color: var(--v2-text-text-muted);
+    font-size: 12px;
+    line-height: 20px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Choices that fit side by side: days, plugins, the items of a list. */
+  [data-slot="form-pills"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+
+    > button {
+      height: 28px;
+      padding: 0 10px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--v2-background-bg-layer-02);
+      color: var(--v2-text-text-muted);
+      font: inherit;
+
+      &[aria-pressed="true"] {
+        background: var(--v2-background-bg-inverse);
+        color: var(--v2-text-text-inverse);
+      }
+
+      &:disabled {
+        opacity: 0.5;
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--v2-border-border-focus);
+        outline-offset: 1px;
+      }
+    }
+  }
+
+  [data-slot="form-token"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 24px;
+    padding: 0 4px 0 8px;
+    border-radius: 6px;
+    background: var(--v2-background-bg-layer-02);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+
+    button {
+      display: inline-flex;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--v2-icon-icon-muted);
+    }
+  }
+
+  [data-slot="form-list"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  /* A few exclusive choices as a list of radios, as the mockup shows the permissions. */
+  [data-slot="form-radios"] {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+
+    button {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      min-width: 0;
+      padding: 8px 10px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--v2-text-text-muted);
+      font: inherit;
+      text-align: start;
+      overflow-wrap: anywhere;
+
+      &[data-state="pressed"] {
+        background: var(--v2-background-bg-layer-01);
+        color: var(--v2-text-text-base);
+      }
+
+      &:focus-visible {
+        outline: 2px solid var(--v2-border-border-focus);
+      }
+    }
+  }
+
+  [data-slot="form-dot"] {
+    flex: none;
+    width: 14px;
+    height: 14px;
+    margin-top: 3px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1.5px var(--v2-border-border-base);
+  }
+
+  [data-slot="form-radios"] [data-state="pressed"] [data-slot="form-dot"] {
+    box-shadow: inset 0 0 0 4px var(--v2-background-bg-inverse);
+  }
+
+  /* The backend's blocks. The farm's own options are dashed, as they are in the detail. */
+  [data-slot="form-block"] {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 10px;
+
+    &[data-extra][data-kind="remote"] {
+      border: 1.5px dashed var(--v2-state-border-info);
+      background: var(--v2-state-bg-info);
+    }
+  }
+
+  [data-slot="form-block-head"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  [data-slot="form-notice"] {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-inline: 20px;
+    padding: 8px 12px;
+    border: 1px solid var(--v2-border-border-base);
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-01);
+    color: var(--v2-text-text-muted);
+
+    @media (max-width: 767px) {
+      margin-inline: 16px;
+    }
+
+    > span {
+      flex: 1;
+      min-width: 0;
+    }
+
+    [data-slot="icon-svg"] {
+      flex: none;
+      margin-top: 3px;
+    }
+
+    &[data-tone="danger"] {
+      border-color: var(--v2-state-border-danger);
+      background: var(--v2-state-bg-danger);
+      color: var(--v2-state-fg-danger);
+    }
+
+    &[data-tone="info"] {
+      border-color: var(--v2-state-border-info);
+      background: var(--v2-state-bg-info);
+      color: var(--v2-state-fg-info);
+    }
+
+    &[data-tone="warning"] {
+      border-color: var(--v2-state-border-warning);
+      background: var(--v2-state-bg-warning);
+      color: var(--v2-state-fg-warning);
+    }
+  }
+
+  /* The notice inside the scrolling body takes the body's gutters, not the footer's. */
+  [data-slot="form-scroll"] > [data-slot="form-notice"] {
+    margin-inline: 0;
+  }
+
+  [data-slot="form-advanced"] {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  [data-slot="form-advanced-head"] {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    align-self: flex-start;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--v2-text-text-base);
+    font: inherit;
+    font-weight: 600;
+
+    &:focus-visible {
+      outline: 2px solid var(--v2-border-border-focus);
+      outline-offset: 2px;
+    }
+  }
+}

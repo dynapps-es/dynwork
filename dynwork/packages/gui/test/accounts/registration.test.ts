@@ -3,6 +3,8 @@ import { runsOn } from "@opencode/plugin/gui/host"
 import { createRoot } from "solid-js"
 import { Accounts } from "../../src/accounts/contract"
 import { Remote } from "../../src/remote/contract"
+import { RoutinesClient } from "../../src/routines/client"
+import { Routines } from "../../src/routines/contract"
 import definition from "../../src/accounts"
 import renderer, { connection } from "../../src/accounts/renderer"
 import { builtins } from "../../../../../packages/gui-plugins/src/main"
@@ -12,6 +14,7 @@ describe("dynwork built-in", () => {
     const entry = builtins.find((item) => item.id === "dynwork")
     expect(entry).toBeDefined()
     expect(Accounts.id.split(".")[0]).toBe(entry?.id ?? "")
+    expect(Routines.id.split(".")[0]).toBe(entry?.id ?? "")
     // The entry itself imports electron, which only loads inside Electron.
     expect(entry?.mainEntry).toBeFunction()
     // Every upstream built-in is still listed.
@@ -50,21 +53,27 @@ describe("dynwork built-in", () => {
         used.push(token)
         return live
       },
-      // The settings page and the pill register against these; test/ui/register.test.ts reads what they add.
+      // The settings page, the pill and the Runs panel register against these; test/ui/register.test.ts reads what
+      // the first two add. No session is routed, so the panel opens nowhere.
       add: () => () => {},
-      layout: {},
+      t: (key: string) => key,
+      layout: { ready: () => false },
+      sessions: { current: () => undefined },
     }
     expect(definition).toBeObject()
     const dispose = createRoot((dispose) => {
-      // SAFETY: the setup reads only `desktop` and `use`, which the stand-in provides.
+      // SAFETY: the setup reads only `desktop`, `use`, `add`, `t`, `layout.ready` and `sessions.current`, which the
+      // stand-in provides.
       renderer(ctx as unknown as Parameters<typeof renderer>[0])
       return dispose
     })
-    // Remote control rides on the same built-in
-    expect(used).toEqual([Accounts, Remote])
+    // Remote control and the routines ride on the same built-in
+    expect(used).toEqual([Accounts, Remote, Routines])
     expect(connection()).toEqual({ status: "pending" })
+    expect(RoutinesClient.connection()).toEqual({ status: "pending" })
     dispose()
     expect(connection()).toBeUndefined()
+    expect(RoutinesClient.connection()).toBeUndefined()
   })
 
   test("the window entry does nothing on the web", () => {
@@ -78,5 +87,6 @@ describe("dynwork built-in", () => {
     })
     expect(used).toEqual([])
     expect(connection()).toBeUndefined()
+    expect(RoutinesClient.connection()).toBeUndefined()
   })
 })

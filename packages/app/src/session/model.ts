@@ -10,6 +10,7 @@ import { projectForSession } from "@/shell/layout/helpers"
 import { selectSessionUserMessages, selectVisibleSessionUserMessages } from "./session-domain"
 import { useSessionLayout } from "./session-layout"
 import { createSessionOwnership } from "./session-ownership"
+import { isSubagentSession } from "./subagent"
 import { useTabs } from "@/shell/tabs/tabs"
 import { useServer } from "@/runtime/server/current"
 import type { ServerCtx } from "@/runtime/server/runtime"
@@ -97,7 +98,7 @@ export function useSessionModel() {
       info,
       parent,
       parentID,
-      isChild: createMemo(() => !!parentID()),
+      isChild: createMemo(() => isSubagentSession(parentID(), info())),
       status,
       working: createMemo(() => {
         const id = sessionID()

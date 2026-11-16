@@ -3,13 +3,14 @@
 DynWork's desktop features as GUI plugin code, composed into the `dynwork` built-in of `packages/gui-plugins` (the only
 two upstream lines that name it). Main entry: `src/accounts/main.ts`; window entry: `src/accounts/renderer.ts`.
 
-| Directory        | What it is                                                                                                                                   |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/accounts`   | systemprompt accounts in main (PATs sealed, JWTs in memory), the `dynwork.accounts` Ipc, the Accounts settings page and the titlebar pill    |
-| `src/sync`       | the sync engine that pulls the active instance's manifest into DynWork's service                                                             |
-| `src/signin`     | the sign-in gate shown until an instance is active                                                                                           |
-| `src/remote`     | Remote control: the tunnel to the relay, the proxy and its allowlist, the `dynwork.remote` Ipc, the settings page and the titlebar indicator |
-| `src/service.ts` | DynWork's own OpenCode service layout (prod), and its port (`DYNWORK_SERVICE_PORT` for isolated runs)                                        |
+| Directory        | What it is                                                                                                                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/accounts`   | systemprompt accounts in main (PATs sealed, JWTs in memory), the `dynwork.accounts` Ipc, the Accounts settings page and the titlebar pill                                                    |
+| `src/sync`       | the sync engine that pulls the active instance's manifest into DynWork's service                                                                                                             |
+| `src/signin`     | the sign-in gate shown until an instance is active                                                                                                                                           |
+| `src/remote`     | Remote control: the tunnel to the relay, the proxy and its allowlist, the `dynwork.remote` Ipc, the settings page and the titlebar indicator                                                 |
+| `src/routines`   | Routines: the contract, the backend registry, the `dynwork.routines` Ipc, the local backend, the Agent Farm skeleton and the fakes (`src/routines/README.md`, `src/routines/farm/README.md`) |
+| `src/service.ts` | DynWork's own OpenCode service layout (prod), and its port (`DYNWORK_SERVICE_PORT` for isolated runs)                                                                                        |
 
 ## Remote control (`src/remote`)
 

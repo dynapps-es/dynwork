@@ -191,6 +191,16 @@
     color: var(--v2-text-text-muted);
   }
 
+  [data-slot="view-status"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--v2-text-text-muted);
+  }
+
   [data-slot="view-actions"] {
     display: flex;
     flex: none;

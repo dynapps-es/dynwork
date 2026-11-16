@@ -332,7 +332,7 @@ export function createActiveSessionRegion(input: {
 
   const dock = {
     state,
-    parentID: input.session.data.parentID,
+    parentID: () => (input.session.data.isChild() ? input.session.data.parentID() : undefined),
     centered: input.screen.centered,
     // Submitting reads past the automatic unread marker. Keep a reader's own scroll or revealed tool in place.
     onResponseSubmit: () => {

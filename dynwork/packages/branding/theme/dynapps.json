@@ -23,7 +23,19 @@
       "v2-text-text-accent-hover": "#7B00DC",
       "v2-icon-icon-accent": "#01007C",
       "v2-icon-icon-accent-hover": "#7B00DC",
-      "v2-background-bg-accent": "#01007C"
+      "v2-background-bg-accent": "#01007C",
+      "v2-state-bg-info": "#E4E8FE",
+      "v2-state-fg-info": "#4349AF",
+      "v2-state-border-info": "#C1CBFB",
+      "v2-state-bg-success": "#D3F4D9",
+      "v2-state-fg-success": "#196E37",
+      "v2-state-border-success": "#A6DEB1",
+      "v2-state-bg-warning": "#FFE4D0",
+      "v2-state-fg-warning": "#915110",
+      "v2-state-border-warning": "#F8C196",
+      "v2-state-bg-danger": "#FDE2E0",
+      "v2-state-fg-danger": "#9E2227",
+      "v2-state-border-danger": "#FCBBB5"
     }
   },
   "dark": {
@@ -48,7 +60,19 @@
       "v2-text-text-accent": "#FFFFFF",
       "v2-text-text-accent-hover": "#FFFFFF",
       "v2-icon-icon-accent": "#FFFFFF",
-      "v2-icon-icon-accent-hover": "#FFFFFF"
+      "v2-icon-icon-accent-hover": "#FFFFFF",
+      "v2-state-bg-info": "#1E1D3D",
+      "v2-state-fg-info": "#B3B6FE",
+      "v2-state-border-info": "#413F7B",
+      "v2-state-bg-success": "#042917",
+      "v2-state-fg-success": "#64D99A",
+      "v2-state-border-success": "#0A5634",
+      "v2-state-bg-warning": "#381704",
+      "v2-state-fg-warning": "#FFA572",
+      "v2-state-border-warning": "#713409",
+      "v2-state-bg-danger": "#391414",
+      "v2-state-fg-danger": "#FFA09C",
+      "v2-state-border-danger": "#742E2E"
     }
   }
 }

@@ -1,0 +1,16 @@
+/* The Dynapps theme's badges are rectangles with small rounded corners, never capsules: 4px on badges, 6px on the taller
+   pills that act as buttons, like the app's buttons. DynWork's own badges set it in their CSS; these rules reach the
+   upstream ones no theme token covers. Other themes keep upstream's look. */
+:root[data-theme="oc-2"] {
+  /* The shared Tag (`@opencode/ui/badge`): 2px by default, `--radius-xs` in the standard appearance. */
+  [data-component="tag"] {
+    border-radius: var(--radius-sm);
+  }
+
+  /* Titlebar items (the Governance status at the sidebar's foot): a capsule that grows to show its label on hover.
+     Upstream rounds it with Tailwind's `rounded-full`, which sits in the utilities layer, so these unlayered rules win. */
+  [data-slot="titlebar-update"],
+  [data-slot="titlebar-update"] > button {
+    border-radius: var(--radius-md);
+  }
+}
