@@ -151,7 +151,7 @@
     height: 20px;
     padding: 0 7px 0 5px;
     border: 1px solid var(--v2-border-border-base);
-    border-radius: 999px;
+    border-radius: 4px;
     color: var(--v2-text-text-muted);
     font-size: 11px;
     line-height: 16px;
@@ -257,7 +257,7 @@
     height: 26px;
     padding: 0 10px;
     border: 1px solid var(--v2-border-border-base);
-    border-radius: 999px;
+    border-radius: 6px;
     background: transparent;
     color: var(--v2-text-text-muted);
     white-space: nowrap;
