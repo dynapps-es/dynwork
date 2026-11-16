@@ -8,6 +8,7 @@ import type { Routine, Run } from "../../routines/contract"
 import { focus } from "../agents/focus"
 import { duration, scheduleText, when } from "../agents/format"
 import { refKey } from "../agents/model"
+import { stateKey } from "../agents/routine"
 import { RunMark, Unread } from "../agents/parts"
 import { createRunsModel, days, routineOf, runHref, type RunsModel } from "./model"
 import "./runs.css"
@@ -156,11 +157,11 @@ function RunRow(props: { run: Run; current: boolean }) {
       data-slot="runs-run"
       aria-current={props.current ? "page" : undefined}
     >
-      <RunMark state={props.run.state} />
+      <RunMark state={props.run.state} reason={props.run.reason} />
       <span data-slot="runs-run-text">
         <span>{at() === undefined ? props.run.title : time(ctx.locale.locale(), at()!)}</span>
         <small>
-          {[ctx.t(`agents.run.${props.run.state}`), duration(ctx.t, props.run, Date.now())].filter(Boolean).join(" · ")}
+          {[ctx.t(stateKey(props.run)), duration(ctx.t, props.run, Date.now())].filter(Boolean).join(" · ")}
         </small>
       </span>
       <Unread show={props.run.unread} />

@@ -6,6 +6,7 @@ import { isFailure, Routines, type Run } from "../../src/routines/contract"
 import { RoutinesFarm } from "../../src/routines/farm/backend"
 import { RoutinesMain } from "../../src/routines/main"
 import { MINUTE, storage } from "./fixture"
+import { fakeService, until } from "./service"
 
 afterEach(() => {
   jest.useRealTimers()
@@ -14,17 +15,27 @@ afterEach(() => {
 
 // The part of main's context the routines use: `provide` keeps the implementation and answers a provider that counts,
 // `storage` keeps values as the plugin's storage does, and no service is running yet.
-function stand(stored = new Map<string, unknown>(), options: Partial<RoutinesMain.Options> = {}) {
+function stand(
+  stored = new Map<string, unknown>(),
+  options: Partial<RoutinesMain.Options> = {},
+  service?: ReturnType<typeof fakeService>,
+) {
   const provided: { token?: unknown; impl?: Record<string, (input: unknown, caller: Caller) => unknown> } = {}
   const cleanups: Array<() => void> = []
-  const pushed = { changed: 0, runs: [] as Run[] }
+  const pushed = { changed: 0, runs: [] as Run[], opened: [] as Run[], window: [] as string[] }
+  const window = {
+    isMinimized: () => true,
+    restore: () => void pushed.window.push("restore"),
+    show: () => void pushed.window.push("show"),
+    focus: () => void pushed.window.push("focus"),
+  }
   const ctx = {
     provide: (token: unknown, impl: Record<string, (input: unknown, caller: Caller) => unknown>) => {
       provided.token = token
       provided.impl = impl
       return {
         changed: () => void pushed.changed++,
-        emit: (_: string, run: Run) => void pushed.runs.push(run),
+        emit: (name: string, run: Run) => void (name === "open" ? pushed.opened : pushed.runs).push(run),
       }
     },
     onCleanup: (cleanup: () => void) => void cleanups.push(cleanup),
@@ -34,10 +45,13 @@ function stand(stored = new Map<string, unknown>(), options: Partial<RoutinesMai
         return stored.get(key)
       },
     },
-    serverEndpoints: { get: () => undefined },
+    serverEndpoints: {
+      get: () => (service ? { url: service.url, headers: { authorization: "Basic c2VjcmV0" } } : undefined),
+    },
+    windows: { focused: () => window, list: () => [window] },
   }
-  // SAFETY: the routines' setup reads only `provide`, `onCleanup`, `storage` and `serverEndpoints`, which the stand-in
-  // provides.
+  // SAFETY: the routines' setup reads only `provide`, `onCleanup`, `storage`, `serverEndpoints` and `windows`, which the
+  // stand-in provides.
   const registry = RoutinesMain.setup(ctx as unknown as MainContext, { label: "Test Mac", ...options }).registry
   const caller: Caller = { window: 1, signal: new AbortController().signal }
   const call = (name: string, input?: unknown) => provided.impl?.[name]?.(input, caller)
@@ -118,6 +132,44 @@ describe("main", () => {
     expect(state.backends.find((backend) => backend.backend === "farm")?.label).toBe("Real farm")
     expect(main.pushed.changed).toBeGreaterThan(before)
     main.cleanups.forEach((cleanup) => cleanup())
+  })
+
+  test("a run that waits for a permission is told with a notification whose click focuses a window and opens the run", async () => {
+    const service = fakeService({ now: Date.now })
+    const told: Array<Parameters<NonNullable<RoutinesMain.Options["notify"]>>[0]> = []
+    const awake: boolean[] = []
+    const main = stand(
+      undefined,
+      { notify: (notice) => void told.push(notice), busy: (going) => void awake.push(going) },
+      service,
+    )
+    const created = (await main.call("create", {
+      backend: "local",
+      definition: {
+        name: "Digest",
+        instructions: { kind: "prompt", text: "Do it." },
+        enabled: true,
+        options: { permissions: "ask" },
+      },
+    })) as { ref: { id: string } }
+    const run = (await main.call("start", { backend: "local", id: created.ref.id })) as Run
+    expect(awake).toEqual([true])
+    await until(() => service.listeners() > 0)
+    service.ask(run.ref.id, "per_1")
+    await until(() => told.length === 1)
+
+    expect(told[0]).toMatchObject({ kind: "waiting", routine: { name: "Digest" }, run: { ref: run.ref } })
+    expect(RoutinesMain.words(told[0]!)).toEqual({
+      title: "Digest is waiting for your permission",
+      body: run.title,
+    })
+    expect(main.pushed.opened).toEqual([])
+    told[0]!.open()
+    expect(main.pushed.window).toEqual(["restore", "show", "focus"])
+    expect(main.pushed.opened.map((opened) => opened.ref)).toEqual([run.ref])
+
+    main.cleanups.forEach((cleanup) => cleanup())
+    service.stop()
   })
 
   test("the demo backends finish their runs by themselves, a minute after they start", async () => {

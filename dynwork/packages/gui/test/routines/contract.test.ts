@@ -34,7 +34,7 @@ describe("the routines contract", () => {
         "watch",
       ].sort(),
     )
-    expect(Object.keys(Routines.spec.events ?? {})).toEqual(["run"])
+    expect(Object.keys(Routines.spec.events ?? {})).toEqual(["run", "open"])
   })
 
   test("a run state is one of the nine the views know", () => {

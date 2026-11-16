@@ -87,7 +87,7 @@ const schedule = (cron: string, options: Definition["options"] = {}): Definition
   instructions: { kind: "prompt", text: "Summarise." },
   schedule: { cron, timezone: "Europe/Madrid" },
   enabled: true,
-  options: { permissions: "read-only", ...options },
+  options: { permissions: "ask", ...options },
 })
 
 async function create(backend: RoutinesLocal.Local, definition: Definition) {
@@ -124,7 +124,7 @@ const manual = (name: string): Definition => ({
   name,
   instructions: { kind: "prompt", text: "Summarise." },
   enabled: true,
-  options: { permissions: "read-only" },
+  options: { permissions: "ask" },
 })
 
 async function finishAll(subject: ReturnType<typeof app>, backend: RoutinesLocal.Local) {

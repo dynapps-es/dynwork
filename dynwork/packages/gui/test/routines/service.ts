@@ -13,7 +13,8 @@ type Outcome = NonNullable<SessionInfo["outcome"]>
 /**
  * A stand-in for DynWork's service (`opencode serve --service`) over real HTTP, for the local routines backend: the
  * session routes it calls, the agent, model and skill lists, and the event stream. A prompt starts the session's
- * execution at once; `finish` ends every running one, as the model would, and `restart` drops them as a service that
+ * execution at once; `finish` ends every running one, as the model would, `ask` and `reply` put a permission request to
+ * a session and answer it, and `restart` drops them as a service that
  * stopped would: they stay busy, but no longer active. Times come from `now`, which the test moves.
  * It speaks the public API's wire shapes (`packages/protocol/src/groups/session.ts`): `{ data }` bodies, 204 for
  * updates, a tagged 404 for an unknown session.
@@ -215,6 +216,11 @@ export function fakeService(input: { now: () => number }) {
       streams.forEach((stream) => stream.close())
       streams.clear()
     },
+    /** A running session asks for a permission, or the user answers one, as core's events say. */
+    ask: (sessionID: string, id: string) =>
+      emit({ type: "permission.asked", data: { id, sessionID, action: "edit", resources: ["*"] } }),
+    reply: (sessionID: string, requestID: string) =>
+      emit({ type: "permission.replied", data: { sessionID, requestID, reply: "once" } }),
     /** The text of every prompt sent, in order. */
     prompts: () =>
       received.filter((request) => request.path.endsWith("/prompt")).map((request) => String(request.body?.text)),

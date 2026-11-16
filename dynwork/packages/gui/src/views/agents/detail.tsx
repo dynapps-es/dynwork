@@ -9,7 +9,7 @@ import { duration, instructionsText, money, reasonText, runWhen, scheduleText, w
 import type { AgentsModel } from "./model"
 import { routineHref, runHref } from "../runs/model"
 import { LinkButton, RunMark, Tag, Unread, WhereBadge } from "./parts"
-import { actions, facts, isLive, openable, routineStatus, type Allowed, type Fact } from "./routine"
+import { actions, facts, isLive, openable, routineStatus, stateKey, waiting, type Allowed, type Fact } from "./routine"
 import { upcoming } from "./schedule"
 
 /**
@@ -224,12 +224,14 @@ function HistoryRow(props: { run: Run; open: (run: Run) => void }) {
       disabled={runHref(props.run) ? undefined : !openable(props.run)}
       onClick={() => !runHref(props.run) && props.open(props.run)}
     >
-      <RunMark state={props.run.state} />
+      <RunMark state={props.run.state} reason={props.run.reason} />
       <span data-slot="agents-run-text">
         <span data-slot="agents-run-when">{runWhen(ctx.locale.locale(), props.run)}</span>
         <small>
-          {ctx.t(`agents.run.${props.run.state}`)}
-          <Show when={props.run.summary ?? (props.run.reason && reasonText(ctx.t, props.run.reason))}>
+          {ctx.t(stateKey(props.run))}
+          <Show
+            when={props.run.summary ?? (props.run.reason && !waiting(props.run) && reasonText(ctx.t, props.run.reason))}
+          >
             {(detail) => ` · ${detail()}`}
           </Show>
         </small>

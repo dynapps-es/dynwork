@@ -5,7 +5,7 @@ import { Show } from "solid-js"
 import { duration, money, reasonText, runWhen } from "./format"
 import type { AgentsModel, Viewer } from "./model"
 import { Tag } from "./parts"
-import { isLive, runTone } from "./routine"
+import { isLive, runTone, stateKey, waiting } from "./routine"
 
 /**
  * A remote run, read only, in the view's drawer: its state, cost and turns, the result in Markdown, the last lines of
@@ -46,9 +46,9 @@ export function RunViewer(props: { viewer: Viewer; model: AgentsModel }) {
         </span>
       </nav>
       <div data-slot="agents-detail-chips">
-        <Tag tone={runTone(run().state)}>
-          {ctx.t(`agents.run.${run().state}`)}
-          <Show when={run().reason}>{(reason) => ` · ${reasonText(ctx.t, reason())}`}</Show>
+        <Tag tone={runTone(run().state, run().reason)}>
+          {ctx.t(stateKey(run()))}
+          <Show when={waiting(run()) ? undefined : run().reason}>{(reason) => ` · ${reasonText(ctx.t, reason())}`}</Show>
         </Tag>
         <Show when={facts()}>{(text) => <span>{text()}</span>}</Show>
       </div>

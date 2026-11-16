@@ -212,6 +212,8 @@ function Row(props: {
   id: string
   label: string
   hint?: string
+  /** A warning under the control, as the chosen option says. */
+  warning?: string
   error?: string
   wide?: boolean
   group?: boolean
@@ -234,6 +236,11 @@ function Row(props: {
       {props.children}
       <Show when={props.hint}>
         <span data-slot="form-hint">{props.hint}</span>
+      </Show>
+      <Show when={props.warning}>
+        <span data-slot="form-hint" data-tone="warning">
+          {props.warning}
+        </span>
       </Show>
       <Show when={props.error}>
         <span data-slot="form-error" role="alert">
@@ -689,6 +696,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
       id={field().key}
       label={field().label}
       hint={field().help}
+      warning={options().find((choice) => choice.value === value())?.warning}
       error={said(ctx.t, form, field().key)}
       wide={wide(kind())}
       group={["radio", "choices", "list", "toggle"].includes(kind())}

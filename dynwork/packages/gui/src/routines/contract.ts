@@ -133,7 +133,12 @@ export const Routine = Schema.Struct({
 })
 export type Routine = typeof Routine.Type
 
-export const Choice = Schema.Struct({ value: Schema.String, label: Schema.String })
+export const Choice = Schema.Struct({
+  value: Schema.String,
+  label: Schema.String,
+  /** One line the form shows, as a warning, while this choice is selected. */
+  warning: Schema.optional(Schema.String),
+})
 export type Choice = typeof Choice.Type
 
 /**
@@ -286,6 +291,8 @@ export const Routines = Ipc.define({
   events: {
     /** A run changed state, as it happens. The routines in `state` follow right after. */
     run: Run,
+    /** The user clicked a notification: the window in focus opens the run in place. */
+    open: Run,
   },
   methods: {
     /** Reads every backend again and pushes `state`. */

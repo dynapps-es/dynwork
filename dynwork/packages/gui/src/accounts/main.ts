@@ -1,6 +1,6 @@
 import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { hostname } from "node:os"
-import { app, Notification, powerMonitor, safeStorage, shell } from "electron"
+import { app, Notification, powerMonitor, powerSaveBlocker, safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
 import { RemoteMain } from "../remote/main"
 import { RoutinesFarm } from "../routines/farm/backend"
@@ -78,18 +78,35 @@ const setup: Plugin.MainSetup = (ctx) => {
   remote.update = RemoteMain.setup(ctx, accounts).update
 
   // Routines: the registry of backends, local and remote, and the `dynwork.routines` Ipc over it. A local run that
-  // fails is told with a system notification, which shows with no window open; nothing else notifies.
+  // finishes, fails or waits for a permission is told with a system notification, as its routine says; it shows with
+  // no window open, and clicking it opens the run. The computer stays awake while a run is going.
+  const notices = new Set<Notification>()
+  const awake: { blocker?: number } = {}
   // Scheduled runs wait for the Governance provider; without an account there is nothing to wait for. Waking the
   // computer has the clock catch up at once.
   routines.check = RoutinesMain.setup(ctx, {
     label: hostname().replace(/\.local$/, ""),
     farm: RoutinesFarm.enabled(process.env),
-    failed: (run, routine) => {
+    notify: (notice) => {
       if (!Notification.isSupported()) return
-      new Notification({ title: `${routine.name} failed`, body: run.title }).show()
+      const shown = new Notification(RoutinesMain.words(notice))
+      // Held until it is clicked or closed: a notification nobody refers to may be collected before the click.
+      notices.add(shown)
+      shown.on("click", notice.open)
+      shown.on("close", () => void notices.delete(shown))
+      shown.show()
+    },
+    busy: (going) => {
+      if (going && awake.blocker === undefined) awake.blocker = powerSaveBlocker.start("prevent-app-suspension")
+      if (going || awake.blocker === undefined) return
+      powerSaveBlocker.stop(awake.blocker)
+      awake.blocker = undefined
     },
     ready: () => routines.applied || sync.status().status === "idle",
   }).check
+  ctx.onCleanup(() => {
+    if (awake.blocker !== undefined) powerSaveBlocker.stop(awake.blocker)
+  })
   const wake = () => routines.check()
   powerMonitor.on("resume", wake)
   ctx.onCleanup(() => void powerMonitor.off("resume", wake))

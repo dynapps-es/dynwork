@@ -29,8 +29,8 @@ export { Saved, initial } from "./store"
 // history live in the plugin's storage; a run's live state is read from its session and its events.
 //
 // The clock that fires a schedule and recovers missed runs is `./clock.ts`: it decides, and this backend records what it
-// took (`take`) and starts the run (`fire`). Not here yet (phase F4 of the plan): closing the permissions of an
-// unattended run, and the time limit.
+// took (`take`) and starts the run (`fire`). A run asks for permissions as in any conversation ("Ask me"), or has them
+// all granted ("Don't ask"); either way it is told to the user (`notify`). Not here yet: the time limit.
 
 export const id = "local"
 
@@ -38,6 +38,8 @@ const PAGE = 20
 // How long to wait before following the service's events again after the stream ended.
 const RETRY = 2_000
 const EVENTS = [
+  "permission.asked",
+  "permission.replied",
   "session.execution.started",
   "session.execution.succeeded",
   "session.execution.failed",
@@ -50,16 +52,18 @@ export const fields: readonly Field[] = [
   {
     key: "permissions",
     section: "permissions",
-    label: "Access",
+    label: "Permissions",
     kind: "select",
     choices: [
-      { value: "read-only", label: "Read only" },
-      { value: "edit", label: "Edit files" },
-      { value: "edit-run", label: "Edit files and run commands" },
+      { value: "ask", label: "Ask me" },
+      {
+        value: "bypass",
+        label: "Don't ask",
+        warning: "The routine may edit files and run commands without asking you.",
+      },
     ],
-    default: "read-only",
+    default: "ask",
   },
-  { key: "ask", section: "permissions", label: "Ask me when something else is needed", kind: "toggle", default: false },
   { key: "timeLimit", section: "limits", label: "Time limit (minutes)", kind: "number", min: 1, max: 240, default: 30 },
   {
     key: "recover",
@@ -97,8 +101,26 @@ export const fields: readonly Field[] = [
   },
 ]
 
-/** What a local routine may do, by its `permissions` field: the tool actions its runs are denied. */
-const denied: Record<string, readonly string[]> = { "read-only": ["edit", "shell"], edit: ["shell"], "edit-run": [] }
+// "Don't ask": every request is allowed (the last matching rule wins, `packages/core/src/permission.ts`) except a
+// question, which would open a form that waits for a person. "Ask me" adds no rule: a request waits for the user.
+const bypass = () => [
+  { action: "*", resource: "*", effect: "allow" as const },
+  { action: "question", resource: "*", effect: "deny" as const },
+]
+
+/** What the user is told about a run: it finished, it failed, or it waits for a permission. */
+export interface Notice {
+  kind: "finished" | "failed" | "waiting"
+  run: Run
+  routine: Definition
+}
+
+// The routine's "Notify me" decides, except that a run waiting for a permission is always told: it will not go on alone.
+function wanted(kind: Notice["kind"], mode: unknown) {
+  if (kind === "waiting") return true
+  if (mode === "never") return false
+  return kind === "failed" || mode === "every"
+}
 
 export interface Options {
   /** The backend's id; `local` by default. */
@@ -113,8 +135,10 @@ export interface Options {
   /** Where a routine without a folder works (`~/Dynwork/Routines`). */
   home: string
   now: () => number
-  /** A run ended `failed`, and its routine does not say "never" to notifications. */
-  failed?: (run: Run, routine: Definition) => void
+  /** Something the routine's "Notify me" says to tell the user (`Notice`). */
+  notify?: (notice: Notice) => void
+  /** Whether a run is going: called when the first one starts and when the last one ends. */
+  busy?: (going: boolean) => void
   /** Milliseconds before following the service's events again. */
   retry?: number
 }
@@ -143,19 +167,32 @@ export interface Local extends Backend {
 export function make(options: Options): Local {
   const backend = options.id ?? id
   const watchers = new Set<(change: Change) => void>()
-  const follower: { controller?: AbortController; timer?: ReturnType<typeof setTimeout>; disposed: boolean } = {
-    disposed: false,
-  }
+  const follower: {
+    controller?: AbortController
+    timer?: ReturnType<typeof setTimeout>
+    /** When the event stream was lost with runs going: the next connection checks them against the service. */
+    dropped?: number
+    disposed: boolean
+  } = { disposed: false }
   // One anchor at a time per routine: two quick "Run now" share the one being made.
   const anchoring = new Map<string, Promise<string | Failure>>()
   // The runs going when the app last closed: `interrupted` tells which of them a restart cut.
   const left = new Set(options.store.value.runs.filter((record) => !ended(record.state)).map((record) => record.id))
+  // The permission requests each running session waits for, by session id.
+  const asking = new Map<string, Set<string>>()
+  const busy = { value: false }
 
   const saved = () => options.store.value
   const routineOf = (routine: string) => saved().routines.find((stored) => stored.id === routine)
   const recordOf = (run: string) => saved().runs.find((stored) => stored.id === run)
   const inflight = () => saved().runs.filter((record) => !ended(record.state))
-  const emit = (change: Change) => [...watchers].forEach((watcher) => watcher(change))
+  const emit = (change: Change) => {
+    ;[...watchers].forEach((watcher) => watcher(change))
+    const now = inflight().length > 0
+    if (now === busy.value) return
+    busy.value = now
+    options.busy?.(now)
+  }
   const ref = (routine: string) => ({ backend, id: routine })
   const missing = (what: string, key: string) => fail("not-found", `No ${what} ${key}.`)
   const offline = () => fail("unreachable", "DynWork's service is not running.")
@@ -170,7 +207,7 @@ export function make(options: Options): Local {
     ...(record.started === undefined ? {} : { started: record.started }),
     ...(record.finished === undefined ? {} : { finished: record.finished }),
     title: record.title,
-    unread: ended(record.state) && !record.viewed,
+    unread: (ended(record.state) && !record.viewed) || asking.has(record.id),
     conversation: record.anchor
       ? { kind: "session", server: options.server, session: record.id, anchor: record.anchor }
       : { kind: "none" },
@@ -258,8 +295,30 @@ export function make(options: Options): Local {
           },
         })
         .catch(() => undefined)
-    if (record.state === "failed" && stored && stored.definition.options.notify !== "never")
-      options.failed?.(toRun(record), stored.definition)
+    asking.delete(record.id)
+    if (!stored || (record.state !== "ok" && record.state !== "failed")) return
+    const kind = record.state === "ok" ? "finished" : "failed"
+    if (wanted(kind, stored.definition.options.notify))
+      options.notify?.({ kind, run: toRun(record), routine: stored.definition })
+  }
+
+  // A running session asks for a permission, or its request was answered: the run reads as waiting while any is open.
+  // The first request of a wait is told to the user; nothing here ever answers one.
+  function permission(session: string, request: string, open: boolean) {
+    const record = recordOf(session)
+    if (!record || ended(record.state)) return
+    const pending = asking.get(session) ?? new Set<string>()
+    if (open) pending.add(request)
+    else pending.delete(request)
+    if (pending.size > 0) asking.set(session, pending)
+    else asking.delete(session)
+    const waiting = pending.size > 0
+    if (waiting === (record.reason === "permission")) return
+    const next: SavedRun = waiting ? { ...record, state: "running", reason: "permission" } : quiet(record)
+    saveRun(next)
+    emit({ routine: ref(next.routine), run: toRun(next) })
+    const stored = routineOf(next.routine)
+    if (waiting && stored) options.notify?.({ kind: "waiting", run: toRun(next), routine: stored.definition })
   }
 
   // The routine's anchor session: the one it has, or a new one when it has none or the user deleted it.
@@ -309,6 +368,7 @@ export function make(options: Options): Local {
         if (follower.controller !== controller) return
         follower.controller = undefined
         if (controller.signal.aborted || follower.disposed) return
+        follower.dropped ??= options.now()
         follower.timer = setTimeout(() => {
           follower.timer = undefined
           follow()
@@ -320,13 +380,40 @@ export function make(options: Options): Local {
     const client = options.client()
     if (!client) return
     for await (const event of client.event.subscribe({ types: EVENTS, signal })) {
-      if (event.type === "server.connected") await Promise.all(inflight().map(refresh))
-      if (event.type !== "server.connected") {
+      if (event.type === "server.connected") {
+        // The service went away and came back: a run it no longer runs was cut by the restart, and is told at once.
+        const dropped = follower.dropped
+        follower.dropped = undefined
+        await Promise.all(inflight().map(refresh))
+        if (dropped !== undefined) await cut(inflight().filter((record) => (record.started ?? 0) <= dropped))
+      }
+      if (event.type === "permission.asked") permission(event.data.sessionID, event.data.id, true)
+      if (event.type === "permission.replied") permission(event.data.sessionID, event.data.requestID, false)
+      if (event.type !== "server.connected" && !event.type.startsWith("permission.")) {
         const record = recordOf(event.data.sessionID)
         if (record) await refresh(record)
       }
       if (inflight().length === 0) return
     }
+  }
+
+  // Records as failed (`restart`) the runs among `candidates` that the service does not run: core does not resume a
+  // child session after a restart.
+  async function cut(candidates: SavedRun[]) {
+    const client = options.client()
+    if (candidates.length === 0 || !client) return
+    const active = await client.session.active().catch(() => undefined)
+    if (!active) return
+    await Promise.all(
+      candidates.map(async (candidate) => {
+        const read = await refresh(candidate)
+        if (ended(read.state) || read.id in active) return
+        const interrupted: SavedRun = { ...quiet(read), state: "failed", reason: "restart", finished: options.now() }
+        saveRun(interrupted)
+        emit({ routine: ref(read.routine), run: toRun(interrupted) })
+        finished(interrupted)
+      }),
+    )
   }
 
   function stop() {
@@ -449,22 +536,10 @@ export function make(options: Options): Local {
       return started
     },
     interrupted: async () => {
-      const client = options.client()
-      if (left.size === 0 || !client) return
-      const active = await client.session.active().catch(() => undefined)
-      if (!active) return
-      const cut = saved().runs.filter((record) => left.has(record.id) && !ended(record.state))
+      if (left.size === 0 || !options.client()) return
+      const remaining = saved().runs.filter((record) => left.has(record.id) && !ended(record.state))
       left.clear()
-      await Promise.all(
-        cut.map(async (record) => {
-          const read = await refresh(record)
-          if (ended(read.state) || read.id in active) return
-          const interrupted: SavedRun = { ...read, state: "failed", reason: "restart", finished: options.now() }
-          saveRun(interrupted)
-          emit({ routine: ref(read.routine), run: toRun(interrupted) })
-          finished(interrupted)
-        }),
-      )
+      await cut(remaining)
     },
     cancel: async (run) => {
       const record = recordOf(run)
@@ -475,6 +550,7 @@ export function make(options: Options): Local {
       if (!client) return offline()
       const interrupted = await call(() => client.session.interrupt({ sessionID: run }))
       if (isFailure(interrupted)) return interrupted
+      asking.delete(run)
       const cancelled: SavedRun = {
         ...current,
         state: "cancelled",
@@ -541,9 +617,7 @@ export function make(options: Options): Local {
         title,
         ...(definition.agent ? { agent: definition.agent } : {}),
         ...modelOf(definition),
-        permissions: (denied[String(definition.options.permissions ?? "read-only")] ?? denied["read-only"]!).map(
-          (action) => ({ action, resource: "*", effect: "deny" as const }),
-        ),
+        ...(definition.options.permissions === "bypass" ? { permissions: bypass() } : {}),
         metadata: { conversation: true, dynwork: { backend, routine, role: "run", trigger } },
       }),
     )
@@ -610,7 +684,8 @@ function ended(state: RunState) {
 }
 
 // A run's state from its session: queued until its execution starts, running until it ends with an outcome.
-function derive(record: SavedRun, info: SessionInfo | null, now: number): SavedRun {
+function derive(stored: SavedRun, info: SessionInfo | null, now: number): SavedRun {
+  const record = quiet(stored)
   if (info === null) return { ...record, state: "failed", reason: "deleted", finished: now }
   const busy = info.time.busy
   const idle = info.time.idle
@@ -619,6 +694,13 @@ function derive(record: SavedRun, info: SessionInfo | null, now: number): SavedR
   if (info.outcome === "succeeded") return { ...record, state: "ok", finished: idle }
   if (info.outcome === "failed") return { ...record, state: "failed", reason: "error", finished: idle }
   return { ...record, state: "cancelled", reason: "user", finished: idle }
+}
+
+// A run that is no longer waiting for a permission: the reason that said so goes.
+function quiet(record: SavedRun): SavedRun {
+  if (record.reason !== "permission") return record
+  const { reason: _, ...rest } = record
+  return rest
 }
 
 function folderOf(definition: Definition, home: string) {

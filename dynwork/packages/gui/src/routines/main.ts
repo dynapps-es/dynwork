@@ -5,7 +5,7 @@ import path from "node:path"
 import { OpenCode, type OpenCodeClient } from "@opencode/client/promise"
 import type { MainContext } from "@opencode/plugin/gui/main"
 import { RoutinesBackend } from "./backend"
-import { Routines, type Definition, type Run } from "./contract"
+import { Routines, type Run } from "./contract"
 import { RoutinesDemo } from "./demo"
 import { RoutinesFarm } from "./farm/backend"
 import { RoutinesIpc } from "./ipc"
@@ -20,8 +20,14 @@ const SERVER = "sidecar"
 export interface Options {
   /** This device's name: the local routines' badge. */
   label: string
-  /** A local run ended `failed`: main tells the user (an Electron notification, which needs no window). */
-  failed?: (run: Run, routine: Definition) => void
+  /**
+   * Main tells the user about a local run that finished, failed or waits for a permission, as its routine's "Notify
+   * me" says (an Electron notification, which needs no window). `open` is for the notification's click: it focuses a
+   * window and has it show the run in place.
+   */
+  notify?: (notice: RoutinesLocal.Notice & { open: () => void }) => void
+  /** A local run is going, or none is any longer: the app keeps the computer awake meanwhile. */
+  busy?: (going: boolean) => void
   /** Registers the Agent Farm skeleton in place of the remote demo (`RoutinesFarm.enabled`). A development switch. */
   farm?: boolean
   /**
@@ -36,6 +42,7 @@ export interface Options {
 // owns a backend can register it, and the clock's `check`, to call when `ready` may have changed and on wake.
 export function setup(ctx: MainContext, options: Options) {
   const registry = RoutinesBackend.make()
+  const provider = { changed: () => {}, run: (_: Run) => {}, open: (_: Run) => {} }
 
   // Real backends register here, before the demos, so that a demo is added only where no real backend took its id.
   // The local backend: definitions in the plugin's storage, runs as sessions of DynWork's service.
@@ -48,7 +55,19 @@ export function setup(ctx: MainContext, options: Options) {
     server: SERVER,
     home: path.join(homedir(), "Dynwork", "Routines"),
     now: Date.now,
-    failed: options.failed,
+    busy: options.busy,
+    notify: (notice) =>
+      options.notify?.({
+        ...notice,
+        open: () => {
+          const window = ctx.windows.focused() ?? ctx.windows.list()[0]
+          if (!window) return
+          if (window.isMinimized()) window.restore()
+          window.show()
+          window.focus()
+          provider.open(notice.run)
+        },
+      }),
   })
   ctx.onCleanup(local.dispose)
   registry.register(local)
@@ -70,14 +89,20 @@ export function setup(ctx: MainContext, options: Options) {
   const timer = setInterval(() => demos.forEach((demo) => demo.settle()), SETTLE)
   ctx.onCleanup(() => clearInterval(timer))
 
-  const provider = { changed: () => {}, run: (_: Run) => {} }
   const ipc = ctx.provide(
     Routines,
     RoutinesIpc.implementation(registry, { changed: () => provider.changed(), run: (run) => provider.run(run) }),
   )
   provider.changed = () => ipc.changed()
   provider.run = (run) => ipc.emit("run", run)
+  provider.open = (run) => ipc.emit("open", run)
   return { registry, check: () => void clock.check() }
+}
+
+/** What a notification says: the routine's name and what happened to its run. */
+export function words(notice: RoutinesLocal.Notice) {
+  const what = { finished: "finished", failed: "failed", waiting: "is waiting for your permission" }
+  return { title: `${notice.routine.name} ${what[notice.kind]}`, body: notice.run.title }
 }
 
 // The service's client while it runs. The endpoint's credential changes when the service restarts: a new client then.

@@ -87,20 +87,22 @@ speaks the public HTTP API. Model (i) of docs/04-ui.md §A.3: one conversation p
   `metadata.dynwork.last = { run, state, at }` is set on it, which also lifts it in the sidebar. A rename retitles it and a
   new folder moves it (`POST /api/session/:id/move`). If the user deleted it, the next run makes a new one.
 - **Run.** "Run now" creates a child (`parentID` = anchor) titled `<name> · <when>` (children get no automatic title),
-  with the routine's agent and model (`<provider>/<model>`, as `options("models")` answers) and its own `permissions` and
+  with the routine's agent and model (`<provider>/<model>`, as `options("models")` answers) and its own `permissions` (see
+  "Permissions and notifications") and
   `metadata = { conversation: true, dynwork: { backend, routine, role: "run", trigger } }`, so nothing is inherited from
   the anchor. `conversation: true` has the app show the run as a conversation of its own, with the standard composer,
   instead of a subagent's read-only session (DynWork's patch in `packages/app/src/session/subagent.ts`); runs made before
-  it lack the key and stay read-only. The `permissions` field denies tools: read only denies `edit` and `shell`, edit
-  files denies `shell`. Then `POST /api/session/:id/prompt` with the instructions (a skill goes as the prompt's
+  it lack the key and stay read-only. Then `POST /api/session/:id/prompt` with the instructions (a skill goes as the prompt's
   `skills`). The run's id is its session's.
 - **State.** Read from the session: `queued` until `time.busy`, `running` until `time.idle` catches up with an
   `outcome`, then `ok`, `failed` (`reason: "error"`) or `cancelled`. A session that is gone makes the run `failed` with
   `reason: "deleted"`. A run that ended keeps its state: a reply later goes on in the conversation, not in the run.
 - **Events.** While a run is going the backend follows the service's `session.execution.*` events and reads the run they
   name; after every (re)connection it reads every run that is going, so nothing missed while away is lost, and a stream
-  that ends is followed again after 2 s. It follows them whether or not a window watches, so a failure is always told:
-  `failed` is main's system notification, unless the routine says "never".
+  that ends is followed again after 2 s. It follows them whether or not a window watches, so a run is always told
+  (see "Permissions and notifications"). If the stream was lost and comes back, the runs that were going when it was
+  lost are checked at once against `GET /api/session/active`: a run the service no longer runs is `failed`
+  (`restart`), without waiting for the next launch.
 - **Unread.** A run that ended is unread until `viewed`, which also marks its session viewed at its `time.idle`
   (`POST /api/session/:id/view`): upstream marks only the root.
 - **Storage.** `ctx.storage.store("routines")` keeps the definitions (with each routine's anchor and its directory) and
@@ -109,10 +111,30 @@ speaks the public HTTP API. Model (i) of docs/04-ui.md §A.3: one conversation p
 - **Without the service.** `capabilities()` says `unreachable`; the routines still list, edit, pause and resume, and
   `start` answers `unreachable`.
 
-Not here yet (F4 of the plan): the permission hook of an unattended run, and the time limit.
+Not here yet: the time limit.
 `test/routines/local.test.ts` runs the conformance suite and the local backend's own tests against
 `test/routines/service.ts`, a fake service over real HTTP; `test/routines/clock.test.ts` runs the clock on a fake clock
 and fake timers over the same service.
+
+## Permissions and notifications
+
+- **"Permissions"** (`permissions`): "Ask me" (default) or "Don't ask", per routine, and "Run now" obeys it too. The
+  form shows one warning line while "Don't ask" is chosen (`Choice.warning`). No OpenCode patch: the run's child session
+  is created with a ruleset (`session.create` `permissions`; the last matching rule wins, `packages/core/src/permission.ts`).
+  - "Don't ask": `[{ action: "*", resource: "*", effect: "allow" }, { action: "question", resource: "*", effect: "deny" }]`.
+    The `question` deny matters: an allowed question opens a form that waits for a person.
+  - "Ask me": no rule. A request waits for ever (`permission.ts`), and nothing here ever answers one on the user's behalf.
+- **Waiting.** `permission.asked` and `permission.replied` events of a run's session put the run in `running` with
+  `reason: "permission"` (the contract has no `waiting` state) while any request is open; the views read it as
+  "Waiting for your permission" (`stateKey`, `waiting` in `views/agents/routine.ts`), in the warning tone, and it counts
+  as unread. The first request of a wait is notified; the open requests are kept in memory only.
+- **Notify me** (`notify`): "Only when something fails" (default), "Every run" or "Never", for a run that finished
+  (`ok`) or failed. A cancelled run is never notified. A run waiting for a permission is always notified. The backend
+  decides (`Options.notify`, a `Notice`); `accounts/main.ts` shows an Electron notification (`RoutinesMain.words`), and
+  its click calls `notice.open`: main focuses a window and emits the `open` event of the `Routines` Ipc, and the window in
+  focus follows the run's link (`views/runs/open.ts`), so it opens in place.
+- **Awake.** `Options.busy` is called when the first run starts and when the last one ends; `accounts/main.ts` holds a
+  `powerSaveBlocker("prevent-app-suspension")` while it is true.
 
 ## The clock
 
@@ -149,4 +171,4 @@ and fake timers over the same service.
 
 It reads no cron: a scheduled, enabled routine's `next` is a day after its last change. Runs start only through `start`
 and finish when the clock passes their duration and `settle()` runs (`main.ts` calls it every few seconds). Nothing is
-persisted. Unattended permissions and sync are a later phase of the plan.
+persisted. Sync is a later phase of the plan.

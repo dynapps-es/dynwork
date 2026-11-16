@@ -76,6 +76,7 @@ export default {
 
   "agents.run.queued": "Queued",
   "agents.run.running": "Running",
+  "agents.run.waiting": "Waiting for your permission",
   "agents.run.ok": "Done",
   "agents.run.late": "Late",
   "agents.run.failed": "Failed",
