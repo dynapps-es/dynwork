@@ -2,7 +2,6 @@ export * as RoutinesLocal from "./backend"
 
 import { randomUUID } from "node:crypto"
 import { mkdir } from "node:fs/promises"
-import { Cron, DateTime, Result } from "effect"
 import { ClientError, type OpenCodeClient, type SessionInfo } from "@opencode/client/promise"
 import type { Persisted } from "@opencode/plugin/gui/main"
 import { fail, type Backend } from "../backend"
@@ -19,6 +18,7 @@ import {
   type RunState,
 } from "../contract"
 import { RoutinesValidate } from "../validate"
+import { RoutinesClock } from "./clock"
 import type { Saved, SavedRoutine, SavedRun } from "./store"
 
 export { Saved, initial } from "./store"
@@ -28,8 +28,9 @@ export { Saved, initial } from "./store"
 // anchor, created and prompted through the service's public HTTP API from the main process. Definitions and the run
 // history live in the plugin's storage; a run's live state is read from its session and its events.
 //
-// Not here yet (phase F4 of the plan): the clock that fires a schedule, catch-up of missed runs, resuming a run cut by a
-// service restart, and closing the permissions of an unattended run. A run started here is "Run now": someone is there.
+// The clock that fires a schedule and recovers missed runs is `./clock.ts`: it decides, and this backend records what it
+// took (`take`) and starts the run (`fire`). Not here yet (phase F4 of the plan): closing the permissions of an
+// unattended run, and the time limit.
 
 export const id = "local"
 
@@ -61,13 +62,26 @@ export const fields: readonly Field[] = [
   { key: "ask", section: "permissions", label: "Ask me when something else is needed", kind: "toggle", default: false },
   { key: "timeLimit", section: "limits", label: "Time limit (minutes)", kind: "number", min: 1, max: 240, default: 30 },
   {
+    key: "recover",
+    section: "limits",
+    label: "Recover missed runs",
+    help: "Runs missed while Dynwork was closed or asleep. Several missed runs start one run, never one each.",
+    kind: "select",
+    choices: [
+      { value: "recent", label: "If recent" },
+      { value: "none", label: "Don't recover" },
+    ],
+    default: "recent",
+  },
+  {
     key: "catchUp",
     section: "limits",
-    label: "Catch up missed runs within (hours)",
+    label: "Within (hours)",
     kind: "number",
-    min: 0,
-    max: 12,
-    default: 6,
+    min: 1,
+    max: 48,
+    default: RoutinesClock.HOURS,
+    when: { key: "recover", equals: "recent" },
   },
   {
     key: "notify",
@@ -108,6 +122,20 @@ export interface Options {
 export interface Local extends Backend {
   /** The runs that have not ended, as last read. */
   running(): number
+  /** Reads the routine's runs that have not ended: whether one is still going. */
+  going(routine: string): Promise<boolean>
+  /**
+   * Writes the clock's plan for a routine in one step: its occurrence key, and the occurrences that do not run in the
+   * history. Before the run starts: nothing after this starts that occurrence again.
+   */
+  take(routine: string, plan: RoutinesClock.Plan): void
+  /** Starts the run of an occurrence `take` took. A start that fails is recorded as a failed run. */
+  fire(routine: string, run: NonNullable<RoutinesClock.Plan["run"]>): Promise<Run | Failure>
+  /**
+   * Records as failed (`restart`) the runs that were going when this backend was made and that the service no longer
+   * runs: core does not resume a child session after a restart. Call it once the service answers.
+   */
+  interrupted(): Promise<void>
   /** Stops following the service. */
   dispose(): void
 }
@@ -120,6 +148,8 @@ export function make(options: Options): Local {
   }
   // One anchor at a time per routine: two quick "Run now" share the one being made.
   const anchoring = new Map<string, Promise<string | Failure>>()
+  // The runs going when the app last closed: `interrupted` tells which of them a restart cut.
+  const left = new Set(options.store.value.runs.filter((record) => !ended(record.state)).map((record) => record.id))
 
   const saved = () => options.store.value
   const routineOf = (routine: string) => saved().routines.find((stored) => stored.id === routine)
@@ -136,16 +166,19 @@ export function make(options: Options): Local {
     state: record.state,
     ...(record.reason ? { reason: record.reason } : {}),
     trigger: record.trigger,
-    started: record.started,
+    ...(record.due === undefined ? {} : { due: record.due }),
+    ...(record.started === undefined ? {} : { started: record.started }),
     ...(record.finished === undefined ? {} : { finished: record.finished }),
     title: record.title,
     unread: ended(record.state) && !record.viewed,
-    conversation: { kind: "session", server: options.server, session: record.id, anchor: record.anchor },
+    conversation: record.anchor
+      ? { kind: "session", server: options.server, session: record.id, anchor: record.anchor }
+      : { kind: "none" },
   })
 
   const toRoutine = (stored: SavedRoutine): Routine => {
     const own = saved().runs.filter((record) => record.routine === stored.id)
-    const next = upcoming(stored.definition, options.now())
+    const next = RoutinesClock.next(stored.definition, options.now())
     return {
       ref: ref(stored.id),
       definition: stored.definition,
@@ -210,20 +243,21 @@ export function make(options: Options): Local {
   // A run ended: the anchor notes it (it rises in the sidebar), and a failure is told to the user.
   function finished(record: SavedRun) {
     const stored = routineOf(record.routine)
-    void options
-      .client()
-      ?.session.update({
-        sessionID: record.anchor,
-        metadata: {
-          dynwork: {
-            backend,
-            routine: record.routine,
-            role: "anchor",
-            last: { run: record.id, state: record.state, at: record.finished ?? options.now() },
+    if (record.anchor)
+      void options
+        .client()
+        ?.session.update({
+          sessionID: record.anchor,
+          metadata: {
+            dynwork: {
+              backend,
+              routine: record.routine,
+              role: "anchor",
+              last: { run: record.id, state: record.state, at: record.finished ?? options.now() },
+            },
           },
-        },
-      })
-      .catch(() => undefined)
+        })
+        .catch(() => undefined)
     if (record.state === "failed" && stored && stored.definition.options.notify !== "never")
       options.failed?.(toRun(record), stored.definition)
   }
@@ -358,52 +392,79 @@ export function make(options: Options): Local {
     start: async (routine) => {
       const stored = routineOf(routine)
       if (!stored) return missing("routine", routine)
-      const client = options.client()
-      if (!client) return offline()
-      const parent = await anchor(stored, client)
-      if (isFailure(parent)) return parent
-      const at = options.now()
-      const definition = stored.definition
-      const title = `${definition.name} · ${stamp(at, definition.schedule?.timezone)}`
-      // Every run carries its own permissions and metadata, or it would inherit the anchor's (docs/04-ui.md §A.3.1).
-      // `conversation: true` has the app treat the child as a conversation of its own, with the standard composer,
-      // rather than as a subagent's read-only session (DynWork's patch in `packages/app/src/session/subagent.ts`).
-      const child = await call(() =>
-        client.session.create({
-          parentID: parent,
-          title,
-          ...(definition.agent ? { agent: definition.agent } : {}),
-          ...modelOf(definition),
-          permissions: (denied[String(definition.options.permissions ?? "read-only")] ?? denied["read-only"]!).map(
-            (action) => ({ action, resource: "*", effect: "deny" as const }),
-          ),
-          metadata: { conversation: true, dynwork: { backend, routine, role: "run", trigger: "manual" } },
+      return launch(stored, { trigger: "manual" })
+    },
+    going: async (routine) => {
+      const read = await Promise.all(
+        inflight()
+          .filter((record) => record.routine === routine)
+          .map(refresh),
+      )
+      return read.some((record) => !ended(record.state))
+    },
+    take: (routine, plan) => {
+      const stored = routineOf(routine)
+      if (!stored) return
+      const records = plan.records.map(
+        (occurrence): SavedRun => ({
+          id: `occ_${randomUUID()}`,
+          routine,
+          trigger: "schedule",
+          title: `${stored.definition.name} · ${stamp(occurrence.due, stored.definition.schedule?.timezone)}`,
+          due: occurrence.due,
+          state: occurrence.state,
+          reason: occurrence.reason,
+          // Nothing to read: it never had a session.
+          viewed: true,
         }),
       )
-      if (isFailure(child)) return child
-      const record: SavedRun = {
-        id: child.id,
+      options.store.update((draft) => {
+        const index = draft.routines.findIndex((candidate) => candidate.id === routine)
+        if (index >= 0) draft.routines[index] = { ...draft.routines[index]!, due: plan.due }
+        draft.runs.unshift(...records.toReversed())
+      })
+      records.forEach((record) => emit({ routine: ref(routine), run: toRun(record) }))
+    },
+    fire: async (routine, run) => {
+      const stored = routineOf(routine)
+      if (!stored) return missing("routine", routine)
+      const started = await launch(stored, run)
+      if (!isFailure(started) || saved().runs.some((record) => record.routine === routine && record.due === run.due))
+        return started
+      // It failed before its session existed: the occurrence is still told in the history.
+      const failed: SavedRun = {
+        id: `occ_${randomUUID()}`,
         routine,
-        anchor: parent,
-        trigger: "manual",
-        title,
-        started: at,
-        state: "queued",
+        trigger: run.trigger,
+        title: `${stored.definition.name} · ${stamp(run.due, stored.definition.schedule?.timezone)}`,
+        due: run.due,
+        state: "failed",
+        reason: "start",
+        finished: options.now(),
         viewed: false,
       }
-      options.store.update((draft) => void draft.runs.unshift(record))
-      const prompted = await call(() => client.session.prompt({ sessionID: child.id, ...promptOf(definition) }))
-      if (isFailure(prompted)) {
-        const failed: SavedRun = { ...record, state: "failed", reason: "prompt", finished: options.now() }
-        saveRun(failed)
-        emit({ routine: ref(routine), run: toRun(failed) })
-        return prompted
-      }
-      follow()
-      const read = await refresh(record)
-      const run = toRun(read)
-      if (read === record) emit({ routine: ref(routine), run })
-      return run
+      options.store.update((draft) => void draft.runs.unshift(failed))
+      emit({ routine: ref(routine), run: toRun(failed) })
+      finished(failed)
+      return started
+    },
+    interrupted: async () => {
+      const client = options.client()
+      if (left.size === 0 || !client) return
+      const active = await client.session.active().catch(() => undefined)
+      if (!active) return
+      const cut = saved().runs.filter((record) => left.has(record.id) && !ended(record.state))
+      left.clear()
+      await Promise.all(
+        cut.map(async (record) => {
+          const read = await refresh(record)
+          if (ended(read.state) || read.id in active) return
+          const interrupted: SavedRun = { ...read, state: "failed", reason: "restart", finished: options.now() }
+          saveRun(interrupted)
+          emit({ routine: ref(read.routine), run: toRun(interrupted) })
+          finished(interrupted)
+        }),
+      )
     },
     cancel: async (run) => {
       const record = recordOf(run)
@@ -442,6 +503,7 @@ export function make(options: Options): Local {
       if (!record || !ended(record.state) || record.viewed) return
       saveRun({ ...record, viewed: true })
       emit({ routine: ref(record.routine), run: toRun({ ...record, viewed: true }) })
+      if (!record.anchor) return
       const client = options.client()
       const idle = await client?.session.get({ sessionID: run }).then(
         (session) => session.time.idle,
@@ -453,6 +515,66 @@ export function make(options: Options): Local {
       watchers.add(changed)
       return () => void watchers.delete(changed)
     },
+  }
+
+  // Starts a run of the routine: a child session of its anchor, prompted with its instructions. A catch-up run's prompt
+  // first says since when it covers.
+  async function launch(
+    stored: SavedRoutine,
+    occurrence: { trigger: Run["trigger"]; due?: number; since?: number },
+  ): Promise<Run | Failure> {
+    const routine = stored.id
+    const client = options.client()
+    if (!client) return offline()
+    const parent = await anchor(stored, client)
+    if (isFailure(parent)) return parent
+    const at = options.now()
+    const definition = stored.definition
+    const title = `${definition.name} · ${stamp(at, definition.schedule?.timezone)}`
+    const trigger = occurrence.trigger
+    // Every run carries its own permissions and metadata, or it would inherit the anchor's (docs/04-ui.md §A.3.1).
+    // `conversation: true` has the app treat the child as a conversation of its own, with the standard composer,
+    // rather than as a subagent's read-only session (DynWork's patch in `packages/app/src/session/subagent.ts`).
+    const child = await call(() =>
+      client.session.create({
+        parentID: parent,
+        title,
+        ...(definition.agent ? { agent: definition.agent } : {}),
+        ...modelOf(definition),
+        permissions: (denied[String(definition.options.permissions ?? "read-only")] ?? denied["read-only"]!).map(
+          (action) => ({ action, resource: "*", effect: "deny" as const }),
+        ),
+        metadata: { conversation: true, dynwork: { backend, routine, role: "run", trigger } },
+      }),
+    )
+    if (isFailure(child)) return child
+    const record: SavedRun = {
+      id: child.id,
+      routine,
+      anchor: parent,
+      trigger,
+      title,
+      ...(occurrence.due === undefined ? {} : { due: occurrence.due }),
+      started: at,
+      state: "queued",
+      viewed: false,
+    }
+    options.store.update((draft) => void draft.runs.unshift(record))
+    const prompt = promptOf(definition)
+    const text =
+      occurrence.since === undefined ? prompt.text : `${catchUp(occurrence.since, definition)}\n\n${prompt.text}`
+    const prompted = await call(() => client.session.prompt({ sessionID: child.id, ...prompt, text }))
+    if (isFailure(prompted)) {
+      const failed: SavedRun = { ...record, state: "failed", reason: "prompt", finished: options.now() }
+      saveRun(failed)
+      emit({ routine: ref(routine), run: toRun(failed) })
+      return prompted
+    }
+    follow()
+    const read = await refresh(record)
+    const run = toRun(read)
+    if (read === record) emit({ routine: ref(routine), run })
+    return run
   }
 
   async function switchTo(routine: string, enabled: boolean) {
@@ -519,6 +641,13 @@ function promptOf(definition: Definition) {
   return { text: instructions.text }
 }
 
+// The first line of a catch-up run's prompt: it is one, and since when, so the agent covers the whole gap.
+function catchUp(since: number, definition: Definition) {
+  const zone = definition.schedule?.timezone
+  const at = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeStyle: "short", timeZone: zone }).format(since)
+  return `This is a catch-up run: Dynwork was closed or asleep when this routine was due, so cover everything since ${at}${zone ? ` (${zone})` : ""}.`
+}
+
 // The choices of the shared selects; undefined for a lookup this backend does not serve.
 async function lookupOf(client: OpenCodeClient, lookup: string): Promise<Choice[] | undefined> {
   if (lookup === "agents") {
@@ -536,16 +665,6 @@ async function lookupOf(client: OpenCodeClient, lookup: string): Promise<Choice[
     return skills.data.map((skill) => ({ value: skill.id, label: skill.name }))
   }
   return undefined
-}
-
-// When a scheduled, enabled routine would run next. Nothing fires it yet (F4): the view shows it as planned.
-function upcoming(definition: Definition, now: number) {
-  if (!definition.schedule || !definition.enabled) return undefined
-  const zone = DateTime.zoneMakeNamed(definition.schedule.timezone)
-  if (zone._tag === "None") return undefined
-  const parsed = Cron.parse(definition.schedule.cron, zone.value)
-  if (Result.isFailure(parsed)) return undefined
-  return Cron.next(parsed.success, new Date(now)).getTime()
 }
 
 // "Mon 16 Nov, 09:00" in the system's language: a child session gets no automatic title.

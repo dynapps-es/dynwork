@@ -13,7 +13,8 @@ type Outcome = NonNullable<SessionInfo["outcome"]>
 /**
  * A stand-in for DynWork's service (`opencode serve --service`) over real HTTP, for the local routines backend: the
  * session routes it calls, the agent, model and skill lists, and the event stream. A prompt starts the session's
- * execution at once; `finish` ends every running one, as the model would. Times come from `now`, which the test moves.
+ * execution at once; `finish` ends every running one, as the model would, and `restart` drops them as a service that
+ * stopped would: they stay busy, but no longer active. Times come from `now`, which the test moves.
  * It speaks the public API's wire shapes (`packages/protocol/src/groups/session.ts`): `{ data }` bodies, 204 for
  * updates, a tagged 404 for an unknown session.
  */
@@ -21,6 +22,8 @@ export function fakeService(input: { now: () => number }) {
   const sessions = new Map<string, SessionInfo>()
   const received: Received[] = []
   const streams = new Set<ReadableStreamDefaultController<Uint8Array>>()
+  // The sessions whose execution this process runs (`GET /api/session/active`).
+  const active = new Set<string>()
   const counter = { value: 0 }
   const encoder = new TextEncoder()
 
@@ -105,6 +108,8 @@ export function fakeService(input: { now: () => number }) {
         location: { directory: "/" },
         data: [{ id: "standup", name: "standup", path: "/s", content: "" }],
       })
+    if (url.pathname === "/api/session/active")
+      return Response.json({ data: Object.fromEntries([...active].map((id) => [id, { type: "running" }])) })
     if (url.pathname === "/api/session" && request.method === "POST") return create(body)
     if (url.pathname === "/api/session" && request.method === "GET") {
       const parent = url.searchParams.get("parentID")
@@ -131,6 +136,7 @@ export function fakeService(input: { now: () => number }) {
     }
     if (action === "prompt") {
       patch(id, {}, { busy: input.now() })
+      active.add(id)
       emit({ type: "session.execution.started", data: { sessionID: id } })
       return Response.json({
         data: {
@@ -166,6 +172,7 @@ export function fakeService(input: { now: () => number }) {
     const session = sessions.get(id)
     if (!session || session.time.busy === undefined || (session.time.idle ?? 0) >= session.time.busy) return
     patch(id, { outcome }, { idle: input.now() })
+    active.delete(id)
     emit({ type: `session.execution.${outcome}`, data: { sessionID: id } })
   }
 
@@ -202,6 +209,15 @@ export function fakeService(input: { now: () => number }) {
       streams.forEach((stream) => stream.close())
       streams.clear()
     },
+    /** Stops every execution without ending it and closes the event streams, as the service stopping does. */
+    restart: () => {
+      active.clear()
+      streams.forEach((stream) => stream.close())
+      streams.clear()
+    },
+    /** The text of every prompt sent, in order. */
+    prompts: () =>
+      received.filter((request) => request.path.endsWith("/prompt")).map((request) => String(request.body?.text)),
     /** How many event streams are open. */
     listeners: () => streams.size,
     stop: () => server.stop(true),

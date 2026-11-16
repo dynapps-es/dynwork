@@ -44,6 +44,7 @@ describe("a new routine starts closed and manual", () => {
       permissions: "read-only",
       ask: false,
       timeLimit: 30,
+      recover: "recent",
       catchUp: 6,
       notify: "failures",
     })
@@ -72,7 +73,14 @@ describe("a new routine starts closed and manual", () => {
       name: "Digest",
       instructions: { kind: "prompt", text: "Summarise." },
       enabled: true,
-      options: { permissions: "read-only", ask: false, timeLimit: 30, catchUp: 6, notify: "failures" },
+      options: {
+        permissions: "read-only",
+        ask: false,
+        timeLimit: 30,
+        recover: "recent",
+        catchUp: 6,
+        notify: "failures",
+      },
     })
   })
 })

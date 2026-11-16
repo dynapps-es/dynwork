@@ -5,7 +5,7 @@ import { Switch } from "@opencode/ui/switch"
 import { For, Show, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Capabilities, Routine, Run } from "../../routines/contract"
-import { duration, instructionsText, money, runWhen, scheduleText, when } from "./format"
+import { duration, instructionsText, money, reasonText, runWhen, scheduleText, when } from "./format"
 import type { AgentsModel } from "./model"
 import { routineHref, runHref } from "../runs/model"
 import { LinkButton, RunMark, Tag, Unread, WhereBadge } from "./parts"
@@ -229,7 +229,9 @@ function HistoryRow(props: { run: Run; open: (run: Run) => void }) {
         <span data-slot="agents-run-when">{runWhen(ctx.locale.locale(), props.run)}</span>
         <small>
           {ctx.t(`agents.run.${props.run.state}`)}
-          <Show when={props.run.summary ?? props.run.reason}>{(detail) => ` · ${detail()}`}</Show>
+          <Show when={props.run.summary ?? (props.run.reason && reasonText(ctx.t, props.run.reason))}>
+            {(detail) => ` · ${detail()}`}
+          </Show>
         </small>
       </span>
       <span data-slot="agents-meta">{spent() || "—"}</span>

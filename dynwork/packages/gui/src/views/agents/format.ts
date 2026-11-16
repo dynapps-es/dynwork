@@ -32,6 +32,13 @@ export function runWhen(locale: string, run: Run) {
   return at === undefined ? run.title : when(locale, at)
 }
 
+/** Why a run is in its state, in words: the copy of a reason the view knows, else the backend's code as it is. */
+export function reasonText(t: Translate, reason: string) {
+  const key = `agents.why.${reason}`
+  const text = t(key)
+  return text === key ? reason : text
+}
+
 /** "3 min", "1 h 5 min", "less than a minute"; undefined for a run that never started. */
 export function duration(t: Translate, run: Run, now: number) {
   if (run.started === undefined) return undefined

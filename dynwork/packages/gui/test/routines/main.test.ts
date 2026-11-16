@@ -38,7 +38,7 @@ function stand(stored = new Map<string, unknown>(), options: Partial<RoutinesMai
   }
   // SAFETY: the routines' setup reads only `provide`, `onCleanup`, `storage` and `serverEndpoints`, which the stand-in
   // provides.
-  const registry = RoutinesMain.setup(ctx as unknown as MainContext, { label: "Test Mac", ...options })
+  const registry = RoutinesMain.setup(ctx as unknown as MainContext, { label: "Test Mac", ...options }).registry
   const caller: Caller = { window: 1, signal: new AbortController().signal }
   const call = (name: string, input?: unknown) => provided.impl?.[name]?.(input, caller)
   return { provided, cleanups, pushed, registry, call, stored }

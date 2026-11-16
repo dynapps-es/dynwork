@@ -97,7 +97,8 @@ describe("the detail's facts, the same layout for both kinds", () => {
     expect(grouped.where.map((fact) => [fact.label, fact.value])).toEqual([
       ["Project folder", "/Users/demo/Projects/portal"],
       ["Time limit (minutes)", "30"],
-      ["Catch up missed runs within (hours)", "6"],
+      ["Recover missed runs", "If recent"],
+      ["Within (hours)", "6"],
     ])
     expect(grouped.permissions.map((fact) => [fact.label, fact.value])).toEqual([
       ["Access", "Edit files and run commands"],

@@ -2,7 +2,7 @@ import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { Show } from "solid-js"
-import { duration, money, runWhen } from "./format"
+import { duration, money, reasonText, runWhen } from "./format"
 import type { AgentsModel, Viewer } from "./model"
 import { Tag } from "./parts"
 import { isLive, runTone } from "./routine"
@@ -48,7 +48,7 @@ export function RunViewer(props: { viewer: Viewer; model: AgentsModel }) {
       <div data-slot="agents-detail-chips">
         <Tag tone={runTone(run().state)}>
           {ctx.t(`agents.run.${run().state}`)}
-          <Show when={run().reason}>{(reason) => ` · ${reason()}`}</Show>
+          <Show when={run().reason}>{(reason) => ` · ${reasonText(ctx.t, reason())}`}</Show>
         </Tag>
         <Show when={facts()}>{(text) => <span>{text()}</span>}</Show>
       </div>

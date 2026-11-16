@@ -4,7 +4,7 @@ import { Icon } from "@opencode/ui/icon"
 import { For, Show } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Routine, Run } from "../../routines/contract"
-import { duration, instructionsText, runWhen, scheduleText } from "./format"
+import { duration, instructionsText, reasonText, runWhen, scheduleText } from "./format"
 import { runHref } from "../runs/model"
 import { tabs, type AgentsModel } from "./model"
 import { openable, routineStatus, statuses, wheres } from "./routine"
@@ -177,7 +177,9 @@ function ActivityRow(props: { run: Run; model: AgentsModel; open: (run: Run) => 
   const routine = () => props.model.routineOf(props.run)
   const capabilities = () => props.model.capabilities(props.run.ref.backend)
   const detail = () =>
-    props.run.summary ?? duration(ctx.t, props.run, Date.now()) ?? props.run.reason ?? ctx.t("agents.run.outside")
+    props.run.summary ??
+    duration(ctx.t, props.run, Date.now()) ??
+    (props.run.reason ? reasonText(ctx.t, props.run.reason) : ctx.t("agents.run.outside"))
 
   return (
     // A run read in a session is a link the app's router opens in place, under the routine's anchor.

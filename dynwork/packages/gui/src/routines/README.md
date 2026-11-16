@@ -2,7 +2,8 @@
 
 Routines are scheduled or recurring agent tasks: a prompt, a skill or a farm agent, with a schedule or none. They run
 in one of two places, **local** (this computer) or **remote** (the Agent Farm), and the app shows them in one list.
-This directory is the contract between the views and the places they run, and nothing else: no view, no clock.
+This directory is the contract between the views and the places they run, the backends, and the clock of the local
+ones; no view.
 
 ```
 window                                    main process
@@ -18,9 +19,9 @@ window                                    main process
 | `ipc.ts`      | The Ipc implementation over a registry: the state snapshot, routing, watching, failures as data                          |
 | `fake.ts`     | An in-memory backend with an injectable clock: `Fake.make(options)`                                                      |
 | `demo.ts`     | The two seeded fakes (`local`, `farm`) shaped like the approved mockup, and `register`, which adds those not taken       |
-| `local/`      | The local backend: anchor and run sessions on DynWork's service, definitions and history in the plugin's storage         |
+| `local/`      | The local backend (anchor and run sessions on DynWork's service, storage in the plugin's) and its clock (`clock.ts`)     |
 | `farm/`       | The Agent Farm backend's skeleton and its handover `README.md` for Jesús Vargas: off unless `DYNWORK_ROUTINES_FARM=1`    |
-| `main.ts`     | The main-process setup: the registry, the local backend, the demos and the Ipc. Called from `accounts/main.ts`           |
+| `main.ts`     | The main-process setup: the registry, the local backend and its clock, the demos and the Ipc. From `accounts/main.ts`    |
 | `client.ts`   | The window's live Ipc client, handed over by `accounts/renderer.ts` for the views to read                                |
 
 Everything crossing to a window is a Schema value, with epoch milliseconds for time. Every backend-specific value is in
@@ -108,13 +109,44 @@ speaks the public HTTP API. Model (i) of docs/04-ui.md §A.3: one conversation p
 - **Without the service.** `capabilities()` says `unreachable`; the routines still list, edit, pause and resume, and
   `start` answers `unreachable`.
 
-Not here yet (F4 of the plan): the clock that fires a schedule (`next` is computed from the cron and shown, but nothing
-fires it), catch-up of missed runs, resuming a run cut by a service restart (core resumes only root sessions), the
-permission hook of an unattended run, and the time limit. `test/routines/local.test.ts` runs the conformance suite and the
-local backend's own tests against `test/routines/service.ts`, a fake service over real HTTP.
+Not here yet (F4 of the plan): the permission hook of an unattended run, and the time limit.
+`test/routines/local.test.ts` runs the conformance suite and the local backend's own tests against
+`test/routines/service.ts`, a fake service over real HTTP; `test/routines/clock.test.ts` runs the clock on a fake clock
+and fake timers over the same service.
+
+## The clock
+
+`local/clock.ts` (`RoutinesClock.make`) fires the local schedules, in the main process, only while Dynwork is open.
+
+- **When.** Each routine's next occurrence comes from its cron in its IANA zone (`RoutinesClock.next`, also the `next`
+  the view shows). A local time the clocks skip (DST starts) runs right after the jump; one that happens twice (DST ends)
+  runs once, the first time. One timer waits for the nearest occurrence, never longer than a minute so that a change of
+  the system clock is noticed. Any change of a routine (the backend's `watch`), waking the computer (`powerMonitor`
+  `resume`, in `accounts/main.ts`) and every change of the sync make it look again.
+- **Ready.** Nothing fires until DynWork's service answers and the Governance provider is applied: `accounts/main.ts`
+  passes `ready`, true once the sync engine reported `synced` (or when no account is signed in, as there is nothing to
+  wait for), and calls `check` on each sync change. A run started earlier fails with "No model is available". Until
+  then the clock asks again every 30 s.
+- **Exactly once.** The occurrence key is `SavedRoutine.due`, the newest occurrence the clock took. It is written to the
+  plugin's storage (`take`) in the same synchronous step that decides the occurrence, before its run starts (`fire`), so
+  no restart and no second timer starts it again. An occurrence counts only after the key and after the routine last
+  changed (`updated`): a routine created, edited or resumed missed nothing before that. There is no other lock.
+- **Overlap.** An occurrence whose routine's previous run is still going is recorded `skipped` (`overlap`), not queued.
+- **Missed runs.** An occurrence found more than 5 minutes after its time was missed (Dynwork closed, or asleep). Each
+  routine says what to do in "Recover missed runs" (`options.recover`, `options.catchUp`): `none` records them `missed`
+  (`closed`); `recent` (the default, within 6 hours, 1 to 48) starts **one** run when the newest missed one is within the
+  hours, never one per occurrence, unless the next regular run is less than 15 minutes away. That run is the newest
+  occurrence's, with `trigger: "catch-up"`; the others are recorded `missed` (`grouped`) into it, and its prompt starts
+  with one line saying it is a catch-up and since when (the oldest missed time), so the agent covers the gap. At most the
+  newest 100 missed occurrences are recorded.
+- **Runs cut by a restart.** The runs going when the app last closed that the service no longer runs
+  (`GET /api/session/active`) are recorded `failed` (`restart`) at the next launch: core does not resume a child session.
+  Nothing retries them. A service restart while the app stays open is not detected yet.
+- **History.** Occurrences that did not run are runs without a session (`conversation: none`, already read), with their
+  `due`. The view puts their reason in words (`agents.why.*`).
 
 ## What the fake does not do
 
 It reads no cron: a scheduled, enabled routine's `next` is a day after its last change. Runs start only through `start`
 and finish when the clock passes their duration and `settle()` runs (`main.ts` calls it every few seconds). Nothing is
-persisted. The real clock, catch-up, unattended permissions and sync are a later phase of the plan.
+persisted. Unattended permissions and sync are a later phase of the plan.

@@ -1,6 +1,6 @@
 import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { hostname } from "node:os"
-import { app, Notification, safeStorage, shell } from "electron"
+import { app, Notification, powerMonitor, safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
 import { RemoteMain } from "../remote/main"
 import { RoutinesFarm } from "../routines/farm/backend"
@@ -20,6 +20,9 @@ const setup: Plugin.MainSetup = (ctx) => {
   }
   const engine: { current?: DynWorkSyncEngine.Engine } = {}
   const remote: { update: () => void } = { update: () => {} }
+  // The routines' clock looks again whenever the sync changes: it fires nothing until the provider is applied.
+  // `applied` holds once a sync went through, until the account goes: a failed poll later keeps the provider applied.
+  const routines: { check: () => void; applied: boolean } = { check: () => {}, applied: false }
   const accounts = DynWorkAccounts.make({
     store: ctx.storage.store("accounts", { schema: DynWorkAccounts.Store, initial: DynWorkAccounts.initial }),
     secure: safeStorage,
@@ -44,6 +47,9 @@ const setup: Plugin.MainSetup = (ctx) => {
     changed: (status) => {
       provider.changed()
       provider.emit(status)
+      if (status.status === "synced") routines.applied = true
+      if (status.status === "idle") routines.applied = false
+      routines.check()
     },
   })
   engine.current = sync
@@ -73,14 +79,20 @@ const setup: Plugin.MainSetup = (ctx) => {
 
   // Routines: the registry of backends, local and remote, and the `dynwork.routines` Ipc over it. A local run that
   // fails is told with a system notification, which shows with no window open; nothing else notifies.
-  RoutinesMain.setup(ctx, {
+  // Scheduled runs wait for the Governance provider; without an account there is nothing to wait for. Waking the
+  // computer has the clock catch up at once.
+  routines.check = RoutinesMain.setup(ctx, {
     label: hostname().replace(/\.local$/, ""),
     farm: RoutinesFarm.enabled(process.env),
     failed: (run, routine) => {
       if (!Notification.isSupported()) return
       new Notification({ title: `${routine.name} failed`, body: run.title }).show()
     },
-  })
+    ready: () => routines.applied || sync.status().status === "idle",
+  }).check
+  const wake = () => routines.check()
+  powerMonitor.on("resume", wake)
+  ctx.onCleanup(() => void powerMonitor.off("resume", wake))
 
   const ipc = ctx.provide(Accounts, AccountsIpc.implementation(accounts, sync))
   provider.changed = () => ipc.changed()
