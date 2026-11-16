@@ -78,8 +78,9 @@
   color: var(--v2-text-text-base);
 }
 
-[data-slot="accounts-badge"][data-badge="key-changed"],
-[data-slot="accounts-badge"][data-badge="new-key"] {
+/* The badge is the shared Tag: its neutral variant sets three attributes, so the warning needs a fourth to win. */
+[data-slot="accounts-badge"][data-component="tag"][data-badge="key-changed"][data-variant],
+[data-slot="accounts-badge"][data-component="tag"][data-badge="new-key"][data-variant] {
   border-color: var(--v2-state-border-warning);
   background: var(--v2-state-bg-warning);
   color: var(--v2-state-fg-warning);
