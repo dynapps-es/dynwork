@@ -12,6 +12,14 @@ const plain = /^(\d+)\.(\d+)\.(\d+)$/
 // What internal releases are tagged: the only thing `releases/latest` may ever be.
 const internalTag = /^dynwork-v\d+\.\d+\.\d+$/
 
+/** The patch release after `base`, which must be a plain major.minor.patch. */
+export function nextPatch(base: string) {
+  const parts = plain.exec(base)
+  if (!parts) throw new Error(`The base version "${base}" must be major.minor.patch, with no prerelease or build`)
+
+  return `${parts[1]}.${parts[2]}.${Number(parts[3]) + 1}`
+}
+
 /**
  * A canary build's app version: the next patch of `base` with the workflow's run number as the prerelease. By semver it
  * outranks the internal version it follows and every earlier canary, and yields to the internal release that comes next.
@@ -19,10 +27,7 @@ const internalTag = /^dynwork-v\d+\.\d+\.\d+$/
 export function version(run: number, base = DynWorkIdentity.version) {
   if (!Number.isSafeInteger(run) || run < 1) throw new Error(`The run number "${run}" must be a positive integer`)
 
-  const parts = plain.exec(base)
-  if (!parts) throw new Error(`The base version "${base}" must be major.minor.patch, with no prerelease or build`)
-
-  return `${parts[1]}.${parts[2]}.${Number(parts[3]) + 1}-canary.${run}`
+  return `${nextPatch(base)}-canary.${run}`
 }
 
 /**

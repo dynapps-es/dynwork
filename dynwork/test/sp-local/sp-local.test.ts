@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { $ } from "bun"
 import { generateKeyPairSync, sign } from "node:crypto"
 import path from "node:path"
+import { DynWorkIdentity } from "../../packages/branding/src/identity"
 import {
   cardField,
   defaultPortBase,
@@ -156,8 +157,9 @@ describe("ports", () => {
     expect(port).not.toBe(busy.port + 1)
   })
 
-  test("never hands out DynWork's service port", async () => {
-    expect(await freePort([], 17495)).not.toBe(17495)
+  test("never hands out a DynWork channel's service port", async () => {
+    for (const channel of Object.values(DynWorkIdentity.table))
+      expect(await freePort([], channel.servicePort)).not.toBe(channel.servicePort)
   })
 })
 

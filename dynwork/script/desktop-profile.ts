@@ -10,10 +10,23 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { DynWorkIdentity } from "../packages/branding/src/identity"
+import { Install } from "../packages/build/src/install"
 
 export const repo = path.resolve(import.meta.dir, "../..")
 
-export const installed = `/Applications/${DynWorkIdentity.name}.app`
+/**
+ * The channel the smoke and the e2e run: the installed canary unless `DYNWORK_CHANNEL` names another, the way the
+ * scripts that install it default to canary. A launched bundle is the channel's own, so its identity comes from the
+ * table, not from the process's.
+ */
+export const channel = Install.choose(
+  process.env.DYNWORK_CHANNEL ?? Install.defaultLocal,
+  Object.keys(DynWorkIdentity.table) as DynWorkIdentity.Channel[],
+)
+
+export const identity = DynWorkIdentity.table[channel]
+
+export const installed = Install.bundle(channel)
 
 export type Cdp = Awaited<ReturnType<typeof connect>>
 
@@ -68,7 +81,7 @@ export async function profile(input: { prefix: string; onboarded: boolean; extra
 export function launch(target: Profile, cdpPort: number, bundle = installed, extra: string[] = []) {
   return Bun.spawn(
     [
-      path.join(bundle, "Contents/MacOS", DynWorkIdentity.name),
+      path.join(bundle, "Contents/MacOS", identity.name),
       `--remote-debugging-port=${cdpPort}`,
       "--use-mock-keychain",
       ...extra,

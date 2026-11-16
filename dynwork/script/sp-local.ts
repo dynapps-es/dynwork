@@ -25,6 +25,7 @@ import { createHash, createPublicKey, randomBytes, verify } from "node:crypto"
 import { mkdir, rm } from "node:fs/promises"
 import { homedir } from "node:os"
 import path from "node:path"
+import { DynWorkIdentity } from "../packages/branding/src/identity"
 
 const dir = path.resolve(import.meta.dir, "../test/sp-local")
 
@@ -160,8 +161,8 @@ const keptQuery = ["error", "response_type", "code_challenge_method", "scope"]
 // String fields of JSON bodies kept verbatim: error envelopes and token metadata. Secret-shaped values never are.
 const keptFields = ["code", "message", "error_key", "token_type", "scope", "x-client-id"]
 
-// Ports other things on this Mac already own: DynWork's service, and the smoke073 containers.
-const reservedPorts = [17495, 18080, 15000]
+// Ports other things on this Mac already own: the service of each DynWork channel, and the smoke073 containers.
+const reservedPorts = [...Object.values(DynWorkIdentity.table).map((channel) => channel.servicePort), 18080, 15000]
 
 if (import.meta.main) await main(process.argv.slice(2))
 

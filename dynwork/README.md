@@ -250,7 +250,7 @@ from it is `packages/sp-client/PROTOCOL.md`.
 bun dynwork/script/desktop.ts && bun dynwork/script/e2e-sp.ts [screenshot dir]
 ```
 
-`e2e-sp.ts` runs the installed `/Applications/DynWork.app` in an isolated profile (the smoke's, from
+`e2e-sp.ts` runs the installed `/Applications/Dynwork Canary.app` (or the channel `DYNWORK_CHANNEL` names) in an isolated profile (the smoke's, from
 `dynwork/script/desktop-profile.ts`) against the two local instances: `sp-local up/seed/check`; sign in to alpha with
 its PAT on the sign-in screen; add beta in Settings with a one-time code from `admin bridge issue-code` (the
 device-link page's paste flow; the browser link itself needs the instance's Entra login); alpha's skills, agents, MCP
@@ -743,23 +743,27 @@ What differs from internal's pack, and nothing else does:
 
 ## Build and install on macOS
 
-Builds DynWork for Apple Silicon from this checkout and installs it as `/Applications/DynWork.app`. It needs the
-workspace installed (`BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun install`), Bun 1.4.4 and full Xcode (`actool`
-compiles the Icon Composer app icon). The result is unsigned apart from an ad-hoc signature, so it only runs on the Mac that built it.
+Each channel is one app in `/Applications`, and every install replaces that app and only that app: `Dynwork.app`
+(internal), `Dynwork Canary.app` (canary) and `Dynwork Dev.app` (dev) never share a bundle, a service or a profile, and an
+install quits only the app of its own channel (by bundle id). The installs are per channel because the two ways in are:
 
-```bash
-bun dynwork/script/desktop.ts [--to <dir>]
-```
+- **A published build**, for internal and canary: `bun dynwork/script/install.ts <internal|canary>`. It needs the
+  `gh` CLI signed in. It downloads the channel's DMG (`dynwork-desktop-mac-<arch>.dmg` of the latest `dynwork-v*`
+  release for internal, `dynwork-canary-desktop-mac-<arch>.dmg` of the rolling `dynwork-canary` prerelease for canary),
+  quits that channel's app, copies the bundle in, clears quarantine and tells Launch Services. Internal is only ever
+  installed this way, never from a local build.
+- **A local build**, for canary (the default) and dev: `bun dynwork/script/desktop.ts [--channel <canary|dev>]`. It
+  builds the CLI for this machine from `packages/cli` (release channel), builds the desktop app on the prod channel with
+  the channel's `DYNWORK_CHANNEL`, version `<next patch>-<channel>.local.<timestamp>` and icons, signs ad hoc, and
+  installs to `/Applications/<channel name>.app`. It needs the workspace installed
+  (`BUN_CONFIG_REGISTRY=https://registry.npmjs.org/ bun install`), Bun 1.4.4 and full Xcode (`actool` compiles the Icon
+  Composer app icon). The result runs only on the Mac that built it. It then removes the app bundle the pack leaves in
+  `packages/desktop/dist`. It never touches `Dynwork.app`, `/Applications/OpenCode.app` or their services. A run takes
+  about a minute. There is no `--to`: a build never goes to another folder.
 
-`--to <dir>` installs `<dir>/Dynwork.app` instead (a leading `~` is your home), so a development build can live beside
-an installed DynWork that another session uses; `script/install-target.ts` holds the rule and
-`packages/gui/test/remote/isolation.test.ts` pins the default.
-
-The script builds the CLI for this machine from `packages/cli` (release channel, version taken from
-`packages/desktop/package.json`), builds the desktop app on the prod channel, swaps in
-`dynwork/packages/branding/icons` before packing, signs ad hoc, clears quarantine and replaces
-`/Applications/DynWork.app`. It then removes the app bundle the pack leaves in `packages/desktop/dist`, so the Mac
-only ever has one DynWork. It never touches `/Applications/OpenCode.app`. A run takes about a minute.
+`script/install-target.ts` holds the local channel rule and `packages/build/src/install.ts` the rest (tag, artifact,
+bundle id of each channel); `packages/build/test/install.test.ts` and `packages/gui/test/remote/isolation.test.ts` pin
+them. `script/mac-install.ts` is the one install step both scripts share.
 
 To check the installed app, launch it in a throwaway profile:
 
@@ -768,8 +772,9 @@ bun dynwork/script/smoke.ts [screenshot] [theme-id] [light|dark] [view] [width] 
 bun dynwork/script/smoke.ts remote [screenshot] --app <bundle>
 ```
 
-`--app` launches another bundle, such as a `desktop.ts --to` build, and unregisters it from Launch Services when the
-run ends so the installed app keeps the `dynwork://` scheme. `remote` signs in to the alpha of the sp-local project named
+The smoke launches the installed Dynwork Canary app, or that of the channel `DYNWORK_CHANNEL` names. `--app` launches another
+bundle, such as one packed elsewhere, and unregisters it from Launch Services when the run ends so the installed app keeps
+its scheme. `remote` signs in to the alpha of the sp-local project named
 by `SP_LOCAL_PROJECT` (the mobile project runs the relay image), turns on Settings → Remote control, confirms, waits for
 the tunnel and shoots the pairing QR (by default `remote-qr.png` beside the bundle).
 
