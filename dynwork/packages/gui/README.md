@@ -9,6 +9,7 @@ two upstream lines that name it). Main entry: `src/accounts/main.ts`; window ent
 | `src/sync`       | the sync engine that pulls the active instance's manifest into DynWork's service                                                             |
 | `src/signin`     | the sign-in gate shown until an instance is active                                                                                           |
 | `src/remote`     | Remote control: the tunnel to the relay, the proxy and its allowlist, the `dynwork.remote` Ipc, the settings page and the titlebar indicator |
+| `src/routines`   | Routines: the contract, the backend registry, the `dynwork.routines` Ipc and the fake backends (`src/routines/README.md`)                    |
 | `src/service.ts` | DynWork's own OpenCode service layout (prod), and its port (`DYNWORK_SERVICE_PORT` for isolated runs)                                        |
 
 ## Remote control (`src/remote`)

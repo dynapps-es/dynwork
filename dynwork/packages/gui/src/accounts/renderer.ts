@@ -4,6 +4,8 @@ import { Accounts } from "./contract"
 import type definition from "./index"
 import { Remote } from "../remote/contract"
 import { registerRemote } from "../remote/ui/register"
+import { RoutinesClient } from "../routines/client"
+import { Routines } from "../routines/contract"
 import { register } from "./ui/register"
 import { registerViews } from "../views/register"
 
@@ -25,6 +27,7 @@ const setup: Plugin.Setup<typeof definition> = (ctx) => {
   register(ctx, live)
   registerViews(ctx)
   registerRemote(ctx, ctx.use(Remote))
+  RoutinesClient.attach(ctx.use(Routines))
 }
 
 export default setup

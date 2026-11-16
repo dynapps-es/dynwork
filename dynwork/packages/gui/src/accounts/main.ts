@@ -3,6 +3,7 @@ import { hostname } from "node:os"
 import { app, safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
 import { RemoteMain } from "../remote/main"
+import { RoutinesMain } from "../routines/main"
 import { DynWorkSyncEngine } from "../sync/engine"
 import { DynWorkHeartbeat } from "../sync/heartbeat"
 import { DynWorkRuntime } from "../sync/runtime"
@@ -68,6 +69,9 @@ const setup: Plugin.MainSetup = (ctx) => {
 
   // Remote control follows the active account: switching it moves the tunnel, signing out stops it
   remote.update = RemoteMain.setup(ctx, accounts).update
+
+  // Routines: the registry of backends, local and remote, and the `dynwork.routines` Ipc over it
+  RoutinesMain.setup(ctx)
 
   const ipc = ctx.provide(Accounts, AccountsIpc.implementation(accounts, sync))
   provider.changed = () => ipc.changed()
