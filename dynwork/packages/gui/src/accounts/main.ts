@@ -1,6 +1,6 @@
 import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { hostname } from "node:os"
-import { app, safeStorage, shell } from "electron"
+import { app, Notification, safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
 import { RemoteMain } from "../remote/main"
 import { RoutinesMain } from "../routines/main"
@@ -70,8 +70,15 @@ const setup: Plugin.MainSetup = (ctx) => {
   // Remote control follows the active account: switching it moves the tunnel, signing out stops it
   remote.update = RemoteMain.setup(ctx, accounts).update
 
-  // Routines: the registry of backends, local and remote, and the `dynwork.routines` Ipc over it
-  RoutinesMain.setup(ctx)
+  // Routines: the registry of backends, local and remote, and the `dynwork.routines` Ipc over it. A local run that
+  // fails is told with a system notification, which shows with no window open; nothing else notifies.
+  RoutinesMain.setup(ctx, {
+    label: hostname().replace(/\.local$/, ""),
+    failed: (run, routine) => {
+      if (!Notification.isSupported()) return
+      new Notification({ title: `${routine.name} failed`, body: run.title }).show()
+    },
+  })
 
   const ipc = ctx.provide(Accounts, AccountsIpc.implementation(accounts, sync))
   provider.changed = () => ipc.changed()

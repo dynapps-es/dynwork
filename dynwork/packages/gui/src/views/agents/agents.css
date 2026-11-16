@@ -426,6 +426,7 @@
     background: transparent;
     color: inherit;
     text-align: start;
+    text-decoration: none;
 
     > [data-slot="agents-mark"] {
       grid-area: mark;
@@ -629,6 +630,7 @@
     background: transparent;
     color: inherit;
     text-align: start;
+    text-decoration: none;
 
     &:not(:disabled):is(:hover, :focus-visible) {
       border-radius: 6px;

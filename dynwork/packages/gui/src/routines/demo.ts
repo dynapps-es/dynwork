@@ -3,6 +3,7 @@ export * as RoutinesDemo from "./demo"
 import type { Registry } from "./backend"
 import type { Capabilities, Choice, Field, Routine, Run, Transcript } from "./contract"
 import { RoutinesFake } from "./fake"
+import { RoutinesLocal } from "./local/backend"
 
 // The demo backends: fictional routines and runs shaped like the approved mockup (`docs/mockup-agents.html`), kept in
 // the fakes of `./fake` until a real backend takes their id. The local one stands for this computer, the remote one for
@@ -31,43 +32,6 @@ const select = (key: string, section: string, label: string, choices: readonly C
   choices,
   default: fallback,
 })
-
-const localFields: readonly Field[] = [
-  { key: "folder", section: "workspace", label: "Project folder", kind: "folder", help: "Where the routine works." },
-  select(
-    "permissions",
-    "permissions",
-    "Permissions",
-    [
-      { value: "read-only", label: "Read only" },
-      { value: "edit", label: "Edit files" },
-      { value: "edit-run", label: "Edit files and run commands" },
-    ],
-    "read-only",
-  ),
-  { key: "ask", section: "permissions", label: "Ask me when something else is needed", kind: "toggle", default: false },
-  { key: "timeLimit", section: "limits", label: "Time limit (minutes)", kind: "number", min: 1, max: 240, default: 30 },
-  {
-    key: "catchUp",
-    section: "limits",
-    label: "Catch up missed runs within (hours)",
-    kind: "number",
-    min: 0,
-    max: 12,
-    default: 6,
-  },
-  select(
-    "notify",
-    "notifications",
-    "Notify me",
-    [
-      { value: "failures", label: "Only when something fails" },
-      { value: "every", label: "Every run" },
-      { value: "never", label: "Never" },
-    ],
-    "failures",
-  ),
-]
 
 const farmFields: readonly Field[] = [
   { key: "repository", section: "workspace", label: "Repository", kind: "repo", required: true },
@@ -125,7 +89,7 @@ const localCapabilities = (label: string): Omit<Capabilities, "backend" | "quota
   model: "choose",
   schedule: { window: false, minimum: 5 },
   actions: { edit: "in-place", reply: "in-place", cancel: true },
-  fields: localFields,
+  fields: RoutinesLocal.fields,
 })
 
 const farmCapabilities: Omit<Capabilities, "backend" | "quota"> = {

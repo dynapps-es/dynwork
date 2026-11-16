@@ -3,10 +3,12 @@ import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { Switch } from "@opencode/ui/switch"
 import { For, Show, type JSX } from "solid-js"
+import { Dynamic } from "solid-js/web"
 import type { Capabilities, Routine, Run } from "../../routines/contract"
 import { duration, instructionsText, money, runWhen, scheduleText, when } from "./format"
 import type { AgentsModel } from "./model"
-import { RunMark, Tag, Unread, WhereBadge } from "./parts"
+import { routineHref, runHref } from "../runs/model"
+import { LinkButton, RunMark, Tag, Unread, WhereBadge } from "./parts"
 import { actions, facts, isLive, openable, routineStatus, type Allowed, type Fact } from "./routine"
 import { upcoming } from "./schedule"
 
@@ -83,10 +85,20 @@ export function RoutineDetail(props: {
               </Button>
             }
           >
-            {/* TODO(phase 04): opens the routine's anchor session at its last run (§A.3.3 of docs/04-ui.md). */}
-            <Button variant="neutral" icon="speech-bubble" disabled title={ctx.t("agents.reason.session")}>
-              {ctx.t("agents.detail.openLocal")}
-            </Button>
+            <Show
+              when={allowed().open.enabled ? routineHref(props.routine) : undefined}
+              fallback={
+                <Button variant="neutral" icon="speech-bubble" disabled title={reason(allowed().open)}>
+                  {ctx.t("agents.detail.openLocal")}
+                </Button>
+              }
+            >
+              {(href) => (
+                <LinkButton href={href()} icon="speech-bubble">
+                  {ctx.t("agents.detail.openLocal")}
+                </LinkButton>
+              )}
+            </Show>
           </Show>
           <Show
             when={isLive(props.routine.last) ? props.routine.last : undefined}
@@ -202,14 +214,15 @@ function HistoryRow(props: { run: Run; open: (run: Run) => void }) {
       .join(" · ")
 
   return (
-    // TODO(phase 04): a local run opens its session in place, under the routine's anchor; until then it is no link.
-    <button
-      type="button"
+    // A run read in a session is a link the app's router opens in place, under the routine's anchor.
+    <Dynamic
+      component={runHref(props.run) ? "a" : "button"}
+      href={runHref(props.run)}
+      type={runHref(props.run) ? undefined : "button"}
       role="listitem"
       data-slot="agents-run"
-      disabled={!openable(props.run) || props.run.conversation.kind === "session"}
-      title={props.run.conversation.kind === "session" ? ctx.t("agents.reason.session") : undefined}
-      onClick={() => props.open(props.run)}
+      disabled={runHref(props.run) ? undefined : !openable(props.run)}
+      onClick={() => !runHref(props.run) && props.open(props.run)}
     >
       <RunMark state={props.run.state} />
       <span data-slot="agents-run-text">
@@ -221,7 +234,7 @@ function HistoryRow(props: { run: Run; open: (run: Run) => void }) {
       </span>
       <span data-slot="agents-meta">{spent() || "—"}</span>
       <Unread show={props.run.unread} />
-    </button>
+    </Dynamic>
   )
 }
 

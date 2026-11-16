@@ -1,7 +1,7 @@
 # DynWork views
 
 The screens DynWork adds to the desktop app's main area: Agents, over the routines Ipc, and Brain, on built-in demo
-data. They belong to the `dynwork` built-in (`../accounts/index.ts`); its window entry (`../accounts/renderer.ts`) registers them through
+data; and the Runs panel, beside a routine's conversation. They belong to the `dynwork` built-in (`../accounts/index.ts`); its window entry (`../accounts/renderer.ts`) registers them through
 `registerViews` (`./register.tsx`), on desktop only.
 
 ## How they reach the app
@@ -73,6 +73,43 @@ home indicator. Nothing scrolls sideways.
 
 A store's proxies cannot cross the Ipc: `createFormModel` sends `unwrap(state.draft)`. Bun's tests run Solid's server
 build, where a store is a plain object, so only a render with `--conditions=browser` shows that.
+
+### Opening a local run
+
+A run read in a session (`conversation.kind === "session"`, every local run) is a link to its session's route,
+`/server/<base64url server>/session/<id>` (`../runs/model.ts`: `runHref`, the same route as the app's `sessionHref`). The
+desktop's router follows a same-origin link in place, and its route machine opens a child session inside its root's tab,
+so a run opens under its routine's anchor with the breadcrumb "Routine › Run". History and Activity rows are such links,
+and Open conversation goes to the newest run, or to the anchor before any run (`routineHref`). Remote runs still open in
+the viewer.
+
+## Runs
+
+The Runs panel (`./runs`, docs/04-ui.md §A.3.3) sits in the session's side region on a local routine's conversation: its
+anchor session and each run, which is a child session of the anchor. It is a `Panel` with one pinned tab, listed only
+while the routed session belongs to a routine that exists: by the session's `metadata.dynwork` (`{ backend, routine,
+role }`, written by the local backend), else by the routines' state until the metadata has loaded. The first time a window
+routes such a session, the panel opens beside it (`ctx.layout.open(..., { tab: "select", background: true })`); on a
+narrow window it is an entry of the More drawer.
+
+| File        | Role                                                                                                                  |
+| ----------- | --------------------------------------------------------------------------------------------------------------------- |
+| `model.ts`  | Which sessions are a routine's (`marker`, `routineOf`), the links, the runs by day, and the panel's state and actions |
+| `panel.tsx` | The panel: the routine in a line with Run now, Pause or Resume and Edit, the runs by day, the reply box               |
+| `runs.css`  | One column that wraps at any width; the reply box stays at the foot while the list scrolls                            |
+| `en.ts`     | Its strings                                                                                                           |
+
+- Each run shows its mark, its time, its state and duration, and an unread dot. A run is a link that opens it in place;
+  the routed run is highlighted.
+- A run on screen that has finished is marked read: the routines Ipc's `viewed`, which marks the run's session viewed
+  at its `time.idle` (upstream marks only the root session viewed, never a child).
+- A child session has no composer upstream. While a run is routed, the foot of the panel has a "Reply to this run" box,
+  which prompts the run's session through the window's own client, so the answer shows in the conversation, and "Open
+  as a chat", which forks the run into a top-level conversation and opens it in a tab.
+- Edit opens the routine's detail in the Agents view (`../agents/focus.ts`), where the form is.
+
+Not seen in a real window yet (phase 06 of the plan): that a link from a plugin opens the child in the anchor's tab, that
+`metadata` reaches the window's session data, that the panel opens the first time, and the layout at each width.
 
 ## Adding to a view
 

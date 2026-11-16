@@ -8,6 +8,7 @@ import { ViewShell } from "../shell"
 import { RoutineDetail } from "./detail"
 import { backendLine, runWhen } from "./format"
 import { RoutineForm } from "./editor"
+import { clearFocus, focused } from "./focus"
 import { createFormModel, systemZone } from "./form"
 import { Activity, RoutineCards, Templates, Toolbar } from "./list"
 import { createAgentsModel } from "./model"
@@ -35,9 +36,20 @@ export default function AgentsView(props: { where?: Where }) {
     if (!current) return
     const watching = new AbortController()
     void current.watch({ signal: watching.signal })
+    // A backend may have changed while nothing watched (the local service starting after the app): read them again.
+    void current.refresh()
     current.on("run", model.received)
     onCleanup(() => watching.abort())
   })
+
+  // A routine another place asked to show, such as Edit in the Runs panel.
+  createEffect(
+    on(focused, (ref) => {
+      if (!ref) return
+      model.select(ref)
+      clearFocus()
+    }),
+  )
 
   // The loads below read and write the model's store: `on` keeps them from tracking what they write.
   createEffect(
@@ -68,9 +80,9 @@ export default function AgentsView(props: { where?: Where }) {
     }),
   )
 
+  // A `session` run is a link to its conversation (`RunLink`), which the app's router opens in place: this is the rest.
   const open = (run: Run) => {
     if (run.conversation.kind === "external") return ctx.system.openExternal(run.conversation.url)
-    // TODO(phase 04): a `session` run opens its session in place, under the routine's anchor (§A.3.3 of docs/04-ui.md).
     void model.open(run)
   }
 

@@ -53,13 +53,17 @@ describe("dynwork built-in", () => {
         used.push(token)
         return live
       },
-      // The settings page and the pill register against these; test/ui/register.test.ts reads what they add.
+      // The settings page, the pill and the Runs panel register against these; test/ui/register.test.ts reads what
+      // the first two add. No session is routed, so the panel opens nowhere.
       add: () => () => {},
-      layout: {},
+      t: (key: string) => key,
+      layout: { ready: () => false },
+      sessions: { current: () => undefined },
     }
     expect(definition).toBeObject()
     const dispose = createRoot((dispose) => {
-      // SAFETY: the setup reads only `desktop` and `use`, which the stand-in provides.
+      // SAFETY: the setup reads only `desktop`, `use`, `add`, `t`, `layout.ready` and `sessions.current`, which the
+      // stand-in provides.
       renderer(ctx as unknown as Parameters<typeof renderer>[0])
       return dispose
     })

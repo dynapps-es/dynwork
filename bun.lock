@@ -61,6 +61,7 @@
         "@dynwork/remote": "workspace:*",
         "@dynwork/server-plugin": "workspace:*",
         "@dynwork/sp-client": "workspace:*",
+        "@opencode/client": "workspace:*",
         "@opencode/plugin": "workspace:*",
         "@opencode/ui": "workspace:*",
         "@opencode/util": "workspace:*",

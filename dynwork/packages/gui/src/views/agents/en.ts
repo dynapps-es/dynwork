@@ -138,7 +138,6 @@ export default {
   "agents.reason.cancel": "This backend cannot stop a run.",
   "agents.reason.empty": "Nothing to open yet.",
   "agents.reason.soon": "Coming soon.",
-  "agents.reason.session": "Opens in the routine's conversation.",
 
   "agents.form.title.create": "New routine",
   "agents.form.title.edit": "Edit routine",

@@ -81,3 +81,23 @@ export function Unread(props: { show: boolean }) {
     </Show>
   )
 }
+
+/**
+ * A link that looks like the app's button, for what opens a conversation. The desktop's router follows a same-origin
+ * link in place, so a run opens inside its routine's tab (docs/04-ui.md §A.3.3).
+ */
+export function LinkButton(props: { href: string; icon?: IconName; title?: string; children: JSX.Element }) {
+  return (
+    <a
+      href={props.href}
+      title={props.title}
+      data-component="button-v2"
+      data-size="normal"
+      data-variant="neutral"
+      data-icon={props.icon}
+    >
+      <Show when={props.icon}>{(icon) => <Icon name={icon()} />}</Show>
+      {props.children}
+    </a>
+  )
+}

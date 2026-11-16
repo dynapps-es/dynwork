@@ -2,8 +2,10 @@ import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { For, Show } from "solid-js"
+import { Dynamic } from "solid-js/web"
 import type { Routine, Run } from "../../routines/contract"
 import { duration, instructionsText, runWhen, scheduleText } from "./format"
+import { runHref } from "../runs/model"
 import { tabs, type AgentsModel } from "./model"
 import { openable, routineStatus, statuses, wheres } from "./routine"
 import { RunMark, Tag, Unread, WhereBadge } from "./parts"
@@ -181,14 +183,15 @@ function ActivityRow(props: { run: Run; model: AgentsModel; open: (run: Run) => 
     props.run.summary ?? duration(ctx.t, props.run, Date.now()) ?? props.run.reason ?? ctx.t("agents.run.outside")
 
   return (
-    // TODO(phase 04): a local run opens its session in place, under the routine's anchor; until then it is no link.
-    <button
-      type="button"
+    // A run read in a session is a link the app's router opens in place, under the routine's anchor.
+    <Dynamic
+      component={runHref(props.run) ? "a" : "button"}
+      href={runHref(props.run)}
+      type={runHref(props.run) ? undefined : "button"}
       role="listitem"
       data-slot="agents-activity-row"
-      disabled={!openable(props.run) || props.run.conversation.kind === "session"}
-      title={props.run.conversation.kind === "session" ? ctx.t("agents.reason.session") : undefined}
-      onClick={() => props.open(props.run)}
+      disabled={runHref(props.run) ? undefined : !openable(props.run)}
+      onClick={() => !runHref(props.run) && props.open(props.run)}
     >
       <RunMark state={props.run.state} />
       <span data-slot="agents-activity-name">
@@ -198,6 +201,6 @@ function ActivityRow(props: { run: Run; model: AgentsModel; open: (run: Run) => 
       <WhereBadge routine={routine()} capabilities={capabilities()} />
       <span data-slot="agents-meta">{runWhen(ctx.locale.locale(), props.run)}</span>
       <Unread show={props.run.unread} />
-    </button>
+    </Dynamic>
   )
 }

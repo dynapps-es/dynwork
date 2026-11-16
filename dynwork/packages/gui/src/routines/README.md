@@ -18,7 +18,8 @@ window                                    main process
 | `ipc.ts`      | The Ipc implementation over a registry: the state snapshot, routing, watching, failures as data                          |
 | `fake.ts`     | An in-memory backend with an injectable clock: `Fake.make(options)`                                                      |
 | `demo.ts`     | The two seeded fakes (`local`, `farm`) shaped like the approved mockup, and `register`, which adds those not taken       |
-| `main.ts`     | The main-process setup: the registry, the demos and the Ipc. Called from `accounts/main.ts`                              |
+| `local/`      | The local backend: anchor and run sessions on DynWork's service, definitions and history in the plugin's storage         |
+| `main.ts`     | The main-process setup: the registry, the local backend, the demos and the Ipc. Called from `accounts/main.ts`           |
 | `client.ts`   | The window's live Ipc client, handed over by `accounts/renderer.ts` for the views to read                                |
 
 Everything crossing to a window is a Schema value, with epoch milliseconds for time. Every backend-specific value is in
@@ -61,14 +62,50 @@ fails: a backend that cannot serve says so in `status`.
 ## Backends
 
 Register one with `registry.register(backend)`; a second with the same id replaces the first, which is how a real backend
-takes the place of its demo. `main.ts` marks where each registers: the local one (phase 04 of the plan) and the Agent
-Farm's (`routines/farm/`, delivered to Jesús Vargas). The demos are added after them, only for ids nothing took.
+takes the place of its demo. `main.ts` registers the local one and marks where the Agent Farm's goes (`routines/farm/`,
+delivered to Jesús Vargas). The demos are added after them, only for ids nothing took: today only the farm's.
 
 A backend is done when `test/routines/conformance.ts` passes against it: create, list, read back, edit (in place or
 replacing), pause, resume, start, finish, unread and viewed, paging, cancel, remove, `not-found` everywhere, `invalid` with
 its fields, watch, quota, transcripts, and everything surviving the Ipc's wire. `test/routines/fake.test.ts` shows how to
 run it; `test/routines/wire.ts` is a window's client over a registry, with every value crossing as the bridge makes it
 cross, for the views' tests.
+
+## The local backend
+
+`local/backend.ts` (`RoutinesLocal.make`) runs a routine on this computer through DynWork's own service, from the main
+process: `ctx.serverEndpoints.get("sidecar")` gives the URL and the credential, and `@opencode/client`'s promise client
+speaks the public HTTP API. Model (i) of docs/04-ui.md §A.3: one conversation per routine, one child per run.
+
+- **Anchor.** The routine's first run creates it: `POST /api/session` with the routine's name as title, the routine's
+  folder (or `~/Dynwork/Routines`, made on first use) as location, and `metadata.dynwork = { backend, routine, role:
+"anchor" }`. It is top-level, so it is in the sidebar. It holds no synthetic messages. When a run ends,
+  `metadata.dynwork.last = { run, state, at }` is set on it, which also lifts it in the sidebar. A rename retitles it and a
+  new folder moves it (`POST /api/session/:id/move`). If the user deleted it, the next run makes a new one.
+- **Run.** "Run now" creates a child (`parentID` = anchor) titled `<name> · <when>` (children get no automatic title),
+  with the routine's agent and model (`<provider>/<model>`, as `options("models")` answers) and its own `permissions` and
+  `metadata.dynwork = { backend, routine, role: "run", trigger }`, so nothing is inherited from the anchor. The
+  `permissions` field denies tools: read only denies `edit` and `shell`, edit files denies `shell`. Then `POST
+/api/session/:id/prompt` with the instructions (a skill goes as the prompt's `skills`). The run's id is its session's.
+- **State.** Read from the session: `queued` until `time.busy`, `running` until `time.idle` catches up with an
+  `outcome`, then `ok`, `failed` (`reason: "error"`) or `cancelled`. A session that is gone makes the run `failed` with
+  `reason: "deleted"`. A run that ended keeps its state: a reply later goes on in the conversation, not in the run.
+- **Events.** While a run is going the backend follows the service's `session.execution.*` events and reads the run they
+  name; after every (re)connection it reads every run that is going, so nothing missed while away is lost, and a stream
+  that ends is followed again after 2 s. It follows them whether or not a window watches, so a failure is always told:
+  `failed` is main's system notification, unless the routine says "never".
+- **Unread.** A run that ended is unread until `viewed`, which also marks its session viewed at its `time.idle`
+  (`POST /api/session/:id/view`): upstream marks only the root.
+- **Storage.** `ctx.storage.store("routines")` keeps the definitions (with each routine's anchor and its directory) and
+  every run with the last state read, newest first. Removing a routine forgets it and its runs here, and leaves its
+  conversation in the service, as the Agents view's confirmation says.
+- **Without the service.** `capabilities()` says `unreachable`; the routines still list, edit, pause and resume, and
+  `start` answers `unreachable`.
+
+Not here yet (F4 of the plan): the clock that fires a schedule (`next` is computed from the cron and shown, but nothing
+fires it), catch-up of missed runs, resuming a run cut by a service restart (core resumes only root sessions), the
+permission hook of an unattended run, and the time limit. `test/routines/local.test.ts` runs the conformance suite and the
+local backend's own tests against `test/routines/service.ts`, a fake service over real HTTP.
 
 ## What the fake does not do
 

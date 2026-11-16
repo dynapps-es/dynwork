@@ -1,0 +1,208 @@
+/* The Runs panel: a column in the session's side region (320px wide by default, as narrow as the host lets it), or the
+   More drawer on a narrow window. Everything stacks in one column and wraps: the head's actions wrap under the name, a
+   run row ellipsizes its line, the reply box takes the full width. Nothing scrolls sideways. Tailwind does not scan
+   dynwork/, so it styles itself with the theme's v2 tokens; the run marks repeat the Agents view's, scoped here. */
+
+[data-component="dynwork-runs"] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  height: 100%;
+  padding: 12px;
+  overflow-y: auto;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
+
+  [data-slot="runs-head"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--v2-border-border-muted);
+
+    h2 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+
+    p {
+      margin: 0;
+      color: var(--v2-text-text-faint);
+      font-size: 12px;
+      line-height: 16px;
+    }
+  }
+
+  [data-slot="runs-actions"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  [data-slot="runs-list"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  [data-slot="runs-day"] {
+    margin: 8px 0 2px;
+    color: var(--v2-text-text-faint);
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  [data-slot="runs-run"] {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) 6px;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 8px;
+    border-radius: 6px;
+    color: inherit;
+    text-decoration: none;
+
+    &:is(a):is(:hover, :focus-visible) {
+      background: var(--v2-overlay-simple-overlay-hover);
+      outline: none;
+    }
+
+    &[aria-current="page"] {
+      background: var(--v2-background-bg-layer-02);
+    }
+  }
+
+  [data-slot="runs-run-text"] {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+
+    > span {
+      font-weight: 500;
+    }
+
+    small {
+      overflow: hidden;
+      color: var(--v2-text-text-faint);
+      font-size: 12px;
+      line-height: 16px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  [data-slot="agents-mark"] {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    color: var(--v2-icon-icon-faint);
+
+    &[data-tone="success"] {
+      color: var(--v2-state-fg-success);
+    }
+
+    &[data-tone="warning"] {
+      color: var(--v2-state-fg-warning);
+    }
+
+    &[data-tone="danger"] {
+      color: var(--v2-state-fg-danger);
+    }
+  }
+
+  [data-slot="agents-ring"] {
+    width: 12px;
+    height: 12px;
+    border: 1.25px dashed currentColor;
+    border-radius: 50%;
+  }
+
+  [data-slot="agents-unread"],
+  [data-slot="agents-unread-space"] {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+  }
+
+  [data-slot="agents-unread"] {
+    background: var(--v2-background-bg-accent);
+  }
+
+  [data-slot="runs-empty"],
+  [data-slot="runs-hint"] {
+    margin: 0;
+    color: var(--v2-text-text-faint);
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  [data-slot="runs-notice"] {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--v2-state-border-danger);
+    border-radius: 8px;
+    background: var(--v2-state-bg-danger);
+    color: var(--v2-state-fg-danger);
+
+    > span {
+      flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  /* The reply box stays at the foot while the list scrolls above it. */
+  [data-slot="runs-reply"] {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--v2-border-border-muted);
+    background: var(--v2-background-bg-base);
+
+    label {
+      color: var(--v2-text-text-muted);
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    textarea {
+      box-sizing: border-box;
+      width: 100%;
+      min-width: 0;
+      padding: 8px 10px;
+      border: 1px solid var(--v2-border-border-base);
+      border-radius: 8px;
+      background: var(--v2-background-bg-layer-01);
+      color: inherit;
+      font: inherit;
+      resize: vertical;
+
+      &:focus-visible {
+        border-color: var(--v2-border-border-focus);
+        outline: none;
+      }
+    }
+  }
+
+  [data-slot="runs-reply-actions"] {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 6px;
+  }
+}
