@@ -69,12 +69,10 @@ await $`bun run build`.cwd(desktop).env(env)
 // folder of its own in icons/ uses it; the others use the icons beside it, without the channels' folders.
 await rm(path.join(desktop, "resources/icons"), { recursive: true, force: true })
 
-const icons = path.join(root, "dynwork/packages/branding/icons")
-
-await cp(
-  (await Bun.file(path.join(icons, channel, "icon.png")).exists()) ? path.join(icons, channel) : icons,
+await ChannelBuild.copyIcons(
+  path.join(root, "dynwork/packages/branding/icons"),
+  channel,
   path.join(desktop, "resources/icons"),
-  { recursive: true, filter: (file) => !Object.keys(DynWorkIdentity.table).includes(path.basename(file)) },
 )
 
 const summary = "Dynapps' desktop app for working with AI agents"

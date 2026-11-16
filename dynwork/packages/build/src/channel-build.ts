@@ -1,7 +1,7 @@
 export * as ChannelBuild from "./channel-build"
 
 import { DynWorkIdentity } from "@dynwork/branding/identity"
-import { readdir } from "node:fs/promises"
+import { cp, readdir } from "node:fs/promises"
 import path from "node:path"
 
 // What `dynwork/script/package.ts` decides per channel, kept apart from the packing so it can be tested without one.
@@ -46,6 +46,18 @@ export function artifacts(input: {
 export function builderFlags(channel: DynWorkIdentity.Channel) {
   if (channel === "internal") return []
   return [`-c.extraMetadata.name=${DynWorkIdentity.table[channel].debPackage}`]
+}
+
+/**
+ * Copies a channel's icons to `to`: its own folder in `icons` when it has one, else the icons beside the channels'
+ * folders, which are never copied along.
+ */
+export async function copyIcons(icons: string, channel: DynWorkIdentity.Channel, to: string) {
+  const own = path.join(icons, channel)
+  const from = (await Bun.file(path.join(own, "icon.png")).exists()) ? own : icons
+  const others = Object.keys(DynWorkIdentity.table).map((name) => path.join(icons, name))
+
+  await cp(from, to, { recursive: true, filter: (file) => file === from || !others.includes(file) })
 }
 
 /** What a packed bundle must say about itself for the channel. */

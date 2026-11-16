@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { DynWorkIdentity } from "@dynwork/branding/identity"
@@ -179,6 +179,45 @@ describe("assertCarries", () => {
     expect(() => ChannelBuild.assertCarries("the app", "canary", { feed: "x" }, {})).toThrow(
       'feed is missing, expected "x"',
     )
+  })
+})
+
+describe("copyIcons", () => {
+  const fixture = async () => {
+    const root = await dist()
+    await write(root, "icons/icon.png", "internal")
+    await write(root, "icons/icon.icon/icon.json", "internal composer")
+    await write(root, "icons/canary/icon.png", "canary")
+    await write(root, "icons/canary/icon.icon/icon.json", "canary composer")
+    return root
+  }
+
+  test("internal copies the icons beside the channels' folders, not the folders", async () => {
+    const root = await fixture()
+
+    await ChannelBuild.copyIcons(path.join(root, "icons"), "internal", path.join(root, "out"))
+
+    expect((await readdir(path.join(root, "out"))).sort()).toEqual(["icon.icon", "icon.png"])
+    expect(await Bun.file(path.join(root, "out/icon.png")).text()).toBe("internal")
+  })
+
+  test("a channel with a folder of its own copies that folder's files", async () => {
+    const root = await fixture()
+
+    await ChannelBuild.copyIcons(path.join(root, "icons"), "canary", path.join(root, "out"))
+
+    expect((await readdir(path.join(root, "out"))).sort()).toEqual(["icon.icon", "icon.png"])
+    expect(await Bun.file(path.join(root, "out/icon.png")).text()).toBe("canary")
+    expect(await Bun.file(path.join(root, "out/icon.icon/icon.json")).text()).toBe("canary composer")
+  })
+
+  test("a channel without a folder uses internal's icons", async () => {
+    const root = await fixture()
+
+    await ChannelBuild.copyIcons(path.join(root, "icons"), "dev", path.join(root, "out"))
+
+    expect((await readdir(path.join(root, "out"))).sort()).toEqual(["icon.icon", "icon.png"])
+    expect(await Bun.file(path.join(root, "out/icon.png")).text()).toBe("internal")
   })
 })
 
