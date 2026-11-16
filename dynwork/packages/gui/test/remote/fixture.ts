@@ -1,6 +1,6 @@
 import type { ServerWebSocket } from "bun"
 import { Effect, Schema } from "effect"
-import { Keys, Presence, Remote, Socket } from "@dynwork/remote"
+import { Control, Keys, Presence, Remote, Socket } from "@dynwork/remote"
 import { RemoteStore } from "../../src/remote/store"
 import { RemoteTunnel } from "../../src/remote/tunnel"
 import { fakeSecure } from "../accounts/fixture"
@@ -147,6 +147,9 @@ export function fakeRelay(name: string) {
     state,
     // Closes every desktop socket with a code, as the relay does on its lifetime close (4000)
     closeDesktops: (code: number) => state.desktops.forEach((desktop) => desktop.close(code, "reconnect")),
+    // A control message to every desktop, as Governance's change hint (`{"t":"routines.changed"}`)
+    hint: (t: string) =>
+      state.desktops.forEach((desktop) => desktop.send(Control.encode(Buffer.from(desktop.data.peer, "hex"), { t }))),
     stop: () => server.stop(true),
   }
 }

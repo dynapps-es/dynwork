@@ -114,6 +114,9 @@ describe("the header and the cards", () => {
     view.farm.setStatus("signed-out")
     await view.wire.client.refresh()
     expect(backendLine(t, view.model.capabilities("farm")!)).toBe("Agent Farm: Signed out")
+    const local = view.model.capabilities("local")!
+    expect(backendLine(t, { ...local, synced: false })).toBe("Demo MacBook · online · Not synced")
+    expect(backendLine(t, { ...local, synced: true })).toBe("Demo MacBook · online")
   })
 
   test("a card's line says what the routine does", async () => {

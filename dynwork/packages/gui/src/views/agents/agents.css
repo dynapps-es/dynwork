@@ -105,6 +105,12 @@
       background: var(--v2-state-bg-info);
       color: var(--v2-state-fg-info);
     }
+
+    &[data-tone="warning"] {
+      border-color: var(--v2-state-border-warning);
+      background: var(--v2-state-bg-warning);
+      color: var(--v2-state-fg-warning);
+    }
   }
 
   /* Tags, the where badge and the run marks. */

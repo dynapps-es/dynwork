@@ -70,14 +70,18 @@ export function instructionsText(t: Translate, instructions: Instructions) {
   return t("agents.instructions.agent", { agent: instructions.agent, input: instructions.input })
 }
 
-/** A backend's part of the status line: "Demo MacBook · online", "Agent Farm connected · 7 of 20 team schedules". */
+/**
+ * A backend's part of the status line: "Demo MacBook · online", "Agent Farm connected · 7 of 20 team schedules", and
+ * "Demo MacBook · online · Not synced" while its routines cannot reach Governance.
+ */
 export function backendLine(t: Translate, capabilities: Capabilities) {
   if (capabilities.status !== "ready")
     return t("agents.backend.status", {
       label: capabilities.label,
       status: capabilities.detail ?? t(`agents.backend.${capabilities.status}`),
     })
-  const line = t(`agents.backend.${capabilities.kind}.ready`, { label: capabilities.label })
+  const ready = t(`agents.backend.${capabilities.kind}.ready`, { label: capabilities.label })
+  const line = capabilities.synced === false ? `${ready} · ${t("agents.backend.unsynced")}` : ready
   const quota = capabilities.quota
   if (!quota) return line
   const usage = t(quota.shared ? "agents.backend.quota.shared" : "agents.backend.quota.own", {

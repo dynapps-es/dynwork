@@ -271,6 +271,24 @@ describe("the remote tunnel", () => {
     expect(w.remote.state().audit[0]?.phone).toBe("Pixel")
   })
 
+  test("its peer id is known before it is on, and the relay's control messages reach every listener", async () => {
+    const w = world()
+    const peer = w.remote.peer()
+    expect(peer).toMatch(/^[0-9a-f]{32}$/)
+    const heard: { first: string[]; second: string[] } = { first: [], second: [] }
+    w.remote.onControl((message) => heard.first.push(message.t))
+    const stop = w.remote.onControl((message) => heard.second.push(message.t))
+    w.remote.setEnabled(true)
+    await until(() => w.remote.state().status === "connected")
+    expect(w.alpha.state.opened[0]?.peer).toBe(peer!)
+    w.alpha.hint("routines.changed")
+    await until(() => heard.second.length === 1)
+    stop()
+    w.alpha.hint("chats.changed")
+    await until(() => heard.first.length === 2)
+    expect(heard).toEqual({ first: ["routines.changed", "chats.changed"], second: ["routines.changed"] })
+  })
+
   test("revoking a phone closes its streams at once, on the relay too, and it cannot come back", async () => {
     const w = world()
     w.remote.setEnabled(true)

@@ -19,7 +19,7 @@ window                                    main process
 | `ipc.ts`      | The Ipc implementation over a registry: the state snapshot, routing, watching, failures as data                          |
 | `fake.ts`     | An in-memory backend with an injectable clock: `Fake.make(options)`                                                      |
 | `demo.ts`     | The two seeded fakes (`local`, `farm`) shaped like the approved mockup, and `register`, which adds those not taken       |
-| `local/`      | The local backend (anchor and run sessions on DynWork's service, storage in the plugin's) and its clock (`clock.ts`)     |
+| `local/`      | The local backend (anchor and run sessions on DynWork's service, storage in the plugin's), its clock (`clock.ts`) and its Governance sync (`sync.ts`) |
 | `farm/`       | The Agent Farm backend's skeleton and its handover `README.md` for Jesús Vargas: off unless `DYNWORK_ROUTINES_FARM=1`    |
 | `main.ts`     | The main-process setup: the registry, the local backend and its clock, the demos and the Ipc. From `accounts/main.ts`    |
 | `client.ts`   | The window's live Ipc client, handed over by `accounts/renderer.ts` for the views to read                                |
@@ -59,6 +59,8 @@ fails: a backend that cannot serve says so in `status`.
 - `run` event: a run changed state. It comes only from backends a window is watching.
 - `watch`: a call a window keeps open while a routines view is on screen and aborts when it leaves. While at least one is
   open, each backend's own `watch` is subscribed once, and a backend that registers meanwhile is subscribed too.
+- `move`: makes this device the one that runs a routine of another device; a backend without owners (the optional
+  `Backend.move`) answers `unsupported`.
 - Every other method names its `backend` and answers the backend's own answer.
 
 ## Backends
@@ -136,6 +138,47 @@ and fake timers over the same service.
 - **Awake.** `Options.busy` is called when the first run starts and when the last one ends; `accounts/main.ts` holds a
   `powerSaveBlocker("prevent-app-suspension")` while it is true.
 
+## Sync with Governance
+
+`local/sync.ts` (`RoutinesSync.make`) shares the local routines' definitions with the user's other computers through
+Governance's `dynwork-routines` API (`/api/dynwork/routines/v1`), in main, with the active signed-in account's session:
+the JWT never reaches a window. `main.ts` sets it up when `accounts/main.ts` passes `sync` (the account, and this
+computer).
+
+- **Feed.** `GET /changes?since=<cursor>` at launch, every 5 minutes (every 30 s while Governance does not answer), when
+  the accounts change, on wake, and at once on the relay's `routines.changed` hint. Each page is applied to the store and
+  its cursor kept with the account it belongs to (`Saved.sync`); another account reads from the beginning, and a cursor
+  Governance refuses starts over. A tombstone removes the routine and its runs; a newer revision replaces its definition
+  and owner, and its `updated` becomes Governance's `updated_at`, so the clock counts nothing missed before the change.
+- **Outbox.** Every create, edit, pause, resume, move and remove made here writes the store and its outbox
+  (`Saved.outbox`, `enqueue`) in one store write, so a restart loses nothing. The outbox is sent in order: a routine with
+  `If-Match` at the revision it was last synced at (none to create), a removal with the revision it had. A `put` with a
+  later change of the same routine behind it is skipped: the later one sends the routine as it is then. While a routine
+  has a change waiting, the feed leaves it alone: its `If-Match` settles it.
+- **Conflicts.** A `409` takes Governance's row (`current`), keeps it, drops the later changes made on top of the replaced
+  edit and sets `SavedRoutine.conflict`; the routine says "Changed on another computer" (`Routine.conflict`) until the
+  next edit here. A `409` whose row already holds what was sent (an answer lost on the way) is taken quietly. A removal
+  answered with a newer row brings the routine back, flagged the same way.
+- **Run summaries.** Each change of a run of a routine this computer owns and Governance has goes to the outbox as
+  `PUT /runs/{id}` (state, reason, start and end). Only the owner sends them.
+- **First sync.** A routine without a revision (made before the sync, or while signed out) is uploaded with this
+  computer as its owner.
+- **Governance down.** Everything keeps working here; the outbox waits, `Capabilities.synced` is false and the Agents
+  status line says "Not synced". A refusal for good (a bad body, another device's run) drops the entry.
+- **Owner computer.** The device id is the desktop's relay peer id (`RemoteTunnel.peer()`, 32 hex digits, also sent as
+  `X-Dynwork-Peer` so Governance does not hint the writer), kept whether or not remote control is on; the name is the
+  computer's. A routine owned elsewhere reads "Runs on <name>", can be edited and paused, its "Run now" is refused with
+  that reason, and the detail offers "Move to this computer" (`move`: the owner changes through the same `If-Match`
+  write; nothing counts as missed before the move). The clock fires only routines owned here (`Local.here`).
+- **Hint.** Governance's change hint arrives as a relay control message (`@dynwork/remote`'s `events.control`, surfaced by
+  `RemoteTunnel.onControl`) only while the remote-control tunnel is connected; without it the poll catches up.
+
+Known limits: switching the active account does not separate routines by account (the other account's routines stay
+here and those never synced are uploaded to the new one); a routine moved to another computer can still fire here until
+this computer reads the move (seconds with the hint, at most one poll without).
+
+`test/routines/sync.test.ts` runs two computers against `test/routines/governance.ts`, a fake Governance over real HTTP.
+
 ## The clock
 
 `local/clock.ts` (`RoutinesClock.make`) fires the local schedules, in the main process, only while Dynwork is open.
@@ -171,4 +214,4 @@ and fake timers over the same service.
 
 It reads no cron: a scheduled, enabled routine's `next` is a day after its last change. Runs start only through `start`
 and finish when the clock passes their duration and `settle()` runs (`main.ts` calls it every few seconds). Nothing is
-persisted. Sync is a later phase of the plan.
+persisted, and nothing syncs.

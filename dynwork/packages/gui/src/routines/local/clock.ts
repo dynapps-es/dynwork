@@ -8,8 +8,8 @@ import type { Saved, SavedRoutine } from "./store"
 
 // The clock of the local routines: it fires each scheduled, enabled routine at its time while Dynwork is open, and
 // deals with the occurrences it could not fire (Dynwork closed, the computer asleep) by the routine's own "Recover
-// missed runs". One timer waits for the nearest due time; any change of a routine, a wake, a change of the provider
-// and the timer itself make it look again.
+// missed runs". It fires only the routines this computer owns (`Local.here`). One timer waits for the nearest due
+// time; any change of a routine, a wake, a change of the provider and the timer itself make it look again.
 //
 // Exactly once: the occurrence key, the newest due time a routine's clock took (`SavedRoutine.due`), is written to the
 // plugin's storage before the run starts, in the same synchronous step that decides it. An occurrence at or before
@@ -87,10 +87,12 @@ export function make(options: Options) {
     // The runs a restart cut are told first, so that a routine whose run was cut is not taken for one still going.
     life.launch ??= options.local.interrupted()
     await life.launch
-    for (const stored of options.store.value.routines) await take(stored.id)
+    // Only the routines this computer owns: another computer runs the rest.
+    const owned = () => options.store.value.routines.filter((stored) => options.local.here(stored.id))
+    for (const stored of owned()) await take(stored.id)
     if (life.disposed) return
     const now = options.now()
-    const soonest = Math.min(...options.store.value.routines.map((stored) => next(stored.definition, now) ?? Infinity))
+    const soonest = Math.min(...owned().map((stored) => next(stored.definition, now) ?? Infinity))
     if (soonest !== Infinity) arm(Math.min(Math.max(soonest - now, 0), NAP))
   }
 
@@ -106,7 +108,7 @@ export function make(options: Options) {
     // the occurrence key nothing waits, so no occurrence is taken twice.
     const stored = options.store.value.routines.find((candidate) => candidate.id === routine)
     const past = pending(routine)
-    if (!stored || past.length === 0 || life.disposed) return
+    if (!stored || past.length === 0 || life.disposed || !options.local.here(routine)) return
     const now = options.now()
     const decided = plan(stored.definition, {
       past,

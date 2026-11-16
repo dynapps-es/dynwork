@@ -19,6 +19,7 @@ export default {
   "agents.backend.unreachable": "Unreachable",
   "agents.backend.disabled": "Switched off",
   "agents.backend.status": "{{label}}: {{status}}",
+  "agents.backend.unsynced": "Not synced",
 
   "agents.tab.label": "Routines",
   "agents.tab.mine": "My routines",
@@ -45,7 +46,7 @@ export default {
   "agents.status.paused": "Paused",
   "agents.status.finished": "Finished",
   "agents.status.error": "Cannot run",
-  "agents.status.waiting": "Waiting for {{device}}",
+  "agents.status.elsewhere": "Runs on {{device}}",
   "agents.status.running": "Running",
   "agents.status.failing": "Last run failed",
   "agents.status.manual": "Manual only",
@@ -112,6 +113,9 @@ export default {
   "agents.detail.stop": "Stop run",
   "agents.detail.edit": "Edit",
   "agents.detail.remove": "Remove",
+  "agents.detail.move": "Move to this computer",
+  "agents.detail.conflict":
+    "Changed on another computer: your edit here was replaced by that one. Edit it again if you still need the change.",
   "agents.detail.active": "Active",
   "agents.detail.history": "History",
   "agents.detail.history.empty": "No runs yet.",

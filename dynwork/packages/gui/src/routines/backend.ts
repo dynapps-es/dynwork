@@ -32,6 +32,8 @@ export interface Backend {
   resume(id: string): Promise<Failure | undefined>
   /** Starts a run now, whatever the schedule says. */
   start(id: string): Promise<Run | Failure>
+  /** Makes this device the one that runs the routine (`Routine.owner`). Only a backend with owners has it. */
+  move?(id: string): Promise<Failure | undefined>
   /** `conflict` for a run that already finished; `unsupported` where `actions.cancel` is false. */
   cancel(run: string): Promise<Failure | undefined>
   /** Newest first. Without `routine`: every run the backend knows ("Activity"). */

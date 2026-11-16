@@ -19,7 +19,7 @@ import {
 } from "../contract"
 import { RoutinesValidate } from "../validate"
 import { RoutinesClock } from "./clock"
-import type { Saved, SavedRoutine, SavedRun } from "./store"
+import { enqueue, type Saved, type SavedRoutine, type SavedRun } from "./store"
 
 export { Saved, initial } from "./store"
 
@@ -31,6 +31,9 @@ export { Saved, initial } from "./store"
 // The clock that fires a schedule and recovers missed runs is `./clock.ts`: it decides, and this backend records what it
 // took (`take`) and starts the run (`fire`). A run asks for permissions as in any conversation ("Ask me"), or has them
 // all granted ("Don't ask"); either way it is told to the user (`notify`). Not here yet: the time limit.
+//
+// Definitions are shared with the user's other computers through Governance (`./sync.ts`): every change made here goes
+// to the store and to its outbox in one write, and a routine runs only on its owner computer (`here`).
 
 export const id = "local"
 
@@ -122,6 +125,12 @@ function wanted(kind: Notice["kind"], mode: unknown) {
   return kind === "failed" || mode === "every"
 }
 
+/** A computer as the sync names it: its relay peer id (32 hex digits) and its name. */
+export interface Device {
+  id: string
+  name: string
+}
+
 export interface Options {
   /** The backend's id; `local` by default. */
   id?: string
@@ -141,6 +150,12 @@ export interface Options {
   busy?: (going: boolean) => void
   /** Milliseconds before following the service's events again. */
   retry?: number
+  /** This computer, the owner of the routines created here. Absent or undefined: not known, every routine is here's. */
+  device?: () => Device | undefined
+  /** Whether the routines are in step with Governance (`Capabilities.synced`). Absent: no sync. */
+  synced?: () => boolean | undefined
+  /** Something went to the outbox: the sync sends it. */
+  queued?: () => void
 }
 
 export interface Local extends Backend {
@@ -160,6 +175,12 @@ export interface Local extends Backend {
    * runs: core does not resume a child session after a restart. Call it once the service answers.
    */
   interrupted(): Promise<void>
+  /** Whether this computer runs the routine: it owns it. Only the owner's clock fires it. */
+  here(routine: string): boolean
+  /** The sync changed the store: tells the watchers (the clock, the windows). Without a routine: the sync's status. */
+  touched(routine?: string): void
+  /** Makes this computer the routine's owner. */
+  move(routine: string): Promise<Failure | undefined>
   /** Stops following the service. */
   dispose(): void
 }
@@ -186,7 +207,9 @@ export function make(options: Options): Local {
   const routineOf = (routine: string) => saved().routines.find((stored) => stored.id === routine)
   const recordOf = (run: string) => saved().runs.find((stored) => stored.id === run)
   const inflight = () => saved().runs.filter((record) => !ended(record.state))
+  const here = (stored: SavedRoutine) => !stored.owner || stored.owner.device === options.device?.()?.id
   const emit = (change: Change) => {
+    if (change.run) report(change.run.ref.id)
     ;[...watchers].forEach((watcher) => watcher(change))
     const now = inflight().length > 0
     if (now === busy.value) return
@@ -223,11 +246,16 @@ export function make(options: Options): Local {
       ...(next === undefined ? {} : { next }),
       ...(own[0] ? { last: toRun(own[0]) } : {}),
       unread: own.filter((record) => ended(record.state) && !record.viewed).length,
-      owner: { label: options.label, online: true, here: true },
+      // Whether another computer is online is not known here.
+      owner:
+        here(stored) || !stored.owner
+          ? { label: options.label, online: true, here: true }
+          : { label: stored.owner.name, online: false, here: false },
       conversation: stored.anchor
         ? { kind: "session", server: options.server, session: stored.anchor, anchor: stored.anchor }
         : { kind: "none" },
       updated: stored.updated,
+      ...(stored.conflict === undefined ? {} : { conflict: stored.conflict }),
     }
   }
 
@@ -237,6 +265,7 @@ export function make(options: Options): Local {
     label: options.label,
     status: options.client() ? "ready" : "unreachable",
     ...(options.client() ? {} : { detail: "DynWork's service is not running." }),
+    ...(options.synced?.() === undefined ? {} : { synced: options.synced() }),
     instructions: ["prompt", "skill"],
     agent: "optional",
     model: "choose",
@@ -250,6 +279,27 @@ export function make(options: Options): Local {
       const index = draft.routines.findIndex((stored) => stored.id === routine)
       if (index >= 0) draft.routines[index] = { ...draft.routines[index]!, ...patch }
     })
+
+  // A change of the routine made here: written with its outbox entry in one step, and it clears a conflict's note.
+  const write = (routine: string, patch: Partial<SavedRoutine>) => {
+    options.store.update((draft) => {
+      const index = draft.routines.findIndex((stored) => stored.id === routine)
+      if (index < 0) return
+      const { conflict: _, ...rest } = { ...draft.routines[index]!, ...patch }
+      draft.routines[index] = rest
+      enqueue(draft, { kind: "put", routine })
+    })
+    options.queued?.()
+  }
+
+  // A run of a routine this computer owns and Governance has: its summary goes to the outbox.
+  function report(run: string) {
+    const record = recordOf(run)
+    const stored = record && routineOf(record.routine)
+    if (!stored || !here(stored) || stored.revision === undefined || !options.queued) return
+    options.store.update((draft) => void enqueue(draft, { kind: "run", routine: stored.id, run }))
+    options.queued()
+  }
 
   const saveRun = (record: SavedRun) =>
     options.store.update((draft) => {
@@ -449,8 +499,18 @@ export function make(options: Options): Local {
     create: async (definition) => {
       const invalid = RoutinesValidate.check(await capabilities(), definition)
       if (invalid) return invalid
-      const stored: SavedRoutine = { id: `rtn_${randomUUID()}`, definition, updated: options.now() }
-      options.store.update((draft) => void draft.routines.push(stored))
+      const device = options.device?.()
+      const stored: SavedRoutine = {
+        id: `rtn_${randomUUID()}`,
+        definition,
+        updated: options.now(),
+        ...(device ? { owner: { device: device.id, name: device.name } } : {}),
+      }
+      options.store.update((draft) => {
+        draft.routines.push(stored)
+        enqueue(draft, { kind: "put", routine: stored.id })
+      })
+      options.queued?.()
       emit({ routine: ref(stored.id) })
       return toRoutine(stored)
     },
@@ -459,18 +519,21 @@ export function make(options: Options): Local {
       if (!stored) return missing("routine", routine)
       const invalid = RoutinesValidate.check(await capabilities(), definition)
       if (invalid) return invalid
-      saveRoutine(routine, { definition, updated: options.now() })
+      write(routine, { definition, updated: options.now() })
       await follows(stored, definition)
       emit({ routine: ref(routine) })
       return toRoutine(routineOf(routine) ?? stored)
     },
     // The anchor and its runs stay in the service: the user may still read them, and the sidebar keeps the anchor.
     remove: async (routine) => {
-      if (!routineOf(routine)) return missing("routine", routine)
+      const stored = routineOf(routine)
+      if (!stored) return missing("routine", routine)
       options.store.update((draft) => {
-        draft.routines = draft.routines.filter((stored) => stored.id !== routine)
+        draft.routines = draft.routines.filter((candidate) => candidate.id !== routine)
         draft.runs = draft.runs.filter((record) => record.routine !== routine)
+        enqueue(draft, { kind: "delete", routine, ...(stored.revision === undefined ? {} : { revision: stored.revision }) })
       })
+      options.queued?.()
       emit({ routine: ref(routine) })
       return undefined
     },
@@ -479,8 +542,25 @@ export function make(options: Options): Local {
     start: async (routine) => {
       const stored = routineOf(routine)
       if (!stored) return missing("routine", routine)
+      if (!here(stored)) return fail("conflict", `It runs on ${stored.owner?.name}.`)
       return launch(stored, { trigger: "manual" })
     },
+    // The same write as an edit: the owner goes to Governance with the routine's revision. Nothing missed before now.
+    move: async (routine) => {
+      const stored = routineOf(routine)
+      if (!stored) return missing("routine", routine)
+      const device = options.device?.()
+      if (!device) return fail("unsupported", "This computer cannot run routines of other computers.")
+      if (here(stored) && stored.owner) return undefined
+      write(routine, { owner: { device: device.id, name: device.name }, updated: options.now() })
+      emit({ routine: ref(routine) })
+      return undefined
+    },
+    here: (routine) => {
+      const stored = routineOf(routine)
+      return !!stored && here(stored)
+    },
+    touched: (routine) => emit(routine ? { routine: ref(routine) } : {}),
     going: async (routine) => {
       const read = await Promise.all(
         inflight()
@@ -654,7 +734,7 @@ export function make(options: Options): Local {
   async function switchTo(routine: string, enabled: boolean) {
     const stored = routineOf(routine)
     if (!stored) return missing("routine", routine)
-    saveRoutine(routine, { definition: { ...stored.definition, enabled }, updated: options.now() })
+    write(routine, { definition: { ...stored.definition, enabled }, updated: options.now() })
     emit({ routine: ref(routine) })
     return undefined
   }

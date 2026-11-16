@@ -126,6 +126,17 @@ export function RoutineDetail(props: {
               </Button>
             )}
           </Show>
+          <Show when={props.routine.owner && !props.routine.owner.here}>
+            <Button
+              variant="neutral"
+              icon="monitor"
+              disabled={!allowed().move.enabled || busy("move")}
+              title={reason(allowed().move)}
+              onClick={() => void props.model.move(props.routine)}
+            >
+              {ctx.t("agents.detail.move")}
+            </Button>
+          </Show>
           <Button
             variant="ghost"
             icon="edit"
@@ -155,6 +166,12 @@ export function RoutineDetail(props: {
           </Button>
         </div>
       </header>
+      <Show when={props.routine.conflict !== undefined}>
+        <div data-slot="agents-notice" data-tone="warning" role="status">
+          <Icon name="circle-exclamation" size="small" />
+          <span>{ctx.t("agents.detail.conflict")}</span>
+        </div>
+      </Show>
       <Show when={props.model.state.failure}>
         {(failure) => (
           <div data-slot="agents-notice" data-tone="danger" role="alert">

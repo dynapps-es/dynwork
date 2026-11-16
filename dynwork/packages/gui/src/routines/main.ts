@@ -11,6 +11,7 @@ import { RoutinesFarm } from "./farm/backend"
 import { RoutinesIpc } from "./ipc"
 import { RoutinesLocal } from "./local/backend"
 import { RoutinesClock } from "./local/clock"
+import { RoutinesSync } from "./local/sync"
 
 // How often the demo backends finish the runs whose minute has passed.
 const SETTLE = 5_000
@@ -35,11 +36,17 @@ export interface Options {
    * no account to wait for. A run started earlier fails with "No model is available". Absent: always.
    */
   ready?: () => boolean
+  /**
+   * What the local routines sync with: the Governance account (the active, signed-in one) and this computer (its
+   * relay peer id and its name). Absent: they stay on this computer.
+   */
+  sync?: { account: () => RoutinesSync.Account | undefined; device: () => RoutinesLocal.Device | undefined }
 }
 
 // The routines' main side, set up by the `dynwork` built-in's main entry next to the accounts: the registry of backends
 // and the `dynwork.routines` Ipc over it, and the clock of the local routines. Answers the registry, so that code that
-// owns a backend can register it, and the clock's `check`, to call when `ready` may have changed and on wake.
+// owns a backend can register it, the clock's `check`, to call when `ready` may have changed and on wake, and `pull`,
+// which syncs with Governance now: on the relay's `routines.changed` hint, a change of account and a wake.
 export function setup(ctx: MainContext, options: Options) {
   const registry = RoutinesBackend.make()
   const provider = { changed: () => {}, run: (_: Run) => {}, open: (_: Run) => {} }
@@ -48,6 +55,7 @@ export function setup(ctx: MainContext, options: Options) {
   // The local backend: definitions in the plugin's storage, runs as sessions of DynWork's service.
   const store = ctx.storage.store("routines", { schema: RoutinesLocal.Saved, initial: RoutinesLocal.initial })
   const client = service(ctx)
+  const shared: { sync?: RoutinesSync.Sync } = {}
   const local = RoutinesLocal.make({
     label: options.label,
     store,
@@ -56,6 +64,9 @@ export function setup(ctx: MainContext, options: Options) {
     home: path.join(homedir(), "Dynwork", "Routines"),
     now: Date.now,
     busy: options.busy,
+    device: options.sync?.device,
+    synced: () => shared.sync?.synced(),
+    queued: () => void shared.sync?.sync(),
     notify: (notice) =>
       options.notify?.({
         ...notice,
@@ -71,6 +82,17 @@ export function setup(ctx: MainContext, options: Options) {
   })
   ctx.onCleanup(local.dispose)
   registry.register(local)
+  if (options.sync) {
+    const sync = RoutinesSync.make({
+      store,
+      local,
+      account: options.sync.account,
+      device: options.sync.device,
+      now: Date.now,
+    })
+    shared.sync = sync
+    ctx.onCleanup(sync.dispose)
+  }
   // Fires the local schedules once the service answers and the Governance provider is applied.
   const clock = RoutinesClock.make({
     local,
@@ -96,7 +118,7 @@ export function setup(ctx: MainContext, options: Options) {
   provider.changed = () => ipc.changed()
   provider.run = (run) => ipc.emit("run", run)
   provider.open = (run) => ipc.emit("open", run)
-  return { registry, check: () => void clock.check() }
+  return { registry, check: () => void clock.check(), pull: () => void shared.sync?.sync() }
 }
 
 /** What a notification says: the routine's name and what happened to its run. */

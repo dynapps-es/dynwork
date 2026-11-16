@@ -1,5 +1,6 @@
 export * as RoutinesLocalStore from "./store"
 
+import { randomUUID } from "node:crypto"
 import { Schema } from "effect"
 import { Definition, Run, RunState } from "../contract"
 
@@ -20,6 +21,12 @@ export const SavedRoutine = Schema.Struct({
    */
   due: Schema.optional(Schema.Number),
   updated: Schema.Number,
+  /** Its revision in Governance, as last written or read; absent until it was first synced (`sync.ts`). */
+  revision: Schema.optional(Schema.Number),
+  /** The computer that runs it: its relay peer id and its name. Absent: this one (a routine from before the sync). */
+  owner: Schema.optional(Schema.Struct({ device: Schema.String, name: Schema.String })),
+  /** When another computer's change replaced an edit made here (a sync conflict); cleared by the next edit here. */
+  conflict: Schema.optional(Schema.Number),
 })
 export type SavedRoutine = typeof SavedRoutine.Type
 
@@ -43,11 +50,54 @@ export const SavedRun = Schema.Struct({
 })
 export type SavedRun = typeof SavedRun.Type
 
+/**
+ * A change made here that Governance has not taken yet, in the order it was made (`sync.ts` sends them in order):
+ * - `put`: the routine as it is in the store when it is sent (create, edit, pause, resume, move);
+ * - `delete`: the routine was removed here, at its last known `revision` (absent: it never reached Governance);
+ * - `run`: the summary of a run of a routine this computer owns, as the store has it when it is sent.
+ */
+export const Op = Schema.Union([
+  Schema.Struct({ id: Schema.String, kind: Schema.Literal("put"), routine: Schema.String }),
+  Schema.Struct({
+    id: Schema.String,
+    kind: Schema.Literal("delete"),
+    routine: Schema.String,
+    revision: Schema.optional(Schema.Number),
+  }),
+  Schema.Struct({ id: Schema.String, kind: Schema.Literal("run"), routine: Schema.String, run: Schema.String }),
+])
+export type Op = typeof Op.Type
+
 export const Saved = Schema.Struct({
   routines: Schema.Array(SavedRoutine),
   /** Newest first. */
   runs: Schema.Array(SavedRun),
+  /** The changes still to send to Governance, oldest first. */
+  outbox: Schema.optional(Schema.Array(Op)),
+  /** Where the feed was read up to, and for which account: another account starts from the beginning. */
+  sync: Schema.optional(Schema.Struct({ account: Schema.String, cursor: Schema.String })),
 })
 export type Saved = typeof Saved.Type
 
 export const initial: Saved = { routines: [], runs: [] }
+
+type Draft = { outbox?: Array<Op> }
+type NewOp =
+  | { kind: "put"; routine: string }
+  | { kind: "delete"; routine: string; revision?: number }
+  | { kind: "run"; routine: string; run: string }
+
+/**
+ * Adds a change to the outbox, in the same store write as the change itself. A `put` or `run` already waiting behind
+ * the first entry (which may be on its way) is not added twice: it sends what the store holds when it goes.
+ */
+export function enqueue(draft: Draft, op: NewOp) {
+  const outbox = draft.outbox ?? []
+  const twin = (queued: Op) => {
+    if (op.kind === "put") return queued.kind === "put" && queued.routine === op.routine
+    if (op.kind === "run") return queued.kind === "run" && queued.run === op.run
+    return false
+  }
+  if (outbox.slice(1).some(twin)) return
+  draft.outbox = [...outbox, { ...op, id: randomUUID() }]
+}

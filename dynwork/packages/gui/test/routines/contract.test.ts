@@ -20,6 +20,7 @@ describe("the routines contract", () => {
         "create",
         "get",
         "list",
+        "move",
         "options",
         "pause",
         "refresh",

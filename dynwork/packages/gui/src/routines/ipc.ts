@@ -137,6 +137,10 @@ export function implementation(registry: Registry, notify: Notify): IpcImpl<(typ
     pause: (input) => changing(input.backend, (backend) => backend.pause(input.id)),
     resume: (input) => changing(input.backend, (backend) => backend.resume(input.id)),
     start: (input) => changing(input.backend, (backend) => backend.start(input.id)),
+    move: (input) =>
+      changing(input.backend, async (backend) =>
+        backend.move ? backend.move(input.id) : fail("unsupported", "This backend runs routines in one place."),
+      ),
     cancel: (input) => changing(input.backend, (backend) => backend.cancel(input.run)),
     runs: (input) => on(input.backend, (backend) => backend.runs({ routine: input.routine, cursor: input.cursor })),
     transcript: (input) => on(input.backend, (backend) => backend.transcript(input.run)),

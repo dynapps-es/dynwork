@@ -9,7 +9,7 @@ describe("the status tag", () => {
   test.each([
     ["Weekly ticket summary", "Active", "success"],
     ["Nightly test run", "Last run failed", "danger"],
-    ["Timesheet draft", "Waiting for Home laptop", "warning"],
+    ["Timesheet draft", "Runs on Home laptop", undefined],
     ["Sort the Brain inbox", "Paused", undefined],
     ["Sync CRM", "Running", "info"],
     ["Release notes", "Manual only", undefined],
@@ -47,7 +47,7 @@ describe("actions follow the capabilities", () => {
     const crm = view.find("Sync CRM")
     const plain = actions(crm, view.model.capabilities("farm"))
     expect(Object.values(plain).map((action) => [action.enabled, said(action.reason)])).toEqual(
-      Array.from({ length: 6 }, () => [false, "Signed out"]),
+      Array.from({ length: 7 }, () => [false, "Signed out"]),
     )
 
     view.farm.setStatus("unreachable", "The Agent Farm does not answer.")
@@ -55,11 +55,11 @@ describe("actions follow the capabilities", () => {
     expect(said(actions(crm, view.model.capabilities("farm")).start.reason)).toBe("The Agent Farm does not answer.")
   })
 
-  test("a routine of another device runs only there, but can still be paused", async () => {
+  test("a routine of another device runs only there, but can still be paused, edited and moved here", async () => {
     const view = await setup()
     const allowed = actions(view.find("Timesheet draft"), view.model.capabilities("local"))
     expect([allowed.start.enabled, said(allowed.start.reason)]).toEqual([false, "Runs only on Home laptop."])
-    expect(allowed.toggle.enabled).toBe(true)
+    expect([allowed.toggle.enabled, allowed.edit.enabled, allowed.move.enabled]).toEqual([true, true, true])
   })
 
   test("an edit that replaces the routine says so; a backend without cancel cannot stop a run", async () => {

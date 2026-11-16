@@ -1,3 +1,4 @@
+export * as Control from "./control"
 export * as Envelope from "./envelope"
 export * as Frame from "./frame"
 export * as Keys from "./keys"

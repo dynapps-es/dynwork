@@ -22,7 +22,11 @@ const setup: Plugin.MainSetup = (ctx) => {
   const remote: { update: () => void } = { update: () => {} }
   // The routines' clock looks again whenever the sync changes: it fires nothing until the provider is applied.
   // `applied` holds once a sync went through, until the account goes: a failed poll later keeps the provider applied.
-  const routines: { check: () => void; applied: boolean } = { check: () => {}, applied: false }
+  const routines: { check: () => void; pull: () => void; applied: boolean } = {
+    check: () => {},
+    pull: () => {},
+    applied: false,
+  }
   const accounts = DynWorkAccounts.make({
     store: ctx.storage.store("accounts", { schema: DynWorkAccounts.Store, initial: DynWorkAccounts.initial }),
     secure: safeStorage,
@@ -32,6 +36,7 @@ const setup: Plugin.MainSetup = (ctx) => {
       provider.changed()
       engine.current?.update()
       remote.update()
+      routines.pull()
     },
     renewed: (id, session) => engine.current?.renewed(id, session),
   })
@@ -75,7 +80,8 @@ const setup: Plugin.MainSetup = (ctx) => {
   })
 
   // Remote control follows the active account: switching it moves the tunnel, signing out stops it
-  remote.update = RemoteMain.setup(ctx, accounts).update
+  const tunnel = RemoteMain.setup(ctx, accounts)
+  remote.update = tunnel.update
 
   // Routines: the registry of backends, local and remote, and the `dynwork.routines` Ipc over it. A local run that
   // finishes, fails or waits for a permission is told with a system notification, as its routine says; it shows with
@@ -84,8 +90,9 @@ const setup: Plugin.MainSetup = (ctx) => {
   const awake: { blocker?: number } = {}
   // Scheduled runs wait for the Governance provider; without an account there is nothing to wait for. Waking the
   // computer has the clock catch up at once.
-  routines.check = RoutinesMain.setup(ctx, {
-    label: hostname().replace(/\.local$/, ""),
+  const label = hostname().replace(/\.local$/, "")
+  const routinesMain = RoutinesMain.setup(ctx, {
+    label,
     farm: RoutinesFarm.enabled(process.env),
     notify: (notice) => {
       if (!Notification.isSupported()) return
@@ -103,11 +110,36 @@ const setup: Plugin.MainSetup = (ctx) => {
       awake.blocker = undefined
     },
     ready: () => routines.applied || sync.status().status === "idle",
-  }).check
+    // Definitions sync with the active account's Governance. This computer is its relay peer id, kept whether or not
+    // remote control is on, and its name.
+    sync: {
+      account: () => {
+        const active = accounts.list().find((account) => account.active && account.status === "signedIn")
+        if (!active) return undefined
+        return { id: active.id, url: active.url, token: async () => (await accounts.session(active.id)).token }
+      },
+      device: () => {
+        const peer = tunnel.peer()
+        return peer ? { id: peer, name: label } : undefined
+      },
+    },
+  })
+  routines.check = routinesMain.check
+  routines.pull = routinesMain.pull
+  // Another computer changed a routine: Governance's hint arrives over the relay while remote control is connected.
+  // Without it the sync still reads the feed every few minutes.
+  ctx.onCleanup(
+    tunnel.onControl((message) => {
+      if (message.t === "routines.changed") routines.pull()
+    }),
+  )
   ctx.onCleanup(() => {
     if (awake.blocker !== undefined) powerSaveBlocker.stop(awake.blocker)
   })
-  const wake = () => routines.check()
+  const wake = () => {
+    routines.check()
+    routines.pull()
+  }
   powerMonitor.on("resume", wake)
   ctx.onCleanup(() => void powerMonitor.off("resume", wake))
 
