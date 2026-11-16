@@ -27,6 +27,12 @@ export const SavedRoutine = Schema.Struct({
   owner: Schema.optional(Schema.Struct({ device: Schema.String, name: Schema.String })),
   /** When another computer's change replaced an edit made here (a sync conflict); cleared by the next edit here. */
   conflict: Schema.optional(Schema.Number),
+  /**
+   * The Governance account it belongs to, set when it is synced or created while signed in. Only the active account's
+   * routines show, fire and sync; one without (never synced) counts as the active account's and is tagged on its first
+   * sync.
+   */
+  account: Schema.optional(Schema.String),
 })
 export type SavedRoutine = typeof SavedRoutine.Type
 
@@ -50,21 +56,31 @@ export const SavedRun = Schema.Struct({
 })
 export type SavedRun = typeof SavedRun.Type
 
+const Account = Schema.optional(Schema.String)
+
 /**
  * A change made here that Governance has not taken yet, in the order it was made (`sync.ts` sends them in order):
  * - `put`: the routine as it is in the store when it is sent (create, edit, pause, resume, move);
  * - `delete`: the routine was removed here, at its last known `revision` (absent: it never reached Governance);
  * - `run`: the summary of a run of a routine this computer owns, as the store has it when it is sent.
+ * Each carries its routine's account: it is sent only while that account is active, never with another one's token.
  */
 export const Op = Schema.Union([
-  Schema.Struct({ id: Schema.String, kind: Schema.Literal("put"), routine: Schema.String }),
+  Schema.Struct({ id: Schema.String, kind: Schema.Literal("put"), routine: Schema.String, account: Account }),
   Schema.Struct({
     id: Schema.String,
     kind: Schema.Literal("delete"),
     routine: Schema.String,
     revision: Schema.optional(Schema.Number),
+    account: Account,
   }),
-  Schema.Struct({ id: Schema.String, kind: Schema.Literal("run"), routine: Schema.String, run: Schema.String }),
+  Schema.Struct({
+    id: Schema.String,
+    kind: Schema.Literal("run"),
+    routine: Schema.String,
+    run: Schema.String,
+    account: Account,
+  }),
 ])
 export type Op = typeof Op.Type
 
@@ -82,10 +98,11 @@ export type Saved = typeof Saved.Type
 export const initial: Saved = { routines: [], runs: [] }
 
 type Draft = { outbox?: Array<Op> }
-type NewOp =
+type NewOp = (
   | { kind: "put"; routine: string }
   | { kind: "delete"; routine: string; revision?: number }
   | { kind: "run"; routine: string; run: string }
+) & { account?: string }
 
 /**
  * Adds a change to the outbox, in the same store write as the change itself. A `put` or `run` already waiting behind

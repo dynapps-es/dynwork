@@ -32,8 +32,16 @@ const peer = (digit: string) => digit.repeat(32)
 function computer(
   gov: FakeGovernance,
   name: string,
-  input: { store?: Store; id?: string; now?: () => number; client?: ReturnType<typeof OpenCode.make> } = {},
+  input: {
+    store?: Store
+    id?: string
+    now?: () => number
+    client?: ReturnType<typeof OpenCode.make>
+    /** The active account; one fixed account on `gov` by default. */
+    account?: () => RoutinesSync.Account | undefined
+  } = {},
 ) {
+  const account = input.account ?? (() => ({ id: "account", url: gov.url, token: async () => gov.token }))
   const store = input.store ?? storage(RoutinesLocal.Saved, RoutinesLocal.initial)
   const device = { id: input.id ?? peer(name === "Mac A" ? "a" : "b"), name }
   const armed: number[] = []
@@ -46,13 +54,14 @@ function computer(
     home,
     now: input.now ?? Date.now,
     device: () => device,
+    account: () => account()?.id,
     synced: () => shared.sync?.synced(),
     queued: () => void shared.sync?.sync(),
   })
   const sync = RoutinesSync.make({
     store,
     local,
-    account: () => ({ id: "account", url: gov.url, token: async () => gov.token }),
+    account,
     device: () => device,
     now: input.now ?? Date.now,
     timers: { set: (_, ms) => (armed.push(ms), () => {}) },
@@ -323,6 +332,62 @@ describe("the routines sync", () => {
     await a.sync.sync()
     expect(gov.state.routines.get(id)).toMatchObject({ owner_device: peer("a"), owner_name: "Mac A", revision: 1 })
     expect(a.store.value.routines[0]).toMatchObject({ revision: 1, owner: { device: peer("a"), name: "Mac A" } })
+  })
+
+  test("switching the account keeps each account's routines apart, and switching back restores them", async () => {
+    const time = clock(Date.UTC(2026, 10, 16, 8, 50))
+    const govs = { A: governance(time.now), B: governance(time.now) }
+    const active = { id: "A" as "A" | "B" }
+    const made = fakeService({ now: time.now })
+    stops.push(made.stop)
+    const a = computer(govs.A, "Mac A", {
+      now: time.now,
+      client: OpenCode.make({ baseUrl: made.url, headers: { authorization: "Basic c2VjcmV0" } }),
+      account: () => ({ id: active.id, url: govs[active.id].url, token: async () => govs[active.id].token }),
+    })
+    const engine = RoutinesClock.make({
+      local: a.local,
+      store: a.store,
+      now: time.now,
+      ready: () => true,
+      timers: { set: () => () => {} },
+    })
+    stops.push(engine.dispose)
+    const daily = await create(a.local, routine("A daily", { schedule: { cron: "0 9 * * *", timezone: "UTC" } }))
+    await a.sync.sync()
+    // Account A's change made while its Governance does not answer waits in the outbox.
+    govs.A.state.down = true
+    const waiting = await create(a.local, routine("A offline"))
+    await a.sync.sync()
+
+    active.id = "B"
+    await a.sync.sync()
+    const own = await create(a.local, routine("B routine"))
+    await a.sync.sync()
+    expect(await names(a.local)).toEqual(["B routine"])
+    expect([...govs.B.state.routines.keys()]).toEqual([own])
+    expect(govs.B.state.requests.filter((request) => request.includes(daily) || request.includes(waiting))).toEqual([])
+    expect(a.local.here(daily)).toBe(false)
+    time.advance(11 * MINUTE)
+    await engine.check()
+    await Bun.sleep(20)
+    expect(made.prompts()).toEqual([])
+
+    active.id = "A"
+    govs.A.state.down = false
+    await a.sync.sync()
+    expect(await names(a.local)).toEqual(["A daily", "A offline"])
+    expect([...govs.A.state.routines.keys()].toSorted()).toEqual([daily, waiting].toSorted())
+    expect(a.store.value.routines.map((stored) => [stored.definition.name, stored.account]).toSorted()).toEqual([
+      ["A daily", "A"],
+      ["A offline", "A"],
+      ["B routine", "B"],
+    ])
+    expect(a.store.value.outbox).toEqual([])
+    // Back on A within the grace: its 09:00 fires now, once.
+    await engine.check()
+    await until(() => made.prompts().length > 0)
+    expect(made.prompts()).toHaveLength(1)
   })
 
   test("offline edits are kept, said Not synced, retried sooner, and flushed when Governance is back", async () => {

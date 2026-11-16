@@ -173,8 +173,14 @@ computer).
 - **Hint.** Governance's change hint arrives as a relay control message (`@dynwork/remote`'s `events.control`, surfaced by
   `RemoteTunnel.onControl`) only while the remote-control tunnel is connected; without it the poll catches up.
 
-Known limits: switching the active account does not separate routines by account (the other account's routines stay
-here and those never synced are uploaded to the new one); a routine moved to another computer can still fire here until
+- **Accounts.** Each routine carries the Governance account it belongs to (`SavedRoutine.account`), set when it is
+  created while signed in or when it is synced, and each outbox entry carries its routine's. The view, the clock and
+  the outbox act only on the active account's routines (`Options.account`); one with no account yet (never synced)
+  counts as the active account's and is tagged on its first sync. Switching accounts leaves the other account's routines
+  stored, hidden and not firing, and its outbox entries waiting: they are never sent with another account's token.
+  The feed's cursor is kept per account.
+
+Known limits: a routine moved to another computer can still fire here until
 this computer reads the move (seconds with the hint, at most one poll without).
 
 `test/routines/sync.test.ts` runs two computers against `test/routines/governance.ts`, a fake Governance over real HTTP.

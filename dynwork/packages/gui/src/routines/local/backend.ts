@@ -152,6 +152,11 @@ export interface Options {
   retry?: number
   /** This computer, the owner of the routines created here. Absent or undefined: not known, every routine is here's. */
   device?: () => Device | undefined
+  /**
+   * The active Governance account's id; undefined while signed out. Only its routines (and those of no account yet)
+   * show, fire and sync: another account's stay stored, hidden, until it is active again. Absent: no accounts.
+   */
+  account?: () => string | undefined
   /** Whether the routines are in step with Governance (`Capabilities.synced`). Absent: no sync. */
   synced?: () => boolean | undefined
   /** Something went to the outbox: the sync sends it. */
@@ -204,7 +209,9 @@ export function make(options: Options): Local {
   const busy = { value: false }
 
   const saved = () => options.store.value
-  const routineOf = (routine: string) => saved().routines.find((stored) => stored.id === routine)
+  // Another account's routine is not there for anything here: not listed, read, edited, run or fired.
+  const mine = (stored: SavedRoutine) => !stored.account || stored.account === options.account?.()
+  const routineOf = (routine: string) => saved().routines.find((stored) => stored.id === routine && mine(stored))
   const recordOf = (run: string) => saved().runs.find((stored) => stored.id === run)
   const inflight = () => saved().runs.filter((record) => !ended(record.state))
   const here = (stored: SavedRoutine) => !stored.owner || stored.owner.device === options.device?.()?.id
@@ -287,7 +294,7 @@ export function make(options: Options): Local {
       if (index < 0) return
       const { conflict: _, ...rest } = { ...draft.routines[index]!, ...patch }
       draft.routines[index] = rest
-      enqueue(draft, { kind: "put", routine })
+      enqueue(draft, { kind: "put", routine, account: rest.account })
     })
     options.queued?.()
   }
@@ -297,7 +304,7 @@ export function make(options: Options): Local {
     const record = recordOf(run)
     const stored = record && routineOf(record.routine)
     if (!stored || !here(stored) || stored.revision === undefined || !options.queued) return
-    options.store.update((draft) => void enqueue(draft, { kind: "run", routine: stored.id, run }))
+    options.store.update((draft) => void enqueue(draft, { kind: "run", routine: stored.id, run, account: stored.account }))
     options.queued()
   }
 
@@ -491,7 +498,7 @@ export function make(options: Options): Local {
       return choices.filter((choice) => `${choice.value} ${choice.label}`.toLowerCase().includes(needle))
     },
     validate: async (definition) => RoutinesValidate.check(await capabilities(), definition),
-    list: async () => saved().routines.map(toRoutine),
+    list: async () => saved().routines.filter(mine).map(toRoutine),
     get: async (routine) => {
       const stored = routineOf(routine)
       return stored ? toRoutine(stored) : missing("routine", routine)
@@ -500,15 +507,17 @@ export function make(options: Options): Local {
       const invalid = RoutinesValidate.check(await capabilities(), definition)
       if (invalid) return invalid
       const device = options.device?.()
+      const account = options.account?.()
       const stored: SavedRoutine = {
         id: `rtn_${randomUUID()}`,
         definition,
         updated: options.now(),
         ...(device ? { owner: { device: device.id, name: device.name } } : {}),
+        ...(account ? { account } : {}),
       }
       options.store.update((draft) => {
         draft.routines.push(stored)
-        enqueue(draft, { kind: "put", routine: stored.id })
+        enqueue(draft, { kind: "put", routine: stored.id, account })
       })
       options.queued?.()
       emit({ routine: ref(stored.id) })
@@ -531,7 +540,12 @@ export function make(options: Options): Local {
       options.store.update((draft) => {
         draft.routines = draft.routines.filter((candidate) => candidate.id !== routine)
         draft.runs = draft.runs.filter((record) => record.routine !== routine)
-        enqueue(draft, { kind: "delete", routine, ...(stored.revision === undefined ? {} : { revision: stored.revision }) })
+        enqueue(draft, {
+          kind: "delete",
+          routine,
+          account: stored.account,
+          ...(stored.revision === undefined ? {} : { revision: stored.revision }),
+        })
       })
       options.queued?.()
       emit({ routine: ref(routine) })
@@ -644,7 +658,10 @@ export function make(options: Options): Local {
     },
     runs: async (input) => {
       if (input.routine && !routineOf(input.routine)) return missing("routine", input.routine)
-      const own = saved().runs.filter((record) => !input.routine || record.routine === input.routine)
+      const shown = new Set(saved().routines.filter(mine).map((stored) => stored.id))
+      const own = saved().runs.filter((record) =>
+        input.routine ? record.routine === input.routine : shown.has(record.routine),
+      )
       const start = input.cursor === undefined ? 0 : Number(input.cursor)
       if (!Number.isInteger(start) || start < 0) return fail("invalid", "That cursor is not one of this backend's.")
       const end = start + PAGE

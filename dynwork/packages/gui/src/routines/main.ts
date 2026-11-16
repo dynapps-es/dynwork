@@ -65,6 +65,7 @@ export function setup(ctx: MainContext, options: Options) {
     now: Date.now,
     busy: options.busy,
     device: options.sync?.device,
+    account: options.sync ? () => options.sync?.account()?.id : undefined,
     synced: () => shared.sync?.synced(),
     queued: () => void shared.sync?.sync(),
     notify: (notice) =>

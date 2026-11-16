@@ -20,6 +20,8 @@ import { enqueue, type Op, type Saved, type SavedRoutine } from "./store"
 //   change of a routine waits in the outbox, the feed leaves that routine alone: its `If-Match` settles it.
 // - Runs: the owner computer alone reports each run's state, reason and times.
 // - First sync: a routine Governance does not have yet is uploaded with this computer as its owner.
+// - Accounts: each routine and outbox entry carries the account it belongs to. A pass reads, applies and sends only the
+//   active account's (and tags those of none yet); another account's stay stored, hidden and waiting.
 // - Without Governance everything keeps working here; the outbox waits and the Agents view says "Not synced".
 
 /** Where the routines API is on a Governance instance. */
@@ -87,11 +89,15 @@ export function make(options: Options) {
     disposed: boolean
     /** Undefined: no account or no device, nothing to sync. */
     synced?: boolean
+    /** The account of the pass under way: what it reads is tagged with it, and only its routines go. */
+    account?: string
   } = { again: false, disposed: false }
 
   const saved = () => options.store.value
   const outbox = () => saved().outbox ?? []
-  const routineOf = (routine: string) => saved().routines.find((stored) => stored.id === routine)
+  // The routines and outbox entries of the pass's account, or of none yet: another account's wait for it to be active.
+  const ours = (item: { account?: string }) => !item.account || item.account === life.account
+  const routineOf = (routine: string) => saved().routines.find((stored) => stored.id === routine && ours(stored))
 
   // One pass at a time: a request while one runs makes one more pass after it.
   function sync(): Promise<void> {
@@ -122,6 +128,7 @@ export function make(options: Options) {
     const account = options.account()
     const device = options.device()
     if (!account || !device) return settle(undefined)
+    life.account = account.id
     const pulled = await pull(account, device)
     if (pulled) upload(device)
     settle(pulled && (await flush(account, device)))
@@ -186,7 +193,9 @@ export function make(options: Options) {
   function apply(rows: readonly Row[]) {
     const touched: string[] = []
     options.store.update((draft) => {
-      const waiting = new Set((draft.outbox ?? []).filter((op) => op.kind !== "run").map((op) => op.routine))
+      const waiting = new Set(
+        (draft.outbox ?? []).filter((op) => op.kind !== "run" && ours(op)).map((op) => op.routine),
+      )
       rows.forEach((row) => {
         if (!waiting.has(row.id) && adopt(draft, row)) touched.push(row.id)
       })
@@ -200,6 +209,7 @@ export function make(options: Options) {
   function adopt(draft: Draft, row: Row, input: { force?: boolean; conflict?: number } = {}) {
     const index = draft.routines.findIndex((stored) => stored.id === row.id)
     const current = index >= 0 ? draft.routines[index] : undefined
+    if (current && !ours(current)) return false
     if (row.deleted) {
       if (!current) return false
       draft.routines.splice(index, 1)
@@ -217,6 +227,7 @@ export function make(options: Options) {
       definition: definition.value,
       revision: row.revision,
       owner: { device: row.owner_device, name: row.owner_name },
+      ...(life.account ? { account: life.account } : {}),
       // When it changed in Governance: the clock counts nothing missed before then, as after an edit here.
       updated: Number.isFinite(changed) ? changed : options.now(),
       ...(input.conflict === undefined ? {} : { conflict: input.conflict }),
@@ -230,7 +241,9 @@ export function make(options: Options) {
   function upload(device: Device) {
     const missing = saved().routines.filter(
       (stored) =>
-        stored.revision === undefined && !outbox().some((op) => op.kind === "put" && op.routine === stored.id),
+        ours(stored) &&
+        stored.revision === undefined &&
+        !outbox().some((op) => op.kind === "put" && op.routine === stored.id),
     )
     if (missing.length === 0) return
     options.store.update((draft) => {
@@ -238,7 +251,12 @@ export function make(options: Options) {
         const stored = draft.routines.find((candidate) => candidate.id === routine.id)
         if (!stored) return
         stored.owner ??= { device: device.id, name: device.name }
-        enqueue(draft, { kind: "put", routine: stored.id })
+        stored.account = life.account
+        // Its changes made before any account was active now belong to this one too.
+        ;(draft.outbox ?? []).forEach((op) => {
+          if (op.routine === stored.id) op.account ??= life.account
+        })
+        enqueue(draft, { kind: "put", routine: stored.id, account: life.account })
       })
     })
   }
@@ -246,7 +264,7 @@ export function make(options: Options) {
   // Sends the outbox in order until it is empty, or Governance stops answering.
   async function flush(account: Account, device: Device) {
     for (;;) {
-      const op = outbox()[0]
+      const op = outbox().find(ours)
       if (!op) return true
       const sent = await deliver(account, device, op)
       if (sent === "offline") return false
@@ -335,6 +353,7 @@ export function make(options: Options) {
       if (stored) {
         stored.revision = row.revision
         stored.owner = { device: row.owner_device, name: row.owner_name }
+        stored.account = life.account
       }
       ;(draft.outbox ?? []).forEach((queued) => {
         if (queued.kind === "delete" && queued.routine === row.id) queued.revision = row.revision
