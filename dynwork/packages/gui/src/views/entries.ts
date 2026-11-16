@@ -6,8 +6,8 @@ export const robot = "dynwork-robot"
 
 /**
  * The DynWork rows of the sidebar, in order. Each opens the view of its id in the main area (`./route`) and stays
- * highlighted on every page in `pages`: Agents holds both the Agent Farm's agents and this computer's routines. The
- * governance settings are reached from Settings only.
+ * highlighted on every page in `pages`: Agents holds every routine, local and remote, and `routines` is the same view
+ * filtered to the local ones. The governance settings are reached from Settings only.
  */
 export const entries: readonly {
   id: string

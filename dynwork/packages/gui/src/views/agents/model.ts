@@ -1,259 +1,231 @@
-import { onCleanup } from "solid-js"
-import { createStore, produce } from "solid-js/store"
-import { catalog, demoAgents, schedules, timezone, type Agent, type AgentRun, type AgentStatus } from "./demo"
+import { createStore } from "solid-js/store"
+import type { Client } from "../../routines/client"
+import {
+  isFailure,
+  type Capabilities,
+  type Choice,
+  type Failure,
+  type Ref,
+  type Routine,
+  type Run,
+  type Transcript,
+} from "../../routines/contract"
+import { runTime } from "./format"
+import { matchesStatus, matchesWhere, type Status, type Where } from "./routine"
 
-export const filters = ["all", "running", "idle", "failed"] as const
-export type Filter = (typeof filters)[number]
+/** The list's three tabs: the user's routines, Governance's templates, and every run. */
+export type Tab = "mine" | "templates" | "activity"
+export const tabs: readonly Tab[] = ["mine", "templates", "activity"]
 
-export const tabs = ["overview", "logs", "runs", "schedule"] as const
-export type Tab = (typeof tabs)[number]
-
-/** Running includes queued agents: both are in flight on the farm. */
-export function matches(filter: Filter, agent: Agent) {
-  if (filter === "all") return true
-  if (filter === "running") return agent.status === "running" || agent.status === "queued"
-  return agent.status === filter
+/** A page of runs as the view holds it: newest first, with the cursor of the page after. */
+export interface Page {
+  readonly runs: readonly Run[]
+  readonly next?: string
+  readonly loading: boolean
+  readonly failure?: Failure
 }
 
-export function active(status: AgentStatus) {
-  return status === "running" || status === "queued"
+/** The run the viewer shows, and its transcript once it arrives. */
+export interface Viewer {
+  readonly run: Run
+  readonly transcript?: Transcript
+  readonly failure?: Failure
+  readonly loading: boolean
 }
 
-/** What the New agent dialog collects. */
-export interface NewAgent {
-  /** Run one of the farm's agents, or write a prompt of one's own. */
-  mode: "agent" | "prompt"
-  agent: string
-  name: string
-  repo: string
-  branch: string
-  access: string
-  input: string
-  repeat: boolean
-  /** Index into the repeat options. */
-  schedule: number
-}
-
-export function emptyNewAgent(): NewAgent {
-  return {
-    mode: "agent",
-    agent: catalog[0].id,
-    name: "",
-    repo: "",
-    branch: "",
-    access: "None",
-    input: "",
-    repeat: false,
-    schedule: 0,
-  }
-}
-
-/** Why a New agent form cannot start, as the suffix of the `agents.new.error.` copy. */
-export type NewAgentError = "name" | "input" | "repo"
+export const refKey = (ref: Ref) => `${ref.backend}/${ref.id}`
+export const sameRef = (a?: Ref, b?: Ref) => !!a && !!b && a.backend === b.backend && a.id === b.id
 
 /**
- * Turns the dialog's form into the agent it starts, queued, or says what is missing. `taken` are the ids already in the
- * list: a new agent never reuses one.
+ * The Agents view's state over the routines Ipc: filters, the selected routine, its runs, Activity and the run viewer.
+ * It reads routines and backends from the Ipc's state, and loads runs, transcripts and lookups on demand. Every read
+ * is a plain function rather than a memo, so it follows the client's state wherever it is read.
+ *
+ * `client` is the window's routines client while the Ipc is active; every action is a no-op without it.
  */
-export function buildAgent(input: NewAgent, taken: readonly string[], now = new Date()) {
-  const definition = catalog.find((item) => item.id === input.agent)
-  const name = input.name.trim() || (input.mode === "agent" ? definition?.name : undefined)
-  if (!name) return { error: "name" } satisfies { error: NewAgentError }
-  if (input.mode === "prompt" && !input.input.trim()) return { error: "input" } satisfies { error: NewAgentError }
-  const repo = input.repo.trim()
-  if (repo && !repo.startsWith("https://")) return { error: "repo" } satisfies { error: NewAgentError }
-
-  const slug = input.mode === "agent" ? input.agent : slugify(name)
-  const id = unique(slug, taken)
-  const branch = input.branch.trim()
-  const task = firstLine(input.input) || definition?.description || name
-  const repeat = schedules[input.schedule] ?? schedules[0]
-
-  return {
-    agent: {
-      id,
-      slug,
-      name,
-      status: "queued",
-      task,
-      repo: repo || "No repository",
-      branch: repo ? branch : "",
-      started: "Just now",
-      when: "Just now",
-      cost: "Not started",
-      plugins: (input.mode === "agent" ? definition?.plugins : undefined) ?? "None",
-      access: input.access === "None" ? "None" : `${input.access} (saved access)`,
-      schedule: input.repeat
-        ? { words: repeat.words, cron: repeat.cron, tz: timezone, state: "active", next: repeat.next, runs: 0 }
-        : undefined,
-      log: [{ time: clock(now), level: "info", text: "Starting up" }],
-      runs: [{ status: "queued", title: name, detail: "Starting up" }],
-      upcoming: [repo ? `Cloning ${repo}${branch ? ` at ${branch}` : ""}` : "Reading the task", `Working on: ${task}`],
-    } satisfies Agent,
-  }
-}
-
-/** The in-memory state of the Agents view, seeded from the demo data. Every change stays in this store. */
-export function createAgentsModel(seed = demoAgents(), now = () => new Date()) {
+export function createAgentsModel(input: { client: () => Client | undefined; where?: Where }) {
   const [state, setState] = createStore({
-    agents: seed,
-    filter: "all" as Filter,
-    selected: undefined as string | undefined,
-    tab: "overview" as Tab,
+    tab: "mine" as Tab,
+    where: input.where ?? ("all" as Where),
+    status: "all" as Status,
+    search: "",
+    selected: undefined as Ref | undefined,
+    history: {} as Record<string, Page>,
+    activity: {} as Record<string, Page>,
+    choices: {} as Record<string, Choice[]>,
+    viewer: undefined as Viewer | undefined,
+    busy: {} as Record<string, boolean>,
+    failure: undefined as Failure | undefined,
   })
-  const update = (id: string, change: (agent: Agent) => void) =>
-    setState("agents", (agent) => agent.id === id, produce(change))
-  const find = (id: string) => state.agents.find((agent) => agent.id === id)
-  const visible = () => state.agents.filter((agent) => matches(state.filter, agent))
-  const advance = (id: string) =>
-    update(id, (agent) => {
-      const time = clock(now())
-      if (agent.status === "queued") {
-        agent.status = "running"
-        agent.cost = "0.00 EUR so far"
-        agent.runs[0] = { status: "running", title: agent.runs[0]?.title ?? agent.task, detail: `Started ${time}` }
-        agent.log.push({ time, level: "info", text: "Working" })
-        return
-      }
-      const line = agent.upcoming.shift()
-      if (line) agent.log.push({ time, level: "info", text: line })
-    })
 
-  return {
+  const backends = (): readonly Capabilities[] => input.client()?.state()?.backends ?? []
+  const routines = (): readonly Routine[] => input.client()?.state()?.routines ?? []
+  const capabilities = (backend: string) => backends().find((candidate) => candidate.backend === backend)
+  const inWhere = (where: Where, ref: Ref) => matchesWhere(where, capabilities(ref.backend))
+  const needle = () => state.search.trim().toLocaleLowerCase()
+
+  const model = {
     state,
-    visible,
-    count: (filter: Filter) => state.agents.filter((agent) => matches(filter, agent)).length,
-    running: () => state.agents.some((agent) => active(agent.status)),
-    selected: () => (state.selected ? find(state.selected) : undefined),
-    select(id: string) {
-      setState({ selected: id, tab: "overview" })
+    backends,
+    routines,
+    capabilities,
+    /** The state has arrived from main; until then the view shows it is loading. */
+    ready: () => input.client()?.state() !== undefined,
+    count: (where: Where) => routines().filter((routine) => inWhere(where, routine.ref)).length,
+    visible: () =>
+      routines().filter(
+        (routine) =>
+          inWhere(state.where, routine.ref) &&
+          matchesStatus(state.status, routine) &&
+          routine.definition.name.toLocaleLowerCase().includes(needle()),
+      ),
+    selected: () => routines().find((routine) => sameRef(routine.ref, state.selected)),
+    /** The routine a run belongs to, while it is listed. */
+    routineOf: (run: Run) => routines().find((routine) => sameRef(routine.ref, run.routine)),
+    history: (ref: Ref): Page => state.history[refKey(ref)] ?? { runs: [], loading: false },
+    /** Every backend's runs, newest first, through the same Local and Remote filter as the list. */
+    activity: () =>
+      Object.values(state.activity)
+        .flatMap((page) => page.runs)
+        .filter((run) => inWhere(state.where, run.ref))
+        .toSorted((a, b) => (runTime(b) ?? 0) - (runTime(a) ?? 0)),
+    activityPage: () => {
+      const pages = Object.values(state.activity)
+      return {
+        loading: pages.some((page) => page.loading),
+        more: pages.some((page) => page.next !== undefined),
+        failures: pages.flatMap((page) => (page.failure ? [page.failure] : [])),
+      }
     },
-    deselect() {
-      setState("selected", undefined)
+    choices: (backend: string, lookup: string) => state.choices[`${backend}/${lookup}`] ?? [],
+    busy: (key: string) => state.busy[key] === true,
+
+    setTab: (tab: Tab) => setState("tab", tab),
+    setWhere: (where: Where) => setState("where", where),
+    setStatus: (status: Status) => setState("status", status),
+    setSearch: (search: string) => setState("search", search),
+    select: (ref: Ref) => setState("selected", { ...ref }),
+    deselect: () => setState({ selected: undefined, viewer: undefined }),
+    dismiss: () => setState("failure", undefined),
+    closeViewer: () => setState("viewer", undefined),
+
+    /** The routine's runs, the first page or, with `more`, the next one. */
+    async loadHistory(ref: Ref, more = false) {
+      const client = input.client()
+      const key = refKey(ref)
+      const page = model.history(ref)
+      if (!client || (more && page.next === undefined)) return
+      setState("history", key, { ...page, loading: true })
+      const answer = await client.runs({ backend: ref.backend, routine: ref.id, cursor: more ? page.next : undefined })
+      setState("history", key, paged(more ? page.runs : [], answer))
     },
-    filter(filter: Filter) {
-      setState("filter", filter)
-      // A selection the filter hides would leave the detail pane showing a row that is not listed.
-      if (state.selected && !visible().some((agent) => agent.id === state.selected)) setState("selected", undefined)
-    },
-    tab(tab: Tab) {
-      setState("tab", tab)
-    },
-    /** Stop task, or Cancel while queued. */
-    stop(id: string) {
-      const found = find(id)
-      if (!found || !active(found.status)) return
-      update(id, (agent) => {
-        agent.status = "idle"
-        agent.when = "Just now"
-        agent.task = `Cancelled: ${agent.task}`
-        agent.log.push({ time: clock(now()), level: "warn", text: "Stopped by you" })
-        const latest = agent.runs[0]
-        if (latest && (latest.status === "running" || latest.status === "queued"))
-          agent.runs[0] = { status: "cancelled", title: latest.title, detail: "Stopped by you" }
-      })
-    },
-    /** Start, Retry or Run now: the agent queues, and the simulation takes it from there. */
-    start(id: string) {
-      const found = find(id)
-      if (!found || active(found.status)) return
-      update(id, (agent) => {
-        const task = agent.task.replace(/^Cancelled: /, "")
-        agent.status = "queued"
-        agent.failure = undefined
-        agent.when = "Just now"
-        agent.started = "Just now"
-        agent.task = task
-        agent.log = [{ time: clock(now()), level: "info", text: "Starting up" }]
-        agent.runs.unshift({ status: "queued", title: agent.runs[0]?.title ?? task, detail: "Starting up" })
-        agent.upcoming = [
-          agent.branch ? `Cloning ${agent.repo} at ${agent.branch}` : "Reading the task",
-          `Working on: ${task}`,
-        ]
-      })
-    },
-    pause(id: string) {
-      update(id, (agent) => {
-        if (agent.schedule) {
-          agent.schedule.state = "paused"
-          agent.schedule.next = "Paused"
-        }
-      })
-    },
-    resume(id: string) {
-      update(id, (agent) => {
-        if (agent.schedule) {
-          agent.schedule.state = "active"
-          agent.schedule.next = "Mon 10 Nov, 08:00"
-        }
-      })
-    },
-    remove(id: string) {
-      setState("agents", (agents) => agents.filter((agent) => agent.id !== id))
-      if (state.selected === id) setState("selected", undefined)
-    },
-    /** Adds the agent the form describes at the top of the list and selects it, or returns what the form lacks. */
-    add(input: NewAgent) {
-      const built = buildAgent(
-        input,
-        state.agents.map((agent) => agent.id),
-        now(),
+
+    /** Every backend's runs for Activity, the first page or, with `more`, the next of each backend that has one. */
+    async loadActivity(more = false) {
+      const client = input.client()
+      if (!client) return
+      await Promise.all(
+        backends().map(async (backend) => {
+          const page = state.activity[backend.backend] ?? { runs: [], loading: false }
+          if (more && page.next === undefined) return
+          setState("activity", backend.backend, { ...page, loading: true })
+          const answer = await client.runs({ backend: backend.backend, cursor: more ? page.next : undefined })
+          setState("activity", backend.backend, paged(more ? page.runs : [], answer))
+        }),
       )
-      if ("error" in built) return built
-      setState("agents", (agents) => [built.agent, ...agents])
-      setState({ filter: "all", selected: built.agent.id, tab: "overview" })
-      return built
     },
-    /** One step of the farm: queued agents start, running ones write their next log line. */
-    tick() {
-      state.agents.filter((agent) => active(agent.status)).forEach((agent) => advance(agent.id))
+
+    /** The labels of a lookup, read once per backend. */
+    async loadChoices(backend: string, lookup: string) {
+      const client = input.client()
+      if (!client || state.choices[`${backend}/${lookup}`]) return
+      const answer = await client.options({ backend, lookup })
+      setState("choices", `${backend}/${lookup}`, isFailure(answer) ? [] : [...answer])
     },
+
+    /** A run that changed, from the Ipc's `run` event or an action: it takes its place in every list that holds it. */
+    received(run: Run) {
+      const key = run.routine && refKey(run.routine)
+      const history = key ? state.history[key] : undefined
+      if (key && history) setState("history", key, { ...history, runs: merge(history.runs, run) })
+      const activity = state.activity[run.ref.backend]
+      if (activity) setState("activity", run.ref.backend, { ...activity, runs: merge(activity.runs, run) })
+      if (state.viewer && sameRef(state.viewer.run.ref, run.ref)) setState("viewer", { ...state.viewer, run })
+    },
+
+    /**
+     * Opens a run where it is read: a `transcript` in the viewer, which loads it and marks the run read. A `session`
+     * run opens in its conversation and an `external` one in the browser, both done by the view; `none` has nothing.
+     */
+    async open(run: Run) {
+      const client = input.client()
+      if (!client || run.conversation.kind !== "transcript") return run.conversation.kind
+      setState("viewer", { run, loading: true })
+      const [transcript] = await Promise.all([
+        client.transcript({ backend: run.ref.backend, run: run.ref.id }),
+        run.unread ? client.viewed({ backend: run.ref.backend, run: run.ref.id }) : undefined,
+      ])
+      if (run.unread) model.received({ ...run, unread: false })
+      // The user may have opened another run, or closed the viewer, meanwhile.
+      if (!sameRef(state.viewer?.run.ref, run.ref)) return "transcript"
+      setState(
+        "viewer",
+        isFailure(transcript) ? { failure: transcript, loading: false } : { transcript, loading: false },
+      )
+      return "transcript"
+    },
+
+    /** Starts a run now; the run joins the routine's history. */
+    start: (routine: Routine) =>
+      act(`start/${refKey(routine.ref)}`, async (client) => {
+        const run = await client.start({ backend: routine.ref.backend, id: routine.ref.id })
+        if (isFailure(run)) return run
+        model.received(run)
+        return undefined
+      }),
+
+    /** Pauses an active routine, resumes a paused one. */
+    toggle: (routine: Routine) =>
+      act(`toggle/${refKey(routine.ref)}`, (client) =>
+        routine.state === "paused"
+          ? client.resume({ backend: routine.ref.backend, id: routine.ref.id })
+          : client.pause({ backend: routine.ref.backend, id: routine.ref.id }),
+      ),
+
+    remove: (routine: Routine) =>
+      act(`remove/${refKey(routine.ref)}`, async (client) => {
+        const failure = await client.remove({ backend: routine.ref.backend, id: routine.ref.id })
+        if (!failure && sameRef(state.selected, routine.ref)) model.deselect()
+        return failure
+      }),
+
+    cancel: (run: Run) =>
+      act(`cancel/${refKey(run.ref)}`, (client) => client.cancel({ backend: run.ref.backend, run: run.ref.id })),
   }
+
+  // One action at a time per key; a failure stays on screen until dismissed or the next action.
+  async function act(key: string, call: (client: Client) => Promise<Failure | undefined>) {
+    const client = input.client()
+    if (!client || state.busy[key]) return
+    setState("busy", key, true)
+    setState("failure", undefined)
+    const failure = await call(client)
+    setState("busy", key, false)
+    if (failure) setState("failure", failure)
+  }
+
+  return model
 }
 
 export type AgentsModel = ReturnType<typeof createAgentsModel>
 
-/** Runs the farm's simulation while the view is mounted: the timer is cleared when its owner is disposed. */
-export function startSimulation(model: Pick<AgentsModel, "tick">, interval = 2500) {
-  const timer = setInterval(model.tick, interval)
-  onCleanup(() => clearInterval(timer))
+function paged(before: readonly Run[], answer: Failure | { items: readonly Run[]; next?: string }): Page {
+  if (isFailure(answer)) return { runs: before, loading: false, failure: answer }
+  return { runs: [...before, ...answer.items], next: answer.next, loading: false }
 }
 
-/** The tone of a status dot or tag; running and idle have none. */
-export function statusTone(status: AgentStatus | AgentRun["status"]) {
-  if (status === "queued") return "warning"
-  if (status === "failed") return "danger"
-  if (status === "succeeded") return "success"
-  return undefined
-}
-
-/** The copy key of what starts an agent: on demand, on a schedule, or on a schedule that is paused. */
-export function triggerKey(agent: Agent) {
-  if (!agent.schedule) return "agents.trigger.onDemand"
-  return agent.schedule.state === "paused" ? "agents.trigger.paused" : "agents.trigger.scheduled"
-}
-
-function clock(date: Date) {
-  return date.toTimeString().slice(0, 8)
-}
-
-function firstLine(text: string) {
-  return text.trim().split("\n", 1)[0]
-}
-
-function slugify(name: string) {
-  return (
-    name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "") || "agent"
-  )
-}
-
-function unique(slug: string, taken: readonly string[]) {
-  const next = (attempt: number): string => {
-    const id = attempt === 1 ? slug : `${slug}-${attempt}`
-    return taken.includes(id) ? next(attempt + 1) : id
-  }
-  return next(1)
+// The run in place of its older copy, or first when it is new.
+function merge(runs: readonly Run[], run: Run) {
+  if (!runs.some((candidate) => sameRef(candidate.ref, run.ref))) return [run, ...runs]
+  return runs.map((candidate) => (sameRef(candidate.ref, run.ref) ? run : candidate))
 }

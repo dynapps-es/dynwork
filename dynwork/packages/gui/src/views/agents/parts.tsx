@@ -1,41 +1,83 @@
-import { usePlugin } from "@opencode/plugin/gui"
+import { usePlugin, type IconName } from "@opencode/plugin/gui"
+import { Icon } from "@opencode/ui/icon"
 import { Loader } from "@opencode/ui/loader"
-import { For, Show } from "solid-js"
-import { filters, statusTone, type AgentsModel } from "./model"
-import type { AgentStatus, RunStatus } from "./demo"
+import { Show, type JSX } from "solid-js"
+import type { Capabilities, Routine, RunState } from "../../routines/contract"
+import { runTone, type Tone } from "./routine"
 
-/** A spinner while it runs, else a dot in the status's tone. */
-export function StatusMark(props: { status: AgentStatus | RunStatus; label: string }) {
+const marks: Record<Exclude<RunState, "running" | "missed">, IconName> = {
+  queued: "dash",
+  ok: "circle-check",
+  late: "circle-exclamation",
+  failed: "circle-x",
+  blocked: "circle-ban-sign",
+  skipped: "minus",
+  cancelled: "circle-xmark",
+}
+
+/** A run's state as a mark: a spinner while it runs, a dashed ring for a missed slot, else an icon in its tone. */
+export function RunMark(props: { state: RunState }) {
+  const ctx = usePlugin()
+
   return (
-    <span data-slot="agents-state" title={props.label}>
-      <Show when={props.status !== "running"} fallback={<Loader width={14} height={14} data-slot="agents-spinner" />}>
-        <span data-slot="agents-dot" data-tone={statusTone(props.status)} />
+    <span
+      data-slot="agents-mark"
+      data-state={props.state}
+      data-tone={runTone(props.state)}
+      role="img"
+      aria-label={ctx.t(`agents.run.${props.state}`)}
+    >
+      <Show when={props.state === "running"} fallback={<MarkIcon state={props.state} />}>
+        <Loader width={14} height={14} />
       </Show>
     </span>
   )
 }
 
-/** All / Running / Idle / Failed, each with its count. */
-export function SegmentedFilters(props: { model: AgentsModel }) {
+function MarkIcon(props: { state: RunState }) {
+  return (
+    <Show when={props.state !== "missed" && props.state !== "running"} fallback={<span data-slot="agents-ring" />}>
+      <Icon name={marks[props.state as keyof typeof marks]} size="small" />
+    </Show>
+  )
+}
+
+/** A small label in a semantic tone: a status, a time zone, "Read only". */
+export function Tag(props: { tone?: Tone; children: JSX.Element }) {
+  return (
+    <span data-slot="agents-tag" data-tone={props.tone}>
+      {props.children}
+    </span>
+  )
+}
+
+/**
+ * Where a routine runs, as a pill: its device with a dot for online, or the remote backend's name. A routine without an
+ * owner reads its backend's label.
+ */
+export function WhereBadge(props: { routine?: Routine; capabilities?: Capabilities; text?: string }) {
+  const remote = () => props.capabilities?.kind === "remote"
+
+  return (
+    <span data-slot="agents-where" data-kind={remote() ? "remote" : "local"}>
+      <Icon name={remote() ? "cloud-upload" : "monitor"} size="small" />
+      <span data-slot="agents-where-text">
+        {props.text ?? props.routine?.owner?.label ?? props.capabilities?.label}
+      </span>
+      <Show when={!remote() && props.routine?.owner}>
+        {(owner) => <span data-slot="agents-dot" data-tone={owner().online ? "success" : undefined} />}
+      </Show>
+    </span>
+  )
+}
+
+/** The unread dot of a card, a run or a row. */
+export function Unread(props: { show: boolean }) {
   const ctx = usePlugin()
 
   return (
-    <div data-slot="agents-filters" role="radiogroup" aria-label={ctx.t("agents.filter.label")}>
-      <For each={filters}>
-        {(filter) => (
-          <button
-            type="button"
-            role="radio"
-            data-slot="agents-filter"
-            aria-checked={props.model.state.filter === filter}
-            data-state={props.model.state.filter === filter ? "pressed" : undefined}
-            onClick={() => props.model.filter(filter)}
-          >
-            {ctx.t(`agents.filter.${filter}`)}
-            <span data-slot="agents-count">{props.model.count(filter)}</span>
-          </button>
-        )}
-      </For>
-    </div>
+    <Show when={props.show} fallback={<span data-slot="agents-unread-space" />}>
+      <span data-slot="agents-unread" role="img" aria-label={ctx.t("agents.unread")} />
+    </Show>
   )
 }

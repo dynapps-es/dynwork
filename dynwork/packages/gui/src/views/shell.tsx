@@ -32,8 +32,8 @@ export interface ViewNav {
 export type ViewLayout = "wide" | "medium" | "narrow"
 
 /**
- * The frame every DynWork view renders in: a header (title, badge, the Demo data marker, description, actions), an
- * optional sub-navigation, the content, and an optional detail pane. The detail pane is a drawer over the content, so
+ * The frame every DynWork view renders in: a header (title, badge, the Demo data marker, description, a status line,
+ * actions), an optional sub-navigation, the content, and an optional detail pane. The detail pane is a drawer over the content, so
  * opening it never squeezes the content, closed with its Close button, the scrim or Escape. It follows the window width:
  * - `wide` (1200px and up): a wide sub-navigation column.
  * - `medium` (768 to 1199px): a narrower sub-navigation column.
@@ -49,8 +49,14 @@ export function ViewShell(props: {
   /** A label next to the title, such as "Agent Farm". */
   badge?: string
   description?: string
+  /** A line under the description, such as what the view is connected to. */
+  status?: JSX.Element
   /** Buttons at the header's end, such as New agent. */
   actions?: JSX.Element
+  /** False hides the header, for a page of the view that draws its own, such as a routine's detail. Default true. */
+  header?: boolean
+  /** False drops the Demo data marker, for a view that reads real data. Default true. */
+  demo?: boolean
   nav?: ViewNav
   detail?: JSX.Element
   /** The detail pane's accessible name. */
@@ -119,23 +125,30 @@ export function ViewShell(props: {
         )}
       </Show>
       <div data-slot="view-main">
-        <header data-slot="view-header">
-          <div data-slot="view-heading">
-            <div data-slot="view-title-row">
-              <h1 data-slot="view-title">{props.title}</h1>
-              <Show when={props.badge}>
-                <span data-slot="view-badge">{props.badge}</span>
+        <Show when={props.header !== false}>
+          <header data-slot="view-header">
+            <div data-slot="view-heading">
+              <div data-slot="view-title-row">
+                <h1 data-slot="view-title">{props.title}</h1>
+                <Show when={props.badge}>
+                  <span data-slot="view-badge">{props.badge}</span>
+                </Show>
+                <Show when={props.demo !== false}>
+                  <DemoBadge />
+                </Show>
+              </div>
+              <Show when={props.description}>
+                <p data-slot="view-description">{props.description}</p>
               </Show>
-              <DemoBadge />
+              <Show when={props.status}>
+                <div data-slot="view-status">{props.status}</div>
+              </Show>
             </div>
-            <Show when={props.description}>
-              <p data-slot="view-description">{props.description}</p>
+            <Show when={props.actions}>
+              <div data-slot="view-actions">{props.actions}</div>
             </Show>
-          </div>
-          <Show when={props.actions}>
-            <div data-slot="view-actions">{props.actions}</div>
-          </Show>
-        </header>
+          </header>
+        </Show>
         <div data-slot="view-content">{props.children}</div>
       </div>
       <Show when={open()}>

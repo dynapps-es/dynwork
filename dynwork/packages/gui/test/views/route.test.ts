@@ -22,10 +22,12 @@ describe("the page route", () => {
     expect(views.get("settings")).toBeUndefined()
   })
 
+  // `routines` is the Agents view filtered to Local, kept so the route and its sidebar highlight still work.
   test("every sidebar row has its label, every view its title, and every view a row that holds it", () => {
     const table: Record<string, string> = en
     expect(entries.filter((entry) => !table[entry.label])).toEqual([])
-    expect([...views.keys()].filter((id) => !table[`${id}.title`])).toEqual([])
+    expect([...views.keys()].filter((id) => id !== "routines" && !table[`${id}.title`])).toEqual([])
     expect(entries.flatMap((entry) => entry.pages).toSorted()).toEqual([...views.keys()].toSorted())
+    expect(entries.find((entry) => entry.id === "agents")?.pages).toEqual(["agents", "routines"])
   })
 })
