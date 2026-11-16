@@ -1,0 +1,149 @@
+name: dynwork canary
+
+# Builds DynWork's canary channel and publishes it to the one rolling prerelease `dynwork-canary`: after every green
+# `dynwork` run on main (macOS arm64 only), or from the Actions tab for any ref and any targets, which is how a branch
+# is tried on a Mac. Every build replaces the previous one's installers; old builds stay as 30-day workflow artifacts.
+#
+# The release is never the latest: Windows installs of the internal channel follow `releases/latest`. Every create and edit
+# below passes `--prerelease --latest=false`, and the last step fails the run unless the release is a prerelease and
+# the latest is still an internal `dynwork-v<version>` release (`dynwork/script/canary.ts guard`).
+on:
+  workflow_run:
+    workflows: [dynwork]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build
+        type: string
+        default: main
+      targets:
+        description: JSON list of the targets to build (mac-arm64, mac-x64, windows-x64, linux-x64)
+        type: string
+        default: '["mac-arm64"]'
+
+concurrency:
+  group: dynwork-canary
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  BUN_CONFIG_REGISTRY: https://registry.npmjs.org/
+
+jobs:
+  prepare:
+    name: pick the commit and the version
+    # A `dynwork` run counts only when it is green, was a push (not a pull request that happens to be named main) and
+    # ran for this repository.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.pick.outputs.sha }}
+      version: ${{ steps.pick.outputs.version }}
+      targets: ${{ steps.pick.outputs.targets }}
+    steps:
+      # The commit whose `dynwork` run was green, not whatever main is by the time this job starts.
+      - name: Checkout the commit to build
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || inputs.ref }}
+
+      - name: Set up Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Pick the sha, the version and the targets
+        id: pick
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          TARGETS: ${{ inputs.targets || '["mac-arm64"]' }}
+        run: |
+          {
+            echo "sha=$(git rev-parse HEAD)"
+            echo "version=$(bun dynwork/script/canary.ts version "$RUN_NUMBER")"
+            echo "targets=$TARGETS"
+          } >> "$GITHUB_OUTPUT"
+
+  package:
+    name: package
+    needs: prepare
+    uses: ./.github/workflows/dynwork-package.yml
+    with:
+      channel: canary
+      version: ${{ needs.prepare.outputs.version }}
+      targets: ${{ needs.prepare.outputs.targets }}
+      ref: ${{ needs.prepare.outputs.sha }}
+
+  publish:
+    name: publish the prerelease
+    # Only when every target built: a canary missing a platform that was asked for is not published.
+    needs: [prepare, package]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      TAG: dynwork-canary
+      SHA: ${{ needs.prepare.outputs.sha }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+    steps:
+      # The guard runs from the commit of this workflow, not from the one built.
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Set up Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Download the installers
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: dynwork-canary-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create the prerelease if it is missing
+        run: |
+          printf 'Canary %s\n\nBuilt from %s\nhttps://github.com/%s/commit/%s\n' "$VERSION" "$SHA" "$REPO" "$SHA" > notes.md
+          if ! gh release view "$TAG" -R "$REPO" > /dev/null 2>&1; then
+            gh release create "$TAG" -R "$REPO" --target "$SHA" --prerelease --latest=false \
+              --title "Dynwork Canary" --notes-file notes.md
+          fi
+
+      - name: Make it a prerelease that is not the latest, at the built commit
+        run: |
+          gh release edit "$TAG" -R "$REPO" --prerelease --latest=false --title "Dynwork Canary" --notes-file notes.md
+          gh api -X PATCH "repos/$REPO/git/refs/tags/$TAG" -f sha="$SHA" -F force=true > /dev/null
+
+      # The installers first and `latest.yml` last: the Windows updater reads the release as soon as it changes, and must
+      # not find a `latest.yml` whose installer is not there yet.
+      - name: Upload the installers, then latest.yml
+        run: |
+          installers=()
+          for file in dist/*; do
+            if [ "$(basename "$file")" != latest.yml ]; then installers+=("$file"); fi
+          done
+          if [ "${#installers[@]}" -eq 0 ]; then
+            echo "::error::the artifacts hold no installer to publish"
+            exit 1
+          fi
+          gh release upload "$TAG" "${installers[@]}" -R "$REPO" --clobber
+          if [ -f dist/latest.yml ]; then
+            gh release upload "$TAG" dist/latest.yml -R "$REPO" --clobber
+          fi
+
+      # Fails the job, loudly, unless the release is a prerelease and `releases/latest` is still an internal release.
+      - name: Check that the canary is never the latest
+        run: |
+          prerelease=$(gh release view "$TAG" -R "$REPO" --json isPrerelease --jq .isPrerelease)
+          latest=$(gh api "repos/$REPO/releases/latest" --jq .tag_name)
+          bun dynwork/script/canary.ts guard "$prerelease" "$latest"

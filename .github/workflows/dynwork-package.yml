@@ -3,7 +3,8 @@ name: dynwork package
 # DynWork's installers, unsigned by Apple or Microsoft: `dynwork/script/package.ts` on each runner, uploaded as workflow
 # artifacts named `dynwork-<channel>-<target>`. `dynwork release` calls it for a release; run it from the Actions tab for
 # a build that publishes nothing. `channel` is the release channel to pack (internal, canary or dev), `version` the app
-# version of a canary build (empty: DynWork's own) and `targets` a JSON list of the platforms to build.
+# version of a canary build (empty: DynWork's own), `targets` a JSON list of the platforms to build and `ref` the commit
+# to build (empty: the one the workflow runs at; `dynwork canary` passes the commit its green run was for).
 on:
   workflow_dispatch:
     inputs:
@@ -19,6 +20,10 @@ on:
         description: JSON list of the targets to build
         type: string
         default: '["mac-arm64","mac-x64","windows-x64","linux-x64"]'
+      ref:
+        description: Commit to build (empty builds the one the workflow runs at)
+        type: string
+        default: ""
   workflow_call:
     inputs:
       channel:
@@ -33,6 +38,10 @@ on:
         description: JSON list of the targets to build
         type: string
         default: '["mac-arm64","mac-x64","windows-x64","linux-x64"]'
+      ref:
+        description: Commit to build (empty builds the one the workflow runs at)
+        type: string
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.channel }}
@@ -95,6 +104,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Set up Bun
         uses: ./.github/actions/setup-bun

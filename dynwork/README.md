@@ -720,7 +720,8 @@ value throws when `DynWorkIdentity` loads.
 (`0.1.2-canary.0`: major.minor.patch with an optional prerelease, never `+build`; unset it is `identity.ts`'s). The
 commit goes only in the bundled CLI's version. Channel builds are packed in CI: the `dynwork package`
 workflow takes the inputs `channel` (`internal`, `canary` or `dev`), `version` and `targets` (a JSON list of
-`mac-arm64`, `mac-x64`, `windows-x64` and `linux-x64`) and names its artifacts `dynwork-<channel>-<target>`:
+`mac-arm64`, `mac-x64`, `windows-x64` and `linux-x64`) and names its artifacts `dynwork-<channel>-<target>`. An optional
+`ref` is the commit to build (empty: the one the workflow runs at); `dynwork canary` passes the commit of the green run:
 
 ```bash
 gh workflow run dynwork-package.yml --ref <branch> -f channel=canary -f version=0.1.2-canary.0 -f targets='["mac-arm64"]'
@@ -824,6 +825,29 @@ or AppImage; Check for Updates there only reports that it could not check, and n
 `bun dynwork/script/package.ts` packs the installer for the machine it runs on into `dist/dynwork`, and the
 `dynwork package` workflow (run from the Actions tab; see "Packing a channel" for its inputs) builds them as workflow artifacts without publishing
 anything. The DMG's app is signed ad hoc without the hardened runtime, like the app `desktop.ts` installs.
+
+### The canary channel
+
+Every green `dynwork` run on `main` is followed by the `dynwork canary` workflow
+(`.github/workflows/dynwork-canary.yml`), which packs the canary channel for macOS arm64 and publishes it to the one
+rolling prerelease `dynwork-canary` (`https://github.com/dynapps-es/dynwork/releases/tag/dynwork-canary`):
+
+- **Version**: `X.Y.(Z+1)-canary.<run number>` from DynWork's own version (`bun dynwork/script/canary.ts version <run>`,
+  `packages/build/src/canary.ts`), so each build outranks the previous one and the internal version it follows, and
+  yields to the next internal release.
+- **One release, replaced**: every build moves the tag `dynwork-canary` to the built commit and overwrites the
+  installers (`--clobber`), the installers first and `latest.yml` last. Older builds stay as 30-day workflow artifacts.
+  The notes name the version and the commit.
+- **Other platforms and branches**: run `dynwork canary` from the Actions tab with a `ref` (default `main`) and `targets`
+  (default `["mac-arm64"]`; any of `mac-arm64`, `mac-x64`, `windows-x64`, `linux-x64`). It publishes to the same
+  prerelease, which is how to try a branch on a Mac. A newer run cancels one in progress; a run publishes only when every
+  target built. The ref must contain `dynwork/script/canary.ts`.
+- **Never the latest**: Windows installs of the internal channel follow `releases/latest`. The workflow creates and edits
+  the release with `--prerelease --latest=false`, and its last step fails the run, loudly, unless the release is a
+  prerelease and `releases/latest` is still an internal `dynwork-v<major>.<minor>.<patch>` release
+  (`bun dynwork/script/canary.ts guard`). If a canary ever shows as the latest release, stop and delete or edit it before
+  anything else.
+- macOS cannot update itself (see above): the canary Mac installs the DMG from the prerelease.
 
 Users open the app once past the system's warning:
 
