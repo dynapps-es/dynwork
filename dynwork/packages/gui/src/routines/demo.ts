@@ -45,7 +45,7 @@ const localFields: readonly Field[] = [
     ],
     "read-only",
   ),
-  { key: "ask", section: "permissions", label: "Ask me when something else is needed", kind: "toggle", default: true },
+  { key: "ask", section: "permissions", label: "Ask me when something else is needed", kind: "toggle", default: false },
   { key: "timeLimit", section: "limits", label: "Time limit (minutes)", kind: "number", min: 1, max: 240, default: 30 },
   {
     key: "catchUp",

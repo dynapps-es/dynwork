@@ -1,4 +1,5 @@
 import type { Capabilities, Choice, Field, Routine, Run, RunState } from "../../routines/contract"
+import { shown, valueOf } from "./fields"
 import type { Words } from "./schedule"
 
 // What the Agents view reads off one routine and its backend's capabilities, as data: the status tag, the filters it
@@ -103,16 +104,16 @@ export interface Fact {
 export function facts(routine: Routine, capabilities: Capabilities | undefined, choices: (lookup: string) => Choice[]) {
   const options = routine.definition.options
   const fields = capabilities?.fields ?? []
-  const valueOf = (field: Field) => options[field.key] ?? field.default
-  const shown = (field: Field) => {
-    if (!field.when) return true
-    const other = fields.find((candidate) => candidate.key === field.when?.key)
-    return (other ? valueOf(other) : options[field.when.key]) === field.when.equals
-  }
-  const all = fields.filter(shown).flatMap((field): Fact[] => {
-    const value = present(field, valueOf(field), field.choices ?? (field.lookup ? choices(field.lookup) : []))
-    return value === undefined ? [] : [{ key: field.key, label: field.label, kind: field.kind, value }]
-  })
+  const all = fields
+    .filter((field) => shown(field, fields, options))
+    .flatMap((field): Fact[] => {
+      const value = present(
+        field,
+        valueOf(field, options),
+        field.choices ?? (field.lookup ? choices(field.lookup) : []),
+      )
+      return value === undefined ? [] : [{ key: field.key, label: field.label, kind: field.kind, value }]
+    })
   const section = (key: string) => fields.find((field) => field.key === key)?.section ?? ""
   const where = ["workspace", "plugins", "limits"]
   return {

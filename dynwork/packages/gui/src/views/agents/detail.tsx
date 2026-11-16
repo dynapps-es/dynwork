@@ -19,6 +19,7 @@ export function RoutineDetail(props: {
   routine: Routine
   model: AgentsModel
   open: (run: Run) => void
+  edit: (routine: Routine) => void
   remove: (routine: Routine) => void
 }) {
   const ctx = usePlugin()
@@ -113,12 +114,12 @@ export function RoutineDetail(props: {
               </Button>
             )}
           </Show>
-          {/* TODO(phase 03): opens the form on this routine. `reason` says when saving replaces the routine. */}
           <Button
             variant="ghost"
             icon="edit"
-            disabled
-            title={[reason(allowed().edit), ctx.t("agents.reason.soon")].filter(Boolean).join(" ")}
+            disabled={!allowed().edit.enabled}
+            title={reason(allowed().edit)}
+            onClick={() => props.edit(props.routine)}
           >
             {ctx.t("agents.detail.edit")}
           </Button>

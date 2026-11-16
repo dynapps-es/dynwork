@@ -7,6 +7,8 @@ import { device } from "../device"
 import { ViewShell } from "../shell"
 import { RoutineDetail } from "./detail"
 import { backendLine, runWhen } from "./format"
+import { RoutineForm } from "./editor"
+import { createFormModel, systemZone } from "./form"
 import { Activity, RoutineCards, Templates, Toolbar } from "./list"
 import { createAgentsModel } from "./model"
 import type { Where } from "./routine"
@@ -72,6 +74,21 @@ export default function AgentsView(props: { where?: Where }) {
     void model.open(run)
   }
 
+  // The form edits `routine`, or creates one on the backend of the chip in use (the first backend with "All").
+  const form = (routine?: Routine) => {
+    const created = createFormModel({
+      client,
+      backends: model.backends,
+      routine,
+      backend: model.backends().find((backend) => backend.kind === model.state.where)?.backend,
+      zone: systemZone(),
+      now: Date.now,
+    })
+    ctx.dialogs.open((dialog) => (
+      <RoutineForm form={created} agents={model} close={dialog.close} onSaved={model.select} />
+    ))
+  }
+
   const remove = async (routine: Routine) => {
     const confirmed = await ctx.dialogs.confirm({
       title: ctx.t("agents.remove.title", { name: routine.definition.name }),
@@ -102,8 +119,12 @@ export default function AgentsView(props: { where?: Where }) {
         </For>
       }
       actions={
-        // TODO(phase 03): opens the form to create a routine, local or remote.
-        <Button variant="contrast" icon="plus" disabled title={ctx.t("agents.reason.soon")}>
+        <Button
+          variant="contrast"
+          icon="plus"
+          disabled={!model.ready() || model.backends().length === 0}
+          onClick={() => form()}
+        >
           {ctx.t("agents.new")}
         </Button>
       }
@@ -120,7 +141,7 @@ export default function AgentsView(props: { where?: Where }) {
           <p data-slot="agents-empty">{ctx.t("agents.unavailable")}</p>
         </Match>
         <Match when={model.ready() ? selected() : undefined}>
-          {(routine) => <RoutineDetail routine={routine()} model={model} open={open} remove={remove} />}
+          {(routine) => <RoutineDetail routine={routine()} model={model} open={open} edit={form} remove={remove} />}
         </Match>
         <Match when={model.ready()}>
           <Toolbar model={model} />
