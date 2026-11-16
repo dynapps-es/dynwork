@@ -38,6 +38,8 @@ jobs:
   package:
     needs: check
     uses: ./.github/workflows/dynwork-package.yml
+    with:
+      channel: internal
 
   release:
     name: publish the release

@@ -714,6 +714,32 @@ value throws when `DynWorkIdentity` loads.
   name, or when a port falls on one of OpenCode's or in the range Windows reserves.
 - "Install CLI" still writes the one `~/.opencode/bin/opencode` shared by every install.
 
+### Packing a channel
+
+`DYNWORK_CHANNEL` picks the channel `script/package.ts` packs, and `DYNWORK_VERSION` the app version of a canary build
+(`0.1.2-canary.0`: major.minor.patch with an optional prerelease, never `+build`; unset it is `identity.ts`'s). The
+commit goes only in the bundled CLI's version. Channel builds are packed in CI: the `dynwork package`
+workflow takes the inputs `channel` (`internal`, `canary` or `dev`), `version` and `targets` (a JSON list of
+`mac-arm64`, `mac-x64`, `windows-x64` and `linux-x64`) and names its artifacts `dynwork-<channel>-<target>`:
+
+```bash
+gh workflow run dynwork-package.yml --ref <branch> -f channel=canary -f version=0.1.2-canary.0 -f targets='["mac-arm64"]'
+```
+
+What differs from internal's pack, and nothing else does:
+
+- The icons come from `packages/branding/icons/<channel>/` when that folder exists (`bun run icons` in
+  `packages/branding` regenerates them with a tint: canary yellow, dev violet), else from `icons/`.
+- A channel other than internal packs with `-c.extraMetadata.name=<package>`, so its deb and the updater's cache
+  folder are its own. Internal passes no such flag: its Windows installs keep the cache folder they have.
+- Installers are named from the channel's `artifactPrefix`.
+- After packing, the script reads the identity back from the packed app and throws on any mismatch, so a build in which
+  the channel did not reach the bundle never ships. macOS: `CFBundleIdentifier`, `CFBundleShortVersionString` and the
+  `.app` name of `Info.plist`, and the feed and cache folder of `app-update.yml`. Windows: the feed and cache folder of
+  the unpacked app's `app-update.yml`, and the version and installer of `latest.yml`. Linux: the deb's `Package`
+  (`dpkg-deb -f`). The logic that is not packing (versions, artifact names, flags, what to expect, the readers of the
+  `.yml` files) is `packages/build/src/channel-build.ts`, tested by `packages/build/test/channel-build.test.ts`.
+
 ## Build and install on macOS
 
 Builds DynWork for Apple Silicon from this checkout and installs it as `/Applications/DynWork.app`. It needs the
@@ -796,7 +822,7 @@ hoc, so Mac users download the new DMG. Linux ships no `latest-linux.yml` either
 or AppImage; Check for Updates there only reports that it could not check, and nothing checks on its own.
 
 `bun dynwork/script/package.ts` packs the installer for the machine it runs on into `dist/dynwork`, and the
-`dynwork package` workflow (run from the Actions tab) builds them all as workflow artifacts without publishing
+`dynwork package` workflow (run from the Actions tab; see "Packing a channel" for its inputs) builds them as workflow artifacts without publishing
 anything. The DMG's app is signed ad hoc without the hardened runtime, like the app `desktop.ts` installs.
 
 Users open the app once past the system's warning:
