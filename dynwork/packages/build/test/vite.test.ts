@@ -157,11 +157,20 @@ describe("plugins", () => {
     expect(built).toContain(JSON.stringify(DynWorkIdentity.channel))
   })
 
-  test("a build run with DYNWORK_CHANNEL=canary fixes canary", () => {
+  // electron-vite loads the desktop config with Node, not Bun: a module that Node cannot load (a specifier without its
+  // extension, as in `identity.ts`'s self-export) fails the packed build and no Bun test would say so.
+  // Node is skipped only where it is not installed.
+  test.each([
+    { runtime: "bun", binary: process.execPath },
+    { runtime: "node", binary: Bun.which("node") },
+  ])("a build run by $runtime with DYNWORK_CHANNEL=canary fixes canary", (row) => {
+    if (!row.binary) return
+
     const run = Bun.spawnSync({
       cmd: [
-        process.execPath,
-        "-e",
+        row.binary,
+        row.runtime === "node" ? "--input-type=module" : "-e",
+        ...(row.runtime === "node" ? ["-e"] : []),
         `import { DynWorkVite } from ${JSON.stringify(path.join(import.meta.dir, "../src/vite.ts"))}
 const config = DynWorkVite.channel.config
 console.log(JSON.stringify(typeof config === "function" ? config.call({}, {}, { command: "build", mode: "production" }) : undefined))`,
@@ -173,5 +182,23 @@ console.log(JSON.stringify(typeof config === "function" ? config.call({}, {}, { 
 
     expect(run.stderr.toString()).toBe("")
     expect(JSON.parse(run.stdout.toString())).toEqual({ define: { "process.env.DYNWORK_CHANNEL": '"canary"' } })
+  })
+
+  test("a build run without DYNWORK_CHANNEL fixes internal", () => {
+    const env = Object.fromEntries(Object.entries(process.env).filter((entry) => entry[0] !== "DYNWORK_CHANNEL"))
+    const run = Bun.spawnSync({
+      cmd: [
+        process.execPath,
+        "-e",
+        `import { DynWorkVite } from ${JSON.stringify(path.join(import.meta.dir, "../src/vite.ts"))}
+const config = DynWorkVite.channel.config
+console.log(JSON.stringify(typeof config === "function" ? config.call({}, {}, { command: "build", mode: "production" }) : undefined))`,
+      ],
+      env,
+      stdout: "pipe",
+      stderr: "pipe",
+    })
+
+    expect(JSON.parse(run.stdout.toString())).toEqual({ define: { "process.env.DYNWORK_CHANNEL": '"internal"' } })
   })
 })

@@ -1,4 +1,3 @@
-import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { fileURLToPath } from "node:url"
 import type { Plugin } from "vite"
 
@@ -32,10 +31,13 @@ const newSessionWordmark: Plugin = {
 
 // Fixes the channel into the bundle: `DynWorkIdentity` reads `process.env.DYNWORK_CHANNEL`, and without this a packaged
 // app would take its app id, scheme and port from whatever environment the user launches it in. The build runs with the
-// channel it packages, so the value is the one the identity resolved when this config loaded.
+// channel it packages. This config is loaded by Node, which cannot load `identity.ts` (its self-export has no file
+// extension), so the value is read here as it is; the identity validates it when the packer and the app load it.
 const channel: Plugin = {
   name: "dynwork:channel",
-  config: () => ({ define: { "process.env.DYNWORK_CHANNEL": JSON.stringify(DynWorkIdentity.channel) } }),
+  config: () => ({
+    define: { "process.env.DYNWORK_CHANNEL": JSON.stringify(process.env.DYNWORK_CHANNEL ?? "internal") },
+  }),
 }
 
 const aliases = { main: [defaultTheme], renderer: [defaultTheme, ...logos] }
