@@ -55,7 +55,7 @@ const EVENTS = [
 
 /** The local routine's own fields, as the form draws them. */
 export const fields: readonly Field[] = [
-  { key: "folder", section: "workspace", label: "Project folder", kind: "folder", help: "Where the routine works." },
+  { key: "folder", section: "workspace", label: "Project folder", kind: "folder", help: "Where the task works." },
   {
     key: "permissions",
     section: "permissions",
@@ -66,7 +66,7 @@ export const fields: readonly Field[] = [
       {
         value: "bypass",
         label: "Don't ask",
-        warning: "The routine may edit files and run commands without asking you.",
+        warning: "The task may edit files and run commands without asking you.",
       },
     ],
     default: "ask",
@@ -75,7 +75,7 @@ export const fields: readonly Field[] = [
     key: "connectors",
     section: "connectors",
     label: "Connectors",
-    help: "The routine's runs can use only the checked connectors.",
+    help: "The task's runs can use only the checked connectors.",
     kind: "multiselect",
     lookup: "connectors",
     default: "all",
@@ -663,7 +663,7 @@ export function make(options: Options): Local {
       const stored = routineOf(routine)
       if (!stored) return missing("routine", routine)
       const device = options.device?.()
-      if (!device) return fail("unsupported", "This computer cannot run routines of other computers.")
+      if (!device) return fail("unsupported", "This computer cannot run tasks of other computers.")
       if (here(stored) && stored.owner) return undefined
       write(routine, { owner: { device: device.id, name: device.name }, updated: options.now() })
       emit({ routine: ref(routine) })
@@ -940,7 +940,7 @@ function promptOf(definition: Definition) {
 function catchUp(since: number, definition: Definition) {
   const zone = definition.schedule?.timezone
   const at = new Intl.DateTimeFormat("en-GB", { dateStyle: "full", timeStyle: "short", timeZone: zone }).format(since)
-  return `This is a catch-up run: Dynwork was closed or asleep when this routine was due, so cover everything since ${at}${zone ? ` (${zone})` : ""}.`
+  return `This is a catch-up run: Dynwork was closed or asleep when this scheduled task was due, so cover everything since ${at}${zone ? ` (${zone})` : ""}.`
 }
 
 // The choices of the shared selects; undefined for a lookup this backend does not serve.
@@ -999,6 +999,6 @@ function call<A>(request: () => Promise<A>): Promise<A | Failure> {
 function failure(error: unknown): Failure {
   if (error instanceof ClientError && error.reason === "Transport")
     return fail("unreachable", "DynWork's service did not answer.")
-  if (gone(error)) return fail("not-found", "The routine's session is gone.")
+  if (gone(error)) return fail("not-found", "The task's session is gone.")
   return fail("failed", "DynWork's service refused the request.")
 }

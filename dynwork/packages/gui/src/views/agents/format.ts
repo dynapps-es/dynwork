@@ -1,4 +1,4 @@
-import type { Capabilities, Instructions, Run, Schedule } from "../../routines/contract"
+import type { Capabilities, Definition, Instructions, Run, Schedule } from "../../routines/contract"
 import { describe } from "./schedule"
 
 // How the Agents view writes times, durations, costs and schedules. Every function takes the window's `t` and locale,
@@ -89,4 +89,49 @@ export function backendLine(t: Translate, capabilities: Capabilities) {
     max: quota.max,
   })
   return `${line} · ${usage}`
+}
+
+/**
+ * The rows a task's docks show in a conversation (`proposal.tsx`), and the words main tells the agent what changed with
+ * (`routines/chat.ts`): the same rows, so the agent and the user read one list. `where` is where the task runs.
+ */
+export function cardRows(t: Translate, definition: Definition, where: string) {
+  const options = definition.options
+  const connectors = Array.isArray(options.connectors)
+    ? options.connectors.length === 0
+      ? t("agents.chat.connectors.none")
+      : options.connectors.join(", ")
+    : t("agents.chat.connectors.all")
+  const schedule = scheduleText(t, definition.schedule)
+  const zone = definition.schedule?.timezone
+  return [
+    { key: "name", label: t("agents.chat.row.routine"), value: definition.name },
+    { key: "instructions", label: t("agents.chat.prompt"), value: instructionsText(t, definition.instructions) },
+    { key: "schedule", label: t("agents.chat.row.schedule"), value: zone ? `${schedule} (${zone})` : schedule },
+    { key: "where", label: t("agents.chat.row.where"), value: where },
+    {
+      key: "permissions",
+      label: t("agents.chat.row.permissions"),
+      value: t(`agents.chat.permissions.${options.permissions === "bypass" ? "bypass" : "ask"}`),
+    },
+    {
+      key: "folder",
+      label: t("agents.chat.row.folder"),
+      value: typeof options.folder === "string" ? options.folder : t("agents.chat.none"),
+    },
+    { key: "connectors", label: t("agents.chat.row.connectors"), value: connectors },
+    {
+      key: "notify",
+      label: t("agents.chat.row.notify"),
+      value: t(`agents.chat.notify.${typeof options.notify === "string" ? options.notify : "failures"}`),
+    },
+  ]
+}
+
+/** What an update changes, row by row, as before → after: the rows of `cardRows` whose words differ. */
+export function cardChanges(t: Translate, before: Definition, after: Definition, where: string) {
+  const old = cardRows(t, before, where)
+  return cardRows(t, after, where).flatMap((row, index) =>
+    old[index]?.value === row.value ? [] : [{ ...row, before: old[index]?.value ?? "" }],
+  )
 }

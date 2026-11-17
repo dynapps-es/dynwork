@@ -1,4 +1,4 @@
-/* The routine proposal in the composer's dock. The dock itself (`DockPrompt`, the `permission-*` slots) is styled by the
+/* A task's dock in the composer (create, change, delete, run). The dock itself (`DockPrompt`, the `permission-*` slots) is styled by the
    app as its permission prompt; these rules only lay out what sits in its input box, with the theme's v2 tokens, so
    light and dark follow the theme. */
 
@@ -36,6 +36,11 @@
       margin: 0;
       overflow-wrap: anywhere;
     }
+  }
+
+  [data-slot="proposal-label"] {
+    margin: 0;
+    color: var(--v2-text-text-faint);
   }
 
   [data-slot="proposal-warning"] {

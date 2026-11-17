@@ -130,7 +130,7 @@ const setup: Plugin.MainSetup = (ctx) => {
     registry: routinesMain.registry,
     farm: RoutinesFarm.enabled(process.env),
     client: routinesMain.client,
-    create: routinesMain.create,
+    act: routinesMain.act,
     server: RoutinesMain.SERVER,
     home: homedir(),
   })

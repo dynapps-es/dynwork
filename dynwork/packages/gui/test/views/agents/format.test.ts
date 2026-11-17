@@ -110,11 +110,11 @@ describe("the header and the cards", () => {
     const view = await setup()
     expect(view.model.backends().map((backend) => backendLine(t, backend))).toEqual([
       "Demo MacBook · online",
-      "Agent Farm connected · 7 of 20 team schedules",
+      "Dynapps Cloud connected · 7 of 20 team schedules",
     ])
     view.farm.setStatus("signed-out")
     await view.wire.client.refresh()
-    expect(backendLine(t, view.model.capabilities("farm")!)).toBe("Agent Farm: Signed out")
+    expect(backendLine(t, view.model.capabilities("farm")!)).toBe("Dynapps Cloud: Signed out")
     const local = view.model.capabilities("local")!
     expect(backendLine(t, { ...local, synced: false })).toBe("Demo MacBook · online · Not synced")
     expect(backendLine(t, { ...local, synced: true })).toBe("Demo MacBook · online")

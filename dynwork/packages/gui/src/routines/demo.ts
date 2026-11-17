@@ -190,7 +190,7 @@ export function local(now: () => number) {
       due: t - 28 * DAY,
       started: t - 28 * DAY,
       finished: t - 28 * DAY + 2 * MINUTE,
-      summary: "Denied: odoo write is not among the routine's rules.",
+      summary: "Denied: odoo write is not among the task's rules.",
     }),
   ]
 

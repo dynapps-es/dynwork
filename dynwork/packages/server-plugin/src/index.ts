@@ -577,7 +577,7 @@ export default Plugin.define({
       Effect.forkScoped({ startImmediately: true }),
     )
 
-    // The routines tools: they ask main, which holds the routines, and wait for its answer (`./routines`).
+    // The scheduled-task tools (routines in code): they ask main, which holds the routines, and wait for its answer (`./routines`).
     const routinesRpc = yield* ctx.rpc
       .register(RoutinesDefinition, {
         answer: (input) => Effect.sync(() => DynWorkRoutines.answer(input)),
@@ -593,7 +593,14 @@ export default Plugin.define({
     })
     yield* ctx.tool.transform((editor) => {
       editor.add(routinesTools.list)
+      editor.add(routinesTools.running)
+      editor.add(routinesTools.get)
       editor.add(routinesTools.create)
+      editor.add(routinesTools.update)
+      editor.add(routinesTools.delete)
+      editor.add(routinesTools.pause)
+      editor.add(routinesTools.resume)
+      editor.add(routinesTools.run)
     })
   }),
 })

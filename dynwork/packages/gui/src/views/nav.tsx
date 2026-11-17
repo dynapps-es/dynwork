@@ -3,8 +3,8 @@ import { builtinContext } from "@opencode/plugin/gui/builtin"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
 import { For, Show } from "solid-js"
-import { navRows, robot } from "./entries"
-import { RobotIcon } from "./robot"
+import { ClockIcon } from "./clock"
+import { clock, navRows } from "./entries"
 import "./nav.css"
 
 /**
@@ -59,7 +59,7 @@ export function ViewsNav(props: { place: "sidebar" | "drawer" | "titlebar" }) {
 
 function Glyph(props: { icon: ReturnType<typeof navRows>[number]["icon"] }) {
   return (
-    <Show when={props.icon !== robot} fallback={<RobotIcon />}>
+    <Show when={props.icon !== clock} fallback={<ClockIcon />}>
       <Icon name={props.icon} />
     </Show>
   )

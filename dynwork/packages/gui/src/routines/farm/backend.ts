@@ -21,7 +21,7 @@ export function enabled(env: Readonly<Record<string, string | undefined>>) {
 }
 
 /** What every method that is not written yet answers. `isNotImplemented` tells it from a real failure. */
-const prefix = "The Agent Farm backend is not implemented yet"
+const prefix = "Dynapps Cloud is not implemented yet"
 
 export function isNotImplemented(value: unknown): value is Failure {
   return (
@@ -113,7 +113,7 @@ export const fields: readonly Field[] = [
 // `GET /whoami` says `free_prompt` is false.
 export const base: Omit<Capabilities, "backend" | "quota"> = {
   kind: "remote",
-  label: "Agent Farm",
+  label: "Dynapps Cloud",
   status: "ready",
   instructions: ["prompt", "agent"],
   agent: "none",
@@ -142,7 +142,7 @@ export function make(): Backend {
       ...base,
       backend: id,
       status: "disabled",
-      detail: "The Agent Farm backend is not written yet (routines/farm/README.md).",
+      detail: "Dynapps Cloud is not connected yet (routines/farm/README.md).",
     }),
     // JESÚS: `options(lookup)` serves `agents` (`GET /agents`), `plugins` (`GET /plugins`) and
     // `credentials:git_token` (`GET /credentials`, keeping `type: git_token`). Any other lookup is `not-found`.

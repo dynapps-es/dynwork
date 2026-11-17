@@ -65,3 +65,70 @@ test("a stopped proposal is withdrawn, so main drops its card", async () => {
   expect(DynWorkRoutines.pending().requests.map((request) => request.id)).not.toContain("call_stopped")
   expect(DynWorkRoutines.answer({ id: "call_stopped", text: "late", error: false })).toEqual({ accepted: false })
 })
+
+test("the tools carry the scheduled-task names, and none speaks of routines", () => {
+  const tools = Object.values(main().tools)
+  expect(tools.map((tool) => tool.name)).toEqual([
+    "list_scheduled_tasks",
+    "list_running_tasks",
+    "get_scheduled_task",
+    "create_scheduled_task",
+    "update_scheduled_task",
+    "delete_scheduled_task",
+    "pause_scheduled_task",
+    "resume_scheduled_task",
+    "run_scheduled_task",
+  ])
+  expect(tools.every((tool) => tool.options.codemode === false)).toBe(true)
+  expect(tools.some((tool) => /routine|Agent Farm/i.test(tool.description))).toBe(false)
+})
+
+test("an update sends main the task's id and only the fields to change, and waits for the user", async () => {
+  const stand = main()
+  const fiber = Effect.runFork(
+    stand.tools.update.execute({ id: "local:3f2a", name: "es-prod-01 health check" }, context("call_update")),
+  )
+  await settle()
+  expect(stand.requests).toEqual([
+    {
+      id: "call_update",
+      session: "ses_chat",
+      kind: "update",
+      routine: "local:3f2a",
+      changes: { name: "es-prod-01 health check" },
+    },
+  ])
+  expect(fiber.pollUnsafe()).toBeUndefined()
+  DynWorkRoutines.answer({ id: "call_update", text: "Changed", error: false })
+  expect(await Effect.runPromise(Fiber.join(fiber))).toEqual({ content: "Changed", metadata: { error: false } })
+})
+
+test("pause, resume, get and what is running name their kind and task, and answer as main says", async () => {
+  const stand = main()
+  const calls = [
+    stand.tools.pause.execute({ id: "local:a" }, context("call_pause")),
+    stand.tools.resume.execute({ id: "local:a" }, context("call_resume")),
+    stand.tools.get.execute({ id: "local:a" }, context("call_get")),
+    stand.tools.running.execute({}, context("call_running")),
+    stand.tools.delete.execute({ id: "local:a" }, context("call_delete")),
+    stand.tools.run.execute({ id: "local:a" }, context("call_run")),
+  ].map((call) => Effect.runPromise(call))
+  await settle()
+  expect(stand.requests.map((request) => [request.kind, request.routine])).toEqual([
+    ["pause", "local:a"],
+    ["resume", "local:a"],
+    ["get", "local:a"],
+    ["running", undefined],
+    ["delete", "local:a"],
+    ["run", "local:a"],
+  ])
+  stand.requests.forEach((request) => DynWorkRoutines.answer({ id: request.id, text: request.kind, error: false }))
+  expect((await Promise.all(calls)).map((outcome) => outcome.content)).toEqual([
+    "pause",
+    "resume",
+    "get",
+    "running",
+    "delete",
+    "run",
+  ])
+})

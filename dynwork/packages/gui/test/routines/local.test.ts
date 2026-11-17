@@ -72,7 +72,7 @@ describe("the local backend's permissions field", () => {
     expect(field).toMatchObject({ default: "ask", section: "permissions" })
     expect(field?.choices?.map((choice) => [choice.value, choice.warning])).toEqual([
       ["ask", undefined],
-      ["bypass", "The routine may edit files and run commands without asking you."],
+      ["bypass", "The task may edit files and run commands without asking you."],
     ])
   })
 })

@@ -79,7 +79,7 @@ export function implementation(registry: Registry, notify: Notify): IpcImpl<(typ
   // A backend, or the failure that says there is none; whatever it rejects with becomes a failure too.
   function on<A>(id: string, call: (backend: Backend) => Promise<A>): Promise<A | Failure> {
     const backend = registry.get(id)
-    if (!backend) return Promise.resolve(fail("not-found", `There is no routines backend ${id}.`))
+    if (!backend) return Promise.resolve(fail("not-found", `Tasks cannot run on ${id}: it is not available.`))
     return guard(() => call(backend))
   }
 
@@ -139,7 +139,7 @@ export function implementation(registry: Registry, notify: Notify): IpcImpl<(typ
     start: (input) => changing(input.backend, (backend) => backend.start(input.id)),
     move: (input) =>
       changing(input.backend, async (backend) =>
-        backend.move ? backend.move(input.id) : fail("unsupported", "This backend runs routines in one place."),
+        backend.move ? backend.move(input.id) : fail("unsupported", "Tasks here run in one place."),
       ),
     cancel: (input) => changing(input.backend, (backend) => backend.cancel(input.run)),
     runs: (input) => on(input.backend, (backend) => backend.runs({ routine: input.routine, cursor: input.cursor })),
@@ -157,5 +157,5 @@ export function implementation(registry: Registry, notify: Notify): IpcImpl<(typ
 function guard<A>(call: () => Promise<A>): Promise<A | Failure> {
   return Promise.resolve()
     .then(call)
-    .catch(() => fail("failed", "The routines backend did not answer."))
+    .catch(() => fail("failed", "Where the task runs did not answer."))
 }
