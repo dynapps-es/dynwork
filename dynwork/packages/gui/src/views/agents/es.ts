@@ -2,7 +2,7 @@ import type en from "./en"
 
 // The Scheduled view's strings in Spanish (`./en`).
 export default {
-  "agents.title": "Programadas",
+  "agents.title": "Tareas programadas",
   "agents.description":
     "Todo lo que tus agentes hacen con horario, en una sola lista. Las tareas en {{device}} usan tus carpetas, skills y conectores mientras Dynwork está abierto; las de Cloud siguen aunque cierres el portátil.",
   "agents.new": "Nueva tarea",

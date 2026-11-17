@@ -1,6 +1,6 @@
 // The Scheduled view's strings (the `agents` view in code). Keys start with `agents.` so the views' tables merge into the plugin's without clashes.
 export default {
-  "agents.title": "Scheduled",
+  "agents.title": "Scheduled tasks",
   "agents.description":
     "Everything your agents do on a schedule, in one list. Tasks on {{device}} run with your folders, skills and connectors while Dynwork is open; tasks on Cloud keep going even with your laptop closed.",
   "agents.new": "New task",

@@ -152,9 +152,10 @@
 
   [data-slot="view-title"] {
     margin: 0;
-    font-size: 15px;
-    line-height: 20px;
+    font-size: 22px;
+    line-height: 28px;
     font-weight: 600;
+    letter-spacing: -0.01em;
   }
 
   [data-slot="view-badge"],
