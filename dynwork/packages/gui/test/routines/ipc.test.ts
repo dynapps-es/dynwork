@@ -116,6 +116,15 @@ describe("the Ipc methods", () => {
     )
   })
 
+  test("a template's change is answered on the backend it names; one without templates answers unsupported", async () => {
+    const { client, registry, time } = setup()
+    await client.refresh()
+    expectFailure(await client.answer({ backend: "local", id: "no-such-task", apply: false }), "not-found")
+    const { answer: _, ...bare } = RoutinesDemo.local(time.now)
+    registry.register(bare)
+    expectFailure(await client.answer({ backend: "local", id: "no-such-task", apply: true }), "unsupported")
+  })
+
   test("create, update, pause, resume and remove change the state before they answer, and push it", async () => {
     const { client, local, pushes } = setup()
     await client.refresh()
@@ -191,6 +200,7 @@ describe("the Ipc methods", () => {
     ["remove", (c: Client) => c.remove({ backend: "x", id: "1" })],
     ["pause", (c: Client) => c.pause({ backend: "x", id: "1" })],
     ["cancel", (c: Client) => c.cancel({ backend: "x", run: "1" })],
+    ["answer", (c: Client) => c.answer({ backend: "x", id: "1", apply: true })],
     [
       "validate",
       (c: Client) =>

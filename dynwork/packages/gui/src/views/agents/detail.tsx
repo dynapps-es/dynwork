@@ -5,11 +5,32 @@ import { Switch } from "@opencode/ui/switch"
 import { For, Show, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Capabilities, Routine, Run } from "../../routines/contract"
-import { duration, instructionsText, money, reasonText, runWhen, fromMain, scheduleText, when } from "./format"
+import {
+  duration,
+  instructionsText,
+  money,
+  reasonText,
+  runWhen,
+  fromMain,
+  scheduleText,
+  templateChanges,
+  when,
+} from "./format"
 import type { AgentsModel } from "./model"
 import { routineHref, runHref } from "../runs/model"
 import { LinkButton, RunMark, Tag, Unread, WhereBadge } from "./parts"
-import { actions, facts, isLive, openable, routineStatus, stateKey, waiting, type Allowed, type Fact } from "./routine"
+import {
+  actions,
+  facts,
+  isLive,
+  openable,
+  routineStatus,
+  stateKey,
+  templateNotice,
+  waiting,
+  type Allowed,
+  type Fact,
+} from "./routine"
 import { upcoming } from "./schedule"
 
 /**
@@ -182,6 +203,42 @@ export function RoutineDetail(props: {
           <Icon name="circle-exclamation" size="small" />
           <span>{ctx.t("agents.detail.conflict")}</span>
         </div>
+      </Show>
+      <Show when={props.routine.template?.update}>
+        {(update) => (
+          <div data-slot="agents-notice" data-tone="info" role="status">
+            <Icon name="circle-exclamation" size="small" />
+            <span>
+              {ctx.t("agents.template.changed", {
+                changes: templateChanges(ctx.t, update().changes, capabilities()?.fields ?? []).join(" · "),
+              })}
+            </span>
+            <Button
+              variant="ghost"
+              size="small"
+              disabled={busy("answer")}
+              onClick={() => void props.model.answer(props.routine, true)}
+            >
+              {ctx.t("agents.template.apply")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="small"
+              disabled={busy("answer")}
+              onClick={() => void props.model.answer(props.routine, false)}
+            >
+              {ctx.t("agents.template.keep")}
+            </Button>
+          </div>
+        )}
+      </Show>
+      <Show when={templateNotice(props.routine)}>
+        {(notice) => (
+          <div data-slot="agents-notice" data-tone="warning" role="status">
+            <Icon name="circle-exclamation" size="small" />
+            <span>{ctx.t(notice().key, notice().params)}</span>
+          </div>
+        )}
       </Show>
       <Show when={props.model.state.failure}>
         {(failure) => (

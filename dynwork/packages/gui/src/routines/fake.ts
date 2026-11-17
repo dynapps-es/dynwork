@@ -101,6 +101,7 @@ export function make(options: Options): Fake {
               locked: RoutinesTemplates.locked(template),
               state: "published" as const,
               mandatory: template.mandatory,
+              ...(routine.template?.update ? { update: routine.template.update } : {}),
             },
           }
         : {}),
@@ -286,6 +287,18 @@ export function make(options: Options): Fake {
       if (isFailure(template)) return template
       const definition = RoutinesTemplates.activate(template, personal)
       return isFailure(definition) ? definition : backend.create(definition)
+    },
+    // A seeded routine's `template.update` is the change to answer: Apply writes the template's values.
+    answer: async (id, apply) => {
+      const routine = findRoutine(id)
+      if (isFailure(routine)) return routine
+      const update = routine.template?.update
+      if (!routine.template || !update) return undefined
+      const { update: _, ...template } = routine.template
+      const definition = apply ? RoutinesTemplates.apply(routine.definition, update.changes) : routine.definition
+      routines.set(id, { ...routine, definition, template, updated: options.now() })
+      emit({ routine: routine.ref })
+      return undefined
     },
     watch: (changed) => {
       watchers.add(changed)

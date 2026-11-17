@@ -60,7 +60,7 @@ level as `name` (not in `options`). Governance derives two columns from it on ev
 | Write                                 | Rule                                                                    | Error                                               |
 | ------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- |
 | `PUT /routines/{id}` creating a link  | at most one live (not deleted) task per `(user, template)`              | `409 {"error":"already_activated","routine":<row>}` |
-| `PUT /routines/{id}` on a linked task | the locked fields of §1 equal those of the named revision               | `409 {"error":"template_locked"}`                   |
+| `PUT /routines/{id}` on a linked task | the locked fields of §1 equal those of the named revision               | `409 {"error":"template_locked","current":<row>}`   |
 | `DELETE /routines/{id}`               | refused while the template is `mandatory` for this user and `published` | `409 {"error":"template_mandatory"}`                |
 
 A tombstone keeps `template_id` (column), so the admin sees "deactivated on <date>".
@@ -71,7 +71,8 @@ A tombstone keeps `template_id` (column), so the admin sees "deactivated on <dat
 
   ```jsonc
   {
-    "templates": [Template, …],        // published, visible to the caller (§6), mandatory ones included
+    "templates": [Template, …],        // published and visible to the caller (§6), mandatory ones included,
+                                       // plus each closed one the caller has a live task of
     "links": [                         // one per template the caller has a live task of, visible or not
       { "id": "daily-odoo-review", "state": "published" | "closed" | "retired" | "no_access",
         "retire": "unlink" | "pause" | "remove" | null }
@@ -79,7 +80,9 @@ A tombstone keeps `template_id` (column), so the admin sees "deactivated on <dat
   }
   ```
 
-  `closed` = no new activations, existing tasks stay linked and keep receiving revisions.
+  `closed` = no new activations, existing tasks stay linked and keep receiving revisions. A closed template stays in
+  `templates` for whoever has a task of it, so that task's computer can read its locks and merge its revisions; the
+  Templates tab shows it only as that person's active one, never to activate.
 
 - `GET /templates/{id}/revisions/{revision}` → that revision's `Template` (the base of the three-way merge), only for a
   caller who has (or had) a task linked to it.

@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import type { Capabilities } from "../../../src/routines/contract"
-import { actions, facts, openable, routineStatus, runTone, stateKey, waiting } from "../../../src/views/agents/routine"
+import {
+  actions,
+  facts,
+  openable,
+  routineStatus,
+  runTone,
+  stateKey,
+  templateNotice,
+  waiting,
+} from "../../../src/views/agents/routine"
 import { setup, t } from "./fixture"
 
 const said = (words?: { key: string; params: Record<string, string> }) => words && t(words.key, words.params)
@@ -181,5 +190,16 @@ describe("a run waiting for a permission", () => {
       "info",
       "danger",
     ])
+  })
+})
+
+describe("what a template did to a task on its own", () => {
+  test("is said until the person acts: retired, retired and paused, or out of their reach", async () => {
+    const view = await setup()
+    const routine = view.find("Weekly ticket summary")
+    expect(templateNotice(routine)).toBeUndefined()
+    expect(said(templateNotice({ ...routine, notice: "retired" }))).toBe("Template retired")
+    expect(said(templateNotice({ ...routine, notice: "retired-paused" }))).toBe("Template retired; paused")
+    expect(said(templateNotice({ ...routine, notice: "no-access" }))).toBe("You no longer have access to this template")
   })
 })

@@ -162,6 +162,12 @@ export default {
   "agents.template.confirm.required": "Confirm that it runs without asking.",
   "agents.template.badge": "Dynapps template",
   "agents.template.lockedBy": "Set by the template {{name}}",
+  "agents.template.changed": "The template changed: {{changes}}",
+  "agents.template.apply": "Apply",
+  "agents.template.keep": "Keep mine",
+  "agents.template.retired": "Template retired",
+  "agents.template.retiredPaused": "Template retired; paused",
+  "agents.template.revoked": "You no longer have access to this template",
   "agents.template.locks":
     "Some fields are set by the template {{name}} and cannot be changed here. The rest is yours.",
   "agents.activity.hint":

@@ -164,6 +164,12 @@ export default {
   "agents.template.confirm.required": "Confirma que se ejecuta sin preguntar.",
   "agents.template.badge": "Plantilla de Dynapps",
   "agents.template.lockedBy": "Lo fija la plantilla {{name}}",
+  "agents.template.changed": "La plantilla ha cambiado: {{changes}}",
+  "agents.template.apply": "Aplicar",
+  "agents.template.keep": "Mantener lo mío",
+  "agents.template.retired": "Plantilla retirada",
+  "agents.template.retiredPaused": "Plantilla retirada; en pausa",
+  "agents.template.revoked": "Ya no tienes acceso a esta plantilla",
   "agents.template.locks":
     "Algunos campos los fija la plantilla {{name}} y no se pueden cambiar aquí. Lo demás es tuyo.",
   "agents.activity.hint":

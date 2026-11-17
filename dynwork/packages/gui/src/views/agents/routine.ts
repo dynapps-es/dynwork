@@ -93,6 +93,14 @@ export function actions(routine: Routine, capabilities?: Capabilities) {
   }
 }
 
+/** What a template did to the routine on its own, in words: retired, retired and paused, or out of the person's reach. */
+export function templateNotice(routine: Routine): Words | undefined {
+  if (routine.notice === "retired") return words("agents.template.retired")
+  if (routine.notice === "retired-paused") return words("agents.template.retiredPaused")
+  if (routine.notice === "no-access") return words("agents.template.revoked")
+  return undefined
+}
+
 /** Whether a run can be opened from a list: a run that never started has nothing to read. */
 export function openable(run: Run) {
   return run.conversation.kind !== "none"

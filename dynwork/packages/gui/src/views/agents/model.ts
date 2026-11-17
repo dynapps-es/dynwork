@@ -323,6 +323,12 @@ export function createAgentsModel(input: {
         return failure
       }),
 
+    /** The answer to what a template's new revision changed: Apply takes the template's values, else the task's stay. */
+    answer: (routine: Routine, apply: boolean) =>
+      act(`answer/${refKey(routine.ref)}`, (client) =>
+        client.answer({ backend: routine.ref.backend, id: routine.ref.id, apply }),
+      ),
+
     cancel: (run: Run) =>
       act(`cancel/${refKey(run.ref)}`, (client) => client.cancel({ backend: run.ref.backend, run: run.ref.id })),
   }

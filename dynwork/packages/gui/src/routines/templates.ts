@@ -1,7 +1,7 @@
 export * as RoutinesTemplates from "./templates"
 
 import { fail } from "./backend"
-import type { Definition, Failure, Personal, Template } from "./contract"
+import type { Definition, Failure, Personal, Template, TemplateChange } from "./contract"
 
 // The rules a routine activated from a template follows, as the plan's `docs/contract.md` §1 fixes them and Governance
 // enforces them: pure, for the form, the chat tools and the merge of a new revision alike.
@@ -12,6 +12,10 @@ import type { Definition, Failure, Personal, Template } from "./contract"
 
 const ALWAYS = ["instructions", "agent", "where", "options.connectors", "options.permissions"]
 const CRON = ["minute", "hour", "day", "month", "weekday"]
+// The options a template sets that stay the person's to change: merged three ways (`merge`).
+const DEFAULTS = ["recover", "catchUp", "notify"]
+
+type Value = Definition["options"][string] | undefined
 
 /** The paths `template` locks on a routine activated from it. */
 export function locked(template: Template) {
@@ -82,6 +86,81 @@ export function defaults(template: Template, timezone: string): Definition {
   }
 }
 
+/**
+ * A template's new revision merged into the person's task of it, three ways: `base` is the revision the task follows,
+ * `next` the new one. What `next` locks takes its value. A default the person left as `base` had it takes `next`'s; one
+ * they changed keeps theirs, and when `next` changed it too it is listed in `changes` (`from` → `to`) for the person to
+ * answer. A free schedule merges each cron field on its own. Permissions are a ceiling that never goes up to "Don't ask"
+ * without the person (it is a change to answer); a time limit stays at or under the new ceiling. `previous` are changes
+ * not answered yet: each stays, now towards `next`'s value, while the task still differs from it. A schedule the task
+ * did not have is read in `zone`.
+ */
+export function merge(input: {
+  base: Template
+  next: Template
+  task: Definition
+  zone: string
+  previous?: readonly TemplateChange[]
+}) {
+  const task = input.task
+  const zone = task.schedule?.timezone ?? input.zone
+  const base = defaults(input.base, zone)
+  const next = defaults(input.next, zone)
+  const fixed = locked(input.next)
+  const changes: TemplateChange[] = []
+  const pick = <A extends Value>(path: string, from: A, to: A, mine: A): A => {
+    if (fixed.includes(path)) return to
+    const merged = three(from, to, mine)
+    if (merged.conflict) changes.push(change(path, from, to))
+    return merged.value
+  }
+  const name = pick("name", base.name, next.name, task.name)
+  const model = pick("model", base.model, next.model, task.model)
+  const cron = schedule(fixed, base.schedule?.cron, next.schedule?.cron, task.schedule?.cron)
+  if (cron.conflict) changes.push(change("schedule", base.schedule?.cron, next.schedule?.cron))
+  const permissions = next.options.permissions === "bypass" && task.options.permissions === "bypass" ? "bypass" : "ask"
+  if (next.options.permissions === "bypass" && permissions === "ask" && base.options.permissions !== "bypass")
+    changes.push(change("options.permissions", base.options.permissions, next.options.permissions))
+  const limit = three(base.options.timeLimit, next.options.timeLimit, task.options.timeLimit)
+  const ceiling = input.next.locks.timeLimitMax
+  const timeLimit = ceiling !== null && typeof limit.value === "number" && limit.value > ceiling ? ceiling : limit.value
+  if (limit.conflict && !same(timeLimit, next.options.timeLimit))
+    changes.push(change("options.timeLimit", base.options.timeLimit, next.options.timeLimit))
+  const options = {
+    ...task.options,
+    connectors: next.options.connectors,
+    permissions,
+    timeLimit,
+    ...Object.fromEntries(
+      DEFAULTS.map((key) => [key, pick(`options.${key}`, base.options[key], next.options[key], task.options[key])]),
+    ),
+  }
+  const definition: Definition = {
+    name,
+    instructions: next.instructions,
+    ...(next.agent === undefined ? {} : { agent: next.agent }),
+    ...(model === undefined ? {} : { model }),
+    ...(cron.value === undefined ? {} : { schedule: { ...task.schedule, cron: cron.value, timezone: zone } }),
+    enabled: task.enabled,
+    options: Object.fromEntries(
+      Object.entries(options).filter((entry): entry is [string, NonNullable<Value>] => entry[1] !== undefined),
+    ),
+    template: { id: input.next.id, revision: input.next.revision },
+  }
+  const pending = (input.previous ?? [])
+    .filter((previous) => !changes.some((now) => now.path === previous.path))
+    .flatMap((previous) => {
+      const to = valueAt(next, previous.path)
+      return same(valueAt(definition, previous.path), to) ? [] : [change(previous.path, previous.from, to)]
+    })
+  return { definition, changes: [...pending, ...changes] }
+}
+
+/** The task with the template's value of each change written in: what Apply does. A schedule keeps its time zone. */
+export function apply(definition: Definition, changes: readonly TemplateChange[]) {
+  return changes.reduce((result, change) => write(result, change.path, change.to), definition)
+}
+
 function refusals(template: Template, personal: Personal, definition: Definition) {
   return {
     // JESÚS: Cloud templates (`where: "cloud"`) are refused until the farm backend creates them: activating one will be
@@ -105,6 +184,59 @@ function read(definition: Definition, path: string) {
   if (path === "agent") return definition.agent
   if (path === "model") return definition.model
   return undefined
+}
+
+// One value merged three ways: the template did not change it (the person's stays), the person did not (the template's
+// new one), or both did (the person's stays, a conflict unless they agree).
+function three<A>(from: A, to: A, mine: A) {
+  if (same(from, to)) return { value: mine, conflict: false }
+  if (same(mine, from)) return { value: to, conflict: false }
+  return { value: mine, conflict: !same(mine, to) }
+}
+
+// The cron merged part by part: the time (minute and hour together), the day, the month and the weekday, each locked
+// part taking the new revision's. A cron the task or a revision lacks merges whole (or is the new revision's, when any
+// of its fields is locked).
+function schedule(fixed: string[], from?: string, to?: string, mine?: string) {
+  if (from === undefined || to === undefined || mine === undefined) {
+    if (fixed.some((path) => path.startsWith("schedule."))) return { value: to, conflict: false }
+    return three(from, to, mine)
+  }
+  const crons = [from, to, mine].map((cron) => cron.trim().split(/\s+/))
+  const parts = [CRON.slice(0, 2), ...CRON.slice(2).map((field) => [field])].map((names) => {
+    const [base, next, own] = crons.map((cron) => names.map((name) => cron[CRON.indexOf(name)]).join(" "))
+    if (names.some((name) => fixed.includes(`schedule.${name}`))) return { value: next, conflict: false }
+    return three(base, next, own)
+  })
+  return { value: parts.map((part) => part.value).join(" "), conflict: parts.some((part) => part.conflict) }
+}
+
+function change(path: string, from: Value, to: Value): TemplateChange {
+  return { path, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) }
+}
+
+// The value a change's path names: the whole cron for `schedule`.
+function valueAt(definition: Definition, path: string): Value {
+  if (path === "schedule") return definition.schedule?.cron
+  if (path === "name") return definition.name
+  if (path === "model") return definition.model
+  return definition.options[path.slice("options.".length)]
+}
+
+function write(definition: Definition, path: string, value: Value): Definition {
+  if (path === "name") return typeof value === "string" ? { ...definition, name: value } : definition
+  if (path === "model") {
+    const { model: _, ...rest } = definition
+    return typeof value === "string" ? { ...rest, model: value } : rest
+  }
+  if (path === "schedule") {
+    const { schedule: _, ...rest } = definition
+    if (typeof value !== "string") return rest
+    return { ...rest, schedule: { ...definition.schedule, cron: value, timezone: definition.schedule?.timezone ?? "" } }
+  }
+  const key = path.slice("options.".length)
+  const { [key]: _, ...options } = definition.options
+  return { ...definition, options: value === undefined ? options : { ...options, [key]: value } }
 }
 
 // The key of `Failure.fields` a path is reported under: the backend field's or the common one's.

@@ -175,6 +175,10 @@ export function implementation(
           ? backend.activate(input.template, input.personal)
           : fail("unsupported", "There are no templates here."),
       ),
+    answer: (input) =>
+      changing(input.backend, async (backend) =>
+        backend.answer ? backend.answer(input.id, input.apply) : fail("unsupported", "There are no templates here."),
+      ),
   }
 }
 

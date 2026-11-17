@@ -94,6 +94,10 @@ says, and each backend option such as `permissions`, `connectors` or `timeLimit`
 <name>" and a notice at the top; the name, the folder, the notifications and the zone stay editable. Saving keeps
 `Definition.template`: the link is not a field of the form. Deleting a mandatory one is disabled with "Assigned by
 Dynapps; you can pause it" (`actions().remove`); an optional one deletes as any, which deactivates its template.
+When a new revision changed fields the person had changed too (`Routine.template.update`), the detail says "The template
+changed: Schedule: 08:00 → 07:30" (`templateChanges` in `format.ts`) with Apply and Keep mine (`model.answer`). What a
+template did on its own (`Routine.notice`, `templateNotice` in `routine.ts`) is a warning notice: "Template retired",
+"Template retired; paused", "You no longer have access to this template".
 
 The trigger is written as a cron in an IANA zone (`schedule.ts`: `presetOf`, `cronOf`), a cron a preset would write
 differently opens as a custom one so saving never rewrites it, and the preview is Effect's `Cron` in that zone, so it

@@ -164,6 +164,12 @@ export default {
   "agents.template.confirm.required": "Confirmez qu'il s'exécute sans demander.",
   "agents.template.badge": "Modèle Dynapps",
   "agents.template.lockedBy": "Fixé par le modèle {{name}}",
+  "agents.template.changed": "Le modèle a changé : {{changes}}",
+  "agents.template.apply": "Appliquer",
+  "agents.template.keep": "Garder les miens",
+  "agents.template.retired": "Modèle retiré",
+  "agents.template.retiredPaused": "Modèle retiré ; en pause",
+  "agents.template.revoked": "Vous n'avez plus accès à ce modèle",
   "agents.template.locks":
     "Certains champs sont fixés par le modèle {{name}} et ne peuvent pas être modifiés ici. Le reste vous appartient.",
   "agents.activity.hint":

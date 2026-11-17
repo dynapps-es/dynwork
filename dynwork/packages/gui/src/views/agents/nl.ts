@@ -164,6 +164,12 @@ export default {
   "agents.template.confirm.required": "Bevestig dat het zonder te vragen draait.",
   "agents.template.badge": "Dynapps-sjabloon",
   "agents.template.lockedBy": "Vastgelegd door het sjabloon {{name}}",
+  "agents.template.changed": "Het sjabloon is gewijzigd: {{changes}}",
+  "agents.template.apply": "Toepassen",
+  "agents.template.keep": "Eigen waarden houden",
+  "agents.template.retired": "Sjabloon ingetrokken",
+  "agents.template.retiredPaused": "Sjabloon ingetrokken; gepauzeerd",
+  "agents.template.revoked": "Geen toegang meer tot dit sjabloon",
   "agents.template.locks":
     "Sommige velden zijn vastgelegd door het sjabloon {{name}} en kunnen hier niet worden gewijzigd. De rest bepaal je zelf.",
   "agents.activity.hint":

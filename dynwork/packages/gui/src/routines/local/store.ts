@@ -2,7 +2,7 @@ export * as RoutinesLocalStore from "./store"
 
 import { randomUUID } from "node:crypto"
 import { Schema } from "effect"
-import { Definition, Run, RunState } from "../contract"
+import { Definition, Run, RunState, TemplateChange } from "../contract"
 
 // What the local backend keeps in the plugin's storage (`ctx.storage`, main): the definitions, and every run it started
 // with the last state it read. A run's live state is in its session; the record is the history, and it outlives a
@@ -37,6 +37,23 @@ export const SavedRoutine = Schema.Struct({
    * sync.
    */
   account: Schema.optional(Schema.String),
+  /**
+   * What its template's new revisions changed that the person had changed too (`sync.ts`, `RoutinesTemplates.merge`):
+   * the view says it until they answer (Apply or Keep mine). Only on the computer that owns it, which merges.
+   */
+  update: Schema.optional(
+    Schema.Struct({ revision: Schema.Number, changes: Schema.mutable(Schema.Array(TemplateChange)) }),
+  ),
+  /**
+   * Its template was retired and this computer dropped the link (`pause`: Governance also paused it). Cleared by the
+   * next edit here.
+   */
+  retired: Schema.optional(Schema.Literals(["unlink", "pause"])),
+  /**
+   * This computer paused it because the person lost access to its template: it is not paused again for that loss, and
+   * only the person resumes it. Cleared once the template is theirs again.
+   */
+  revoked: Schema.optional(Schema.Boolean),
 })
 export type SavedRoutine = typeof SavedRoutine.Type
 
@@ -64,13 +81,21 @@ const Account = Schema.optional(Schema.String)
 
 /**
  * A change made here that Governance has not taken yet, in the order it was made (`sync.ts` sends them in order):
- * - `put`: the routine as it is in the store when it is sent (create, edit, pause, resume, move);
+ * - `put`: the routine as it is in the store when it is sent (create, edit, pause, resume, move). `template`: only its
+ *   template changed it (a new revision, a retirement, a lost access); a `409` makes that change again on Governance's
+ *   row instead of replacing it;
  * - `delete`: the routine was removed here, at its last known `revision` (absent: it never reached Governance);
  * - `run`: the summary of a run of a routine this computer owns, as the store has it when it is sent.
  * Each carries its routine's account: it is sent only while that account is active, never with another one's token.
  */
 export const Op = Schema.Union([
-  Schema.Struct({ id: Schema.String, kind: Schema.Literal("put"), routine: Schema.String, account: Account }),
+  Schema.Struct({
+    id: Schema.String,
+    kind: Schema.Literal("put"),
+    routine: Schema.String,
+    account: Account,
+    template: Schema.optional(Schema.Boolean),
+  }),
   Schema.Struct({
     id: Schema.String,
     kind: Schema.Literal("delete"),
@@ -103,14 +128,15 @@ export const initial: Saved = { routines: [], runs: [] }
 
 type Draft = { outbox?: Array<Op> }
 type NewOp = (
-  | { kind: "put"; routine: string }
+  | { kind: "put"; routine: string; template?: boolean }
   | { kind: "delete"; routine: string; revision?: number }
   | { kind: "run"; routine: string; run: string }
 ) & { account?: string }
 
 /**
  * Adds a change to the outbox, in the same store write as the change itself. A `put` or `run` already waiting behind
- * the first entry (which may be on its way) is not added twice: it sends what the store holds when it goes.
+ * the first entry (which may be on its way) is not added twice: it sends what the store holds when it goes, and a
+ * `put` that carries an edit of the person's is no longer only the template's.
  */
 export function enqueue(draft: Draft, op: NewOp) {
   const outbox = draft.outbox ?? []
@@ -119,6 +145,15 @@ export function enqueue(draft: Draft, op: NewOp) {
     if (op.kind === "run") return queued.kind === "run" && queued.run === op.run
     return false
   }
-  if (outbox.slice(1).some(twin)) return
-  draft.outbox = [...outbox, { ...op, id: randomUUID() }]
+  const waiting = outbox.slice(1).find(twin)
+  if (!waiting) {
+    draft.outbox = [...outbox, { ...op, id: randomUUID() }]
+    return
+  }
+  if (op.kind !== "put" || op.template) return
+  draft.outbox = outbox.map((queued) => {
+    if (queued.id !== waiting.id || queued.kind !== "put") return queued
+    const { template: _, ...rest } = queued
+    return rest
+  })
 }

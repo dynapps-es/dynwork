@@ -62,6 +62,12 @@ export interface Backend {
    */
   activate?(template: string, personal: Personal): Promise<Routine | Failure>
   /**
+   * The person's answer to what a template's new revision changed (`Routine.template.update`): `apply` writes the
+   * template's values (`RoutinesTemplates.apply`), otherwise the routine stays. A routine without one is left as it is.
+   * Only a backend with templates.
+   */
+  answer?(id: string, apply: boolean): Promise<Failure | undefined>
+  /**
    * JESÚS: the farm has no push, so poll `GET /tasks?updated_since=<last cursor minus 30 s>` inside, only while this is
    * subscribed, and answer each task that changed as a `Change` with its `Run`.
    *

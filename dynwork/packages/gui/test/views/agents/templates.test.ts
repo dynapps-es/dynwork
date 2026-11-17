@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
 import { RoutinesBackend } from "../../../src/routines/backend"
 import { isFailure, type Routine, type Template } from "../../../src/routines/contract"
+import { RoutinesDemo } from "../../../src/routines/demo"
 import { RoutinesFake } from "../../../src/routines/fake"
 import { RoutinesLocal } from "../../../src/routines/local/backend"
 import { asks, createFormModel, personalOf, problemText } from "../../../src/views/agents/form"
@@ -48,6 +49,18 @@ const routine = (id: string, linked: string, here: boolean): Routine => ({
 
 describe("a template's card", () => {
   const review = template("review")
+
+  test("closed: the person has a task of it, so it is active and never offered to activate", () => {
+    const links = [{ id: "review", state: "closed" as const, retire: null }]
+    expect(templateCard({ template: review, links, routines: [], connectors: ["dynbrain"] })).toEqual({
+      kind: "active",
+    })
+    const mine = routine("here", "review", true)
+    expect(templateCard({ template: review, links, routines: [mine], connectors: ["dynbrain"] })).toEqual({
+      kind: "active",
+      routine: mine,
+    })
+  })
 
   test("available: nothing of it here, and its connectors are", () => {
     expect(templateCard({ template: review, links: [], routines: [], connectors: ["dynbrain", "odoo"] })).toEqual({
@@ -279,5 +292,56 @@ describe("the activation form", () => {
       folder: "/work",
       model: "openai/gpt-6",
     })
+  })
+})
+
+describe("a template's change in the task", () => {
+  test("Apply takes the template's values, Keep mine leaves the task's; the notice goes either way", async () => {
+    const time = clock()
+    const demo = RoutinesDemo.local(time.now)
+    const { backend: _, quota: __, ...capabilities } = await demo.capabilities()
+    const changed = (id: string, linked: string, cron: string): Routine => {
+      const base = routine(id, linked, true)
+      return {
+        ...base,
+        definition: { ...base.definition, schedule: { cron, timezone: ZONE } },
+        template: {
+          id: linked,
+          name: `Template ${linked}`,
+          locked: [],
+          state: "published",
+          mandatory: false,
+          update: { revision: 2, changes: [{ path: "schedule", from: "0 9 * * 1-5", to: "30 7 * * 1-5" }] },
+        },
+      }
+    }
+    const registry = RoutinesBackend.make()
+    registry.register(
+      RoutinesFake.make({
+        id: "local",
+        capabilities,
+        routines: [changed("applied", "review", "15 9 * * 1-5"), changed("kept", "standup", "45 9 * * 1-5")],
+        templates: [template("review"), template("standup")],
+        conversation: "session",
+        now: time.now,
+      }),
+    )
+    const wire = connect(registry)
+    await wire.client.refresh()
+    const model = createRoot(() => createAgentsModel({ client: () => wire.client }))
+    const find = (id: string) => model.routines().find((candidate) => candidate.ref.id === id)
+    expect(find("applied")?.template?.update?.revision).toBe(2)
+
+    await model.answer(find("applied")!, true)
+    expect([find("applied")?.definition.schedule?.cron, find("applied")?.template?.update]).toEqual([
+      "30 7 * * 1-5",
+      undefined,
+    ])
+    await model.answer(find("kept")!, false)
+    expect([find("kept")?.definition.schedule?.cron, find("kept")?.template?.update]).toEqual([
+      "45 9 * * 1-5",
+      undefined,
+    ])
+    expect(model.state.failure).toBeUndefined()
   })
 })

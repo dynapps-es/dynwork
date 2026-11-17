@@ -32,6 +32,7 @@ describe("the routines contract", () => {
     expect(Object.keys(Routines.spec.methods).sort()).toEqual(
       [
         "activate",
+        "answer",
         "cancel",
         "create",
         "get",
@@ -202,13 +203,41 @@ describe("a template", () => {
         locked: RoutinesTemplates.locked(decoded()),
         state: "published",
         mandatory: false,
-        update: { revision: 5 },
+        update: { revision: 5, changes: [{ path: "options.notify", from: "failures", to: "every" }] },
       },
     }
     expect(crossing(Routine, routine)).toEqual(Schema.decodeUnknownSync(Routine)(routine))
     expect(() =>
       Schema.decodeUnknownSync(Routine)({ ...routine, template: { ...routine.template, state: "x" } }),
     ).toThrow()
+  })
+
+  test("a task carries what a template's new revision changed, old → new, and why a template changed it alone", () => {
+    const routine = {
+      ref: { backend: "local", id: "r1" },
+      definition: { name: "R", instructions: { kind: "prompt", text: "x" }, enabled: false, options: {} },
+      state: "paused",
+      unread: 0,
+      conversation: { kind: "none" },
+      updated: 0,
+      notice: "no-access",
+      template: {
+        id: "daily",
+        name: "Daily",
+        locked: [],
+        state: "no_access",
+        mandatory: false,
+        update: {
+          revision: 4,
+          changes: [
+            { path: "schedule", from: "0 8 * * 1-5", to: "30 7 * * 1-5" },
+            { path: "model", to: "anthropic/b" },
+          ],
+        },
+      },
+    }
+    expect(crossing(Routine, Schema.decodeUnknownSync(Routine)(routine))).toEqual(routine as never)
+    expect(() => Schema.decodeUnknownSync(Routine)({ ...routine, notice: "gone" })).toThrow()
   })
 
   test("its Ipc calls answer a failure in place of their value", () => {

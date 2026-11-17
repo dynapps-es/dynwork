@@ -302,6 +302,18 @@ export function conformance(name: string, make: () => Promise<Subject> | Subject
       expectFailure(await backend.activate("no-such-template", personalFor(free)), "not-found")
     })
 
+    test("a template's change is answered once, or the backend has none to answer", async () => {
+      const { backend } = await make()
+      if (!backend.answer) return
+      expectFailure(await backend.answer("no-such-routine", true), "not-found")
+      const changed = (await listed(backend)).find((routine) => routine.template?.update)
+      if (!changed) return
+      expect(crossing(Routine, changed)).toEqual(changed)
+      expect(await backend.answer(changed.ref.id, false)).toBeUndefined()
+      const after = await ok(backend.get(changed.ref.id))
+      expect([after.definition, after.template?.update]).toEqual([changed.definition, undefined])
+    })
+
     test("everything it answers survives the wire", async () => {
       const subject = await make()
       const { backend } = subject

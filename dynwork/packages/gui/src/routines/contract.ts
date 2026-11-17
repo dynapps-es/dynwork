@@ -125,6 +125,18 @@ export const TemplateLink = Schema.Struct({
 })
 export type TemplateLink = typeof TemplateLink.Type
 
+/**
+ * One field a template's new revision changed where the person had changed it too: they keep theirs, and the view says
+ * the template's `from` → `to` (`templates.ts` `merge`). `path` is `name`, `model`, `schedule` (the cron) or
+ * `options.<key>`; a value the template does not set is absent.
+ */
+export const TemplateChange = Schema.Struct({
+  path: Schema.String,
+  from: Schema.optional(Schema.Json),
+  to: Schema.optional(Schema.Json),
+})
+export type TemplateChange = typeof TemplateChange.Type
+
 /** What `templates` answers: the templates the person sees, and a link per template they have a routine of. */
 export const Templates = Schema.Struct({ templates: Schema.Array(Template), links: Schema.Array(TemplateLink) })
 export type Templates = typeof Templates.Type
@@ -247,10 +259,19 @@ export const Routine = Schema.Struct({
       locked: Schema.Array(Schema.String),
       state: TemplateState,
       mandatory: Schema.Boolean,
-      /** A new revision was merged into the routine and the view still says so. */
-      update: Schema.optional(Schema.Struct({ revision: Schema.Number })),
+      /**
+       * A new revision was merged into the routine and changed fields the person had changed: the view says each one
+       * until they answer it (`answer`: Apply or Keep mine).
+       */
+      update: Schema.optional(Schema.Struct({ revision: Schema.Number, changes: Schema.Array(TemplateChange) })),
     }),
   ),
+  /**
+   * What a template did to the routine on its own, which the view says: its template was retired and the routine is an
+   * ordinary one now (`retired`), also paused (`retired-paused`), until the next edit; or it was paused because the
+   * person no longer has access to its template (`no-access`), while it stays paused.
+   */
+  notice: Schema.optional(Schema.Literals(["retired", "retired-paused", "no-access"])),
 })
 export type Routine = typeof Routine.Type
 
@@ -468,6 +489,11 @@ export const Routines = Ipc.define({
       input: Schema.Struct({ ...OnBackend, template: Schema.String, personal: Personal }),
       output: Outcome(Routine),
     },
+    /**
+     * The person's answer to what a template's new revision changed (`Routine.template.update`): `apply` writes the
+     * template's values, otherwise theirs stay. The notice goes either way.
+     */
+    answer: { input: Schema.Struct({ ...OnRoutine, apply: Schema.Boolean }), output: Done },
   },
 })
 

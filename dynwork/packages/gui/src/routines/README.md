@@ -22,7 +22,7 @@ window                                    main process
 | `contract.ts` | The Schema data (`Definition`, `Routine`, `Run`, `Capabilities`, `Field`, `Failure`, ...) and the `dynwork.routines` Ipc |
 | `backend.ts`  | `interface Backend`, the `Registry` of backends and `fail`, which builds a `Failure`                                     |
 | `validate.ts` | `check(capabilities, definition)`: the rules the capabilities state, for any backend to run before its own               |
-| `templates.ts` | `locked`, `violates` and `activate`: the rules a routine made from a template follows ("Templates" below) |
+| `templates.ts` | `locked`, `violates`, `activate`, `merge` and `apply`: the rules a routine made from a template follows ("Templates" below) |
 | `ipc.ts`      | The Ipc implementation over a registry: the state snapshot, routing, watching, failures as data                          |
 | `fake.ts`     | An in-memory backend with an injectable clock: `Fake.make(options)`                                                      |
 | `demo.ts`     | The two seeded fakes (`local`, `farm`) shaped like the approved mockup, and `register`, which adds those not taken       |
@@ -69,8 +69,9 @@ fails: a backend that cannot serve says so in `status`.
   open, each backend's own `watch` is subscribed once, and a backend that registers meanwhile is subscribed too.
 - `move`: makes this device the one that runs a routine of another device; a backend without owners (the optional
   `Backend.move`) answers `unsupported`.
-- `templates`, `activate`: a backend's templates and the activation of one ("Templates" below); a backend without them
-  (the optional `Backend.templates` and `Backend.activate`) answers `unsupported`.
+- `templates`, `activate`, `answer`: a backend's templates, the activation of one, and the person's answer to what a new
+  revision changed ("Templates" below); a backend without them (the optional `Backend.templates`, `Backend.activate` and
+  `Backend.answer`) answers `unsupported`.
 - Every other method names its `backend` and answers the backend's own answer.
 
 ## Backends
@@ -102,7 +103,8 @@ Governance implements too; this is what Dynwork holds of it.
   `options`. Governance keeps at most one live routine per person and template, refuses an edit that changes what the
   template locks, and refuses removing a mandatory one; each refusal is a `conflict` here. `Routine.template` carries
   what the views need: the template's name, its `locked` paths, its `state`, `mandatory`, and `update`, a merged revision
-  the view still announces.
+  whose `changes` the view still announces. `Routine.notice` says what a template did to the routine on its own
+  (`retired`, `retired-paused`, `no-access`).
 - **Locked** (`locked(template)`): always `instructions`, `agent`, `where`, `options.connectors` and
   `options.permissions`; `model` when `locks.model`; the cron's `schedule.day`, `schedule.month` and `schedule.weekday`
   when `locks.schedule` is `time`, and `schedule.minute` and `schedule.hour` too when it is `locked`; `options.timeLimit`
@@ -116,6 +118,16 @@ Governance implements too; this is what Dynwork holds of it.
   a time limit with a ceiling and no default starts at the ceiling. It answers `invalid`, one message per field, for a
   Cloud template, a missing zone or required folder, a template that runs without asking (`permissions: "bypass"`) the
   person did not confirm (`approved`), and a personal value the template locks.
+- **Merge** (`merge({ base, next, task, zone, previous })`): a new revision into the person's routine, three ways, with
+  `base` the revision the routine follows. What `next` locks takes its value. A default the person left as `base` had
+  it takes `next`'s; one they changed keeps theirs, and when `next` changed it too it is a `TemplateChange` (`path`:
+  `name`, `model`, `schedule` or `options.<key>`, `from` → `to`). The cron merges by part: the time (minute and hour
+  together), the day, the month and the weekday. Permissions never go up to `bypass` without the person (it is a change
+  to answer) and come down at once; a time limit stays under the new ceiling. A change not answered yet stays while the
+  routine still differs from the template. `apply(definition, changes)` writes the template's values: what Apply does.
+- **Answer** (`answer(routine, apply)`): the person's Apply (the template's values, written as an edit here) or Keep mine
+  (nothing written); the notice goes either way. The detail shows "The template changed: Schedule: 08:00 → 07:30" with
+  both buttons.
 - **Backends.** The local backend serves what `local/templates.ts` last read of Governance's `GET /templates` ("Sync with
   Governance"): `signed-out` without an account, `unreachable` until a read answered, `unsupported` without a sync. Its
   `activate` refuses a mandatory template (`conflict`: its routine arrives by the claim), one the person already has a
@@ -256,6 +268,33 @@ computer).
   `templates`). Each account keeps its own answer and `ETag`, sent back as `If-None-Match`: a `304`, an error or
   Governance down keep the last answer, and another account's is never served. Nothing is stored: after a restart the
   first read fills it. A new answer is a change of the local backend, so the windows read the templates again.
+- **Following a template.** The computer that owns a linked routine (`Local.here`), and only it, writes what its
+  template asks for, in every pass after the claims, so before the routine's next run. A routine with a change of the
+  person's still waiting is left for the next pass.
+  - A newer revision in `GET /templates`: the revision the routine follows is read once from
+    `GET /templates/{id}/revisions/{revision}` (kept in memory) as the base of `RoutinesTemplates.merge`, and the merged
+    definition, naming the new revision, is written. A computer that missed several revisions merges once, from the one
+    it follows. What the person had changed too stays theirs and is noted (`SavedRoutine.update`, shown as
+    `Routine.template.update`) until they answer it. A base Governance does not serve leaves the routine for later.
+  - `published`, `closed`: nothing else; a closed template's routines keep receiving its revisions.
+  - `retired` with `unlink` or `pause`: the link is dropped from the definition (an ordinary routine now, which
+    Governance already paused for `pause`) and `SavedRoutine.retired` makes it say "Template retired" (or "…; paused")
+    until the next edit here. `remove` arrives as a tombstone, like any removed routine.
+  - `no_access`: it is paused once, with "You no longer have access to this template" while it stays paused
+    (`SavedRoutine.revoked`). Only the person resumes it; access back clears the mark, never resumes it.
+  - Each of these writes is a `put` marked as the template's (`Op.template`). A `409` on it takes Governance's row without
+    the conflict note and makes the change again on it (an edit made on another computer meanwhile stays). An edit of
+    the person's that joins a waiting template `put` unmarks it: a `409` then follows the usual conflict rule.
+  - `409 {"error":"template_locked","current":<row>}` (`TEMPLATES.md` §2): Governance refuses what a merge wrote for the
+    revision it names. Its row is taken, the merge's unanswered change goes, and that revision (by account, template and
+    revision, in memory) is not merged again until the app starts again: no retry within a pass nor on every pass. An edit
+    of the person's refused that way is a conflict like any other: Governance's row, with "Changed on another computer".
+  - A `409` (either kind) on a template `put` while an edit of the person's of that routine waits behind it (made while
+    the `put` was on its way) is handled as a conflict too: Governance's row with the note, so they know their edit did
+    not land; the template's change is made again on that row in a later pass.
+- **Mandatory templates.** Governance makes their routine unclaimed and in no time zone (§4). The feed reads it in this
+  computer's zone (`Options.zone`, the system's by default) and the claim writes it with the owner; a claim lost to a
+  computer in another zone replaced no edit and leaves no conflict note.
 - **One routine per template.** A `put` that creates a routine linked to a template the person already has a live routine
   of (made on another computer before this one read it) is answered `409 {"error":"already_activated","routine":<row>}`:
   Governance's row is taken, and the routine made here goes with its runs and its waiting changes, without a conflict
@@ -274,7 +313,10 @@ Known limits: a routine moved to another computer can still fire here until
 this computer reads the move (seconds with the hint, at most one poll without).
 
 `test/routines/sync.test.ts` runs two computers against `test/routines/governance.ts`, a fake Governance over real HTTP;
-`test/routines/templates.test.ts` runs the templates read and activation against it.
+`test/routines/templates.test.ts` runs the templates read, activation, merge, propagation and link states against it:
+the fake keeps every revision it served or published, refuses a linked write whose locked fields are not its named
+revision's (`template_locked`), makes a mandatory template's routine on `GET /templates`, and `retire`, `close`,
+`revoke` and `grant` do what Governance does.
 
 ## The clock
 
@@ -382,4 +424,5 @@ they matter. The same conversation, or any other, then manages the user's tasks 
 
 It reads no cron: a scheduled, enabled routine's `next` is a day after its last change. Runs start only through `start`
 and finish when the clock passes their duration and `settle()` runs (`main.ts` calls it every few seconds). Nothing is
-persisted, and nothing syncs. Its templates are all `published`: it never closes, retires or hides one.
+persisted, and nothing syncs. Its templates are all `published`: it never closes, retires or hides one, and it never
+merges a revision: a seeded routine's `template.update` is the change its `answer` takes or leaves.
