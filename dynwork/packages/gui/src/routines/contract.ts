@@ -111,9 +111,16 @@ export type Run = typeof Run.Type
 
 /**
  * Where a routine runs, when that differs by routine: a local routine belongs to one device. `here` is this device; a
- * routine of another device waits until that device is online. A remote routine has none.
+ * routine of another device waits until that device is online. A remote routine has none. `unclaimed`: no device yet
+ * (it was made for the user elsewhere); the first of the user's devices to sync claims it, and none runs it until then.
+ * Its `label` is empty.
  */
-export const Owner = Schema.Struct({ label: Schema.String, online: Schema.Boolean, here: Schema.Boolean })
+export const Owner = Schema.Struct({
+  label: Schema.String,
+  online: Schema.Boolean,
+  here: Schema.Boolean,
+  unclaimed: Schema.optional(Schema.Boolean),
+})
 export type Owner = typeof Owner.Type
 
 export const Routine = Schema.Struct({

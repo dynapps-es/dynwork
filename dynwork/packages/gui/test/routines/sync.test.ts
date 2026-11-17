@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
+import { randomUUID } from "node:crypto"
 import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -409,5 +410,151 @@ describe("the routines sync", () => {
     expect(a.armed.at(-1)).toBe(RoutinesSync.POLL)
     expect((gov.state.routines.get(id)?.definition as Definition).name).toBe("Digest offline")
     expect(a.store.value.outbox).toEqual([])
+  })
+})
+
+// A task made for a user straight in Governance's table comes unclaimed (owner `""`, or null) and the first of the
+// user's computers to sync claims it with the usual `If-Match` write.
+describe("a task made for the user in Governance", () => {
+  const daily = (name: string) => routine(name, { schedule: { cron: "0 9 * * *", timezone: "UTC" } })
+  const service = (now: () => number) => {
+    const made = fakeService({ now })
+    stops.push(made.stop)
+    return { made, client: OpenCode.make({ baseUrl: made.url, headers: { authorization: "Basic c2VjcmV0" } }) }
+  }
+  const engine = (each: ReturnType<typeof computer>, now: () => number) => {
+    const made = RoutinesClock.make({
+      local: each.local,
+      store: each.store,
+      now,
+      ready: () => true,
+      timers: { set: () => () => {} },
+    })
+    stops.push(made.dispose)
+    return made
+  }
+  const puts = (gov: FakeGovernance) => gov.state.requests.filter((request) => request.startsWith("PUT /routines/"))
+
+  test("is claimed by this computer and then runs here; before the claim it runs nowhere", async () => {
+    const time = clock(Date.UTC(2026, 10, 16, 8, 50))
+    const gov = governance(time.now)
+    const host = service(time.now)
+    const a = computer(gov, "Mac A", { now: time.now, client: host.client })
+    const clockA = engine(a, time.now)
+    const id = randomUUID()
+    gov.assign(id, daily("Welcome"))
+
+    // Governance does not take the claim yet: the task is listed as not claimed, and nothing runs it.
+    gov.state.readOnly = true
+    await a.sync.sync()
+    expect((await read(a.local, id)).owner).toEqual({ label: "", online: false, here: false, unclaimed: true })
+    expect(a.local.here(id)).toBe(false)
+    const refused = await a.local.start(id)
+    expect(isFailure(refused) && [refused.code, refused.message]).toEqual([
+      "conflict",
+      "No computer has claimed it yet.",
+    ])
+    time.advance(11 * MINUTE)
+    await clockA.check()
+    await Bun.sleep(20)
+    expect(host.made.prompts()).toEqual([])
+
+    gov.state.readOnly = false
+    await a.sync.sync()
+    expect(puts(gov)).toEqual([`PUT /routines/${id} 1`])
+    expect(gov.state.routines.get(id)).toMatchObject({ owner_device: peer("a"), owner_name: "Mac A", revision: 2 })
+    expect(a.store.value.routines).toMatchObject([{ id, revision: 2, owner: { device: peer("a"), name: "Mac A" } }])
+    expect((await read(a.local, id)).owner).toEqual({ label: "Mac A", online: true, here: true })
+    expect((await read(a.local, id)).conflict).toBeUndefined()
+    // Claimed within the grace: its 09:00 runs here, once.
+    await clockA.check()
+    await until(() => host.made.prompts().length > 0)
+    expect(host.made.prompts()).toHaveLength(1)
+  })
+
+  test("two computers of the user race to claim it: one wins, the other takes its row on a 409 and never runs it", async () => {
+    const time = clock(Date.UTC(2026, 10, 16, 8, 50))
+    const gov = governance(time.now)
+    const hosts = { A: service(time.now), B: service(time.now) }
+    const a = computer(gov, "Mac A", { now: time.now, client: hosts.A.client })
+    const b = computer(gov, "Mac B", { now: time.now, client: hosts.B.client })
+    const clocks = [engine(a, time.now), engine(b, time.now)]
+    const id = randomUUID()
+    gov.assign(id, daily("Welcome"))
+    // Both read it unclaimed before either claim lands.
+    gov.state.readOnly = true
+    await a.sync.sync()
+    await b.sync.sync()
+    expect([a.store.value.outbox?.length, b.store.value.outbox?.length]).toEqual([1, 1])
+
+    gov.state.readOnly = false
+    await a.sync.sync()
+    await b.sync.sync()
+    // The same If-Match from both: Mac A's is taken, Mac B's is a 409.
+    expect(puts(gov)).toEqual([`PUT /routines/${id} 1`, `PUT /routines/${id} 1`])
+    expect(gov.state.routines.get(id)).toMatchObject({ owner_device: peer("a"), owner_name: "Mac A", revision: 2 })
+    expect([a.local.here(id), b.local.here(id)]).toEqual([true, false])
+    const lost = await read(b.local, id)
+    expect([lost.owner, lost.conflict]).toEqual([{ label: "Mac A", online: false, here: false }, undefined])
+    expect(b.store.value.routines).toMatchObject([{ id, revision: 2, owner: { device: peer("a"), name: "Mac A" } }])
+    expect([a.store.value.outbox, b.store.value.outbox]).toEqual([[], []])
+
+    time.advance(11 * MINUTE)
+    await Promise.all(clocks.map((each) => each.check()))
+    await until(() => hosts.A.made.prompts().length > 0)
+    await Promise.all(clocks.map((each) => each.check()))
+    expect([hosts.A.made.prompts().length, hosts.B.made.prompts().length]).toEqual([1, 0])
+  })
+
+  test("a task another computer claimed is never claimed again, and an edit keeps its owner", async () => {
+    const gov = governance()
+    const a = computer(gov, "Mac A")
+    const id = randomUUID()
+    gov.assign(id, routine("Welcome"))
+    await a.sync.sync()
+    // Mac B first reads it once Mac A owns it.
+    const b = computer(gov, "Mac B")
+    await b.sync.sync()
+    await a.sync.sync()
+    await b.sync.sync()
+    expect(puts(gov)).toEqual([`PUT /routines/${id} 1`])
+    expect((await read(b.local, id)).owner).toEqual({ label: "Mac A", online: false, here: false })
+
+    await b.local.update(id, routine("Welcome v2"))
+    await b.sync.sync()
+    expect(puts(gov)).toEqual([`PUT /routines/${id} 1`, `PUT /routines/${id} 2`])
+    expect(gov.state.routines.get(id)).toMatchObject({ owner_device: peer("a"), owner_name: "Mac A", revision: 3 })
+    expect([a.local.here(id), b.local.here(id)]).toEqual([true, false])
+  })
+
+  test("an unclaimed task of another account is left alone", async () => {
+    const govs = { A: governance(), B: governance() }
+    const active = { id: "A" as "A" | "B" }
+    const a = computer(govs.A, "Mac A", {
+      account: () => ({ id: active.id, url: govs[active.id].url, token: async () => govs[active.id].token }),
+    })
+    const id = randomUUID()
+    // A Governance whose column became nullable says null: it is unclaimed all the same.
+    govs.A.assign(id, routine("For A"), null)
+    // Read under account A; its claim waits for A's Governance.
+    govs.A.state.readOnly = true
+    await a.sync.sync()
+
+    active.id = "B"
+    await a.sync.sync()
+    await a.sync.sync()
+    expect(await names(a.local)).toEqual([])
+    expect(a.local.here(id)).toBe(false)
+    expect(govs.B.state.requests.filter((request) => request.includes(id))).toEqual([])
+    expect(govs.A.state.routines.get(id)).toMatchObject({ owner_device: null, owner_name: null, revision: 1 })
+    expect(a.store.value.routines).toMatchObject([{ id, account: "A", owner: null }])
+    expect(a.store.value.outbox?.map((op) => [op.kind, op.routine, op.account])).toEqual([["put", id, "A"]])
+
+    // Back on A, this computer claims it there.
+    active.id = "A"
+    govs.A.state.readOnly = false
+    await a.sync.sync()
+    expect(govs.A.state.routines.get(id)).toMatchObject({ owner_device: peer("a"), revision: 2 })
+    expect(a.local.here(id)).toBe(true)
   })
 })

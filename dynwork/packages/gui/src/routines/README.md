@@ -195,6 +195,13 @@ computer).
   `PUT /runs/{id}` (state, reason, start and end). Only the owner sends them.
 - **First sync.** A routine without a revision (made before the sync, or while signed out) is uploaded with this
   computer as its owner.
+- **Claim.** A routine made for the user directly in Governance (no desktop wrote it) arrives unclaimed:
+  `owner_device` is `""` (today's column is NOT NULL; `null` is taken the same way), and the store keeps
+  `owner: null`. It reads "Not claimed yet"
+  (`Owner.unclaimed`), its "Run now" is refused and the clock leaves it alone. The pass that reads it queues a `put` at
+  its revision, which sends this computer as the owner; the store stays unclaimed until Governance answers. A `409`
+  means another of the user's computers claimed it first: its row is taken, without the conflict note, and it runs
+  there. A routine another computer owns is never claimed again; moving it is still "Move to this computer".
 - **Governance down.** Everything keeps working here; the outbox waits, `Capabilities.synced` is false and the Agents
   status line says "Not synced". A refusal for good (a bad body, another device's run) drops the entry.
 - **Owner computer.** The device id is the desktop's relay peer id (`RemoteTunnel.peer()`, 32 hex digits, also sent as

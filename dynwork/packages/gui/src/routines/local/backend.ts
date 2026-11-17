@@ -265,7 +265,9 @@ export function make(options: Options): Local {
   const routineOf = (routine: string) => saved().routines.find((stored) => stored.id === routine && mine(stored))
   const recordOf = (run: string) => saved().runs.find((stored) => stored.id === run)
   const inflight = () => saved().runs.filter((record) => !ended(record.state))
-  const here = (stored: SavedRoutine) => !stored.owner || stored.owner.device === options.device?.()?.id
+  // An unclaimed routine (`owner: null`) is no computer's: nothing runs it until Governance takes this one's claim.
+  const here = (stored: SavedRoutine) =>
+    stored.owner === undefined || (stored.owner !== null && stored.owner.device === options.device?.()?.id)
   const emit = (change: Change) => {
     if (change.run) report(change.run.ref.id)
     ;[...watchers].forEach((watcher) => watcher(change))
@@ -306,9 +308,11 @@ export function make(options: Options): Local {
       unread: own.filter((record) => ended(record.state) && !record.viewed).length,
       // Whether another computer is online is not known here.
       owner:
-        here(stored) || !stored.owner
-          ? { label: options.label, online: true, here: true }
-          : { label: stored.owner.name, online: false, here: false },
+        stored.owner === null
+          ? { label: "", online: false, here: false, unclaimed: true }
+          : here(stored) || !stored.owner
+            ? { label: options.label, online: true, here: true }
+            : { label: stored.owner.name, online: false, here: false },
       conversation: stored.anchor
         ? { kind: "session", server: options.server, session: stored.anchor, anchor: stored.anchor }
         : { kind: "none" },
@@ -655,7 +659,8 @@ export function make(options: Options): Local {
     start: async (routine) => {
       const stored = routineOf(routine)
       if (!stored) return missing("routine", routine)
-      if (!here(stored)) return fail("conflict", `It runs on ${stored.owner?.name}.`)
+      if (!here(stored))
+        return fail("conflict", stored.owner ? `It runs on ${stored.owner.name}.` : "No computer has claimed it yet.")
       return launch(stored, { trigger: "manual" })
     },
     // The same write as an edit: the owner goes to Governance with the routine's revision. Nothing missed before now.

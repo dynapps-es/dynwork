@@ -88,6 +88,7 @@ export default {
   "agents.status.finished": "Afgelopen",
   "agents.status.error": "Kan niet draaien",
   "agents.status.elsewhere": "Draait op {{device}}",
+  "agents.status.unclaimed": "Nog niet opgepakt",
   "agents.status.running": "Bezig",
   "agents.status.failing": "Laatste uitvoering mislukt",
   "agents.status.manual": "Alleen handmatig",
@@ -156,6 +157,7 @@ export default {
   "agents.detail.edit": "Bewerken",
   "agents.detail.remove": "Verwijderen",
   "agents.detail.move": "Naar deze computer verplaatsen",
+  "agents.detail.unclaimed": "Nog geen computer",
   "agents.detail.conflict":
     "Gewijzigd op een andere computer: je wijziging hier is door die wijziging vervangen. Bewerk de taak opnieuw als je de wijziging nog nodig hebt.",
   "agents.detail.active": "Actief",
@@ -185,6 +187,7 @@ export default {
   "agents.reason.missing": "De backend is niet beschikbaar.",
   "agents.reason.detail": "{{detail}}",
   "agents.reason.owner": "Draait alleen op {{device}}.",
+  "agents.reason.unclaimed": "Nog geen computer heeft deze taak opgepakt.",
   "agents.reason.finished": "De planning is afgelopen.",
   "agents.reason.replace": "Wijzigingen opslaan maakt een nieuwe planning.",
   "agents.reason.cancel": "Deze backend kan geen uitvoering stoppen.",

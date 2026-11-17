@@ -53,9 +53,11 @@ export function RoutineDetail(props: {
               text={
                 remote()
                   ? ctx.t("agents.detail.remote", { label: capabilities()?.label ?? "" })
-                  : ctx.t("agents.detail.local", {
-                      device: props.routine.owner?.label ?? capabilities()?.label ?? "",
-                    })
+                  : props.routine.owner?.unclaimed
+                    ? ctx.t("agents.detail.unclaimed")
+                    : ctx.t("agents.detail.local", {
+                        device: props.routine.owner?.label ?? capabilities()?.label ?? "",
+                      })
               }
             />
             <Tag tone={status().tone}>{ctx.t(status().key, status().params)}</Tag>
@@ -125,7 +127,7 @@ export function RoutineDetail(props: {
               </Button>
             )}
           </Show>
-          <Show when={props.routine.owner && !props.routine.owner.here}>
+          <Show when={props.routine.owner && !props.routine.owner.here && !props.routine.owner.unclaimed}>
             <Button
               variant="neutral"
               icon="monitor"
@@ -307,7 +309,9 @@ function Facts(props: { routine: Routine; capabilities?: Capabilities; model: Ag
           {remote()
             ? ctx.t("agents.detail.whereRemote", { label: props.capabilities?.label ?? "" })
             : ctx.t("agents.detail.whereLocal", {
-                device: props.routine.owner?.label ?? props.capabilities?.label ?? "",
+                device: props.routine.owner?.unclaimed
+                  ? ctx.t("agents.detail.unclaimed")
+                  : (props.routine.owner?.label ?? props.capabilities?.label ?? ""),
               })}
         </span>
         <For each={grouped().where}>{(fact) => <FactRow fact={fact} />}</For>

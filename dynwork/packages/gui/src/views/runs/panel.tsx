@@ -118,7 +118,9 @@ function Head(props: { routine: Routine; model: RunsModel }) {
       <h2>{props.routine.definition.name}</h2>
       <p>
         {[
-          ctx.t("runs.where", { device: props.routine.owner?.label ?? "" }),
+          props.routine.owner?.unclaimed
+            ? ctx.t("agents.detail.unclaimed")
+            : ctx.t("runs.where", { device: props.routine.owner?.label ?? "" }),
           scheduleText(ctx.t, props.routine.definition.schedule),
         ].join(" · ")}
       </p>

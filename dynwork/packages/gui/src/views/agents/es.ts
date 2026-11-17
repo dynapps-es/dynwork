@@ -88,6 +88,7 @@ export default {
   "agents.status.finished": "Terminada",
   "agents.status.error": "No se puede ejecutar",
   "agents.status.elsewhere": "Se ejecuta en {{device}}",
+  "agents.status.unclaimed": "Aún sin asignar",
   "agents.status.running": "En marcha",
   "agents.status.failing": "Falló la última ejecución",
   "agents.status.manual": "Solo a mano",
@@ -156,6 +157,7 @@ export default {
   "agents.detail.edit": "Editar",
   "agents.detail.remove": "Eliminar",
   "agents.detail.move": "Mover a este equipo",
+  "agents.detail.unclaimed": "Ningún equipo aún",
   "agents.detail.conflict":
     "Cambiada en otro equipo: el cambio de allí ha sustituido al tuyo. Edítala de nuevo si aún lo necesitas.",
   "agents.detail.active": "Activa",
@@ -185,6 +187,7 @@ export default {
   "agents.reason.missing": "Su sitio de ejecución no está disponible.",
   "agents.reason.detail": "{{detail}}",
   "agents.reason.owner": "Solo se ejecuta en {{device}}.",
+  "agents.reason.unclaimed": "Aún no se ha asignado a ningún equipo.",
   "agents.reason.finished": "Su horario ha terminado.",
   "agents.reason.replace": "Al guardar los cambios se crea un horario nuevo.",
   "agents.reason.cancel": "Aquí no se puede detener una ejecución.",

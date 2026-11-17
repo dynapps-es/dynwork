@@ -62,6 +62,17 @@ describe("actions follow the capabilities", () => {
     expect([allowed.toggle.enabled, allowed.edit.enabled, allowed.move.enabled]).toEqual([true, true, true])
   })
 
+  test("a routine no device has claimed yet says so, and runs nowhere until one does", async () => {
+    const view = await setup()
+    const timesheet = view.find("Timesheet draft")
+    const unclaimed = { ...timesheet, owner: { label: "", online: false, here: false, unclaimed: true } }
+    const local = view.model.capabilities("local")
+    expect(said(routineStatus(unclaimed, local))).toBe("Not claimed yet")
+    const allowed = actions(unclaimed, local)
+    expect([allowed.start.enabled, said(allowed.start.reason)]).toEqual([false, "No computer has claimed it yet."])
+    expect([allowed.toggle.enabled, allowed.edit.enabled]).toEqual([true, true])
+  })
+
   test("an edit that replaces the routine says so; a backend without cancel cannot stop a run", async () => {
     const view = await setup()
     const crm = view.find("Sync CRM")
