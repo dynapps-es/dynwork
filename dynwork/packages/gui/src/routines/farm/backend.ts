@@ -158,6 +158,8 @@ export function make(): Backend {
     // JESÚS: `create(definition)` is `POST /schedules` with `task`, `recurrence` and `overlap` from `Definition` and
     // `Definition.options`. A `Definition` with no `schedule` has no place in the farm: keep it in DynWork's own table
     // and make `start` a `POST /tasks`. A full tenant is `Failure` `quota`.
+    // JESÚS: `Definition.template` (`{ id, revision }`, a task activated from a template) has no place in the farm
+    // either: keep it in the same DynWork table and give it back untouched from `get`, `list` and `update`.
     create: async () => notImplemented("create"),
     // JESÚS: `update(id, definition)` creates the new schedule and then deletes the old one, answering a `Routine` with
     // a new `ref`: `actions.edit` is `replace`. The table of names keeps the chain of ids so the history stays whole.

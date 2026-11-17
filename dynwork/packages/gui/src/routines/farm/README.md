@@ -244,16 +244,16 @@ agent manage the user's tasks in a chat; the user sees them as tasks, and yours 
 `capabilities().label`; "Agent Farm" never reaches the UI). Every tool goes through the registry to the task's own
 backend, so a `farm:<id>` task reaches yours:
 
-| Tool | Your methods |
-| --- | --- |
-| `list_scheduled_tasks` | `list()`, with `capabilities().label` |
-| `list_running_tasks` | `runs({})` (the `queued` and `running` ones) and `list()` for the names |
-| `get_scheduled_task` | `get(id)`, `runs({ routine: id })` |
-| `create_scheduled_task` (`where: "farm"`) | `validate(definition)` before the card, `create(definition)` after Schedule |
-| `update_scheduled_task` | `get(id)`, `validate(definition)` before the card, `update(id, definition)` after Save |
-| `delete_scheduled_task` | `get(id)`, `remove(id)` after Delete |
-| `pause_scheduled_task`, `resume_scheduled_task` | `get(id)`, then `pause(id)` or `resume(id)` at once |
-| `run_scheduled_task` | `get(id)`, then `start(id)`: at once for "Ask me", after the card for "Don't ask" |
+| Tool                                            | Your methods                                                                           |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `list_scheduled_tasks`                          | `list()`, with `capabilities().label`                                                  |
+| `list_running_tasks`                            | `runs({})` (the `queued` and `running` ones) and `list()` for the names                |
+| `get_scheduled_task`                            | `get(id)`, `runs({ routine: id })`                                                     |
+| `create_scheduled_task` (`where: "farm"`)       | `validate(definition)` before the card, `create(definition)` after Schedule            |
+| `update_scheduled_task`                         | `get(id)`, `validate(definition)` before the card, `update(id, definition)` after Save |
+| `delete_scheduled_task`                         | `get(id)`, `remove(id)` after Delete                                                   |
+| `pause_scheduled_task`, `resume_scheduled_task` | `get(id)`, then `pause(id)` or `resume(id)` at once                                    |
+| `run_scheduled_task`                            | `get(id)`, then `start(id)`: at once for "Ask me", after the card for "Don't ask"      |
 
 - **What it sends.** A `Definition` built by `RoutinesChat.definitionOf` (create) or `RoutinesChat.changed` (update:
   your routine with only the given fields changed, its other options kept): `name`, `instructions` of kind `prompt`,
@@ -268,3 +268,31 @@ backend, so a `farm:<id>` task reaches yours:
   reaches the farm backend": point them at your backend and expect a card or a change instead of "not implemented".
   Live: run Dynwork with `DYNWORK_ROUTINES_FARM=1`, open Tasks › New task › Create with Dynwork, ask for a task on
   Cloud, press Schedule, and see it in the list; then ask the chat to rename, pause and run it.
+
+## Templates (in progress)
+
+Governance admins are getting **templates** of scheduled tasks: a template is published for groups of people (who sees
+it follows the template's anchor plugins and the standard access rules), each person activates it in Dynwork
+(Scheduled → Templates) and gets a task of their own **linked** to it, and mandatory templates arrive on their own.
+Changes to the template reach every linked task. The contract is `../TEMPLATES.md`; the types are in `../contract.ts`
+and the rules in `../templates.ts`. In this version templates run only on this computer.
+
+What this means for the farm backend now:
+
+- **Round-trip `Definition.template`.** A definition may carry `template: { id, revision }` next to `name`. Store it
+  and give it back untouched from `get`, `list` and `update` (in DynWork's own table, since the farm has no place for
+  it). The conformance case "a definition's template link survives create, read and an edit of a free field" checks it.
+- **Locked fields are not yours to enforce.** `RoutinesTemplates.violates(template, before, after)` says what an edit
+  may not change. The form and the chat tools call it before your `update`; Governance checks it again.
+- **One conversation per run in Governance.** If farm runs call Governance's AI gateway, stamp each request body with
+  `metadata.user_id = {"session_id": uuidv5("7c1f5b6e-3a2d-4e8f-9b0c-2d6a1e4f8c73", <run's session id>)}`, as the
+  server plugin's `stamp()` does (`../../../../server-plugin/src/telemetry.ts`). Governance then records each run as its
+  own conversation and the admin's page of a template's activations links to it.
+
+What not to build until the templates work is finished (ask David first):
+
+- No template UI, storage or activation for Cloud, and no Governance route for templates.
+- No change to the owner-device sync and claim of local tasks: Cloud tasks have no owner device.
+
+After it lands, Cloud templates are `RoutinesTemplates.activate` with `where: "cloud"` creating the task through this
+backend (see the `JESÚS:` in `../templates.ts`), with the same locks and the same merge of new revisions.

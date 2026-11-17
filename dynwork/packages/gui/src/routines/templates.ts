@@ -82,6 +82,8 @@ function defaults(template: Template, timezone: string): Definition {
 
 function refusals(template: Template, personal: Personal, definition: Definition) {
   return {
+    // JESÚS: Cloud templates (`where: "cloud"`) are refused until the farm backend creates them: activating one will be
+    // this same definition handed to the farm's `create`, with the locks and merge unchanged (`TEMPLATES.md`).
     ...(template.where === "local" ? {} : { where: "Only templates that run on this computer can be activated here." }),
     ...(definition.schedule && personal.timezone.trim() === "" ? { schedule: "A time zone is required." } : {}),
     ...(template.personal.folder === "required" && !personal.folder?.trim()

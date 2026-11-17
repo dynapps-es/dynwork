@@ -64,6 +64,16 @@ export function conformance(name: string, make: () => Promise<Subject> | Subject
       expect(await ok(backend.get(created.ref.id))).toEqual(created)
     })
 
+    test("a definition's template link survives create, read and an edit of a free field", async () => {
+      const { backend } = await make()
+      const definition = { ...(await sample(backend, "Linked")), template: { id: "conformance", revision: 3 } }
+      const created = await ok(backend.create(definition))
+      expect(created.definition.template).toEqual({ id: "conformance", revision: 3 })
+      expect((await ok(backend.get(created.ref.id))).definition.template).toEqual({ id: "conformance", revision: 3 })
+      const updated = await ok(backend.update(created.ref.id, { ...created.definition, name: "Linked, renamed" }))
+      expect(updated.definition.template).toEqual({ id: "conformance", revision: 3 })
+    })
+
     test("a routine without a schedule is allowed and runs only when started", async () => {
       const { backend } = await make()
       const created = await ok(backend.create({ ...(await sample(backend, "Manual only")), schedule: undefined }))
