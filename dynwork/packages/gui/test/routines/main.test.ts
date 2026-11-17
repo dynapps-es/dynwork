@@ -57,7 +57,11 @@ function stand(
   }
   // SAFETY: the routines' setup reads only `provide`, `onCleanup`, `storage`, `serverEndpoints` and `windows`, which the
   // stand-in provides.
-  const registry = RoutinesMain.setup(ctx as unknown as MainContext, { label: "Test Mac", ...options }).registry
+  const registry = RoutinesMain.setup(ctx as unknown as MainContext, {
+    label: "Test Mac",
+    demo: true,
+    ...options,
+  }).registry
   const caller: Caller = { window: 1, signal: new AbortController().signal }
   const call = (name: string, input?: unknown) => provided.impl?.[name]?.(input, caller)
   return { provided, cleanups, pushed, registry, call, stored }
@@ -81,6 +85,15 @@ describe("main", () => {
     expect(state.routines.filter((routine) => routine.ref.backend === "local")).toHaveLength(0)
     expect(state.routines.filter((routine) => routine.ref.backend === "farm")).toHaveLength(4)
     expect(main.pushed.changed).toBeGreaterThan(0)
+    main.cleanups.forEach((cleanup) => cleanup())
+  })
+
+  test("a released build seeds no demo: only this computer's backend, and no Cloud tasks", async () => {
+    const main = stand(undefined, { demo: false })
+    expect(main.registry.list().map((backend) => backend.id)).toEqual(["local"])
+    await main.call("refresh")
+    const state = main.call("state", 1) as { routines: Array<{ ref: { backend: string } }> }
+    expect(state.routines.filter((routine) => routine.ref.backend === "farm")).toHaveLength(0)
     main.cleanups.forEach((cleanup) => cleanup())
   })
 

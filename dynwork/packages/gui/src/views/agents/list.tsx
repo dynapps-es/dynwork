@@ -40,7 +40,12 @@ export function Toolbar(props: { model: AgentsModel }) {
             aria-label={ctx.t("agents.where.label")}
             onChange={(value) => model.setWhere(wheres.find((where) => where === value) ?? "all")}
           >
-            <For each={wheres}>
+            {/* Cloud shows once a remote backend is registered (the farm); until then every task is on this Mac. */}
+            <For
+              each={wheres.filter(
+                (where) => where !== "remote" || model.backends().some((backend) => backend.kind === "remote"),
+              )}
+            >
               {(where) => (
                 <SegmentedControlItem value={where}>
                   {ctx.t(`agents.where.${where}`, { device: device(ctx).label })}
@@ -87,7 +92,9 @@ export function RoutineCards(props: { model: AgentsModel }) {
       when={model.visible().length > 0}
       fallback={
         <p data-slot="agents-empty">
-          {ctx.t(model.routines().length === 0 ? "agents.list.empty" : "agents.list.none", { device: device(ctx).inline })}
+          {ctx.t(model.routines().length === 0 ? "agents.list.empty" : "agents.list.none", {
+            device: device(ctx).inline,
+          })}
         </p>
       }
     >
@@ -137,7 +144,9 @@ export function Activity(props: { model: AgentsModel; open: (run: Run) => void }
   return (
     <div data-slot="agents-activity">
       <p data-slot="agents-hint">{ctx.t("agents.activity.hint")}</p>
-      <For each={model.activityPage().failures}>{(failure) => <p data-slot="agents-error">{fromMain(ctx.t, failure.message)}</p>}</For>
+      <For each={model.activityPage().failures}>
+        {(failure) => <p data-slot="agents-error">{fromMain(ctx.t, failure.message)}</p>}
+      </For>
       <Show
         when={model.activity().length > 0}
         fallback={

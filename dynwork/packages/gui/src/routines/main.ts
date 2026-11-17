@@ -34,6 +34,11 @@ export interface Options {
   /** Registers the Agent Farm skeleton in place of the remote demo (`RoutinesFarm.enabled`). A development switch. */
   farm?: boolean
   /**
+   * Seeds the remote demo (`demo.ts`, the farm's target behavior) while no farm is registered. Development builds only:
+   * released builds would show its made-up Cloud tasks as real ones.
+   */
+  demo?: boolean
+  /**
    * Whether a scheduled run may start as far as Governance goes: its provider is applied to the service, or there is
    * no account to wait for. A run started earlier fails with "No model is available". Absent: always.
    */
@@ -110,7 +115,7 @@ export function setup(ctx: MainContext, options: Options) {
   // need nothing else. Registering it after the user signs in replaces whatever holds the id `farm`: the demo, or this
   // skeleton.
   if (options.farm) registry.register(RoutinesFarm.make())
-  const demos = RoutinesDemo.register(registry, Date.now)
+  const demos = options.demo ? RoutinesDemo.register(registry, Date.now) : []
   const timer = setInterval(() => demos.forEach((demo) => demo.settle()), SETTLE)
   ctx.onCleanup(() => clearInterval(timer))
 
@@ -130,7 +135,8 @@ export function setup(ctx: MainContext, options: Options) {
     client,
     /** Changes through the Ipc's own methods, so every window reads the change (the chat's cards, `RoutinesChat`). */
     act: {
-      create: (backend: string, definition: Definition) => Promise.resolve(routines.create({ backend, definition }, main)),
+      create: (backend: string, definition: Definition) =>
+        Promise.resolve(routines.create({ backend, definition }, main)),
       update: (ref: Ref, definition: Definition) => Promise.resolve(routines.update({ ...ref, definition }, main)),
       remove: (ref: Ref) => Promise.resolve(routines.remove(ref, main)),
       pause: (ref: Ref) => Promise.resolve(routines.pause(ref, main)),
