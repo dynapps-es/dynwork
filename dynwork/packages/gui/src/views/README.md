@@ -176,10 +176,18 @@ Tailwind does not scan `dynwork/`.
 
 ## The macOS sidebar material
 
-On macOS the desktop window is transparent over the native `sidebar` vibrancy (`platformFrame` in
-`packages/desktop/src/main/windows/defaults.ts`), and `registerViews` marks the root with `data-vibrancy`. Only the
-shell's chrome paints `--v2-background-bg-deep`: the frame around the panels, the sidebar, the titlebar and its tabs.
-`./vibrancy.css` paints that color once, partly transparent, on the shell's root, and makes the token transparent inside
-it, so the sidebar and the frame show the same material and every theme and layout keeps its own color. What sits over
-the panels gets the opaque color back (the panels, the peeking sidebar, the narrow window's drawer).
-The sign-in screen's brand column gets the same material. Windows and Linux keep the opaque window.
+On macOS 26 and later the desktop window shows AppKit's sidebar glass, as Claude desktop does. `./glass/glass.ts` runs
+in the main process (the `dynwork` built-in's main entry) and loads `./glass/glass.mm`, an addon that
+`@dynwork/build`'s vite plugin compiles for both Mac architectures next to the main bundle. The addon puts an
+`NSSplitViewController` behind the page, its sidebar spanning the whole window, over a solid colour (black in dark,
+`#fafafa` in light, following `nativeTheme`): the glass takes the desktop picture's tint and never the windows behind.
+Electron's material comes off while the glass is on. On older macOS, or when the addon does not load, the window keeps
+Electron's `sidebar` vibrancy in its inactive look, which also takes the desktop picture's tint (`platformFrame` in
+`packages/desktop/src/main/windows/defaults.ts`).
+
+`registerViews` marks the root with `data-vibrancy`. Only the shell's chrome paints `--v2-background-bg-deep`: the frame
+around the panels, the sidebar, the titlebar and its tabs. `./vibrancy.css` makes that token transparent across the
+shell, so the sidebar and the frame show the same material in every theme and layout; with Reduce transparency the
+shell's root paints the theme's color instead. What sits over the panels gets the opaque color back (the panels, the
+peeking sidebar, the narrow window's drawer). The sign-in screen's brand column gets the same material. Windows and
+Linux keep the opaque window.

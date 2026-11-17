@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import { DynWorkIdentity } from "@dynwork/branding/identity"
+import { mkdtemp, rm } from "node:fs/promises"
+import { createRequire } from "node:module"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import { DynWorkVite } from "../src/vite"
 
@@ -116,12 +119,52 @@ describe("new session wordmark plugin", () => {
 })
 
 describe("plugins", () => {
-  test("main carries the channel and the theme alias", () => {
+  test("main carries the channel, the theme alias and the sidebar glass", () => {
     const plugins = DynWorkVite.main()
 
-    expect(plugins.map((plugin) => plugin.name)).toEqual(["dynwork:channel", "dynwork:main-aliases"])
+    expect(plugins.map((plugin) => plugin.name)).toEqual([
+      "dynwork:channel",
+      "dynwork:main-aliases",
+      "dynwork:sidebar-glass",
+    ])
     expect(hook(plugins[1])).toEqual({ resolve: { alias: DynWorkVite.aliases.main } })
   })
+
+  // A Mac build writes the glass addon next to the main bundle, for both architectures; other platforms skip it.
+  test("a Mac build emits the sidebar glass addon for both architectures", async () => {
+    const plugin = DynWorkVite.main()[2]
+    const apply = plugin.apply
+
+    expect(typeof apply === "function" && apply({}, { command: "build", mode: "production" })).toBe(
+      process.platform === "darwin",
+    )
+    expect(await Bun.file(DynWorkVite.glassSource).exists()).toBe(true)
+    if (process.platform !== "darwin") return
+
+    const emitted: { fileName?: string; source?: unknown }[] = []
+    const generate = plugin.generateBundle
+    if (typeof generate !== "function") throw new Error("the glass plugin has no generateBundle hook")
+    await generate.call(
+      { emitFile: (file: (typeof emitted)[number]) => emitted.push(file) } as never,
+      {} as never,
+      {},
+      false,
+    )
+
+    expect(emitted.map((file) => file.fileName)).toEqual(["sidebar-glass.node"])
+    const addon = new Uint8Array(emitted[0].source as Buffer)
+    // A universal Mach-O starts with FAT_MAGIC and lists two architectures.
+    expect(Array.from(addon.slice(0, 8))).toEqual([0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 2])
+
+    // The addon declares its Node-API functions by hand: loading it proves they resolve and it registers its exports.
+    const dir = await mkdtemp(path.join(tmpdir(), "dynwork-glass-test-"))
+    const file = path.join(dir, "sidebar-glass.node")
+    await Bun.write(file, addon)
+    const loaded = createRequire(import.meta.url)(file)
+    await rm(dir, { recursive: true, force: true })
+    expect(typeof loaded.attach).toBe("function")
+    expect(typeof loaded.detach).toBe("function")
+  }, 60_000)
 
   test("renderer carries the channel, the theme and logo aliases and the new session plugin", () => {
     const plugins = DynWorkVite.renderer()

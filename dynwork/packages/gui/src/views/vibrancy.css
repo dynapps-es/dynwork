@@ -1,19 +1,16 @@
-/* On macOS the window is transparent over the native sidebar material (desktop `windows/defaults.ts`), and
-   `registerViews` marks the root with `data-vibrancy`. The shell's chrome (the frame around the panels, the sidebar,
-   the titlebar and its tabs) paints the theme's deep background, and only the chrome: tinting that token over the
-   material lets the blur through in every theme and layout. Panels keep the opaque color. */
+/* On macOS the window shows a material through the page: AppKit's sidebar glass over a solid colour on macOS 26 and
+   later (`./glass`), else Electron's material (desktop `windows/defaults.ts`). `registerViews` marks the root with
+   `data-vibrancy`. The shell's chrome (the frame around the panels, the sidebar, the titlebar and its tabs) paints the
+   theme's deep background, and only the chrome: making that token transparent shows the material in every theme and
+   layout. Panels keep the opaque color. */
 
 :root[data-vibrancy] {
-  /* How much of the theme's color covers the material. */
-  --dynwork-vibrancy-tint: 15%;
+  /* How much of the theme's color covers the material: none, as Claude desktop shows it. */
+  --dynwork-vibrancy-tint: 0%;
   /* The theme's own color, resolved here before the shell tints the token below. */
   --dynwork-deep: var(--v2-background-bg-deep);
   /* The preload and the theme set an inline color on the root. */
   background-color: transparent !important;
-}
-
-:root[data-vibrancy][data-color-scheme="dark"] {
-  --dynwork-vibrancy-tint: 20%;
 }
 
 /* With Reduce transparency macOS draws the material opaque; the chrome then shows the theme's own color. */
