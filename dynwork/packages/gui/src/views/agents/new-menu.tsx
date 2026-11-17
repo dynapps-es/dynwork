@@ -23,7 +23,7 @@ export default function NewRoutineMenu(props: {
           as={IconButton}
           variant="ghost-muted"
           size="small"
-          icon="plus"
+          icon={<Icon name="plus" size="small" />}
           data-slot="dynwork-nav-add"
           aria-label={props.label}
           title={props.label}

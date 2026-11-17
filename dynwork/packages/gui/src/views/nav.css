@@ -62,7 +62,7 @@
     transition: opacity 85ms;
   }
 
-  &:is(:hover, :focus-within) [data-slot="dynwork-nav-add"],
+  &:is(:hover, :has(:focus-visible)) [data-slot="dynwork-nav-add"],
   [data-slot="dynwork-nav-add"]:is([data-expanded], [aria-expanded="true"]) {
     opacity: 1;
   }

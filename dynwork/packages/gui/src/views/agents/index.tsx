@@ -124,13 +124,15 @@ export default function AgentsView(props: { where?: Where }) {
     link.remove()
   }
 
-  // The sidebar row's "+" asked for a new task: start it as this view's own menu would, once the view is ready.
+  // The sidebar row's "+" asked for a new task: start it as this view's own menu would, once the view is ready and the
+  // route has settled (a dialog opened while the route still changes is closed by it).
   createEffect(() => {
     const asked = newTask()
-    if (!asked || !model.ready()) return
+    if (!asked || !model.ready() || ctx.router.routing()) return
     askNewTask(undefined)
     if (asked === "chat") return void chat()
-    form()
+    // After the sidebar's menu has closed and handed focus back, or its dismissal closes the dialog at once.
+    setTimeout(() => form(), 150)
   })
 
   const remove = async (routine: Routine) => {
