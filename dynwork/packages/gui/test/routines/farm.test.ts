@@ -22,7 +22,7 @@ describe("the Agent Farm skeleton", () => {
   test("reports itself disabled with the reason, as a remote backend that takes the form's farm fields", async () => {
     const backend = RoutinesFarm.make()
     const capabilities = await backend.capabilities()
-    expect(capabilities).toMatchObject({ backend: "farm", kind: "remote", label: "Dynapps Cloud", status: "disabled" })
+    expect(capabilities).toMatchObject({ backend: "farm", kind: "remote", label: "Cloud", status: "disabled" })
     expect(capabilities.detail).toContain("README")
     expect(capabilities.fields).toEqual(RoutinesFarm.fields)
     expect(crossing(Capabilities, capabilities)).toEqual(capabilities)

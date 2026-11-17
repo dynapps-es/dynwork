@@ -439,11 +439,11 @@ describe("a farm task", () => {
     expect(subject.answers[0]?.text).toContain("not implemented")
   })
 
-  test("is refused while Dynapps Cloud is only its demo", async () => {
+  test("is refused while Cloud is only its demo", async () => {
     const subject = stand()
     await subject.chat.request(ask("call_farm_demo", "delete", "farm:crm"))
     expect(subject.chat.cards()).toEqual([])
-    expect(subject.answers[0]?.text).toContain("Dynapps Cloud is not available in this Dynwork yet.")
+    expect(subject.answers[0]?.text).toContain("Cloud is not available in this Dynwork yet.")
   })
 })
 
@@ -467,11 +467,11 @@ describe("a farm proposal", () => {
     expect(subject.answers[0]?.text).toContain("not implemented")
   })
 
-  test("is refused while Dynapps Cloud is only its demo", async () => {
+  test("is refused while Cloud is only its demo", async () => {
     const subject = stand()
     await subject.chat.request(propose("call_demo", { ...proposal, where: "farm" }))
     expect(subject.chat.cards()).toEqual([])
-    expect(subject.answers[0]?.text).toContain("Dynapps Cloud is not available in this Dynwork yet.")
+    expect(subject.answers[0]?.text).toContain("Cloud is not available in this Dynwork yet.")
   })
 })
 

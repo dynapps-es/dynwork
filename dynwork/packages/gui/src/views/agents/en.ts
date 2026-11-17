@@ -2,7 +2,7 @@
 export default {
   "agents.title": "Scheduled",
   "agents.description":
-    "Everything your agents do on a schedule, in one list. Tasks on {{device}} run with your folders, skills and connectors while Dynwork is open; tasks on Dynapps Cloud keep going even with your laptop closed.",
+    "Everything your agents do on a schedule, in one list. Tasks on {{device}} run with your folders, skills and connectors while Dynwork is open; tasks on Cloud keep going even with your laptop closed.",
   "agents.new": "New task",
   "agents.new.chat": "Create with Dynwork",
   "agents.new.manual": "Set up manually",
@@ -67,7 +67,7 @@ export default {
   "agents.where.label": "Where they run",
   "agents.where.all": "All",
   "agents.where.local": "{{device}}",
-  "agents.where.remote": "Dynapps Cloud",
+  "agents.where.remote": "Cloud",
   "agents.filter.status": "Status",
   "agents.filter.all": "All",
   "agents.filter.active": "Active",
@@ -76,7 +76,7 @@ export default {
   "agents.filter.running": "Running",
   "agents.search": "Search tasks",
   "agents.list.label": "Scheduled tasks",
-  "agents.list.empty": "No tasks yet. Tasks on {{device}} and on Dynapps Cloud both show up here.",
+  "agents.list.empty": "No tasks yet. Tasks on {{device}} and on Cloud both show up here.",
   "agents.list.none": "No tasks match these filters.",
   "agents.list.and": "{{first}} and {{last}}",
   "agents.unread": "Unread run",
@@ -140,7 +140,7 @@ export default {
   "agents.templates.empty":
     "Templates are published by Governance for your organization. Using one creates a task of yours that you can edit. None are published yet.",
   "agents.activity.hint":
-    "Every run, here and in the cloud, newest first. It includes Dynapps Cloud runs started outside Dynwork, such as from the chat.",
+    "Every run, on this computer and on Cloud, newest first. It includes Cloud runs started outside Dynwork, such as from the chat.",
   "agents.activity.empty": "No runs yet.",
 
   "agents.detail.back": "Scheduled",
@@ -160,7 +160,7 @@ export default {
   "agents.detail.history": "History",
   "agents.detail.history.empty": "No runs yet.",
   "agents.detail.history.hint":
-    "Dynapps Cloud runs open in a read-only viewer with their result and log. Continue starts a new run that picks up the session.",
+    "Cloud runs open in a read-only viewer with their result and log. Continue starts a new run that picks up the session.",
   "agents.detail.instructions": "Instructions",
   "agents.detail.repeats": "Repeats",
   "agents.detail.upcoming": "Next runs",
@@ -172,7 +172,7 @@ export default {
   "agents.detail.modelByAgent": "Model: set by the agent",
   "agents.detail.permissions": "Permissions",
   "agents.detail.permissionsRemote":
-    "On Dynapps Cloud there are no approvals: the agent works inside its own container, with only the access you gave it.",
+    "On Cloud there are no approvals: the agent works inside its own container, with only the access you gave it.",
   "agents.detail.notifications": "Notifications",
   "agents.detail.options": "{{label}} options",
   "agents.detail.yes": "Yes",
@@ -220,7 +220,7 @@ export default {
   "agents.form.notice.local":
     "Choose under the instructions whether this task asks for your approval, as a conversation does, or works without asking. When it asks, the run waits and you get a notification.",
   "agents.form.notice.remote":
-    "On Dynapps Cloud the agent works without approvals inside its container. Give it only the access it needs.",
+    "On Cloud the agent works without approvals inside its container. Give it only the access it needs.",
   "agents.form.trigger": "Trigger",
   "agents.form.trigger.none": "Only when I run it",
   "agents.form.trigger.daily": "Every day",
