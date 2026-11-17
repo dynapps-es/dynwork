@@ -1,0 +1,66 @@
+/* The routine proposal in the composer's dock. The dock itself (`DockPrompt`, the `permission-*` slots) is styled by the
+   app as its permission prompt; these rules only lay out what sits in its input box, with the theme's v2 tokens, so
+   light and dark follow the theme. */
+
+[data-component="agents-proposal"] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
+
+  [data-slot="proposal-prompt"] {
+    max-height: 160px;
+    margin: 0;
+    overflow: auto;
+    font-family: var(--font-family-mono, ui-monospace, monospace);
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  [data-slot="proposal-rows"] {
+    display: grid;
+    grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
+    gap: 4px 16px;
+    margin: 0;
+
+    dt {
+      color: var(--v2-text-text-faint);
+    }
+
+    dd {
+      min-width: 0;
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  [data-slot="proposal-warning"] {
+    margin: 0;
+    color: var(--v2-state-fg-warning);
+  }
+
+  [data-slot="proposal-error"] {
+    margin: 0;
+    color: var(--v2-state-fg-danger);
+  }
+
+  [data-slot="proposal-toggle"] {
+    align-self: flex-start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--v2-text-text-muted);
+    cursor: pointer;
+  }
+}
+
+[data-component="dock-prompt"] [data-slot="proposal-key"] {
+  margin-left: 8px;
+  font-family: inherit;
+  font-size: 11px;
+  opacity: 0.7;
+}

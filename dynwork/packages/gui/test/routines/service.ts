@@ -12,14 +12,14 @@ type Outcome = NonNullable<SessionInfo["outcome"]>
 
 /**
  * A stand-in for DynWork's service (`opencode serve --service`) over real HTTP, for the local routines backend: the
- * session routes it calls, the agent, model and skill lists, and the event stream. A prompt starts the session's
+ * session routes it calls, the agent, model, skill and MCP server lists (`mcp`), and the event stream. A prompt starts the session's
  * execution at once; `finish` ends every running one, as the model would, `ask` and `reply` put a permission request to
  * a session and answer it, and `restart` drops them as a service that
  * stopped would: they stay busy, but no longer active. Times come from `now`, which the test moves.
  * It speaks the public API's wire shapes (`packages/protocol/src/groups/session.ts`): `{ data }` bodies, 204 for
  * updates, a tagged 404 for an unknown session.
  */
-export function fakeService(input: { now: () => number }) {
+export function fakeService(input: { now: () => number; mcp?: readonly string[] }) {
   const sessions = new Map<string, SessionInfo>()
   const received: Received[] = []
   const streams = new Set<ReadableStreamDefaultController<Uint8Array>>()
@@ -103,6 +103,11 @@ export function fakeService(input: { now: () => number }) {
         data: [
           { id: "claude-sonnet-5-5", modelID: "claude-sonnet-5-5", providerID: "anthropic", name: "Claude Sonnet 5.5" },
         ],
+      })
+    if (url.pathname === "/api/mcp")
+      return Response.json({
+        location: { directory: "/" },
+        data: (input.mcp ?? []).map((name) => ({ name, status: { status: "connected" } })),
       })
     if (url.pathname === "/api/skill")
       return Response.json({

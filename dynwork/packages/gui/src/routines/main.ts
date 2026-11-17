@@ -5,7 +5,7 @@ import path from "node:path"
 import { OpenCode, type OpenCodeClient } from "@opencode/client/promise"
 import type { MainContext } from "@opencode/plugin/gui/main"
 import { RoutinesBackend } from "./backend"
-import { Routines, type Run } from "./contract"
+import { Routines, type Definition, type Run } from "./contract"
 import { RoutinesDemo } from "./demo"
 import { RoutinesFarm } from "./farm/backend"
 import { RoutinesIpc } from "./ipc"
@@ -13,10 +13,12 @@ import { RoutinesLocal } from "./local/backend"
 import { RoutinesClock } from "./local/clock"
 import { RoutinesSync } from "./local/sync"
 
+// Main itself, as the caller of an Ipc method it runs on its own (a chat card's Schedule).
+const main = { window: 0, signal: new AbortController().signal }
 // How often the demo backends finish the runs whose minute has passed.
 const SETTLE = 5_000
 // DynWork's own service, as a window names it (`ServerRef.id`) and main reaches it (`ctx.serverEndpoints`).
-const SERVER = "sidecar"
+export const SERVER = "sidecar"
 
 export interface Options {
   /** This device's name: the local routines' badge. */
@@ -112,14 +114,23 @@ export function setup(ctx: MainContext, options: Options) {
   const timer = setInterval(() => demos.forEach((demo) => demo.settle()), SETTLE)
   ctx.onCleanup(() => clearInterval(timer))
 
-  const ipc = ctx.provide(
-    Routines,
-    RoutinesIpc.implementation(registry, { changed: () => provider.changed(), run: (run) => provider.run(run) }),
-  )
+  const routines = RoutinesIpc.implementation(registry, {
+    changed: () => provider.changed(),
+    run: (run) => provider.run(run),
+  })
+  const ipc = ctx.provide(Routines, routines)
   provider.changed = () => ipc.changed()
   provider.run = (run) => ipc.emit("run", run)
   provider.open = (run) => ipc.emit("open", run)
-  return { registry, check: () => void clock.check(), pull: () => void shared.sync?.sync() }
+  return {
+    registry,
+    check: () => void clock.check(),
+    pull: () => void shared.sync?.sync(),
+    /** DynWork's service, while it runs. */
+    client,
+    /** Creates through the Ipc's own `create`, so every window reads the new routine. */
+    create: (backend: string, definition: Definition) => Promise.resolve(routines.create({ backend, definition }, main)),
+  }
 }
 
 /** What a notification says: the routine's name and what happened to its run. */

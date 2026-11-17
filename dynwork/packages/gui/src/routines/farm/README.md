@@ -233,3 +233,22 @@ David decides which of these the farm team takes on.
 - [ ] Every `JESÚS:` comment you finished is deleted or turned into a plain comment, and the ones you did not finish
       are still there.
 - [ ] Commits follow upstream's convention with the `dynwork` scope: `feat(dynwork): connect the Agent Farm routines`.
+
+## Routines created from a chat
+
+The `routines_create` tool (`@dynwork/server-plugin/routines`) lets the agent propose a routine in a chat; the user
+creates it with the card's Schedule (`routines/chat.ts`, "Create from a chat" in `routines/README.md`). With
+`where: "farm"` the proposal comes to this backend:
+
+- **What it sends.** A `Definition` built by `RoutinesChat.definitionOf`: `name`, `instructions` of kind `prompt`,
+  `schedule` (`cron` and `timezone`, Europe/Madrid by default; absent for a manual routine), `enabled: true`, and
+  `options` with `permissions` (`ask` | `bypass`), `notify` (`failures` | `every` | `never`), and `folder` and
+  `connectors` (MCP server names) when the user gave them. No `agent`, no `model`.
+- **What you implement.** Your `validate(definition)` runs first, before any card (`JESÚS:` in `routines/chat.ts`); a
+  `Failure` there goes back to the agent with its `fields`, and no card is shown. Then, only after the user presses
+  Schedule, your `create(definition)`. Map what the farm needs from these options (a prompt routine runs on your default
+  agent, or ask for an agent through `instructions` of kind `agent` later), and refuse what it cannot take with an
+  `invalid` field. Nothing else changes: the tools, the card and the bridge are the same as for local routines.
+- **How to test it.** `test/routines/chat.test.ts` has "a farm proposal reaches the farm backend": point it at your
+  backend and expect a card instead of the refusal. Live: run Dynwork with `DYNWORK_ROUTINES_FARM=1`, open Agents ›
+  New routine › Create with Dynwork, ask for a routine on the Agent Farm, press Schedule, and see it in the list.

@@ -6,6 +6,7 @@ import { DynWorkSync } from "./contract"
 import { DynWorkGateway } from "./gateway"
 import { DynWorkInstructions } from "./instructions"
 import { DynWorkMapping } from "./mapping"
+import { DynWorkRoutines } from "./routines"
 import { DynWorkShell } from "./shell"
 import { DynWorkSkills } from "./skills"
 import { DynWorkTelemetry } from "./telemetry"
@@ -55,6 +56,25 @@ export const Definition = Rpc.define({
     refresh: { schema: Schema.toStandardSchemaV1(DynWorkSync.Refresh) },
     rejected: { schema: Schema.toStandardSchemaV1(DynWorkSync.Rejected) },
     session: { schema: Schema.toStandardSchemaV1(DynWorkSync.Session) },
+  },
+})
+
+// Routines from a chat (`./routines`): main answers the tools' requests and reads those still waiting.
+export const RoutinesDefinition = Rpc.define({
+  id: DynWorkRoutines.id,
+  methods: {
+    answer: {
+      input: Schema.toStandardSchemaV1(DynWorkRoutines.Answer),
+      output: Schema.toStandardSchemaV1(DynWorkRoutines.Accepted),
+    },
+    pending: {
+      input: Schema.toStandardSchemaV1(Schema.Unknown),
+      output: Schema.toStandardSchemaV1(DynWorkRoutines.Pending),
+    },
+  },
+  events: {
+    request: { schema: Schema.toStandardSchemaV1(DynWorkRoutines.Request) },
+    withdraw: { schema: Schema.toStandardSchemaV1(DynWorkRoutines.Withdrawn) },
   },
 })
 
@@ -556,5 +576,24 @@ export default Plugin.define({
       ),
       Effect.forkScoped({ startImmediately: true }),
     )
+
+    // The routines tools: they ask main, which holds the routines, and wait for its answer (`./routines`).
+    const routinesRpc = yield* ctx.rpc
+      .register(RoutinesDefinition, {
+        answer: (input) => Effect.sync(() => DynWorkRoutines.answer(input)),
+        pending: () => Effect.sync(DynWorkRoutines.pending),
+      })
+      .pipe(Effect.orDie)
+    const routinesTools = DynWorkRoutines.tools({
+      request: (request) =>
+        routinesRpc.events
+          .emit("request", request)
+          .pipe(Effect.catchCause(() => Effect.logWarning("dynwork: could not ask main about routines"))),
+      withdraw: (id) => routinesRpc.events.emit("withdraw", { id }).pipe(Effect.ignore),
+    })
+    yield* ctx.tool.transform((editor) => {
+      editor.add(routinesTools.list)
+      editor.add(routinesTools.create)
+    })
   }),
 })

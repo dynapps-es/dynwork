@@ -107,6 +107,9 @@ export function createAgentsModel(input: { client: () => Client | undefined; whe
     select: (ref: Ref) => setState("selected", { ...ref }),
     deselect: () => setState({ selected: undefined, viewer: undefined }),
     dismiss: () => setState("failure", undefined),
+    /** Shows a failure from outside the model, such as "Create with Dynwork" not opening its conversation. */
+    fail: (failure: Failure | undefined) =>
+      setState("failure", failure ?? { code: "unreachable", message: "Dynwork's service is not running.", retryable: true }),
     closeViewer: () => setState("viewer", undefined),
 
     /** The routine's runs, the first page or, with `more`, the next one. */

@@ -39,7 +39,7 @@ function record() {
     model: domain("model"),
     session: { hook: hook("session") },
     shell: { hook: hook("shell") },
-    tool: { hook: hook("tool") },
+    tool: { ...domain("tool"), hook: hook("tool") },
     event: {
       subscribe: (input: { types: string[] }) => {
         used.push(`event.subscribe(${input.types.join(",")})`)
@@ -100,7 +100,13 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
     "session.hook(http.request)@systemprompt",
     "session.hook(http.response)@systemprompt",
     "event.subscribe(session.step.ended,session.step.failed)",
+    "rpc.register(dynwork.routines-chat)",
+    "tool.transform",
   ])
+  // The routines tools (`../src/routines`), added for the chat's "Create with Dynwork".
+  const tools: string[] = []
+  recorded.transforms.tool?.({ add: (tool: { name: string }) => tools.push(tool.name) } as never)
+  expect(tools).toEqual(["routines_list", "routines_create"])
 })
 
 test("without saved shell values the plugin leaves shells alone", async () => {

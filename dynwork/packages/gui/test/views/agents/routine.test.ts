@@ -104,7 +104,7 @@ describe("the detail's facts, the same layout for both kinds", () => {
       ["Permissions", "Don't ask"],
     ])
     expect(grouped.notifications.map((fact) => fact.value)).toEqual(["Only when something fails"])
-    expect(grouped.options).toEqual([])
+    expect(grouped.options.map((fact) => [fact.label, fact.value])).toEqual([["Connectors", "all"]])
   })
 
   test("a remote routine fills where and its own options block, with lookup labels and `when` applied", async () => {

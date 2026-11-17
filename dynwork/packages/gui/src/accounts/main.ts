@@ -1,8 +1,9 @@
 import { DynWorkIdentity } from "@dynwork/branding/identity"
-import { hostname } from "node:os"
+import { homedir, hostname } from "node:os"
 import { app, Notification, powerMonitor, powerSaveBlocker, safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
 import { RemoteMain } from "../remote/main"
+import { RoutinesChat } from "../routines/chat"
 import { RoutinesFarm } from "../routines/farm/backend"
 import { RoutinesMain } from "../routines/main"
 import { DynWorkSyncEngine } from "../sync/engine"
@@ -123,6 +124,15 @@ const setup: Plugin.MainSetup = (ctx) => {
         return peer ? { id: peer, name: label } : undefined
       },
     },
+  })
+  // Routines from a chat: the routines tools' proposals, their cards and Schedule, over the same registry.
+  RoutinesChat.setup(ctx, {
+    registry: routinesMain.registry,
+    farm: RoutinesFarm.enabled(process.env),
+    client: routinesMain.client,
+    create: routinesMain.create,
+    server: RoutinesMain.SERVER,
+    home: homedir(),
   })
   routines.check = routinesMain.check
   routines.pull = routinesMain.pull

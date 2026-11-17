@@ -22,6 +22,7 @@ window                                    main process
 | `local/`      | The local backend (anchor and run sessions on DynWork's service, storage in the plugin's), its clock (`clock.ts`) and its Governance sync (`sync.ts`) |
 | `farm/`       | The Agent Farm backend's skeleton and its handover `README.md` for Jesús Vargas: off unless `DYNWORK_ROUTINES_FARM=1`    |
 | `main.ts`     | The main-process setup: the registry, the local backend and its clock, the demos and the Ipc. From `accounts/main.ts`    |
+| `chat.ts`     | Routines from a chat: the routines tools' requests, the approval cards (`Chat` Ipc in `contract.ts`) and Schedule. From `accounts/main.ts` |
 | `client.ts`   | The window's live Ipc client, handed over by `accounts/renderer.ts` for the views to read                                |
 
 Everything crossing to a window is a Schema value, with epoch milliseconds for time. Every backend-specific value is in
@@ -144,6 +145,19 @@ and fake timers over the same service.
 - **Awake.** `Options.busy` is called when the first run starts and when the last one ends; `accounts/main.ts` holds a
   `powerSaveBlocker("prevent-app-suspension")` while it is true.
 
+## Connectors
+
+- **"Connectors"** (`connectors`, a `multiselect` whose lookup is `connectors`): `"all"` (the default, and what a routine
+  made before the option reads as) or the names of the MCP servers a run may use. The form lists the servers
+  `mcp.list` returns (Governance's and the user's own), all checked, and saves `"all"` while every one is checked, so a
+  server added later is allowed; with an explicit list it is not. Without the service the tab says there are none.
+- **No OpenCode patch.** A run's session is created with the "Ask me" or "Don't ask" rules and, after them, one
+  `{ action: "<namespace>_*", resource: "*", effect: "deny" }` per server of `mcp.list` (read when the run starts, in the
+  routine's folder) that the list leaves out. The namespace is the server's name with everything but letters, digits,
+  `_` and `-` replaced by `_`, as core computes it (`normalizedName`, `McpTool.name`); `denyConnectors` mirrors it. A
+  server whose tools are all denied is hidden from the model. Limit: `a_*` also matches the tools of a server named
+  `a_b`, so a server whose name starts with another's followed by `_` shares its fate.
+
 ## Sync with Governance
 
 `local/sync.ts` (`RoutinesSync.make`) shares the local routines' definitions with the user's other computers through
@@ -221,6 +235,44 @@ this computer reads the move (seconds with the hint, at most one poll without).
   Nothing retries them. A service restart while the app stays open is not detected yet.
 - **History.** Occurrences that did not run are runs without a session (`conversation: none`, already read), with their
   `due`. The view puts their reason in words (`agents.why.*`).
+
+## Create from a chat
+
+"New routine ▾" in Agents offers **Create with Dynwork** (and **Set up manually**, the form). It opens a conversation in
+the user's home with the setup prompt (`chatPrompt`) sent as the user's message; the agent asks what to do, how often,
+when (Europe/Madrid unless told otherwise) and how to notify, and where, permissions, folder and connectors only when
+they matter.
+
+- **Tools.** The server plugin adds `routines_list` and `routines_create` (`@dynwork/server-plugin/routines`). The
+  proposal is in the form's own terms: `name`, `instructions`, `repeat` (`manual`, `daily`, `weekdays`, `weekly`,
+  `monthly`, `cron`) with `time`, `days`, `day` or `cron`, `timezone`, `where` (`local` | `farm`), `permissions`,
+  `folder`, `connectors` (absent: all) and `notify`.
+- **Bridge.** The tools run in the service, the routines live here. The plugin's own RPC (`dynwork.routines-chat`) carries
+  them: a tool publishes a `request` event and waits; main follows the plugin's events (`chat.ts` `setup`), answers
+  with the `answer` method, reads the requests still waiting with `pending` after each (re)connection, and a stopped
+  step publishes `withdraw`. A list waits 10 s for main; a proposal waits for the user as long as it takes.
+- **Why not a permission.** The card could have been a permission request (`permission.assert`) that main creates the
+  routine from on its "once" reply. It is not, because a permission can be answered by something other than the
+  user: the app's auto-approve setting answers every request, an "Always" reply is saved as a rule, and an unattended
+  run turns "ask" into "deny". The card looks like the permission prompt and sits where it does, but only its own buttons answer it, and the
+  agent has no way to press them.
+- **Validation.** `definitionOf` turns the proposal into a `Definition` with the form's presets (`cronOf`), refusing an
+  incomplete or unreadable schedule; then the `Definition` schema and the backend's own `validate`, as the form. A
+  refusal is the tool's answer, with one line per field, and no card is shown.
+- **Card.** A valid proposal becomes a `Card` in the `dynwork.routines.chat` Ipc. The conversation that made it shows
+  it in its composer region, in place of the composer, drawn with OpenCode's `DockPrompt` and the permission dock's
+  slots (`views/agents/proposal.tsx`, through the `session.composer.dock` slot, DynWork's patch). It shows the prompt,
+  Routine, Schedule, Runs on, Permissions, Project folder, Connectors, Notifications, Origin and "Show full input",
+  with **Cancel** and **Schedule** (⌘↵).
+- **Schedule.** `decide` takes the card out first (a second answer from another window finds nothing), then creates
+  through the routines Ipc's own `create`, so every window reads the new routine, and answers the tool with the
+  routine's line. Cancel answers "nothing was created". The tool call in the conversation shows the result.
+- **Agent Farm.** `where: "farm"` goes through the registry to the `farm` backend only when it is the real one
+  (`DYNWORK_ROUTINES_FARM=1`); the skeleton's `validate` answers "not implemented", so the tool reports it and no card
+  is shown. With the demo in its place the tool says the farm is not available. See `farm/README.md`.
+
+`test/routines/chat.test.ts` drives `make` with the local demo fake and the farm skeleton;
+`dynwork/packages/server-plugin/test/routines.test.ts` drives the tools and their wait.
 
 ## What the fake does not do
 

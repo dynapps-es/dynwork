@@ -63,6 +63,7 @@
         "@dynwork/sp-client": "workspace:*",
         "@opencode/client": "workspace:*",
         "@opencode/plugin": "workspace:*",
+        "@opencode/session-ui": "workspace:*",
         "@opencode/ui": "workspace:*",
         "@opencode/util": "workspace:*",
         "effect": "catalog:",

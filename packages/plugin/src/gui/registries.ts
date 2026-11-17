@@ -892,6 +892,8 @@ export interface SlotMap {
     /** Whether the project menu is open. Subscribe to location data only while true. */
     readonly shown: boolean
   }
+  /** The routed session's composer region: while this renders something, it replaces the composer, as the permission dock does. */
+  readonly "session.composer.dock": Record<string, never>
   /** The actions at the end of the side region's tab strip. */
   readonly "session.panel.end": {
     /** The owning session screen; always present. */

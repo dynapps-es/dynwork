@@ -51,6 +51,7 @@ import { createSessionRequestModel } from "../requests/model"
 import type { Region } from "@/runtime/plugin/panels"
 import { SessionLocationMissing } from "./location-missing"
 import { SessionPluginPills } from "./plugin-pills"
+import { PluginSlot } from "@/runtime/plugin/render"
 import { createTimelineActions, type TimelineActionsView, type TimelinePendingActions } from "./timeline-actions"
 import type { MountedSession, SessionScreen } from "@opencode/plugin/gui"
 
@@ -562,6 +563,7 @@ export function ActiveSessionComposerRegion(props: {
   return (
     <SessionComposerRegion
       controller={props.model.region}
+      dock={<PluginSlot at="session.composer.dock" input={{}} />}
       subagent={
         <Show when={props.session.data.info()}>
           {(info) => (

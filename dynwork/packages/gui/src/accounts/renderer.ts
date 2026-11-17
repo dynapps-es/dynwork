@@ -5,7 +5,8 @@ import type definition from "./index"
 import { Remote } from "../remote/contract"
 import { registerRemote } from "../remote/ui/register"
 import { RoutinesClient } from "../routines/client"
-import { Routines } from "../routines/contract"
+import { Chat, Routines } from "../routines/contract"
+import { registerChat } from "../views/agents/proposal"
 import { register } from "./ui/register"
 import { openRun } from "../views/runs/open"
 import { registerViews } from "../views/register"
@@ -30,6 +31,9 @@ const setup: Plugin.Setup<typeof definition> = (ctx) => {
   registerRemote(ctx, ctx.use(Remote))
   const routines = ctx.use(Routines)
   RoutinesClient.attach(routines)
+  const chat = ctx.use(Chat)
+  RoutinesClient.attachChat(chat)
+  registerChat(ctx, chat)
   // A notification's click: main focused this window or another, and says which run to open.
   createEffect(() => {
     const connection = routines()
