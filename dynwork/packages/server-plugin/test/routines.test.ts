@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { Effect, Fiber } from "effect"
+import { Effect, Fiber, SchemaAST } from "effect"
 import { DynWorkRoutines } from "../src/routines"
 
 // The routines tools only ask main and wait: each test plays main by answering the requests the emitter publishes.
@@ -66,7 +66,7 @@ test("a stopped proposal is withdrawn, so main drops its card", async () => {
   expect(DynWorkRoutines.answer({ id: "call_stopped", text: "late", error: false })).toEqual({ accepted: false })
 })
 
-test("the tools carry the scheduled-task names, and none speaks of routines", () => {
+test("the tools carry the scheduled-task names, and stay out of Code Mode", () => {
   const tools = Object.values(main().tools)
   expect(tools.map((tool) => tool.name)).toEqual([
     "list_scheduled_tasks",
@@ -80,7 +80,81 @@ test("the tools carry the scheduled-task names, and none speaks of routines", ()
     "run_scheduled_task",
   ])
   expect(tools.every((tool) => tool.options.codemode === false)).toBe(true)
-  expect(tools.some((tool) => /routine|Agent Farm/i.test(tool.description))).toBe(false)
+})
+
+test("every description names a scheduled task in the words people use, in English, Spanish, French and Dutch", () => {
+  const tools = Object.values(main().tools)
+  const words = [
+    "scheduled task",
+    "routine",
+    "recurring task",
+    "automation",
+    "tarea programada",
+    "tâche planifiée",
+    "geplande taak",
+  ]
+  expect(
+    tools.filter((tool) => !words.every((word) => tool.description.includes(word))).map((tool) => tool.name),
+  ).toEqual([])
+  // The UI word is task: a description never says routine without it, nor Agent Farm without Cloud.
+  expect(tools.every((tool) => tool.description.indexOf("scheduled task") < tool.description.indexOf("routine"))).toBe(
+    true,
+  )
+  expect(
+    tools.filter((tool) => tool.description.includes("Agent Farm") && !tool.description.includes("Cloud")),
+  ).toEqual([])
+})
+
+test("the verbs and schedules a request uses lead to the matching tool, in the four languages", () => {
+  const tools = main().tools
+  const named = {
+    list: [
+      "every Monday",
+      "cada lunes",
+      "todos los días",
+      "automatización",
+      "automatisation",
+      "automatisering",
+      "tous les jours",
+      "elke dag",
+    ],
+    create: ["every morning", "daily at 8", "cada lunes", "prográmalo", "chaque lundi", "elke maandag"],
+    update: ["rename", "renombrar", "renommer", "hernoemen"],
+    delete: ["delete", "eliminar", "supprimer", "verwijderen"],
+    pause: ["pause", "pausar", "mettre en pause", "pauzeren"],
+    resume: ["resume", "reanudar", "reprendre", "hervatten"],
+    run: ["now", "ejecutar ahora", "lancer maintenant", "nu uitvoeren"],
+  }
+  const missing = Object.entries(named).flatMap(([key, words]) =>
+    words
+      .filter((word) => !tools[key as keyof typeof named].description.includes(word))
+      .map((word) => `${key}: ${word}`),
+  )
+  expect(missing).toEqual([])
+})
+
+test("the guidance says where a task runs, what the tools are not for, and how to change one", () => {
+  const tools = main().tools
+  const rules = tools.list.description
+  // Where: this computer, or Cloud, which people still call the Agent Farm.
+  expect(rules).toContain("this Mac")
+  expect(rules).toContain("Cloud, formerly the Agent Farm")
+  expect(rules).toContain("where 'farm'")
+  expect(tools.create.description).toContain("\"on the farm\" is where 'farm'")
+  expect(SchemaAST.resolveDescription(DynWorkRoutines.Proposal.fields.where.ast)).toContain(
+    "'farm' (Cloud, formerly the Agent Farm or 'the farm'",
+  )
+  // What else a request could reach.
+  expect(rules).toContain("never a shell crontab")
+  expect(rules).toContain("todowrite")
+  expect(rules).toContain("OpenCode's schedule_* tools, which only wake this same conversation later")
+  expect(rules).toContain("never the agent-farm connector's tools")
+  expect(rules).toContain("not in Code Mode's search")
+  // Managed only through the tools, and changed rather than duplicated.
+  expect(rules).toContain("never edit Dynwork's files or its database")
+  expect(rules).toContain("never call its or OpenCode's APIs or CLI")
+  expect(rules).toContain("propose update_scheduled_task instead of a new one")
+  expect(tools.update.description).toContain("never create a new task to change one")
 })
 
 test("an update sends main the task's id and only the fields to change, and waits for the user", async () => {
