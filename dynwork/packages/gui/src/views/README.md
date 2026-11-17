@@ -37,7 +37,7 @@ kept so its route and the Agents row's highlight still work.
 | `list.tsx`    | The toolbar, the cards, Templates and Activity                                                                |
 | `detail.tsx`  | A routine's detail: the same layout for both kinds                                                            |
 | `viewer.tsx`  | A remote run, read only: result, usage, log tail                                                              |
-| `form.ts`     | The form's state: the draft, its `Definition`, the problems of a save, the save over the Ipc                  |
+| `form.ts`     | The form's state: the draft, its `Definition`, a save's problems, the save, a template's activation           |
 | `fields.ts`   | How a backend's `capabilities().fields` are drawn: the control of each kind, `when`, the form's blocks        |
 | `editor.tsx`  | The form in the app's dialog (`editor.css`): common fields, then the backend's, drawn from its fields         |
 
@@ -67,6 +67,24 @@ three runs, Active); the rest is drawn from `capabilities().fields` and nothing 
   of its label and hint, as a Settings row (`fields.ts`: `inline`); one with long content takes the width under them;
 - Save asks the backend's `validate` first, and each message of an `invalid` failure lands under the field it names. A
   failure that is not about a field, such as a full quota or a signed-out backend, shows above the buttons.
+
+### Templates
+
+The Templates tab lists what Governance offers the person (`model.offered()`, read with `templates` when the tab opens
+and again on every state push while it is open), a card each: name, description, schedule, where it runs and, for a
+mandatory one, "Assigned by Dynapps". `templateCard` (`model.ts`) says what the card offers: "Use template" when it is
+available; "Active on <computer>" (or "on another computer" when Governance links a routine not here yet) with "Open
+task"; "Requires <server>" with a link to Settings → Extensions → MCP when a connector it uses is not among this
+computer's; and nothing to use for a mandatory one, whose routine arrives by the claim and opens once here. A backend
+shows only the templates that run where it does (`local` or `cloud`).
+
+"Use template" opens the routine form in its `activate` mode (`createFormModel({ template })`), prefilled from the
+template (`RoutinesTemplates.defaults`). What the template sets is read only, with a lock and "Set by Dynapps"; the
+person chooses only what `asks()` leaves them: the schedule as the template's `locks.schedule` allows (the frequency
+stays under `time`, all of it under `locked`), the zone, the project folder where it is required (with the template's
+hint), a model only where the template's is not on this computer and it may change, and the confirmation "Approved by
+Dynapps; runs without asking" for a template that runs without asking. A missing folder, model or confirmation stops the
+save before it leaves the window (`personalProblems`); the rest goes to `activate` as a `Personal` (`personalOf`).
 
 The trigger is written as a cron in an IANA zone (`schedule.ts`: `presetOf`, `cronOf`), a cron a preset would write
 differently opens as a custom one so saving never rewrites it, and the preview is Effect's `Cron` in that zone, so it

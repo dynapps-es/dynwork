@@ -7,9 +7,12 @@ import {
   type Failure,
   type Instructions,
   type Ref,
+  type Personal,
   type Routine,
   type Schedule,
+  type Template,
 } from "../../routines/contract"
+import { RoutinesTemplates } from "../../routines/templates"
 import { defaults, layout, shown, valueOf, type Options } from "./fields"
 import { fromMain, type Translate } from "./format"
 import {
@@ -105,7 +108,15 @@ export function blank(capabilities: Shape, zone = systemZone()): Draft {
 
 /** A routine to edit: its definition read back into the form, field for field. */
 export function fromRoutine(routine: Routine, capabilities: Shape, zone = systemZone()): Draft {
-  const definition = routine.definition
+  return fromDefinition(routine.definition, capabilities, zone)
+}
+
+/** A template to activate: its own task, in `zone`, read into the form as a routine to edit is. */
+export function fromTemplate(template: Template, capabilities: Shape, zone = systemZone()): Draft {
+  return fromDefinition(RoutinesTemplates.defaults(template, zone), capabilities, zone)
+}
+
+function fromDefinition(definition: Definition, capabilities: Shape, zone: string): Draft {
   const schedule = definition.schedule
   const timezone = schedule?.timezone ?? zone
   const instructions = definition.instructions
@@ -165,6 +176,60 @@ export function localProblems(draft: Draft, capabilities: Pick<Capabilities, "sc
   return {}
 }
 
+/**
+ * What activating `template` asks of the person; the rest is as the template sets it. `models` are the models this
+ * computer has, undefined while they are not known.
+ */
+export function asks(template: Template, models?: readonly string[]) {
+  const model = template.definition.model
+  return {
+    /** The project folder, where the template needs one; `hint` says which. */
+    folder: template.personal.folder === "required",
+    hint: template.personal.hint ?? undefined,
+    /** `free`: any schedule. `time`: the template's, at another minute and hour. `locked`: the template's. */
+    schedule: template.definition.schedule ? template.locks.schedule : ("free" as const),
+    /** Another model: only where the template lets it change and its own is not among this computer's. */
+    model: !template.locks.model && model !== undefined && models !== undefined && !models.includes(model),
+    /** It runs without asking: the person confirms that ("Approved by Dynapps"). */
+    confirm: template.definition.options.permissions === "bypass",
+  }
+}
+
+export type Asks = ReturnType<typeof asks>
+
+/** What the person must still give before a template is activated: the folder it needs, a model, the confirmation. */
+export function personalProblems(
+  draft: Draft,
+  asked: Asks,
+  input: { approved: boolean; models?: readonly string[] },
+): Record<string, Problem> {
+  const folder = draft.options.folder
+  return {
+    ...(asked.folder && (typeof folder !== "string" || folder.trim() === "")
+      ? { folder: { key: "agents.template.folder.required", params: {} } }
+      : {}),
+    ...(asked.model && !input.models?.includes(draft.model)
+      ? { model: { key: "agents.template.model.required", params: {} } }
+      : {}),
+    ...(asked.confirm && !input.approved
+      ? { permissions: { key: "agents.template.confirm.required", params: {} } }
+      : {}),
+  }
+}
+
+/** What the activation sends of the draft: only what `asked` leaves to the person, and always the time zone. */
+export function personalOf(draft: Draft, asked: Asks, approved: boolean): Personal {
+  const schedule = draftSchedule(draft)
+  const folder = draft.options.folder
+  return {
+    timezone: draft.timezone,
+    ...(asked.folder && typeof folder === "string" ? { folder: folder.trim() } : {}),
+    ...(asked.schedule !== "locked" && schedule ? { cron: schedule.cron } : {}),
+    ...(asked.model ? { model: draft.model } : {}),
+    ...(asked.confirm ? { approved } : {}),
+  }
+}
+
 /** The keys of `errors` that no field on the form carries, so the form can show their messages apart. */
 export function unplaced(errors: Record<string, Problem>, placed: readonly string[]) {
   return Object.keys(errors).filter((key) => !placed.includes(key))
@@ -179,28 +244,37 @@ export function draftSchedule(draft: Draft): Schedule | undefined {
 
 /**
  * The form's model: the draft, the backend it is for, the problems of the last save and the save. `routine` opens an
- * edit; without it the form creates one on `backend`, or on the first backend. It never reaches a backend itself: it
- * calls the window's routines client, and does nothing without one.
+ * edit; `template` activates that template on `backend` (the same form, asking only what is the person's); without
+ * either the form creates one on `backend`, or on the first backend. It never reaches a backend itself: it calls the
+ * window's routines client, and does nothing without one. `models` are the backend's models, once known: an
+ * activation asks for one only where the template's is not among them.
  */
 export function createFormModel(input: {
   client: () => Client | undefined
   backends: () => readonly Capabilities[]
   routine?: Routine
+  template?: Template
   backend?: string
   zone: string
   now: () => number
+  models?: () => readonly string[] | undefined
 }) {
   const backend = input.routine?.ref.backend ?? input.backend ?? input.backends()[0]?.backend ?? ""
   const find = (id: string) => input.backends().find((candidate) => candidate.backend === id)
   const first = find(backend)
+  const template = input.template
   const [state, setState] = createStore({
     backend,
     draft: input.routine
       ? fromRoutine(input.routine, first ?? nothing, input.zone)
-      : blank(first ?? nothing, input.zone),
+      : template
+        ? fromTemplate(template, first ?? nothing, input.zone)
+        : blank(first ?? nothing, input.zone),
     errors: {} as Record<string, Problem>,
     failure: undefined as Failure | undefined,
     saving: false,
+    /** The person confirmed a template that runs without asking. */
+    approved: false,
     // The options of each backend the user has left, so going back to it finds them as they were.
     saved: {} as Record<string, Options>,
   })
@@ -212,7 +286,13 @@ export function createFormModel(input: {
 
   const model = {
     state,
-    mode: input.routine ? ("edit" as const) : ("create" as const),
+    mode: input.routine ? ("edit" as const) : template ? ("activate" as const) : ("create" as const),
+    /** The template being activated. */
+    template,
+    /** What the activation asks of the person; undefined outside an activation. */
+    asks: () => (template ? asks(template, input.models?.()) : undefined),
+    /** The triggers to choose from: a template with a schedule keeps one. */
+    triggers: () => (template?.definition.schedule ? triggers.filter((trigger) => trigger !== "none") : triggers),
     capabilities,
     fields,
     error: (key: string): Problem | undefined => state.errors[key],
@@ -257,10 +337,15 @@ export function createFormModel(input: {
       setState({ errors: without(key) })
     },
 
+    /** The person confirms, or takes back, that a template runs without asking. */
+    approve(approved: boolean) {
+      setState({ approved, errors: without("permissions") })
+    },
+
     /** Moves a new routine to another backend: the common fields stay, the backend's own start over or come back. */
     choose(id: string) {
       const target = find(id)
-      if (input.routine || !target || id === state.backend) return
+      if (input.routine || template || !target || id === state.backend) return
       const draft = state.draft
       setState({
         saved: { ...state.saved, [state.backend]: draft.options },
@@ -284,7 +369,7 @@ export function createFormModel(input: {
       const target = capabilities()
       if (!client || !target || state.saving) return undefined
       setState({ saving: true, failure: undefined, errors: {} })
-      const ref = await submit(client, target)
+      const ref = template ? await activate(client, target, template) : await submit(client, target)
       setState("saving", false)
       return ref
     },
@@ -306,6 +391,25 @@ export function createFormModel(input: {
       : await client.create({ backend: state.backend, definition })
     if (isFailure(saved)) return refuse(saved)
     return saved.ref
+  }
+
+  // The person's part of the draft goes to `activate`, which makes the routine of the template's own definition.
+  async function activate(client: Client, target: Capabilities, chosen: Template) {
+    const draft = unwrap(state.draft)
+    const models = input.models?.()
+    const asked = asks(chosen, models)
+    const problems = {
+      ...localProblems(draft, target),
+      ...personalProblems(draft, asked, { approved: state.approved, models }),
+    }
+    if (Object.keys(problems).length > 0) return refuse(undefined, problems)
+    const made = await client.activate({
+      backend: state.backend,
+      template: chosen.id,
+      personal: personalOf(draft, asked, state.approved),
+    })
+    if (isFailure(made)) return refuse(made)
+    return made.ref
   }
 
   // A failure about fields marks them; any other stays whole, for the form to show above its buttons.

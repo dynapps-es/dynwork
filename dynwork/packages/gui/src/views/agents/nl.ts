@@ -142,6 +142,26 @@ export default {
 
   "agents.templates.empty":
     "Sjablonen worden door Governance voor je organisatie gepubliceerd. Als je er een gebruikt, maak je een eigen taak die je kunt bewerken. Er zijn er nog geen gepubliceerd.",
+  "agents.template.use": "Sjabloon gebruiken",
+  "agents.template.open": "Taak openen",
+  "agents.template.assigned": "Toegewezen door Dynapps",
+  "agents.template.active": "Actief op {{device}}",
+  "agents.template.active.elsewhere": "Actief op een andere computer",
+  "agents.template.requires": "Vereist {{server}}",
+  "agents.template.connectors": "Connectoren",
+  "agents.template.connectors.none": "Geen",
+  "agents.template.permissions": "Rechten",
+  "agents.template.locked": "Vastgelegd door Dynapps",
+  "agents.template.form.title": "{{name}} gebruiken",
+  "agents.template.form.description":
+    "Dynapps legt vast wat deze taak doet. Alleen het persoonlijke deel wordt hier gekozen; naam en meldingen zijn later te wijzigen.",
+  "agents.template.schedule.time": "Dynapps legt vast hoe vaak het draait; het tijdstip is vrij te kiezen.",
+  "agents.template.schedule.locked": "Vastgelegd door Dynapps",
+  "agents.template.model.missing": "Het model van het sjabloon is niet beschikbaar op deze computer.",
+  "agents.template.model.required": "Kies een model dat op deze computer beschikbaar is.",
+  "agents.template.folder.required": "Kies de projectmap waarin deze taak werkt.",
+  "agents.template.confirm": "Goedgekeurd door Dynapps; draait zonder te vragen",
+  "agents.template.confirm.required": "Bevestig dat het zonder te vragen draait.",
   "agents.activity.hint":
     "Elke uitvoering, op deze computer en op Cloud, nieuwste eerst. Ook uitvoeringen op Cloud die buiten Dynwork zijn gestart, bijvoorbeeld vanuit de chat.",
   "agents.activity.empty": "Nog geen uitvoeringen.",

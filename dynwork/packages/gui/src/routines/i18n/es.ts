@@ -64,4 +64,14 @@ export default {
   "routines.fail.chatOffline": "El servicio de Dynwork no está en marcha.",
   "routines.fail.chatOpen": "No se ha podido abrir la conversación.",
   "routines.fail.chatStart": "No se ha podido empezar la conversación.",
+
+  "routines.fail.noTemplates": "Aquí no hay plantillas.",
+  "routines.fail.templatesSignedOut": "Inicia sesión para ver las plantillas de tu organización.",
+  "routines.fail.templatesUnread": "Todavía no se han leído las plantillas de Governance.",
+  "routines.fail.templateAssigned": "Esta plantilla te la han asignado: su tarea llega sola.",
+  "routines.fail.templateActive": "Esta plantilla ya está activa.",
+  "routines.fail.templateSets": "Lo fija la plantilla.",
+  "routines.fail.templateCloud": "Aquí solo se pueden activar plantillas que se ejecutan en este equipo.",
+  "routines.fail.templateFolder": "Esta plantilla necesita una carpeta de proyecto.",
+  "routines.fail.templateConfirm": "Confirma que se ejecuta sin preguntar.",
 } satisfies Record<keyof typeof en, string>

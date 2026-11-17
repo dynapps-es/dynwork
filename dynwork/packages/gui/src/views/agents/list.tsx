@@ -4,15 +4,18 @@ import { Icon } from "@opencode/ui/icon"
 import { SegmentedControl, SegmentedControlItem } from "@opencode/ui/segmented-control"
 import { Tabs } from "@opencode/ui/tabs"
 import { TextInput } from "@opencode/ui/text-input"
-import { For, Show } from "solid-js"
+import { For, Match, Show, Switch } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import type { Routine, Run } from "../../routines/contract"
+import type { Routine, Run, Template } from "../../routines/contract"
 import { device } from "../device"
 import { duration, fromMain, instructionsText, reasonText, runWhen, scheduleText } from "./format"
 import { runHref } from "../runs/model"
-import { tabs, type AgentsModel } from "./model"
+import { tabs, type AgentsModel, type TemplateCard } from "./model"
 import { openable, routineStatus, stateKey, statuses, waiting, wheres } from "./routine"
-import { RunMark, Tag, Unread, WhereBadge } from "./parts"
+import { LinkButton, RunMark, Tag, Unread, WhereBadge } from "./parts"
+
+// Settings → Extensions → MCP, where the connectors are (`packages/app/src/settings/route.ts`).
+const CONNECTORS = "/settings?tab=extensions&subtab=mcps"
 
 /**
  * The bar over the list, in the app's own controls: the tabs, the Local and Remote filter with its counts, the status
@@ -126,12 +129,109 @@ function RoutineCard(props: { routine: Routine; model: AgentsModel }) {
   )
 }
 
-/** Templates: published by Governance; until there are any, what they will be. */
-export function Templates() {
+/** Templates: what Governance offers the person, a card each with what it does and what it offers (`templateCard`). */
+export function Templates(props: { model: AgentsModel; use: (backend: string, template: Template) => void }) {
   const ctx = usePlugin()
+  const model = props.model
 
-  // The contract has no templates yet: they come with the Governance sync of routines (Q2 of the plan).
-  return <p data-slot="agents-empty">{ctx.t("agents.templates.empty")}</p>
+  return (
+    <>
+      <For each={model.offeredPage().failures}>
+        {(failure) => <p data-slot="agents-error">{fromMain(ctx.t, failure.message)}</p>}
+      </For>
+      <Show
+        when={model.offered().length > 0}
+        fallback={
+          <p data-slot="agents-empty">
+            {ctx.t(model.offeredPage().loading ? "agents.loading" : "agents.templates.empty")}
+          </p>
+        }
+      >
+        <div data-slot="agents-grid" role="list" aria-label={ctx.t("agents.tab.templates")}>
+          <For each={model.offered()}>
+            {(item) => (
+              <TemplateTile
+                backend={item.backend}
+                template={item.template}
+                card={item.card}
+                model={model}
+                use={props.use}
+              />
+            )}
+          </For>
+        </div>
+      </Show>
+    </>
+  )
+}
+
+function TemplateTile(props: {
+  backend: string
+  template: Template
+  card: TemplateCard
+  model: AgentsModel
+  use: (backend: string, template: Template) => void
+}) {
+  const ctx = usePlugin()
+  const capabilities = () => props.model.capabilities(props.backend)
+  const cron = () => props.template.definition.schedule?.cron
+  const routine = () =>
+    props.card.kind === "active" || props.card.kind === "assigned" ? props.card.routine : undefined
+  // Where its routine is: this computer, another one by name, or one Governance links that is not here yet.
+  const active = () => {
+    const owner = routine()?.owner
+    if (owner?.here) return ctx.t("agents.template.active", { device: device(ctx).inline })
+    if (owner?.label) return ctx.t("agents.template.active", { device: owner.label })
+    return ctx.t("agents.template.active.elsewhere")
+  }
+
+  return (
+    <div role="listitem" data-slot="agents-card" data-static="">
+      <span data-slot="agents-card-top">
+        <span data-slot="agents-card-name">{props.template.name}</span>
+        <WhereBadge
+          capabilities={capabilities()}
+          text={capabilities()?.kind === "remote" ? undefined : device(ctx).label}
+        />
+      </span>
+      <span data-slot="agents-card-text">{props.template.description}</span>
+      <span data-slot="agents-card-meta">
+        <Show when={props.template.mandatory}>
+          <Tag tone="info">{ctx.t("agents.template.assigned")}</Tag>
+        </Show>
+        <span>{scheduleText(ctx.t, cron() === undefined ? undefined : { cron: cron() ?? "", timezone: "" })}</span>
+        <span data-slot="agents-card-action">
+          <Switch>
+            <Match when={props.card.kind === "available"}>
+              <Button size="small" onClick={() => props.use(props.backend, props.template)}>
+                {ctx.t("agents.template.use")}
+              </Button>
+            </Match>
+            <Match when={props.card.kind === "requires" && props.card}>
+              {(card) => (
+                <>
+                  <Tag tone="warning">{ctx.t("agents.template.requires", { server: card().server })}</Tag>
+                  <LinkButton href={CONNECTORS} icon="settings-gear">
+                    {ctx.t("agents.template.connectors")}
+                  </LinkButton>
+                </>
+              )}
+            </Match>
+            <Match when={props.card.kind === "active"}>
+              <span>{active()}</span>
+            </Match>
+          </Switch>
+          <Show when={routine()}>
+            {(found) => (
+              <Button size="small" variant="ghost" onClick={() => props.model.select(found().ref)}>
+                {ctx.t("agents.template.open")}
+              </Button>
+            )}
+          </Show>
+        </span>
+      </span>
+    </div>
+  )
 }
 
 /** Activity: every backend's runs, newest first, filtered by the same chips. */

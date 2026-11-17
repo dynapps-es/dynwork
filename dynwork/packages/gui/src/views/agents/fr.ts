@@ -142,6 +142,26 @@ export default {
 
   "agents.templates.empty":
     "Les modèles sont publiés par Governance pour votre organisation. En utiliser un crée une tâche à vous, que vous pouvez modifier. Aucun n'est encore publié.",
+  "agents.template.use": "Utiliser le modèle",
+  "agents.template.open": "Ouvrir la tâche",
+  "agents.template.assigned": "Attribué par Dynapps",
+  "agents.template.active": "Actif sur {{device}}",
+  "agents.template.active.elsewhere": "Actif sur un autre ordinateur",
+  "agents.template.requires": "Nécessite {{server}}",
+  "agents.template.connectors": "Connecteurs",
+  "agents.template.connectors.none": "Aucun",
+  "agents.template.permissions": "Autorisations",
+  "agents.template.locked": "Fixé par Dynapps",
+  "agents.template.form.title": "Utiliser {{name}}",
+  "agents.template.form.description":
+    "Dynapps fixe ce que fait cette tâche. Choisissez ce qui vous revient ; vous pourrez ensuite la renommer et changer ses notifications.",
+  "agents.template.schedule.time": "Dynapps fixe la fréquence ; l'heure vous appartient.",
+  "agents.template.schedule.locked": "Fixé par Dynapps",
+  "agents.template.model.missing": "Le modèle d'IA prévu n'est pas disponible sur cet ordinateur.",
+  "agents.template.model.required": "Choisissez un modèle disponible sur cet ordinateur.",
+  "agents.template.folder.required": "Choisissez le dossier du projet dans lequel travaille cette tâche.",
+  "agents.template.confirm": "Approuvé par Dynapps ; s'exécute sans demander",
+  "agents.template.confirm.required": "Confirmez qu'il s'exécute sans demander.",
   "agents.activity.hint":
     "Chaque exécution, sur cet ordinateur et sur Cloud, de la plus récente à la plus ancienne. Elle inclut les exécutions Cloud lancées hors de Dynwork, par exemple depuis le chat.",
   "agents.activity.empty": "Aucune exécution pour l'instant.",

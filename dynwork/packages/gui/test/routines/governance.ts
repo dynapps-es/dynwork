@@ -3,6 +3,8 @@ import { RoutinesSync } from "../../src/routines/local/sync"
 // A fake Governance over real HTTP with the `dynwork-routines` routes as its README states them: the change feed with an
 // opaque cursor, revisions with `If-Match`, tombstones, runs reported only by the owner device, and routines made for
 // the user directly in its database, unclaimed (owner `""`, or null), that a PUT claims (`COALESCE`). One user.
+// Templates as the plan's `docs/contract.md` §2-§3 state them: `GET /templates` with an `ETag` and `304`, a link per
+// template the user has a live routine of, and `409 already_activated` for a second live routine of one template.
 type Row = {
   id: string
   revision: number
@@ -28,6 +30,10 @@ export function fakeGovernance(now: () => number = Date.now) {
     readOnly: false,
     /** Every request, in order: `<METHOD> <route> <If-Match or ->`. */
     requests: [] as string[],
+    /** The published templates the user sees, as `GET /templates` serves them. */
+    templates: [] as unknown[],
+    /** What each `GET /templates` answered: its status and the `If-None-Match` it came with. */
+    served: [] as Array<{ status: number; etag?: string }>,
   }
   const view = (row: Row) => {
     const { seq: _, ...rest } = row
@@ -58,7 +64,31 @@ export function fakeGovernance(now: () => number = Date.now) {
     },
   })
 
+  // The template a routine's definition links to, if any.
+  const linkOf = (definition: unknown) => {
+    if (typeof definition !== "object" || definition === null || !("template" in definition)) return undefined
+    const template = definition.template
+    if (typeof template !== "object" || template === null || !("id" in template)) return undefined
+    return String(template.id)
+  }
+
+  function templates(request: Request) {
+    const live = [...state.routines.values()].filter((row) => !row.deleted)
+    const linked = [...new Set(live.flatMap((row) => linkOf(row.definition) ?? []))]
+    const body = {
+      templates: state.templates,
+      links: linked.map((id) => ({ id, state: "published", retire: null })),
+    }
+    const etag = `"${Bun.hash(JSON.stringify(body)).toString(16)}"`
+    const asked = request.headers.get("if-none-match") ?? undefined
+    const status = asked === etag ? 304 : 200
+    state.served.push({ status, ...(asked === undefined ? {} : { etag: asked }) })
+    if (status === 304) return new Response(null, { status: 304, headers: { etag } })
+    return Response.json(body, { headers: { etag } })
+  }
+
   async function handle(request: Request, url: URL, route: string, expected?: number) {
+    if (request.method === "GET" && route === "/templates") return templates(request)
     if (request.method === "GET" && route === "/changes") {
       const since = Number(url.searchParams.get("since") ?? 0)
       const limit = Number(url.searchParams.get("limit") ?? 200)
@@ -74,6 +104,9 @@ export function fakeGovernance(now: () => number = Date.now) {
       if (expected === undefined) {
         if (existing) return conflict(existing)
         if (!body.owner_device) return json({ error: "bad_request" }, 400)
+        const link = linkOf(body.definition)
+        const twin = [...state.routines.values()].find((row) => !row.deleted && link && linkOf(row.definition) === link)
+        if (twin) return json({ error: "already_activated", routine: view(twin) }, 409)
         return json(
           view(
             save({

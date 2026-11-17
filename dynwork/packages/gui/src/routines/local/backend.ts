@@ -16,7 +16,9 @@ import {
   type Routine,
   type Run,
   type RunState,
+  type Templates,
 } from "../contract"
+import { RoutinesTemplates } from "../templates"
 import { RoutinesValidate } from "../validate"
 import { RoutinesClock } from "./clock"
 import { enqueue, type Saved, type SavedRoutine, type SavedRun } from "./store"
@@ -203,6 +205,11 @@ export interface Options {
   synced?: () => boolean | undefined
   /** Something went to the outbox: the sync sends it. */
   queued?: () => void
+  /**
+   * The templates Governance offers the active account, as last read (`./templates.ts`); undefined until a read
+   * answered. Absent: this backend has no templates.
+   */
+  templates?: () => Templates | undefined
 }
 
 export interface Local extends Backend {
@@ -278,6 +285,14 @@ export function make(options: Options): Local {
   }
   const ref = (routine: string) => ({ backend, id: routine })
   const missing = (what: string, key: string) => fail("not-found", `No ${what} ${key}.`)
+  // The templates as last read; undefined for a backend without them.
+  const offered = () => {
+    if (!options.templates) return undefined
+    const read = options.templates()
+    if (read) return read
+    if (!options.account?.()) return fail("signed-out", "Sign in to see your organization's templates.")
+    return fail("unreachable", "Templates have not been read from Governance yet.")
+  }
   const offline = () => fail("unreachable", "Dynwork's service is not running.")
 
   const toRun = (record: SavedRun): Run => ({
@@ -774,9 +789,22 @@ export function make(options: Options): Local {
     },
     transcript: async (run) =>
       recordOf(run) ? fail("unsupported", "This run is read in its session.") : missing("run", run),
-    // Templates come from Governance's `GET /templates`, which this backend does not read yet.
-    templates: async () => fail("unsupported", "Templates are not available yet."),
-    activate: async () => fail("unsupported", "Templates are not available yet."),
+    templates: async () => offered() ?? fail("unsupported", "There are no templates here."),
+    // The person's routine of a template, made as any routine made here is: it reaches Governance through the outbox,
+    // where a routine of the same template made on another computer first wins (`sync.ts`, `already_activated`).
+    activate: async (template, personal) => {
+      const answer = offered()
+      if (!answer) return fail("unsupported", "There are no templates here.")
+      if (isFailure(answer)) return answer
+      const found = answer.templates.find((candidate) => candidate.id === template)
+      if (!found) return missing("template", template)
+      if (found.mandatory) return fail("conflict", "This template is assigned to you: its task arrives on its own.")
+      const linked = saved().routines.some((stored) => mine(stored) && stored.definition.template?.id === template)
+      if (linked || answer.links.some((link) => link.id === template))
+        return fail("conflict", "This template is already active.")
+      const definition = RoutinesTemplates.activate(found, personal)
+      return isFailure(definition) ? definition : local.create(definition)
+    },
     // Upstream marks only a root session viewed, never a child: the run's own session is marked here.
     viewed: async (run) => {
       const record = recordOf(run)

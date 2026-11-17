@@ -64,4 +64,14 @@ export default {
   "routines.fail.chatOffline": "Dynwork's service is not running.",
   "routines.fail.chatOpen": "The conversation could not be opened.",
   "routines.fail.chatStart": "The conversation could not be started.",
+
+  "routines.fail.noTemplates": "There are no templates here.",
+  "routines.fail.templatesSignedOut": "Sign in to see your organization's templates.",
+  "routines.fail.templatesUnread": "Templates have not been read from Governance yet.",
+  "routines.fail.templateAssigned": "This template is assigned to you: its task arrives on its own.",
+  "routines.fail.templateActive": "This template is already active.",
+  "routines.fail.templateSets": "The template sets it.",
+  "routines.fail.templateCloud": "Only templates that run on this computer can be activated here.",
+  "routines.fail.templateFolder": "This template needs a project folder.",
+  "routines.fail.templateConfirm": "Confirm that it runs without asking.",
 }

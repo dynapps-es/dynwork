@@ -11,10 +11,10 @@ import { Textarea } from "@opencode/ui/textarea"
 import { TextInput } from "@opencode/ui/text-input"
 import { createEffect, createSignal, For, lazy, Match, on, Show, Switch, type JSX } from "solid-js"
 import { isServer } from "solid-js/web"
-import type { Choice, Field, Ref } from "../../routines/contract"
+import type { Choice, Field, Ref, Template } from "../../routines/contract"
 import { choicesOf, control, fromSelect, inline, picked as pickedOf, selectChoices, toggled, valueOf } from "./fields"
 import { zones } from "./schedule"
-import { backendLine, fromMain, when, type Translate } from "./format"
+import { backendLine, fromMain, instructionsText, scheduleText, when, type Translate } from "./format"
 import { draftSchedule, problemText, triggers, type FormModel } from "./form"
 import type { AgentsModel } from "./model"
 import { device } from "../device"
@@ -28,7 +28,8 @@ const PromptSelect = lazy(() => import("./prompt-select"))
  * control on the right, or under the label when the control holds long content.
  * The common fields are written here; what belongs to a backend is drawn from its `capabilities().fields`, so the farm
  * adds options without this file changing. It reads and writes `form` and nothing else; `agents` only supplies the
- * labels of the lookups.
+ * labels of the lookups. Activating a template is this same form with the rows the template sets read only
+ * (`Activation`).
  */
 export function RoutineForm(props: {
   form: FormModel
@@ -105,76 +106,91 @@ export function RoutineForm(props: {
     <Dialog size="x-large" containerClass="agents-form-dialog">
       <DialogHeader>
         <DialogTitleGroup
-          title={ctx.t(form.mode === "edit" ? "agents.form.title.edit" : "agents.form.title.create")}
-          description={ctx.t("agents.form.description")}
+          title={
+            form.template
+              ? ctx.t("agents.template.form.title", { name: form.template.name })
+              : ctx.t(form.mode === "edit" ? "agents.form.title.edit" : "agents.form.title.create")
+          }
+          description={form.template ? ctx.t("agents.template.form.description") : ctx.t("agents.form.description")}
         />
       </DialogHeader>
       <DialogBody>
         <form data-component="agents-form" onSubmit={(event) => void submit(event)} noValidate>
-          <div data-slot="form-scroll" ref={(element) => (refs.scroll = element)}>
-            <Where form={form} agents={props.agents} />
-            <Row id="name" label={ctx.t("agents.form.name")} error={said(ctx.t, form, "name")}>
-              <TextInput
-                id="agents-form-name"
-                autofocus={form.mode === "create"}
-                value={draft().name}
-                placeholder={ctx.t("agents.form.name.placeholder")}
-                invalid={form.error("name") !== undefined}
-                onInput={(event) => form.set({ name: event.currentTarget.value })}
-              />
-            </Row>
-            <What form={form} choices={choices} />
-            <Notice form={form} />
-            <Trigger form={form} />
-            <Row id="enabled" label={ctx.t("agents.form.active")} hint={ctx.t("agents.form.active.hint")} inline>
-              <ctx.ui.Switch
-                checked={draft().enabled}
-                label={ctx.t("agents.form.active")}
-                hideLabel
-                onChange={(enabled) => form.set({ enabled })}
-              />
-            </Row>
-            <Block form={form} choices={choices} />
-            <Show when={form.fields().extra.length > 0}>
-              <Extra form={form} choices={choices} />
-            </Show>
-            <section data-slot="form-advanced">
-              <Button
-                variant="ghost"
-                size="small"
-                icon={advanced() ? "chevron-down" : "chevron-right"}
-                data-slot="form-advanced-head"
-                aria-expanded={advanced()}
-                onClick={() => setAdvanced(!advanced())}
-              >
-                {ctx.t("agents.form.advanced")}
-              </Button>
-              <Show when={advanced()}>
-                <Tabs variant="pill" value={tab()} onChange={setTab}>
-                  <Tabs.List>
-                    <For each={advancedTabs()}>
-                      {(item) => (
-                        <Tabs.Trigger value={item.id}>{ctx.t(`agents.form.advanced.${item.id}`)}</Tabs.Trigger>
-                      )}
-                    </For>
-                  </Tabs.List>
-                </Tabs>
-                <Show
-                  when={// A connectors tab with nothing to choose from (no servers, or the service unreachable) is empty.
-                  advancedTabs()
-                    .find((item) => item.id === tab())
-                    ?.fields.some((field) => tab() !== "connectors" || choicesOf(field, choices).length > 0)}
-                  fallback={<p data-slot="form-hint">{ctx.t("agents.form.connectors.empty")}</p>}
-                >
-                  <FieldRows
-                    form={form}
-                    fields={advancedTabs().find((item) => item.id === tab())?.fields ?? []}
-                    choices={choices}
+          <Show
+            when={form.template}
+            fallback={
+              <div data-slot="form-scroll" ref={(element) => (refs.scroll = element)}>
+                <Where form={form} agents={props.agents} />
+                <Row id="name" label={ctx.t("agents.form.name")} error={said(ctx.t, form, "name")}>
+                  <TextInput
+                    id="agents-form-name"
+                    autofocus={form.mode === "create"}
+                    value={draft().name}
+                    placeholder={ctx.t("agents.form.name.placeholder")}
+                    invalid={form.error("name") !== undefined}
+                    onInput={(event) => form.set({ name: event.currentTarget.value })}
                   />
+                </Row>
+                <What form={form} choices={choices} />
+                <Notice form={form} />
+                <Trigger form={form} />
+                <Row id="enabled" label={ctx.t("agents.form.active")} hint={ctx.t("agents.form.active.hint")} inline>
+                  <ctx.ui.Switch
+                    checked={draft().enabled}
+                    label={ctx.t("agents.form.active")}
+                    hideLabel
+                    onChange={(enabled) => form.set({ enabled })}
+                  />
+                </Row>
+                <Block form={form} choices={choices} />
+                <Show when={form.fields().extra.length > 0}>
+                  <Extra form={form} choices={choices} />
                 </Show>
-              </Show>
-            </section>
-          </div>
+                <section data-slot="form-advanced">
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    icon={advanced() ? "chevron-down" : "chevron-right"}
+                    data-slot="form-advanced-head"
+                    aria-expanded={advanced()}
+                    onClick={() => setAdvanced(!advanced())}
+                  >
+                    {ctx.t("agents.form.advanced")}
+                  </Button>
+                  <Show when={advanced()}>
+                    <Tabs variant="pill" value={tab()} onChange={setTab}>
+                      <Tabs.List>
+                        <For each={advancedTabs()}>
+                          {(item) => (
+                            <Tabs.Trigger value={item.id}>{ctx.t(`agents.form.advanced.${item.id}`)}</Tabs.Trigger>
+                          )}
+                        </For>
+                      </Tabs.List>
+                    </Tabs>
+                    <Show
+                      when={// A connectors tab with nothing to choose from (no servers, or the service unreachable) is empty.
+                      advancedTabs()
+                        .find((item) => item.id === tab())
+                        ?.fields.some((field) => tab() !== "connectors" || choicesOf(field, choices).length > 0)}
+                      fallback={<p data-slot="form-hint">{ctx.t("agents.form.connectors.empty")}</p>}
+                    >
+                      <FieldRows
+                        form={form}
+                        fields={advancedTabs().find((item) => item.id === tab())?.fields ?? []}
+                        choices={choices}
+                      />
+                    </Show>
+                  </Show>
+                </section>
+              </div>
+            }
+          >
+            {(template) => (
+              <div data-slot="form-scroll" ref={(element) => (refs.scroll = element)}>
+                <Activation form={form} template={template()} agents={props.agents} choices={choices} />
+              </div>
+            )}
+          </Show>
           <Show
             when={
               form.state.failure ??
@@ -201,7 +217,9 @@ export function RoutineForm(props: {
               {ctx.t("agents.form.cancel")}
             </Button>
             <Button type="submit" variant="contrast" disabled={form.state.saving}>
-              {ctx.t(form.state.saving ? "agents.form.saving" : "agents.form.save")}
+              {ctx.t(
+                form.state.saving ? "agents.form.saving" : form.template ? "agents.template.use" : "agents.form.save",
+              )}
             </Button>
           </DialogFooter>
         </form>
@@ -270,6 +288,7 @@ function Choose(props: {
   options: readonly Choice[]
   blank?: string
   invalid?: boolean
+  disabled?: boolean
   onChange: (value: string) => void
 }) {
   const ctx = usePlugin()
@@ -281,6 +300,7 @@ function Choose(props: {
       value={choices().value}
       options={choices().options}
       invalid={props.invalid}
+      disabled={props.disabled}
       onChange={(value) => props.onChange(fromSelect(value))}
     />
   )
@@ -496,8 +516,9 @@ function Notice(props: { form: FormModel }) {
   )
 }
 
-// The trigger: nothing, or a preset or a cron, in a zone, with the next three runs as a preview.
-function Trigger(props: { form: FormModel }) {
+// The trigger: nothing, or a preset or a cron, in a zone, with the next three runs as a preview. A template's `lock`
+// keeps how often it runs (`time`: the time stays the person's) or all of it (`locked`); the zone is always theirs.
+function Trigger(props: { form: FormModel; lock?: "time" | "locked" }) {
   const ctx = usePlugin()
   const form = props.form
   const draft = () => form.state.draft
@@ -509,11 +530,17 @@ function Trigger(props: { form: FormModel }) {
 
   return (
     <div data-slot="form-rows" data-key="schedule">
-      <Row id="trigger" label={ctx.t("agents.form.trigger")} inline>
+      <Row
+        id="trigger"
+        label={ctx.t("agents.form.trigger")}
+        hint={props.lock ? ctx.t(`agents.template.schedule.${props.lock}`) : undefined}
+        inline
+      >
         <Choose
           label={ctx.t("agents.form.trigger")}
           value={draft().trigger}
-          options={triggers.map((value) => ({ value, label: ctx.t(`agents.form.trigger.${value}`) }))}
+          options={form.triggers().map((value) => ({ value, label: ctx.t(`agents.form.trigger.${value}`) }))}
+          disabled={props.lock !== undefined}
           onChange={(value) => form.setTrigger(triggers.find((trigger) => trigger === value) ?? "none")}
         />
       </Row>
@@ -524,6 +551,7 @@ function Trigger(props: { form: FormModel }) {
               {(day) => (
                 <Checkbox
                   appearance="compact"
+                  disabled={props.lock !== undefined}
                   checked={draft().days.includes(day)}
                   onChange={(checked) =>
                     form.set({
@@ -546,6 +574,7 @@ function Trigger(props: { form: FormModel }) {
             min="1"
             max="31"
             numeric
+            disabled={props.lock !== undefined}
             aria-label={ctx.t("agents.form.day")}
             value={String(draft().day)}
             onInput={(event) => form.set({ day: Number(event.currentTarget.value) })}
@@ -557,6 +586,7 @@ function Trigger(props: { form: FormModel }) {
           <TextInput
             id="agents-form-time"
             type="time"
+            disabled={props.lock === "locked"}
             aria-label={ctx.t("agents.form.time")}
             value={draft().time}
             invalid={form.error("schedule") !== undefined}
@@ -572,6 +602,7 @@ function Trigger(props: { form: FormModel }) {
             value={draft().cron}
             placeholder="45 8 * * 1"
             spellcheck={false}
+            disabled={props.lock === "locked"}
             invalid={form.error("schedule") !== undefined}
             onInput={(event) => form.set({ cron: event.currentTarget.value })}
           />
@@ -648,6 +679,133 @@ function Trigger(props: { form: FormModel }) {
         )}
       </Show>
     </div>
+  )
+}
+
+// Activating a template: the rows the template sets are read only, with a lock and "Set by Dynapps"; the person chooses
+// only what is theirs (`form.asks()`): the schedule as far as the template lets them, the zone, the folder it needs (with
+// its hint), a model where the template's is not on this computer, and the confirmation of one that runs without asking.
+function Activation(props: {
+  form: FormModel
+  template: Template
+  agents: AgentsModel
+  choices: (lookup: string) => readonly Choice[]
+}) {
+  const ctx = usePlugin()
+  const form = props.form
+  const source = () => props.template.definition
+  const asked = () => form.asks()
+  const field = (key: string) => form.capabilities()?.fields.find((candidate) => candidate.key === key)
+  const label = (lookup: string, value: string) =>
+    props.choices(lookup).find((choice) => choice.value === value)?.label ?? value
+  const folder = () => {
+    const found = field("folder")
+    return found && { ...found, required: true, help: asked()?.hint ?? found.help }
+  }
+  const permission = () =>
+    field("permissions")?.choices?.find((choice) => choice.value === source().options.permissions)
+  const lock = () => {
+    const schedule = asked()?.schedule
+    return schedule === "free" ? undefined : schedule
+  }
+
+  return (
+    <>
+      <Where form={form} agents={props.agents} />
+      <Show when={props.template.description}>
+        <p data-slot="form-hint">{props.template.description}</p>
+      </Show>
+      <Locked id="instructions" label={ctx.t("agents.form.what")}>
+        {instructionsText(ctx.t, source().instructions)}
+      </Locked>
+      <Show when={source().agent}>
+        {(agent) => (
+          <Locked id="agent" label={ctx.t("agents.form.agent")}>
+            {label("agents", agent())}
+          </Locked>
+        )}
+      </Show>
+      <Show
+        when={asked()?.model}
+        fallback={
+          <Show when={source().model}>
+            {(model) => (
+              <Locked id="model" label={ctx.t("agents.form.model")}>
+                {label("models", model())}
+              </Locked>
+            )}
+          </Show>
+        }
+      >
+        <Row
+          id="model"
+          label={ctx.t("agents.form.model")}
+          hint={ctx.t("agents.template.model.missing")}
+          error={said(ctx.t, form, "model")}
+          inline
+        >
+          <Choose
+            label={ctx.t("agents.form.model")}
+            value={form.state.draft.model}
+            options={props.choices("models")}
+            blank={ctx.t("agents.form.choose")}
+            invalid={form.error("model") !== undefined}
+            onChange={(model) => form.set({ model })}
+          />
+        </Row>
+      </Show>
+      <Notice form={form} />
+      <Show
+        when={source().schedule}
+        fallback={
+          <Locked id="schedule" label={ctx.t("agents.form.trigger")}>
+            {scheduleText(ctx.t, undefined)}
+          </Locked>
+        }
+      >
+        <Trigger form={form} lock={lock()} />
+      </Show>
+      <Show when={asked()?.folder && folder()}>
+        {(found) => <FieldControl form={form} field={found()} choices={props.choices} />}
+      </Show>
+      <Locked id="connectors" label={field("connectors")?.label ?? ctx.t("agents.form.advanced.connectors")}>
+        {source()
+          .options.connectors.map((name) => label("connectors", name))
+          .join(", ") || ctx.t("agents.template.connectors.none")}
+      </Locked>
+      <Row
+        id="permissions"
+        label={field("permissions")?.label ?? ctx.t("agents.template.permissions")}
+        hint={ctx.t("agents.template.locked")}
+        warning={permission()?.warning}
+        error={said(ctx.t, form, "permissions")}
+        group
+      >
+        <span data-slot="form-static" data-locked="">
+          <Icon name="lock" size="small" />
+          <span>{permission()?.label ?? source().options.permissions}</span>
+        </span>
+        <Show when={asked()?.confirm}>
+          <Checkbox checked={form.state.approved} onChange={(approved: boolean) => form.approve(approved)}>
+            {ctx.t("agents.template.confirm")}
+          </Checkbox>
+        </Show>
+      </Row>
+    </>
+  )
+}
+
+// A value the template sets: read only, with a lock, and "Set by Dynapps".
+function Locked(props: { id: string; label: string; children: JSX.Element }) {
+  const ctx = usePlugin()
+
+  return (
+    <Row id={props.id} label={props.label} hint={ctx.t("agents.template.locked")} group>
+      <span data-slot="form-static" data-locked="">
+        <Icon name="lock" size="small" />
+        <span>{props.children}</span>
+      </span>
+    </Row>
   )
 }
 

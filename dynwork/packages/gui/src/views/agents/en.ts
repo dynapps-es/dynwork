@@ -140,6 +140,26 @@ export default {
 
   "agents.templates.empty":
     "Templates are published by Governance for your organization. Using one creates a task of yours that you can edit. None are published yet.",
+  "agents.template.use": "Use template",
+  "agents.template.open": "Open task",
+  "agents.template.assigned": "Assigned by Dynapps",
+  "agents.template.active": "Active on {{device}}",
+  "agents.template.active.elsewhere": "Active on another computer",
+  "agents.template.requires": "Requires {{server}}",
+  "agents.template.connectors": "Connectors",
+  "agents.template.connectors.none": "None",
+  "agents.template.permissions": "Permissions",
+  "agents.template.locked": "Set by Dynapps",
+  "agents.template.form.title": "Use {{name}}",
+  "agents.template.form.description":
+    "Dynapps sets what this task does. Choose what is yours; you can rename it and change its notifications later.",
+  "agents.template.schedule.time": "Dynapps sets how often it runs; the time is yours.",
+  "agents.template.schedule.locked": "Set by Dynapps",
+  "agents.template.model.missing": "The template's model is not available on this computer.",
+  "agents.template.model.required": "Choose a model available on this computer.",
+  "agents.template.folder.required": "Choose the project folder this task works in.",
+  "agents.template.confirm": "Approved by Dynapps; runs without asking",
+  "agents.template.confirm.required": "Confirm that it runs without asking.",
   "agents.activity.hint":
     "Every run, on this computer and on Cloud, newest first. It includes Cloud runs started outside Dynwork, such as from the chat.",
   "agents.activity.empty": "No runs yet.",

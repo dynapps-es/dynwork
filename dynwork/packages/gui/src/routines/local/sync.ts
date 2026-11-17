@@ -6,6 +6,7 @@ import { Definition } from "../contract"
 import type { Device, Local } from "./backend"
 import type { RoutinesClock } from "./clock"
 import { enqueue, type Op, type Saved, type SavedRoutine } from "./store"
+import type { RoutinesTemplatesReader } from "./templates"
 
 // The local routines' definitions, shared with the user's other computers through Governance (the `dynwork-routines`
 // extension: a change feed and writes with optimistic concurrency). It runs in main, with the account's session; the
@@ -23,6 +24,9 @@ import { enqueue, type Op, type Saved, type SavedRoutine } from "./store"
 // - Claim: a routine made for this user in Governance comes unclaimed (no owner). This computer claims it with the same
 //   `If-Match` write as an edit; until Governance takes the claim it stays unclaimed here and nothing runs it. A `409`
 //   means another of the user's computers won: its row is kept, without a conflict note.
+// - Templates: each pass first reads `GET /templates` (`./templates.ts`), so a mandatory template's routine, which that
+//   read makes in Governance, comes in the same pass's feed. A `409 already_activated` means the person's routine of
+//   that template already exists (made on another computer): Governance's row is kept and the one made here goes.
 // - Accounts: each routine and outbox entry carries the account it belongs to. A pass reads, applies and sends only the
 //   active account's (and tags those of none yet); another account's stay stored, hidden and waiting.
 // - Without Governance everything keeps working here; the outbox waits and the Agents view says "Not synced".
@@ -52,6 +56,8 @@ export interface Options {
   now: () => number
   fetch?: (input: string, init?: RequestInit) => Promise<Response>
   timers?: RoutinesClock.Timers
+  /** The templates Governance offers, read on every pass. Absent: none are read. */
+  templates?: RoutinesTemplatesReader.Reader
 }
 
 // A routine as Governance answers it; a tombstone has `deleted` and no definition.
@@ -74,6 +80,9 @@ const decodePage = Schema.decodeUnknownOption(
   Schema.Struct({ routines: Schema.Array(Row), cursor: Schema.String, more: Schema.Boolean }),
 )
 const decodeConflict = Schema.decodeUnknownOption(Schema.Struct({ current: Row }))
+const decodeActivated = Schema.decodeUnknownOption(
+  Schema.Struct({ error: Schema.Literal("already_activated"), routine: Row }),
+)
 const decodeDefinition = Schema.decodeUnknownOption(Definition)
 
 type Sent = "done" | "again" | "offline"
@@ -136,6 +145,7 @@ export function make(options: Options) {
     const device = options.device()
     if (!account || !device) return settle(undefined)
     life.account = account.id
+    await options.templates?.read()
     const pulled = await pull(account, device)
     if (pulled) {
       upload(device)
@@ -324,6 +334,8 @@ export function make(options: Options) {
       written(row.value)
       return "done"
     }
+    const twin = answer.status === 409 ? decodeActivated(answer.body) : undefined
+    if (twin?._tag === "Some") return activated(op, twin.value.routine)
     if (answer.status === 409) return conflict(op, stored, device, answer.body)
     // Governance lost a routine it had: it is created again.
     if (answer.status === 404 && stored.revision !== undefined) {
@@ -383,6 +395,21 @@ export function make(options: Options) {
         if (queued.kind === "delete" && queued.routine === row.id) queued.revision = row.revision
       })
     })
+  }
+
+  // `409 already_activated`: the person already has a routine of the template this one was activated from, made on
+  // another computer. Governance keeps one per person and template: its row is taken, and the one made here goes with
+  // its runs and the changes still waiting to be sent.
+  function activated(op: Op, row: Row): Sent {
+    options.store.update((draft) => {
+      draft.routines = draft.routines.filter((stored) => stored.id !== op.routine)
+      draft.runs = draft.runs.filter((record) => record.routine !== op.routine)
+      draft.outbox = (draft.outbox ?? []).filter((queued) => queued.routine !== op.routine)
+      adopt(draft, row)
+    })
+    options.local.touched(op.routine)
+    options.local.touched(row.id)
+    return "done"
   }
 
   // `409`: the routine changed elsewhere since this computer last synced it. When Governance already holds what was

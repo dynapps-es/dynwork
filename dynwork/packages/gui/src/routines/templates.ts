@@ -62,9 +62,11 @@ export function activate(template: Template, personal: Personal): Definition | F
   return fail("invalid", "Some fields need attention.", problems)
 }
 
-// The template's own task, in `timezone`: undefined options are left out, as a `Definition`'s are JSON. A time limit
-// with a ceiling and no default starts at the ceiling.
-function defaults(template: Template, timezone: string): Definition {
+/**
+ * The template's own task, in `timezone`: undefined options are left out, as a `Definition`'s are JSON. A time limit
+ * with a ceiling and no default starts at the ceiling. The activation form starts from it.
+ */
+export function defaults(template: Template, timezone: string): Definition {
   const source = template.definition
   const options = Object.fromEntries(Object.entries(source.options).filter((entry) => entry[1] !== undefined))
   const limit = source.options.timeLimit ?? template.locks.timeLimitMax

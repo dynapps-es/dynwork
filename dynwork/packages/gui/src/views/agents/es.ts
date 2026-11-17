@@ -142,6 +142,26 @@ export default {
 
   "agents.templates.empty":
     "Las plantillas las publica Governance para tu organización. Al usar una se crea una tarea tuya que puedes editar. Aún no hay ninguna publicada.",
+  "agents.template.use": "Usar plantilla",
+  "agents.template.open": "Abrir tarea",
+  "agents.template.assigned": "Asignada por Dynapps",
+  "agents.template.active": "Activa en {{device}}",
+  "agents.template.active.elsewhere": "Activa en otro equipo",
+  "agents.template.requires": "Requiere {{server}}",
+  "agents.template.connectors": "Conectores",
+  "agents.template.connectors.none": "Ninguno",
+  "agents.template.permissions": "Permisos",
+  "agents.template.locked": "Lo fija Dynapps",
+  "agents.template.form.title": "Usar {{name}}",
+  "agents.template.form.description":
+    "Dynapps fija qué hace esta tarea. Elige lo que es tuyo; luego puedes cambiarle el nombre y los avisos.",
+  "agents.template.schedule.time": "Dynapps fija cada cuánto se ejecuta; la hora la eliges tú.",
+  "agents.template.schedule.locked": "Lo fija Dynapps",
+  "agents.template.model.missing": "El modelo de la plantilla no está disponible en este equipo.",
+  "agents.template.model.required": "Elige un modelo disponible en este equipo.",
+  "agents.template.folder.required": "Elige la carpeta del proyecto en la que trabaja esta tarea.",
+  "agents.template.confirm": "Aprobada por Dynapps; se ejecuta sin preguntar",
+  "agents.template.confirm.required": "Confirma que se ejecuta sin preguntar.",
   "agents.activity.hint":
     "Cada ejecución, en este equipo y en Cloud, de la más reciente a la más antigua. Incluye las de Cloud lanzadas fuera de Dynwork, por ejemplo desde el chat.",
   "agents.activity.empty": "Aún no hay ejecuciones.",

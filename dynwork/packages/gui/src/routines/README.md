@@ -26,7 +26,7 @@ window                                    main process
 | `ipc.ts`      | The Ipc implementation over a registry: the state snapshot, routing, watching, failures as data                          |
 | `fake.ts`     | An in-memory backend with an injectable clock: `Fake.make(options)`                                                      |
 | `demo.ts`     | The two seeded fakes (`local`, `farm`) shaped like the approved mockup, and `register`, which adds those not taken       |
-| `local/`      | The local backend (anchor and run sessions on DynWork's service, storage in the plugin's), its clock (`clock.ts`) and its Governance sync (`sync.ts`) |
+| `local/`      | The local backend (anchor and run sessions on DynWork's service, storage in the plugin's), its clock (`clock.ts`), its Governance sync (`sync.ts`) and its templates read (`templates.ts`) |
 | `farm/`       | The Agent Farm backend's skeleton and its handover `README.md` for Jesús Vargas: off unless `DYNWORK_ROUTINES_FARM=1`    |
 | `main.ts`     | The main-process setup: the registry, the local backend and its clock, the demos and the Ipc. From `accounts/main.ts`    |
 | `chat.ts`     | Routines from a chat: the routines tools' requests, the approval cards (`Chat` Ipc in `contract.ts`) and Schedule. From `accounts/main.ts` |
@@ -116,7 +116,11 @@ Governance implements too; this is what Dynwork holds of it.
   a time limit with a ceiling and no default starts at the ceiling. It answers `invalid`, one message per field, for a
   Cloud template, a missing zone or required folder, a template that runs without asking (`permissions: "bypass"`) the
   person did not confirm (`approved`), and a personal value the template locks.
-- **Backends.** The local backend answers `unsupported` until it reads Governance's `GET /templates`. The local demo fake
+- **Backends.** The local backend serves what `local/templates.ts` last read of Governance's `GET /templates` ("Sync with
+  Governance"): `signed-out` without an account, `unreachable` until a read answered, `unsupported` without a sync. Its
+  `activate` refuses a mandatory template (`conflict`: its routine arrives by the claim), one the person already has a
+  routine of here or that Governance links (`conflict`), and an unknown one (`not-found`); otherwise it makes the routine
+  with `RoutinesTemplates.activate` through `create`, so it goes through the outbox like any routine made here. The local demo fake
   serves two templates, an optional one that needs a folder and a mandatory one already linked to "Timesheet draft",
   and enforces the link's rules as Governance does; the farm's has none. The conformance suite checks, where a backend
   has templates, that one activates once, answers its link, and survives the wire.
@@ -246,6 +250,16 @@ computer).
   computer's. A routine owned elsewhere reads "Runs on <name>", can be edited and paused, its "Run now" is refused with
   that reason, and the detail offers "Move to this computer" (`move`: the owner changes through the same `If-Match`
   write; nothing counts as missed before the move). The clock fires only routines owned here (`Local.here`).
+- **Templates.** `local/templates.ts` (`RoutinesTemplatesReader.make`) reads `GET /templates` with the same account,
+  session and `X-Dynwork-Peer` as the feed, first in every pass (so a mandatory template's routine, which that read makes
+  in Governance, comes in the same pass's feed), and at once on the relay's `templates.changed` hint (`RoutinesMain`'s
+  `templates`). Each account keeps its own answer and `ETag`, sent back as `If-None-Match`: a `304`, an error or
+  Governance down keep the last answer, and another account's is never served. Nothing is stored: after a restart the
+  first read fills it. A new answer is a change of the local backend, so the windows read the templates again.
+- **One routine per template.** A `put` that creates a routine linked to a template the person already has a live routine
+  of (made on another computer before this one read it) is answered `409 {"error":"already_activated","routine":<row>}`:
+  Governance's row is taken, and the routine made here goes with its runs and its waiting changes, without a conflict
+  note. The Templates card then says where the routine is and opens it.
 - **Hint.** Governance's change hint arrives as a relay control message (`@dynwork/remote`'s `events.control`, surfaced by
   `RemoteTunnel.onControl`) only while the remote-control tunnel is connected; without it the poll catches up.
 
@@ -259,7 +273,8 @@ computer).
 Known limits: a routine moved to another computer can still fire here until
 this computer reads the move (seconds with the hint, at most one poll without).
 
-`test/routines/sync.test.ts` runs two computers against `test/routines/governance.ts`, a fake Governance over real HTTP.
+`test/routines/sync.test.ts` runs two computers against `test/routines/governance.ts`, a fake Governance over real HTTP;
+`test/routines/templates.test.ts` runs the templates read and activation against it.
 
 ## The clock
 
