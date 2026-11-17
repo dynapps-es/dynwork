@@ -61,6 +61,8 @@ export function platformFrame(mode: "light" | "dark", zoom: number) {
   if (process.platform === "darwin") {
     frame.titleBarStyle = "hidden"
     frame.trafficLightPosition = { x: 14, y: 14 }
+    // DynWork's chrome shows this material through the window, which `setBackgroundColor` keeps transparent.
+    Object.assign(frame, { vibrancy: "sidebar", backgroundColor: "#00000000" })
   }
 
   if (process.platform === "win32") {

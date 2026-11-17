@@ -1,0 +1,64 @@
+/* On macOS the window is transparent over the native sidebar material (desktop `windows/defaults.ts`), and
+   `registerViews` marks the root with `data-vibrancy`. The shell's chrome (the frame around the panels, the sidebar,
+   the titlebar and its tabs) paints the theme's deep background, and only the chrome: tinting that token over the
+   material lets the blur through in every theme and layout. Panels keep the opaque color. */
+
+:root[data-vibrancy] {
+  /* How much of the theme's color covers the material. */
+  --dynwork-vibrancy-tint: 55%;
+  /* The theme's own color, resolved here before the shell tints the token below. */
+  --dynwork-deep: var(--v2-background-bg-deep);
+  /* The preload and the theme set an inline color on the root. */
+  background-color: transparent !important;
+}
+
+:root[data-vibrancy][data-color-scheme="dark"] {
+  --dynwork-vibrancy-tint: 40%;
+}
+
+/* With Reduce transparency macOS draws the material opaque; the chrome then shows the theme's own color. */
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-vibrancy] {
+    --dynwork-vibrancy-tint: 100%;
+  }
+}
+
+/* The shell's root is the titlebar's parent, in every layout. Tailwind's `bg-v2-background-bg-deep` reads its own
+   variable, which `:root` already resolved, so both are set. */
+:root[data-vibrancy] :has(> [data-slot="titlebar-v2"]) {
+  --v2-background-bg-deep: color-mix(in srgb, var(--dynwork-deep) var(--dynwork-vibrancy-tint), transparent);
+  --color-v2-background-bg-deep: var(--v2-background-bg-deep);
+
+  /* Rows and tabs paint the chrome's color under their hover overlay; over the tinted chrome a second tint would show
+     each row as a darker block. */
+  :is([data-titlebar-tab], [data-titlebar-tab-action]) {
+    --tab-base: transparent;
+  }
+}
+
+/* What sits over the panels or the page stays opaque: the panels themselves, the sidebar while it peeks over a panel,
+   and the narrow window's drawer. */
+:root[data-vibrancy] :is(main, [data-slot="vertical-tabs-sidebar"][data-peek], [data-slot="mobile-drawer-content"]) {
+  --v2-background-bg-deep: var(--dynwork-deep);
+  --color-v2-background-bg-deep: var(--dynwork-deep);
+}
+
+/* The sign-in screen's brand column is its sidebar. The shell it covers hides until the screen starts to fade, so the
+   material shows through the column instead of the shell. */
+:root[data-vibrancy] {
+  [data-component="dynwork-signin"] {
+    background: transparent;
+
+    [data-slot="signin-brand"] {
+      background-color: color-mix(in srgb, var(--v2-background-bg-layer-01) var(--dynwork-vibrancy-tint), transparent);
+    }
+
+    [data-slot="signin-panel"] {
+      background: var(--v2-background-bg-base);
+    }
+  }
+
+  &:has([data-component="dynwork-signin"]:not([data-leaving])) :has(> [data-slot="titlebar-v2"]) {
+    visibility: hidden;
+  }
+}

@@ -52,7 +52,7 @@ export function setBackgroundColor(color: string) {
   if (getBackgroundColor() !== color) getStore().set(BACKGROUND_COLOR_KEY, color)
   backgroundColor = color
   BrowserWindow.getAllWindows().forEach((win) => {
-    win.setBackgroundColor(color)
+    if (process.platform !== "darwin") win.setBackgroundColor(color)
 
     if (process.platform === "darwin") win.invalidateShadow()
   })

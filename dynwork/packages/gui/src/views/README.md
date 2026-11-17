@@ -173,3 +173,12 @@ A view renders `ViewShell` from `./shell.tsx`, reads strings with `usePlugin().t
 
 Style a view with plain CSS under `[data-component="dynwork-view"][data-view="<view>"]` and the theme's v2 tokens:
 Tailwind does not scan `dynwork/`.
+
+## The macOS sidebar material
+
+On macOS the desktop window is transparent over the native `sidebar` vibrancy (`platformFrame` in
+`packages/desktop/src/main/windows/defaults.ts`), and `registerViews` marks the root with `data-vibrancy`. Only the
+shell's chrome paints `--v2-background-bg-deep`: the frame around the panels, the sidebar, the titlebar and its tabs.
+`./vibrancy.css` tints that token over the material inside the shell, so every theme and layout keeps its own color, and
+puts the opaque color back on what sits over the panels (the panels, the peeking sidebar, the narrow window's drawer).
+The sign-in screen's brand column gets the same material. Windows and Linux keep the opaque window.
