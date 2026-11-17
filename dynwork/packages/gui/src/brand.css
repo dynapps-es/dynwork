@@ -1,0 +1,15 @@
+/* The Dynapps primary color, for every primary button DynWork styles: the theme's buttons (`views/primary.css`), the
+   views' own (`views/shell.css`) and the sign-in screen's (`signin/connect.css`). On light, Dynapps midnight (`#01007c`,
+   a lighter tone than the brand book's Midnight Denim) at rest and when disabled, the digital Unicorn Violet on hover
+   and press; on dark, Unicorn Violet, lighter on hover. */
+:root {
+  --dynwork-primary: #01007c;
+  --dynwork-primary-hover: #951cf3;
+  --dynwork-primary-pressed: color-mix(in srgb, #951cf3, black 18%);
+}
+
+:root[data-color-scheme="dark"] {
+  --dynwork-primary: #951cf3;
+  --dynwork-primary-hover: color-mix(in srgb, #951cf3, white 14%);
+  --dynwork-primary-pressed: color-mix(in srgb, #951cf3, black 18%);
+}

@@ -8,6 +8,7 @@ import { Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { SignInCopy } from "./copy"
 import type { SignInFlow } from "./flow"
+import "../brand.css"
 import "./connect.css"
 
 // The first step of signing in: the instance URL, the browser button and the token field. The sign-in screen and the

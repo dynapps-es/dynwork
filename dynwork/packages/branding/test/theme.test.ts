@@ -32,7 +32,8 @@ describe("default theme", () => {
 })
 
 describe("dark", () => {
-  // Dynapps dark is pure black, and no text keeps the brand's lavender: every text role is white.
+  // Dynapps dark is a near-black blue grey that sits with the macOS sidebar glass, and no text keeps the brand's
+  // lavender: every text role is white.
   test.each([
     "v2-text-text-base",
     "v2-text-text-muted",
@@ -54,7 +55,7 @@ describe("brand roles", () => {
     { mode: "light", role: "v2-background-bg-accent", brand: "#01007C" },
     { mode: "light", role: "v2-text-text-accent", brand: "#01007C" },
     { mode: "dark", role: "background-base", brand: "#000000" },
-    { mode: "dark", role: "v2-background-bg-base", brand: "#000000" },
+    { mode: "dark", role: "v2-background-bg-base", brand: "#101118" },
     { mode: "dark", role: "text-base", brand: "#FFFFFF" },
   ] as const)("$mode $role is the brand tone $brand", (row) => {
     expect(contrastRatio(color(resolved[row.mode], row.role), row.brand)).toBeLessThan(1.1)
