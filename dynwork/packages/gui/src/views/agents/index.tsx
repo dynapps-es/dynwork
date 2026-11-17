@@ -16,6 +16,7 @@ import { Activity, RoutineCards, Templates, Toolbar } from "./list"
 import { createAgentsModel } from "./model"
 import type { Where } from "./routine"
 import { RunViewer } from "./viewer"
+import { askNewTask, newTask } from "./intent"
 import "./agents.css"
 
 const NewRoutineMenu = lazy(() => import("./new-menu"))
@@ -122,6 +123,15 @@ export default function AgentsView(props: { where?: Where }) {
     link.click()
     link.remove()
   }
+
+  // The sidebar row's "+" asked for a new task: start it as this view's own menu would, once the view is ready.
+  createEffect(() => {
+    const asked = newTask()
+    if (!asked || !model.ready()) return
+    askNewTask(undefined)
+    if (asked === "chat") return void chat()
+    form()
+  })
 
   const remove = async (routine: Routine) => {
     const confirmed = await ctx.dialogs.confirm({
