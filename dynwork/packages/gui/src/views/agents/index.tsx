@@ -1,8 +1,7 @@
 import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
-import { Icon } from "@opencode/ui/icon"
-import { Menu } from "@opencode/ui/menu"
-import { createEffect, For, Match, on, onCleanup, Show, Switch } from "solid-js"
+import { createEffect, For, lazy, Match, on, onCleanup, Show, Switch } from "solid-js"
+import { isServer } from "solid-js/web"
 import { RoutinesClient } from "../../routines/client"
 import { isFailure, type Routine, type Run } from "../../routines/contract"
 import { sessionHref } from "../runs/model"
@@ -18,6 +17,8 @@ import { createAgentsModel } from "./model"
 import type { Where } from "./routine"
 import { RunViewer } from "./viewer"
 import "./agents.css"
+
+const NewRoutineMenu = lazy(() => import("./new-menu"))
 
 /**
  * The Agents view: every routine, local and remote, in one list over the `dynwork.routines` Ipc. The view never reaches
@@ -148,29 +149,18 @@ export default function AgentsView(props: { where?: Where }) {
         </For>
       }
       actions={
-        <Menu placement="bottom-end" gutter={6}>
-          <Menu.Trigger
-            as={Button}
-            variant="contrast"
-            icon="plus"
+        // Kobalte's menu runs browser-only code as soon as it loads, so it is loaded on the client only: the view tests
+        // render with Solid's server build.
+        <Show when={!isServer}>
+          <NewRoutineMenu
+            label={ctx.t("agents.new")}
+            chat={ctx.t("agents.new.chat")}
+            manual={ctx.t("agents.new.manual")}
             disabled={!model.ready() || model.backends().length === 0}
-          >
-            {ctx.t("agents.new")}
-            <Icon name="chevron-down" size="small" />
-          </Menu.Trigger>
-          <Menu.Portal>
-            <Menu.Content>
-              <Menu.Item onSelect={() => void chat()}>
-                <Icon name="speech-bubble" size="small" />
-                {ctx.t("agents.new.chat")}
-              </Menu.Item>
-              <Menu.Item onSelect={() => form()}>
-                <Icon name="settings-gear" size="small" />
-                {ctx.t("agents.new.manual")}
-              </Menu.Item>
-            </Menu.Content>
-          </Menu.Portal>
-        </Menu>
+            onChat={() => void chat()}
+            onManual={() => form()}
+          />
+        </Show>
       }
       detail={<Show when={model.state.viewer}>{(viewer) => <RunViewer viewer={viewer()} model={model} />}</Show>}
       detailTitle={
