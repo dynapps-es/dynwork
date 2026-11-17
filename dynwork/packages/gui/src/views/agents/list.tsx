@@ -32,44 +32,46 @@ export function Toolbar(props: { model: AgentsModel }) {
           <For each={tabs}>{(tab) => <Tabs.Trigger value={tab}>{ctx.t(`agents.tab.${tab}`)}</Tabs.Trigger>}</For>
         </Tabs.List>
       </Tabs>
-      <Show when={model.state.tab !== "templates"}>
-        <SegmentedControl
-          value={model.state.where}
-          aria-label={ctx.t("agents.where.label")}
-          onChange={(value) => model.setWhere(wheres.find((where) => where === value) ?? "all")}
-        >
-          <For each={wheres}>
-            {(where) => (
-              <SegmentedControlItem value={where}>
-                {ctx.t(`agents.where.${where}`)}
-                <Show when={model.state.tab === "mine"}>
-                  <span data-slot="agents-count">{model.count(where)}</span>
-                </Show>
-              </SegmentedControlItem>
-            )}
-          </For>
-        </SegmentedControl>
-      </Show>
-      <Show when={model.state.tab === "mine"}>
-        <div data-slot="agents-search-row">
-          <span data-slot="agents-select-key">{ctx.t("agents.filter.status")}</span>
-          <ctx.ui.Select
-            label={ctx.t("agents.filter.status")}
-            value={model.state.status}
-            options={statuses.map((status) => ({ value: status, label: ctx.t(`agents.filter.${status}`) }))}
-            onChange={model.setStatus}
-          />
-          <TextInput
-            type="search"
-            class="agents-search"
-            leadingIcon={<Icon name="magnifying-glass" size="small" />}
-            value={model.state.search}
-            placeholder={ctx.t("agents.search")}
-            aria-label={ctx.t("agents.search")}
-            onInput={(event) => model.setSearch(event.currentTarget.value)}
-          />
-        </div>
-      </Show>
+      <div data-slot="agents-filters">
+        <Show when={model.state.tab !== "templates"}>
+          <SegmentedControl
+            value={model.state.where}
+            aria-label={ctx.t("agents.where.label")}
+            onChange={(value) => model.setWhere(wheres.find((where) => where === value) ?? "all")}
+          >
+            <For each={wheres}>
+              {(where) => (
+                <SegmentedControlItem value={where}>
+                  {ctx.t(`agents.where.${where}`)}
+                  <Show when={model.state.tab === "mine"}>
+                    <span data-slot="agents-count">{model.count(where)}</span>
+                  </Show>
+                </SegmentedControlItem>
+              )}
+            </For>
+          </SegmentedControl>
+        </Show>
+        <Show when={model.state.tab === "mine"}>
+          <div data-slot="agents-search-row">
+            <span data-slot="agents-select-key">{ctx.t("agents.filter.status")}</span>
+            <ctx.ui.Select
+              label={ctx.t("agents.filter.status")}
+              value={model.state.status}
+              options={statuses.map((status) => ({ value: status, label: ctx.t(`agents.filter.${status}`) }))}
+              onChange={model.setStatus}
+            />
+            <TextInput
+              type="search"
+              class="agents-search"
+              leadingIcon={<Icon name="magnifying-glass" size="small" />}
+              value={model.state.search}
+              placeholder={ctx.t("agents.search")}
+              aria-label={ctx.t("agents.search")}
+              onInput={(event) => model.setSearch(event.currentTarget.value)}
+            />
+          </div>
+        </Show>
+      </div>
     </div>
   )
 }

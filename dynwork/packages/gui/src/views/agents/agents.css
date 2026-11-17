@@ -212,15 +212,40 @@
     border-radius: 50%;
   }
 
-  /* The bar over the list. It wraps: tabs, the Local and Remote filter, then status and search on their own row. */
+  /* The bar over the list: the tabs, then a row of filters that wraps, with status and search going under the Local and
+     Remote filter when they do not fit. It never shrinks under its content, so it cannot slide under the cards. */
   [data-slot="agents-toolbar"] {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+
+    /* The app's tabs fill their parent's height, which a toolbar does not have. */
+    > [data-component="tabs-v2"] {
+      height: auto;
+    }
+  }
+
+  [data-slot="agents-filters"] {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 16px;
+    min-width: 0;
+
+    /* The segmented control is 232px by default; its labels carry a count here, so it takes the width they need. */
+    [data-slot="segmented-control-v2"] {
+      width: auto;
+    }
+
+    [data-slot="segmented-control-v2-item"] {
+      flex: 1 0 auto;
+    }
   }
 
   [data-slot="agents-count"] {
+    margin-inline-start: 6px;
     font-size: 11px;
     opacity: 0.7;
     font-variant-numeric: tabular-nums;
@@ -228,14 +253,19 @@
 
   [data-slot="agents-search-row"] {
     display: flex;
-    flex: 1 1 280px;
+    flex: 1 1 320px;
     justify-content: flex-end;
     align-items: center;
     gap: 8px;
     min-width: 0;
+
+    [data-component="select-v2"] {
+      flex: none;
+    }
   }
 
   [data-slot="agents-select-key"] {
+    flex: none;
     color: var(--v2-text-text-faint);
   }
 

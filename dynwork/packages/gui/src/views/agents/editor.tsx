@@ -271,7 +271,7 @@ function Choose(props: {
 }) {
   const ctx = usePlugin()
   const options = () => [
-    ...(props.blank === undefined ? [] : [{ value: "", label: props.blank }]),
+    ...(props.blank === undefined ? [] : [{ value: BLANK, label: props.blank }]),
     ...props.options.map((option) => ({ value: option.value, label: option.label })),
     ...(props.value !== "" && !props.options.some((option) => option.value === props.value)
       ? [{ value: props.value, label: props.value }]
@@ -281,13 +281,16 @@ function Choose(props: {
   return (
     <ctx.ui.Select
       label={props.label}
-      value={props.value}
+      value={props.value === "" ? BLANK : props.value}
       options={options()}
       invalid={props.invalid}
-      onChange={props.onChange}
+      onChange={(value) => props.onChange(value === BLANK ? "" : value)}
     />
   )
 }
+
+// The select treats an empty value as no selection and shows nothing, so the blank choice travels under this key.
+const BLANK = "\u0000blank"
 
 // Where the routine runs: a choice between the backends for a new routine, a fixed line for an edit.
 function Where(props: { form: FormModel; agents: AgentsModel }) {
