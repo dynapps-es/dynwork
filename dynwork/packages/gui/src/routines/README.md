@@ -114,7 +114,13 @@ speaks the public HTTP API. Model (i) of docs/04-ui.md §A.3: one conversation p
 - **Without the service.** `capabilities()` says `unreachable`; the routines still list, edit, pause and resume, and
   `start` answers `unreachable`.
 
-Not here yet: the time limit.
+- **Time limit.** The routine's "Time limit (minutes)" (`timeLimit`, default 30) counts from the run's `started`. One
+  timer per running run (`Options.timers`) fires at that time, and every read of a run checks it too, so a run left going
+  by a closed app is stopped as soon as it is read after the app opens (the backend arms the runs it finds going when it
+  is made). A run still going then, even one waiting for a permission nobody answers, is recorded `failed` with
+  `reason: "timeout"` (before the session is interrupted, so the interrupt's event cannot read as the user stopping it),
+  told like any failure (`Notify me`), and its session is interrupted. Whatever ends a run clears its timer.
+
 `test/routines/local.test.ts` runs the conformance suite and the local backend's own tests against
 `test/routines/service.ts`, a fake service over real HTTP; `test/routines/clock.test.ts` runs the clock on a fake clock
 and fake timers over the same service.

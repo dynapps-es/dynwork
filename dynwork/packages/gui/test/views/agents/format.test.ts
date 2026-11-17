@@ -96,6 +96,7 @@ describe("times, durations and costs", () => {
     expect(reasonText(t, "grouped")).toBe("Covered by one catch-up run")
     expect(reasonText(t, "overlap")).toBe("The previous run was still running")
     expect(reasonText(t, "restart")).toBe("Interrupted by a restart")
+    expect(reasonText(t, "timeout")).toBe("Stopped at the time limit")
     expect(reasonText(t, "quota_exceeded")).toBe("quota_exceeded")
   })
 
