@@ -5,7 +5,7 @@
 
 :root[data-vibrancy] {
   /* How much of the theme's color covers the material. */
-  --dynwork-vibrancy-tint: 45%;
+  --dynwork-vibrancy-tint: 15%;
   /* The theme's own color, resolved here before the shell tints the token below. */
   --dynwork-deep: var(--v2-background-bg-deep);
   /* The preload and the theme set an inline color on the root. */
@@ -13,7 +13,7 @@
 }
 
 :root[data-vibrancy][data-color-scheme="dark"] {
-  --dynwork-vibrancy-tint: 40%;
+  --dynwork-vibrancy-tint: 20%;
 }
 
 /* With Reduce transparency macOS draws the material opaque; the chrome then shows the theme's own color. */
