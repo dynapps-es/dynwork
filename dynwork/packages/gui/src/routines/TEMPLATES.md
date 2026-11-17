@@ -57,13 +57,17 @@ A task created from a template carries `Definition.template = { "id": "<template
 level as `name` (not in `options`). Governance derives two columns from it on every write (`template_id`,
 `template_revision`) and enforces:
 
-| Write                                 | Rule                                                                    | Error                                               |
-| ------------------------------------- | ----------------------------------------------------------------------- | --------------------------------------------------- |
-| `PUT /routines/{id}` creating a link  | at most one live (not deleted) task per `(user, template)`              | `409 {"error":"already_activated","routine":<row>}` |
-| `PUT /routines/{id}` on a linked task | the locked fields of §1 equal those of the named revision               | `409 {"error":"template_locked","current":<row>}`   |
-| `DELETE /routines/{id}`               | refused while the template is `mandatory` for this user and `published` | `409 {"error":"template_mandatory"}`                |
+| Write                                 | Rule                                                                             | Error                                               |
+| ------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `PUT /routines/{id}` creating a link  | at most one live (not deleted) task per `(user, template)`                       | `409 {"error":"already_activated","routine":<row>}` |
+| `PUT /routines/{id}` on a linked task | the locked fields of §1 equal those of the named revision                        | `409 {"error":"template_locked","current":<row>}`   |
+| `PUT /routines/{id}` creating a link  | the template is published and visible to the caller (§6), the revision published | `400 {"error":"bad_request"}`                       |
+| `PUT /routines/{id}` on a linked task | the revision never goes back                                                     | `409 {"error":"template_locked","current":<row>}`   |
+| `DELETE /routines/{id}`               | refused while the template is `mandatory` for this user and `published`          | `409 {"error":"template_mandatory"}`                |
 
-A tombstone keeps `template_id` (column), so the admin sees "deactivated on <date>".
+A tombstone keeps `template_id` (column), so the admin sees "deactivated on <date>". A task already linked follows its
+template whatever the template's state or the caller's access; only a new link needs an open template. Publishing a
+closed template keeps it closed.
 
 ## 3. Routes (under `/api/dynwork/routines/v1`, desktop credential as today)
 
