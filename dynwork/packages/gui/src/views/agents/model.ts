@@ -192,6 +192,10 @@ export function createAgentsModel(input: { client: () => Client | undefined; whe
           : client.pause({ backend: routine.ref.backend, id: routine.ref.id }),
       ),
 
+    /** Makes this computer the one that runs a routine of another one. */
+    move: (routine: Routine) =>
+      act(`move/${refKey(routine.ref)}`, (client) => client.move({ backend: routine.ref.backend, id: routine.ref.id })),
+
     remove: (routine: Routine) =>
       act(`remove/${refKey(routine.ref)}`, async (client) => {
         const failure = await client.remove({ backend: routine.ref.backend, id: routine.ref.id })

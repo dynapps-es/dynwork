@@ -4,10 +4,10 @@ import { Icon } from "@opencode/ui/icon"
 import { For, Show } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Routine, Run } from "../../routines/contract"
-import { duration, instructionsText, runWhen, scheduleText } from "./format"
+import { duration, instructionsText, reasonText, runWhen, scheduleText } from "./format"
 import { runHref } from "../runs/model"
 import { tabs, type AgentsModel } from "./model"
-import { openable, routineStatus, statuses, wheres } from "./routine"
+import { openable, routineStatus, stateKey, statuses, waiting, wheres } from "./routine"
 import { RunMark, Tag, Unread, WhereBadge } from "./parts"
 
 /** The bar over the list: the tabs, the Local and Remote chips with their counts, the status filter and the search. */
@@ -177,7 +177,9 @@ function ActivityRow(props: { run: Run; model: AgentsModel; open: (run: Run) => 
   const routine = () => props.model.routineOf(props.run)
   const capabilities = () => props.model.capabilities(props.run.ref.backend)
   const detail = () =>
-    props.run.summary ?? duration(ctx.t, props.run, Date.now()) ?? props.run.reason ?? ctx.t("agents.run.outside")
+    props.run.summary ??
+    duration(ctx.t, props.run, Date.now()) ??
+    (props.run.reason && !waiting(props.run) ? reasonText(ctx.t, props.run.reason) : ctx.t("agents.run.outside"))
 
   return (
     // A run read in a session is a link the app's router opens in place, under the routine's anchor.
@@ -190,10 +192,10 @@ function ActivityRow(props: { run: Run; model: AgentsModel; open: (run: Run) => 
       disabled={runHref(props.run) ? undefined : !openable(props.run)}
       onClick={() => !runHref(props.run) && props.open(props.run)}
     >
-      <RunMark state={props.run.state} />
+      <RunMark state={props.run.state} reason={props.run.reason} />
       <span data-slot="agents-activity-name">
         <span>{routine()?.definition.name ?? props.run.title}</span>
-        <small>{ctx.t("agents.run.line", { state: ctx.t(`agents.run.${props.run.state}`), detail: detail() })}</small>
+        <small>{ctx.t("agents.run.line", { state: ctx.t(stateKey(props.run)), detail: detail() })}</small>
       </span>
       <WhereBadge routine={routine()} capabilities={capabilities()} />
       <span data-slot="agents-meta">{runWhen(ctx.locale.locale(), props.run)}</span>

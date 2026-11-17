@@ -163,7 +163,10 @@ describe("checking a definition against capabilities", () => {
       options: {},
     }
     expect(RoutinesValidate.check(local, prompt)).toBeUndefined()
-    expect(RoutinesValidate.check(local, { ...prompt, options: { catchUp: 13 } })?.fields).toHaveProperty("catchUp")
+    expect(RoutinesValidate.check(local, { ...prompt, options: { catchUp: 49 } })?.fields).toHaveProperty("catchUp")
+    expect(RoutinesValidate.check(local, { ...prompt, options: { catchUp: 0 } })?.fields).toHaveProperty("catchUp")
+    // Hidden while missed runs are not recovered: then it is not checked.
+    expect(RoutinesValidate.check(local, { ...prompt, options: { recover: "none", catchUp: 0 } })).toBeUndefined()
     expect(RoutinesValidate.check(local, { ...prompt, options: { permissions: "root" } })?.fields).toHaveProperty(
       "permissions",
     )

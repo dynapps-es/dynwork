@@ -19,8 +19,16 @@ const broken: readonly RunState[] = ["failed", "blocked"]
 
 export const isLive = (run?: Run) => !!run && live.includes(run.state)
 
+/** A run that waits for the user's answer to a permission request: it runs, and will not go on alone. */
+export const waiting = (run: Pick<Run, "state" | "reason">) => run.state === "running" && run.reason === "permission"
+
+/** The message key of a run's state: "Waiting for your permission" while it waits, else its state's. */
+export const stateKey = (run: Pick<Run, "state" | "reason">) =>
+  waiting(run) ? "agents.run.waiting" : `agents.run.${run.state}`
+
 /** The tone a run's state is drawn in. */
-export function runTone(state: RunState): Tone | undefined {
+export function runTone(state: RunState, reason?: string): Tone | undefined {
+  if (waiting({ state, reason })) return "warning"
   if (state === "ok") return "success"
   if (state === "late") return "warning"
   if (broken.includes(state)) return "danger"
@@ -35,8 +43,7 @@ export function routineStatus(routine: Routine, capabilities?: Capabilities): Wo
   if (routine.state === "error") return { key: "agents.status.error", params: {}, tone: "danger" }
   if (routine.state === "finished") return { key: "agents.status.finished", params: {} }
   if (routine.state === "paused") return { key: "agents.status.paused", params: {} }
-  if (routine.owner && !routine.owner.here && !routine.owner.online)
-    return { key: "agents.status.waiting", params: { device: routine.owner.label }, tone: "warning" }
+  if (routine.owner && !routine.owner.here) return { key: "agents.status.elsewhere", params: { device: routine.owner.label } }
   if (isLive(routine.last)) return { key: "agents.status.running", params: {}, tone: "info" }
   if (routine.last && broken.includes(routine.last.state))
     return { key: "agents.status.failing", params: {}, tone: "danger" }
@@ -72,6 +79,8 @@ export function actions(routine: Routine, capabilities?: Capabilities) {
   const finished = routine.state === "finished" || routine.state === "error"
   return {
     start: blocked ?? owned(routine) ?? yes,
+    /** "Move to this computer": the detail offers it only for a routine another device runs. */
+    move: blocked ?? yes,
     toggle: blocked ?? (finished ? no("agents.reason.finished") : yes),
     edit:
       blocked ??

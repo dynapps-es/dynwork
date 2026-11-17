@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { Capabilities } from "../../../src/routines/contract"
-import { actions, facts, openable, routineStatus } from "../../../src/views/agents/routine"
+import { actions, facts, openable, routineStatus, runTone, stateKey, waiting } from "../../../src/views/agents/routine"
 import { setup, t } from "./fixture"
 
 const said = (words?: { key: string; params: Record<string, string> }) => words && t(words.key, words.params)
@@ -9,7 +9,7 @@ describe("the status tag", () => {
   test.each([
     ["Weekly ticket summary", "Active", "success"],
     ["Nightly test run", "Last run failed", "danger"],
-    ["Timesheet draft", "Waiting for Home laptop", "warning"],
+    ["Timesheet draft", "Runs on Home laptop", undefined],
     ["Sort the Brain inbox", "Paused", undefined],
     ["Sync CRM", "Running", "info"],
     ["Release notes", "Manual only", undefined],
@@ -47,7 +47,7 @@ describe("actions follow the capabilities", () => {
     const crm = view.find("Sync CRM")
     const plain = actions(crm, view.model.capabilities("farm"))
     expect(Object.values(plain).map((action) => [action.enabled, said(action.reason)])).toEqual(
-      Array.from({ length: 6 }, () => [false, "Signed out"]),
+      Array.from({ length: 7 }, () => [false, "Signed out"]),
     )
 
     view.farm.setStatus("unreachable", "The Agent Farm does not answer.")
@@ -55,11 +55,11 @@ describe("actions follow the capabilities", () => {
     expect(said(actions(crm, view.model.capabilities("farm")).start.reason)).toBe("The Agent Farm does not answer.")
   })
 
-  test("a routine of another device runs only there, but can still be paused", async () => {
+  test("a routine of another device runs only there, but can still be paused, edited and moved here", async () => {
     const view = await setup()
     const allowed = actions(view.find("Timesheet draft"), view.model.capabilities("local"))
     expect([allowed.start.enabled, said(allowed.start.reason)]).toEqual([false, "Runs only on Home laptop."])
-    expect(allowed.toggle.enabled).toBe(true)
+    expect([allowed.toggle.enabled, allowed.edit.enabled, allowed.move.enabled]).toEqual([true, true, true])
   })
 
   test("an edit that replaces the routine says so; a backend without cancel cannot stop a run", async () => {
@@ -97,11 +97,11 @@ describe("the detail's facts, the same layout for both kinds", () => {
     expect(grouped.where.map((fact) => [fact.label, fact.value])).toEqual([
       ["Project folder", "/Users/demo/Projects/portal"],
       ["Time limit (minutes)", "30"],
-      ["Catch up missed runs within (hours)", "6"],
+      ["Recover missed runs", "If recent"],
+      ["Within (hours)", "6"],
     ])
     expect(grouped.permissions.map((fact) => [fact.label, fact.value])).toEqual([
-      ["Access", "Edit files and run commands"],
-      ["Ask me when something else is needed", true],
+      ["Permissions", "Don't ask"],
     ])
     expect(grouped.notifications.map((fact) => fact.value)).toEqual(["Only when something fails"])
     expect(grouped.options).toEqual([])
@@ -137,5 +137,23 @@ describe("the detail's facts, the same layout for both kinds", () => {
     const keys = facts(capped, view.model.capabilities("farm"), () => []).where.map((fact) => fact.key)
     expect(keys).toContain("budget")
     expect(facts(crm, view.model.capabilities("farm"), () => []).where.map((fact) => fact.key)).not.toContain("budget")
+  })
+})
+
+describe("a run waiting for a permission", () => {
+  test("is a running run with the reason `permission`: its own words, in the warning tone, and nothing else is", () => {
+    const asking = { state: "running", reason: "permission" } as const
+    expect([waiting(asking), waiting({ state: "running" }), waiting({ state: "failed", reason: "permission" })]).toEqual([
+      true,
+      false,
+      false,
+    ])
+    expect(t(stateKey(asking))).toBe("Waiting for your permission")
+    expect(t(stateKey({ state: "running" }))).toBe("Running")
+    expect([runTone("running", "permission"), runTone("running"), runTone("failed", "permission")]).toEqual([
+      "warning",
+      "info",
+      "danger",
+    ])
   })
 })

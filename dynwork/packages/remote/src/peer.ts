@@ -1,6 +1,7 @@
 import { equalBytes } from "@noble/ciphers/utils.js"
 import { Cause, Clock, Deferred, Duration, Effect, Fiber, Queue, Semaphore } from "effect"
 import { empty, fromUtf8, toBase64Url, utf8 } from "./bytes"
+import { decode as decodeControl, type Control } from "./control"
 import { decode as decodeEnvelope, encode as encodeEnvelope, type Envelope } from "./envelope"
 import { Closed, Handshake, Replay, type RemoteError } from "./errors"
 import { Kind, unsequenced, type Frame } from "./frame"
@@ -337,6 +338,9 @@ export type DesktopEvents = {
   refused?: (error: unknown) => void
   // The relay reported a phone of this user attaching or going away (its peer id; any phone, paired here or not)
   presence?: (phone: Uint8Array, online: boolean) => void
+  // The relay sent a control message that is not presence: its parsed JSON body, such as {"t":"routines.changed"}
+  // (something of this user changed on the server). One event for every kind; subscribers switch on `t`
+  control?: (message: Control) => void
 }
 
 // The pairing tokens already redeemed. Single use outlives the process when the app persists them: a token is kept
@@ -445,12 +449,15 @@ export class Desktop {
     return Effect.gen(function* () {
       while (true) {
         const bytes = yield* Queue.take(link.incoming)
-        // Byte 0 first: relay presence (0xFF) is not an envelope, and an unknown version is ignored
+        // Byte 0 first: relay control (0xFF, presence or another control message) is not an envelope, and an unknown
+        // version is ignored
         const type = kind(bytes)
         if (type === "presence") {
           const presence = decodePresence(bytes)
           if (presence && equalBytes(presence.to, self.#id))
             self.#input.events?.presence?.(presence.phone, presence.event === "connected")
+          const control = presence ? undefined : decodeControl(bytes)
+          if (control && equalBytes(control.to, self.#id)) self.#input.events?.control?.(control.message)
           continue
         }
         if (type !== "envelope") continue

@@ -80,9 +80,17 @@ attaches (`1`) or goes away (`2`), on the same queue as the envelopes, so it arr
 | 17     | 16   | `phone`   | the phone's peer id                                                                                     |
 | 33     | 1    | `event`   | `1` connected, `2` disconnected                                                                         |
 
-A desktop reads byte 0 before decoding: `0x01` is an envelope, `0xFF` presence (`Presence.decode`), anything else is
-ignored. A desktop that attaches hears one `connected` for each phone already online. A phone socket replaced by a newer
+A desktop reads byte 0 before decoding: `0x01` is an envelope, `0xFF` relay control (presence when it decodes as
+presence, `Presence.decode`; otherwise a control message, `Control.decode`), anything else is ignored. A desktop that attaches hears one `connected` for each phone already online. A phone socket replaced by a newer
 one is not reported gone.
+
+## Control messages
+
+The relay also writes other control messages to a user's desktops, so a desktop pulls a server feed now instead of at
+its next poll: `0xFF ‖ to (16) ‖ UTF-8 JSON`, whose object has a string `t` naming what changed, such as
+`{"t":"routines.changed"}`. They are best effort and never held for an offline desktop. A 34-byte one never has a valid
+presence event byte. `Remote.Desktop` reports each one addressed to it as `events.control(message)` with the parsed
+JSON; the app routes it by `t`.
 
 ## Limits a client respects
 

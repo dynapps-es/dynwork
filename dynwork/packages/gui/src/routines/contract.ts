@@ -130,10 +130,20 @@ export const Routine = Schema.Struct({
   /** The routine's own conversation: a local routine's anchor session; otherwise `none`. */
   conversation: Conversation,
   updated: Schema.Number,
+  /**
+   * When an edit made on this device was replaced by a change made on another one (a sync conflict): the routine is
+   * as the other device left it, and the view says so until the next edit here.
+   */
+  conflict: Schema.optional(Schema.Number),
 })
 export type Routine = typeof Routine.Type
 
-export const Choice = Schema.Struct({ value: Schema.String, label: Schema.String })
+export const Choice = Schema.Struct({
+  value: Schema.String,
+  label: Schema.String,
+  /** One line the form shows, as a warning, while this choice is selected. */
+  warning: Schema.optional(Schema.String),
+})
 export type Choice = typeof Choice.Type
 
 /**
@@ -183,6 +193,11 @@ export const Capabilities = Schema.Struct({
    */
   status: Schema.Literals(["ready", "signed-out", "unreachable", "disabled"]),
   detail: Schema.optional(Schema.String),
+  /**
+   * Whether the routines are in step with Governance, for a backend that keeps them on this device and syncs them:
+   * false while it cannot reach Governance (the view says "Not synced"; changes wait to be sent). Absent: no sync.
+   */
+  synced: Schema.optional(Schema.Boolean),
   /** The kinds of `Instructions` it takes. */
   instructions: Schema.Array(Schema.Literals(["prompt", "skill", "agent"])),
   /** `Definition.agent`: `required`, `optional` or not there (`none`: the instructions name the agent). */
@@ -286,6 +301,8 @@ export const Routines = Ipc.define({
   events: {
     /** A run changed state, as it happens. The routines in `state` follow right after. */
     run: Run,
+    /** The user clicked a notification: the window in focus opens the run in place. */
+    open: Run,
   },
   methods: {
     /** Reads every backend again and pushes `state`. */
@@ -305,6 +322,8 @@ export const Routines = Ipc.define({
     resume: { input: Schema.Struct(OnRoutine), output: Done },
     /** Starts a run now, whatever the schedule says. */
     start: { input: Schema.Struct(OnRoutine), output: Outcome(Run) },
+    /** Makes this device the one that runs a routine of another device; `unsupported` for a backend without owners. */
+    move: { input: Schema.Struct(OnRoutine), output: Done },
     cancel: { input: Schema.Struct({ ...OnBackend, run: Schema.String }), output: Done },
     /** Newest first. Without `routine`: every run the backend knows (Activity). */
     runs: {

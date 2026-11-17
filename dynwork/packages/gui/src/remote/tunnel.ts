@@ -1,7 +1,7 @@
 export * as RemoteTunnel from "./tunnel"
 
 import { Effect } from "effect"
-import { Closed, Keys, Remote, Socket } from "@dynwork/remote"
+import { Closed, Keys, Remote, Socket, type Control } from "@dynwork/remote"
 import type { ServerEndpoint } from "@opencode/plugin/gui/main"
 import type { Failure, Pairing, Phone, State, Status } from "./contract"
 import { RemoteProxy } from "./proxy"
@@ -77,6 +77,10 @@ export function make(options: Options) {
     status: "off",
     disposed: false,
   }
+  // Who hears the relay's control messages (`Remote.Desktop` `events.control`), such as `routines.changed`.
+  const controls = new Set<(message: Control.Control) => void>()
+  // This desktop's relay peer id, once its key is known: it never changes.
+  const identity: { peer?: string } = {}
 
   const set = (status: Status, failure?: Failure) => {
     live.status = status
@@ -157,6 +161,7 @@ export function make(options: Options) {
             if (!resumed) record(tunnel, peer.session.remoteStatic, "connected")
           },
           refused: () => log("info", "remote: a phone's channel was refused"),
+          control: (message) => controls.forEach((listener) => listener(message)),
           presence: (phone, online) => {
             const id = hex(phone)
             if (online) tunnel.online.add(id)
@@ -309,6 +314,24 @@ export function make(options: Options) {
   return {
     state: view,
     update,
+    /**
+     * This desktop's relay peer id (32 hex digits), stable for as long as its key is kept: the routines' device id.
+     * Makes the key if there is none yet, whether or not remote control is on; undefined without secure storage.
+     */
+    peer: () => {
+      if (identity.peer) return identity.peer
+      const key = staticKey()
+      if (key) identity.peer = hex(Keys.peerId(key.publicKey))
+      return identity.peer
+    },
+    /**
+     * Calls `listener` with each relay control message to this desktop, such as `{t: "routines.changed"}`, while the
+     * tunnel is connected (remote control on). Answers its removal.
+     */
+    onControl: (listener: (message: Control.Control) => void) => {
+      controls.add(listener)
+      return () => void controls.delete(listener)
+    },
     setEnabled: (enabled: boolean) => {
       store.set({ ...store.value, enabled, confirmed: store.value.confirmed || enabled })
       update()

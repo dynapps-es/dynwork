@@ -3,7 +3,7 @@ import { Icon } from "@opencode/ui/icon"
 import { Loader } from "@opencode/ui/loader"
 import { Show, type JSX } from "solid-js"
 import type { Capabilities, Routine, RunState } from "../../routines/contract"
-import { runTone, type Tone } from "./routine"
+import { runTone, stateKey, waiting, type Tone } from "./routine"
 
 const marks: Record<Exclude<RunState, "running" | "missed">, IconName> = {
   queued: "dash",
@@ -16,18 +16,21 @@ const marks: Record<Exclude<RunState, "running" | "missed">, IconName> = {
 }
 
 /** A run's state as a mark: a spinner while it runs, a dashed ring for a missed slot, else an icon in its tone. */
-export function RunMark(props: { state: RunState }) {
+export function RunMark(props: { state: RunState; reason?: string }) {
   const ctx = usePlugin()
 
   return (
     <span
       data-slot="agents-mark"
       data-state={props.state}
-      data-tone={runTone(props.state)}
+      data-tone={runTone(props.state, props.reason)}
       role="img"
-      aria-label={ctx.t(`agents.run.${props.state}`)}
+      aria-label={ctx.t(stateKey(props))}
     >
-      <Show when={props.state === "running"} fallback={<MarkIcon state={props.state} />}>
+      <Show
+        when={props.state === "running" && !waiting(props)}
+        fallback={<MarkIcon state={waiting(props) ? "late" : props.state} />}
+      >
         <Loader width={14} height={14} />
       </Show>
     </span>

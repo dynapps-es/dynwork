@@ -32,6 +32,13 @@ export function runWhen(locale: string, run: Run) {
   return at === undefined ? run.title : when(locale, at)
 }
 
+/** Why a run is in its state, in words: the copy of a reason the view knows, else the backend's code as it is. */
+export function reasonText(t: Translate, reason: string) {
+  const key = `agents.why.${reason}`
+  const text = t(key)
+  return text === key ? reason : text
+}
+
 /** "3 min", "1 h 5 min", "less than a minute"; undefined for a run that never started. */
 export function duration(t: Translate, run: Run, now: number) {
   if (run.started === undefined) return undefined
@@ -63,14 +70,18 @@ export function instructionsText(t: Translate, instructions: Instructions) {
   return t("agents.instructions.agent", { agent: instructions.agent, input: instructions.input })
 }
 
-/** A backend's part of the status line: "Demo MacBook · online", "Agent Farm connected · 7 of 20 team schedules". */
+/**
+ * A backend's part of the status line: "Demo MacBook · online", "Agent Farm connected · 7 of 20 team schedules", and
+ * "Demo MacBook · online · Not synced" while its routines cannot reach Governance.
+ */
 export function backendLine(t: Translate, capabilities: Capabilities) {
   if (capabilities.status !== "ready")
     return t("agents.backend.status", {
       label: capabilities.label,
       status: capabilities.detail ?? t(`agents.backend.${capabilities.status}`),
     })
-  const line = t(`agents.backend.${capabilities.kind}.ready`, { label: capabilities.label })
+  const ready = t(`agents.backend.${capabilities.kind}.ready`, { label: capabilities.label })
+  const line = capabilities.synced === false ? `${ready} · ${t("agents.backend.unsynced")}` : ready
   const quota = capabilities.quota
   if (!quota) return line
   const usage = t(quota.shared ? "agents.backend.quota.shared" : "agents.backend.quota.own", {

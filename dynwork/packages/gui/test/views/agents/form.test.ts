@@ -36,14 +36,14 @@ const caps = (view: View, backend: string) => view.model.capabilities(backend) a
 const said = (problem?: Problem) => problem && problemText(t, problem)
 
 describe("a new routine starts closed and manual", () => {
-  test("the local draft takes the backend's defaults: read only, no catch-all, one prompt", async () => {
+  test("the local draft takes the backend's defaults: ask me, no catch-all, one prompt", async () => {
     const view = await setup()
     const draft = blank(caps(view, "local"), ZONE)
     expect(draft).toMatchObject({ name: "", what: "prompt", trigger: "none", timezone: ZONE, enabled: true })
     expect(draft.options).toEqual({
-      permissions: "read-only",
-      ask: false,
+      permissions: "ask",
       timeLimit: 30,
+      recover: "recent",
       catchUp: 6,
       notify: "failures",
     })
@@ -72,7 +72,13 @@ describe("a new routine starts closed and manual", () => {
       name: "Digest",
       instructions: { kind: "prompt", text: "Summarise." },
       enabled: true,
-      options: { permissions: "read-only", ask: false, timeLimit: 30, catchUp: 6, notify: "failures" },
+      options: {
+        permissions: "ask",
+        timeLimit: 30,
+        recover: "recent",
+        catchUp: 6,
+        notify: "failures",
+      },
     })
   })
 })

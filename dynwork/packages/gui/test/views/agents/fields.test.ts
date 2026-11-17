@@ -162,7 +162,7 @@ describe("the form's blocks come from the backend's fields", () => {
       return Object.fromEntries(Object.entries(blocks).map(([name, list]) => [name, list.map((item) => item.key)]))
     }
     expect(keys("local")).toEqual({
-      where: ["folder", "permissions", "ask", "timeLimit", "catchUp"],
+      where: ["folder", "permissions", "timeLimit", "recover", "catchUp"],
       extra: [],
       advanced: [],
       notifications: ["notify"],

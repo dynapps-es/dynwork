@@ -20,13 +20,15 @@ describe("the views' strings", () => {
 
   test("have every key the Agents view builds from data", () => {
     const keys = [
-      ...RunState.literals.map((state) => `agents.run.${state}`),
+      ...[...RunState.literals, "waiting"].map((state) => `agents.run.${state}`),
       ...statuses.map((status) => `agents.filter.${status}`),
       ...wheres.map((where) => `agents.where.${where}`),
       ...tabs.map((tab) => `agents.tab.${tab}`),
       ...["ready", "signed-out", "unreachable", "disabled"].map((status) => `agents.backend.${status}`),
       ...["local", "remote"].map((kind) => `agents.backend.${kind}.ready`),
       ...Array.from({ length: 7 }, (_, day) => [`agents.repeat.weekly.${day}`, `agents.day.short.${day}`]).flat(),
+      // The reasons the local routines' clock writes (`RoutinesClock.Reason`).
+      ...["closed", "grouped", "overlap", "restart", "start"].map((reason) => `agents.why.${reason}`),
     ]
     expect(keys.filter((key) => !table[key])).toEqual([])
   })

@@ -20,7 +20,8 @@ function setup(options: { store?: Persisted<RoutinesLocal.Saved, RoutinesLocal.S
   const service = fakeService({ now: time.now })
   stops.push(service.stop)
   const store = options.store ?? storage(RoutinesLocal.Saved, RoutinesLocal.initial)
-  const failures: Run[] = []
+  const notices: RoutinesLocal.Notice[] = []
+  const awake: boolean[] = []
   const reachable = { value: options.reachable ?? true }
   const client = OpenCode.make({ baseUrl: service.url, headers: { authorization: "Basic c2VjcmV0" } })
   const backend = RoutinesLocal.make({
@@ -30,18 +31,19 @@ function setup(options: { store?: Persisted<RoutinesLocal.Saved, RoutinesLocal.S
     server: "sidecar",
     home,
     now: time.now,
-    failed: (run) => void failures.push(run),
+    notify: (notice) => void notices.push(notice),
+    busy: (going) => void awake.push(going),
     retry: 10,
   })
   stops.push(backend.dispose)
-  return { time, service, store, backend, failures, reachable }
+  return { time, service, store, backend, notices, awake, reachable }
 }
 
 const prompt = (patch: Partial<Definition> = {}, options: Definition["options"] = {}): Definition => ({
   name: "Weekly report",
   instructions: { kind: "prompt", text: "Summarise the week." },
   enabled: true,
-  options: { permissions: "read-only", ask: false, timeLimit: 30, catchUp: 6, notify: "failures", ...options },
+  options: { permissions: "ask", timeLimit: 30, catchUp: 6, notify: "failures", ...options },
   ...patch,
 })
 
@@ -61,6 +63,18 @@ conformance("the local backend over a fake service", () => {
       await until(() => subject.backend.running() === 0)
     },
   }
+})
+
+describe("the local backend's permissions field", () => {
+  test("offers Ask me, the default, and Don't ask, which warns about editing and running without asking", async () => {
+    const { backend } = setup()
+    const field = (await backend.capabilities()).fields.find((candidate) => candidate.key === "permissions")
+    expect(field).toMatchObject({ default: "ask", section: "permissions" })
+    expect(field?.choices?.map((choice) => [choice.value, choice.warning])).toEqual([
+      ["ask", undefined],
+      ["bypass", "The routine may edit files and run commands without asking you."],
+    ])
+  })
 })
 
 describe("the local backend", () => {
@@ -90,11 +104,11 @@ describe("the local backend", () => {
         model: { providerID: "anthropic", id: "claude-sonnet-5-5" },
         // A run is a conversation of its own: the app gives it the standard composer, not the subagent bar.
         metadata: { conversation: true, dynwork: { routine: routine.ref.id, role: "run", trigger: "manual" } },
-        permissions: [
-          { action: "edit", resource: "*", effect: "deny" },
-          { action: "shell", resource: "*", effect: "deny" },
-        ],
       }),
+    )
+    // "Ask me" brings rules that make edits and the shell wait for the user (permissions.test.ts has them all).
+    created.slice(1).forEach((request) =>
+      expect((request.body?.permissions as unknown[])[0]).toEqual({ action: "*", resource: "*", effect: "ask" }),
     )
     // A child gets no automatic title: the run's own is "<name> · <when>".
     expect(String(created[1]?.body?.title)).toStartWith("Weekly report · ")
@@ -167,7 +181,7 @@ describe("the local backend", () => {
   })
 
   test("a run that ends notes its outcome on the anchor, and a failure is reported once", async () => {
-    const { backend, service, time, failures } = setup()
+    const { backend, service, time, notices } = setup()
     const routine = await ok(backend.create(prompt()))
     const run = await ok(backend.start(routine.ref.id))
     if (run.conversation.kind !== "session") throw new Error("no session")
@@ -175,12 +189,12 @@ describe("the local backend", () => {
     time.advance(MINUTE)
     service.finish("failed")
     await until(() => backend.running() === 0)
-    await until(() => service.sessions.get(anchor)?.metadata?.dynwork !== undefined && failures.length > 0)
+    await until(() => service.sessions.get(anchor)?.metadata?.dynwork !== undefined && notices.length > 0)
     expect(service.sessions.get(anchor)?.metadata).toMatchObject({
       dynwork: { routine: routine.ref.id, role: "anchor", last: { run: run.ref.id, state: "failed" } },
     })
     await ok(backend.runs({ routine: routine.ref.id }))
-    expect(failures.map((failed) => failed.ref.id)).toEqual([run.ref.id])
+    expect(notices.map((notice) => [notice.kind, notice.run.ref.id])).toEqual([["failed", run.ref.id]])
   })
 
   test("cancel interrupts the run's session and the run reads cancelled at once", async () => {

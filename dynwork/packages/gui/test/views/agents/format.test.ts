@@ -5,6 +5,7 @@ import {
   duration,
   instructionsText,
   money,
+  reasonText,
   runWhen,
   scheduleText,
   when,
@@ -90,6 +91,14 @@ describe("times, durations and costs", () => {
     expect(runWhen("en-GB", run({ due: Date.UTC(2026, 10, 2, 7, 45) }))).toContain("2 Nov")
   })
 
+  test("a reason the clock writes reads in words, and one the view does not know reads as the backend wrote it", () => {
+    expect(reasonText(t, "closed")).toBe("Dynwork was closed or asleep")
+    expect(reasonText(t, "grouped")).toBe("Covered by one catch-up run")
+    expect(reasonText(t, "overlap")).toBe("The previous run was still running")
+    expect(reasonText(t, "restart")).toBe("Interrupted by a restart")
+    expect(reasonText(t, "quota_exceeded")).toBe("quota_exceeded")
+  })
+
   test("costs in their currency", () => {
     expect(money("en-GB", { amount: 0.41, currency: "EUR" })).toBe("€0.41")
   })
@@ -105,6 +114,9 @@ describe("the header and the cards", () => {
     view.farm.setStatus("signed-out")
     await view.wire.client.refresh()
     expect(backendLine(t, view.model.capabilities("farm")!)).toBe("Agent Farm: Signed out")
+    const local = view.model.capabilities("local")!
+    expect(backendLine(t, { ...local, synced: false })).toBe("Demo MacBook · online · Not synced")
+    expect(backendLine(t, { ...local, synced: true })).toBe("Demo MacBook · online")
   })
 
   test("a card's line says what the routine does", async () => {

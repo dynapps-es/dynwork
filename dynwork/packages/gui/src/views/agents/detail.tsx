@@ -5,11 +5,11 @@ import { Switch } from "@opencode/ui/switch"
 import { For, Show, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Capabilities, Routine, Run } from "../../routines/contract"
-import { duration, instructionsText, money, runWhen, scheduleText, when } from "./format"
+import { duration, instructionsText, money, reasonText, runWhen, scheduleText, when } from "./format"
 import type { AgentsModel } from "./model"
 import { routineHref, runHref } from "../runs/model"
 import { LinkButton, RunMark, Tag, Unread, WhereBadge } from "./parts"
-import { actions, facts, isLive, openable, routineStatus, type Allowed, type Fact } from "./routine"
+import { actions, facts, isLive, openable, routineStatus, stateKey, waiting, type Allowed, type Fact } from "./routine"
 import { upcoming } from "./schedule"
 
 /**
@@ -126,6 +126,17 @@ export function RoutineDetail(props: {
               </Button>
             )}
           </Show>
+          <Show when={props.routine.owner && !props.routine.owner.here}>
+            <Button
+              variant="neutral"
+              icon="monitor"
+              disabled={!allowed().move.enabled || busy("move")}
+              title={reason(allowed().move)}
+              onClick={() => void props.model.move(props.routine)}
+            >
+              {ctx.t("agents.detail.move")}
+            </Button>
+          </Show>
           <Button
             variant="ghost"
             icon="edit"
@@ -155,6 +166,12 @@ export function RoutineDetail(props: {
           </Button>
         </div>
       </header>
+      <Show when={props.routine.conflict !== undefined}>
+        <div data-slot="agents-notice" data-tone="warning" role="status">
+          <Icon name="circle-exclamation" size="small" />
+          <span>{ctx.t("agents.detail.conflict")}</span>
+        </div>
+      </Show>
       <Show when={props.model.state.failure}>
         {(failure) => (
           <div data-slot="agents-notice" data-tone="danger" role="alert">
@@ -224,12 +241,16 @@ function HistoryRow(props: { run: Run; open: (run: Run) => void }) {
       disabled={runHref(props.run) ? undefined : !openable(props.run)}
       onClick={() => !runHref(props.run) && props.open(props.run)}
     >
-      <RunMark state={props.run.state} />
+      <RunMark state={props.run.state} reason={props.run.reason} />
       <span data-slot="agents-run-text">
         <span data-slot="agents-run-when">{runWhen(ctx.locale.locale(), props.run)}</span>
         <small>
-          {ctx.t(`agents.run.${props.run.state}`)}
-          <Show when={props.run.summary ?? props.run.reason}>{(detail) => ` · ${detail()}`}</Show>
+          {ctx.t(stateKey(props.run))}
+          <Show
+            when={props.run.summary ?? (props.run.reason && !waiting(props.run) && reasonText(ctx.t, props.run.reason))}
+          >
+            {(detail) => ` · ${detail()}`}
+          </Show>
         </small>
       </span>
       <span data-slot="agents-meta">{spent() || "—"}</span>

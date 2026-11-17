@@ -19,6 +19,7 @@ export default {
   "agents.backend.unreachable": "Unreachable",
   "agents.backend.disabled": "Switched off",
   "agents.backend.status": "{{label}}: {{status}}",
+  "agents.backend.unsynced": "Not synced",
 
   "agents.tab.label": "Routines",
   "agents.tab.mine": "My routines",
@@ -45,7 +46,7 @@ export default {
   "agents.status.paused": "Paused",
   "agents.status.finished": "Finished",
   "agents.status.error": "Cannot run",
-  "agents.status.waiting": "Waiting for {{device}}",
+  "agents.status.elsewhere": "Runs on {{device}}",
   "agents.status.running": "Running",
   "agents.status.failing": "Last run failed",
   "agents.status.manual": "Manual only",
@@ -76,6 +77,7 @@ export default {
 
   "agents.run.queued": "Queued",
   "agents.run.running": "Running",
+  "agents.run.waiting": "Waiting for your permission",
   "agents.run.ok": "Done",
   "agents.run.late": "Late",
   "agents.run.failed": "Failed",
@@ -85,6 +87,11 @@ export default {
   "agents.run.cancelled": "Cancelled",
   "agents.run.line": "{{state}} · {{detail}}",
   "agents.run.outside": "Started outside Dynwork",
+  "agents.why.closed": "Dynwork was closed or asleep",
+  "agents.why.grouped": "Covered by one catch-up run",
+  "agents.why.overlap": "The previous run was still running",
+  "agents.why.restart": "Interrupted by a restart",
+  "agents.why.start": "Could not start",
   "agents.duration.short": "under a minute",
   "agents.duration.minutes": "{{minutes}} min",
   "agents.duration.hours": "{{hours}} h {{minutes}} min",
@@ -106,6 +113,9 @@ export default {
   "agents.detail.stop": "Stop run",
   "agents.detail.edit": "Edit",
   "agents.detail.remove": "Remove",
+  "agents.detail.move": "Move to this computer",
+  "agents.detail.conflict":
+    "Changed on another computer: your edit here was replaced by that one. Edit it again if you still need the change.",
   "agents.detail.active": "Active",
   "agents.detail.history": "History",
   "agents.detail.history.empty": "No runs yet.",
@@ -166,7 +176,7 @@ export default {
   "agents.form.default": "Default",
   "agents.form.choose": "Choose…",
   "agents.form.notice.local":
-    "This routine works without asking for approval, inside the permissions you choose below. Anything else is denied; it never waits for an answer.",
+    "Choose below whether this routine asks for your approval, as a conversation does, or works without asking. When it asks, the run waits and you get a notification.",
   "agents.form.notice.remote":
     "On the Agent Farm the agent works without approvals inside its container. Give it only the access it needs.",
   "agents.form.trigger": "Trigger",

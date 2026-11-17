@@ -55,7 +55,13 @@ export function local(now: () => number) {
     session: `ses-${routine}`,
     anchor: `ses-${routine}`,
   })
-  const defaults = { permissions: "read-only", ask: true, timeLimit: 30, catchUp: 6, notify: "failures" }
+  const defaults = {
+    permissions: "ask",
+    timeLimit: 30,
+    recover: "recent",
+    catchUp: 6,
+    notify: "failures",
+  }
   const routine = (
     id: string,
     patch: Pick<Routine, "definition"> & Partial<Pick<Routine, "state" | "next" | "owner" | "updated">>,
@@ -100,7 +106,7 @@ export function local(now: () => number) {
         },
         schedule: { cron: "0 23 * * 1-5", timezone: ZONE },
         enabled: true,
-        options: { ...defaults, folder: "/Users/demo/Projects/portal", permissions: "edit-run" },
+        options: { ...defaults, folder: "/Users/demo/Projects/portal", permissions: "bypass" },
       },
       next: t + 14 * HOUR,
     }),
