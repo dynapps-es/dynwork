@@ -20,6 +20,9 @@ import { enqueue, type Op, type Saved, type SavedRoutine } from "./store"
 //   change of a routine waits in the outbox, the feed leaves that routine alone: its `If-Match` settles it.
 // - Runs: the owner computer alone reports each run's state, reason and times.
 // - First sync: a routine Governance does not have yet is uploaded with this computer as its owner.
+// - Claim: a routine made for this user in Governance comes unclaimed (no owner). This computer claims it with the same
+//   `If-Match` write as an edit; until Governance takes the claim it stays unclaimed here and nothing runs it. A `409`
+//   means another of the user's computers won: its row is kept, without a conflict note.
 // - Accounts: each routine and outbox entry carries the account it belongs to. A pass reads, applies and sends only the
 //   active account's (and tags those of none yet); another account's stay stored, hidden and waiting.
 // - Without Governance everything keeps working here; the outbox waits and the Agents view says "Not synced".
@@ -55,8 +58,12 @@ export interface Options {
 const Row = Schema.Struct({
   id: Schema.String,
   revision: Schema.Number,
-  owner_device: Schema.String,
-  owner_name: Schema.String,
+  /**
+   * Empty: unclaimed, made for this user in Governance and no computer has claimed it yet (today's Governance keeps the
+   * column NOT NULL, so an unclaimed row has `""`). Null is taken the same way, for a Governance that makes it nullable.
+   */
+  owner_device: Schema.NullOr(Schema.String),
+  owner_name: Schema.NullOr(Schema.String),
   definition: Schema.NullOr(Schema.Unknown),
   deleted: Schema.Boolean,
   updated_at: Schema.String,
@@ -130,7 +137,10 @@ export function make(options: Options) {
     if (!account || !device) return settle(undefined)
     life.account = account.id
     const pulled = await pull(account, device)
-    if (pulled) upload(device)
+    if (pulled) {
+      upload(device)
+      claim()
+    }
     settle(pulled && (await flush(account, device)))
   }
 
@@ -226,7 +236,7 @@ export function make(options: Options) {
       id: row.id,
       definition: definition.value,
       revision: row.revision,
-      owner: { device: row.owner_device, name: row.owner_name },
+      owner: ownerOf(row),
       ...(life.account ? { account: life.account } : {}),
       // When it changed in Governance: the clock counts nothing missed before then, as after an edit here.
       updated: Number.isFinite(changed) ? changed : options.now(),
@@ -258,6 +268,20 @@ export function make(options: Options) {
         })
         enqueue(draft, { kind: "put", routine: stored.id, account: life.account })
       })
+    })
+  }
+
+  // The routines no computer has claimed yet go to Governance with this computer as their owner (`put` sends it for an
+  // unclaimed one) at the revision read. The store keeps them unclaimed until Governance answers, so the clock leaves
+  // them alone: a computer that loses the claim never runs them.
+  function claim() {
+    const unclaimed = saved().routines.filter(
+      (stored) =>
+        ours(stored) && stored.owner === null && !outbox().some((op) => op.kind === "put" && op.routine === stored.id),
+    )
+    if (unclaimed.length === 0) return
+    options.store.update((draft) => {
+      unclaimed.forEach((stored) => enqueue(draft, { kind: "put", routine: stored.id, account: stored.account }))
     })
   }
 
@@ -352,7 +376,7 @@ export function make(options: Options) {
       const stored = draft.routines.find((candidate) => candidate.id === row.id)
       if (stored) {
         stored.revision = row.revision
-        stored.owner = { device: row.owner_device, name: row.owner_name }
+        stored.owner = ownerOf(row)
         stored.account = life.account
       }
       ;(draft.outbox ?? []).forEach((queued) => {
@@ -363,7 +387,8 @@ export function make(options: Options) {
 
   // `409`: the routine changed elsewhere since this computer last synced it. When Governance already holds what was
   // sent (an answer that got lost), its revision is taken quietly. Otherwise its row replaces the edit made here, the
-  // routine says so, and the later changes of it made on top of that edit are dropped.
+  // routine says so, and the later changes of it made on top of that edit are dropped. A claim another computer won
+  // replaced no edit: its row is taken without a note.
   function conflict(op: Op, stored: SavedRoutine, device: Device, body: unknown): Sent {
     const found = decodeConflict(body)
     if (found._tag === "None") return "done"
@@ -373,8 +398,9 @@ export function make(options: Options) {
       written(current)
       return "done"
     }
+    const claimed = stored.owner === null && same(current.definition, stored.definition)
     options.store.update((draft) => {
-      adopt(draft, current, { force: true, conflict: options.now() })
+      adopt(draft, current, { force: true, ...(claimed ? {} : { conflict: options.now() }) })
       draft.outbox = (draft.outbox ?? []).filter(
         (queued) => queued.id === op.id || queued.routine !== current.id || queued.kind === "run",
       )
@@ -401,6 +427,12 @@ export function make(options: Options) {
 export type Sync = ReturnType<typeof make>
 
 type Draft = Parameters<Parameters<Persisted<Saved, Saved>["update"]>[0]>[0]
+
+// A row's owner as the store keeps it: null while no computer has claimed it (an empty or null `owner_device`).
+function ownerOf(row: Row) {
+  if (!row.owner_device) return null
+  return { device: row.owner_device, name: row.owner_name ?? "" }
+}
 
 // What Governance refuses for now (a session it does not take, a timeout, a rate limit, its own error) is sent again
 // later; what it refuses for good (a bad body, another device's run, an unknown id) is dropped, not sent for ever.

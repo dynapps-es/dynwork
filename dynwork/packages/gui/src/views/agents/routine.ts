@@ -43,6 +43,7 @@ export function routineStatus(routine: Routine, capabilities?: Capabilities): Wo
   if (routine.state === "error") return { key: "agents.status.error", params: {}, tone: "danger" }
   if (routine.state === "finished") return { key: "agents.status.finished", params: {} }
   if (routine.state === "paused") return { key: "agents.status.paused", params: {} }
+  if (routine.owner?.unclaimed) return { key: "agents.status.unclaimed", params: {} }
   if (routine.owner && !routine.owner.here) return { key: "agents.status.elsewhere", params: { device: routine.owner.label } }
   if (isLive(routine.last)) return { key: "agents.status.running", params: {}, tone: "info" }
   if (routine.last && broken.includes(routine.last.state))
@@ -154,9 +155,10 @@ function unavailable(capabilities?: Capabilities): Allowed | undefined {
   return no(`agents.backend.${capabilities.status}`)
 }
 
-// A routine of another device runs only there.
+// A routine of another device runs only there; one no device has claimed yet runs nowhere.
 function owned(routine: Routine): Allowed | undefined {
   if (!routine.owner || routine.owner.here) return undefined
+  if (routine.owner.unclaimed) return no("agents.reason.unclaimed")
   return { enabled: false, reason: words("agents.reason.owner", { device: routine.owner.label }) }
 }
 

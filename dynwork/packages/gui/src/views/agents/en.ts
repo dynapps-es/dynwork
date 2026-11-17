@@ -86,6 +86,7 @@ export default {
   "agents.status.finished": "Finished",
   "agents.status.error": "Cannot run",
   "agents.status.elsewhere": "Runs on {{device}}",
+  "agents.status.unclaimed": "Not claimed yet",
   "agents.status.running": "Running",
   "agents.status.failing": "Last run failed",
   "agents.status.manual": "Manual only",
@@ -154,6 +155,7 @@ export default {
   "agents.detail.edit": "Edit",
   "agents.detail.remove": "Remove",
   "agents.detail.move": "Move to this computer",
+  "agents.detail.unclaimed": "No computer yet",
   "agents.detail.conflict":
     "Changed on another computer: your edit here was replaced by that one. Edit it again if you still need the change.",
   "agents.detail.active": "Active",
@@ -183,6 +185,7 @@ export default {
   "agents.reason.missing": "Its backend is not available.",
   "agents.reason.detail": "{{detail}}",
   "agents.reason.owner": "Runs only on {{device}}.",
+  "agents.reason.unclaimed": "No computer has claimed it yet.",
   "agents.reason.finished": "Its schedule has ended.",
   "agents.reason.replace": "Saving changes creates a new schedule.",
   "agents.reason.cancel": "This backend cannot stop a run.",

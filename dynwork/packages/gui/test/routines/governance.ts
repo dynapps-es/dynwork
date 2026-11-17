@@ -1,12 +1,13 @@
 import { RoutinesSync } from "../../src/routines/local/sync"
 
 // A fake Governance over real HTTP with the `dynwork-routines` routes as its README states them: the change feed with an
-// opaque cursor, revisions with `If-Match`, tombstones, and runs reported only by the owner device. One user.
+// opaque cursor, revisions with `If-Match`, tombstones, runs reported only by the owner device, and routines made for
+// the user directly in its database, unclaimed (owner `""`, or null), that a PUT claims (`COALESCE`). One user.
 type Row = {
   id: string
   revision: number
-  owner_device: string
-  owner_name: string
+  owner_device: string | null
+  owner_name: string | null
   definition: unknown
   deleted: boolean
   updated_at: string
@@ -23,6 +24,8 @@ export function fakeGovernance(now: () => number = Date.now) {
     down: false,
     /** Applies the next write, then answers 503: an answer lost on the way. */
     lose: false,
+    /** Answers 503 to every write and still serves the feed. */
+    readOnly: false,
     /** Every request, in order: `<METHOD> <route> <If-Match or ->`. */
     requests: [] as string[],
   }
@@ -43,7 +46,7 @@ export function fakeGovernance(now: () => number = Date.now) {
     fetch: async (request) => {
       const url = new URL(request.url)
       const route = url.pathname.slice(RoutinesSync.PATH.length)
-      if (state.down) return new Response("down", { status: 503 })
+      if (state.down || (state.readOnly && request.method !== "GET")) return new Response("down", { status: 503 })
       if (request.headers.get("authorization") !== `Bearer ${token}`) return json({ error: "unauthorized" }, 401)
       const match = request.headers.get("if-match")?.match(/^"?(\d+)"?$/)
       const expected = match ? Number(match[1]) : undefined
@@ -124,6 +127,9 @@ export function fakeGovernance(now: () => number = Date.now) {
       const row = state.routines.get(id)!
       save({ ...row, revision: row.revision + 1, definition: change(row.definition as Record<string, unknown>) })
     },
+    /** A routine made for this user straight in Governance's table: revision 1, no owner (`""` today, or null). */
+    assign: (id: string, definition: unknown, owner: "" | null = "") =>
+      void save({ id, revision: 1, owner_device: owner, owner_name: owner, definition, deleted: false }),
     remove: (id: string) => {
       const row = state.routines.get(id)!
       save({ ...row, revision: row.revision + 1, definition: null, deleted: true })

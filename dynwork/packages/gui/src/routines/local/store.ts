@@ -23,8 +23,12 @@ export const SavedRoutine = Schema.Struct({
   updated: Schema.Number,
   /** Its revision in Governance, as last written or read; absent until it was first synced (`sync.ts`). */
   revision: Schema.optional(Schema.Number),
-  /** The computer that runs it: its relay peer id and its name. Absent: this one (a routine from before the sync). */
-  owner: Schema.optional(Schema.Struct({ device: Schema.String, name: Schema.String })),
+  /**
+   * The computer that runs it: its relay peer id and its name. Absent: this one (a routine from before the sync). Null:
+   * none yet, it was made for this user in Governance; the sync claims it for this computer, and nothing runs it until
+   * Governance takes the claim.
+   */
+  owner: Schema.optional(Schema.NullOr(Schema.Struct({ device: Schema.String, name: Schema.String }))),
   /** When another computer's change replaced an edit made here (a sync conflict); cleared by the next edit here. */
   conflict: Schema.optional(Schema.Number),
   /**

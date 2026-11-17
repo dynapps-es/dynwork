@@ -59,13 +59,16 @@ export function Tag(props: { tone?: Tone; children: JSX.Element }) {
  * owner reads its backend's label.
  */
 export function WhereBadge(props: { routine?: Routine; capabilities?: Capabilities; text?: string }) {
+  const ctx = usePlugin()
   const remote = () => props.capabilities?.kind === "remote"
 
   return (
     <span data-slot="agents-where" data-kind={remote() ? "remote" : "local"}>
       <Icon name={remote() ? "cloud-upload" : "monitor"} size="small" />
       <span data-slot="agents-where-text">
-        {props.text ?? props.routine?.owner?.label ?? props.capabilities?.label}
+        {props.text ??
+          (props.routine?.owner?.unclaimed ? ctx.t("agents.detail.unclaimed") : props.routine?.owner?.label) ??
+          props.capabilities?.label}
       </span>
       <Show when={!remote() && props.routine?.owner}>
         {(owner) => <span data-slot="agents-dot" data-tone={owner().online ? "success" : undefined} />}

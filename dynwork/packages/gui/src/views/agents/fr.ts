@@ -88,6 +88,7 @@ export default {
   "agents.status.finished": "Terminée",
   "agents.status.error": "Ne peut pas s'exécuter",
   "agents.status.elsewhere": "S'exécute sur {{device}}",
+  "agents.status.unclaimed": "Pas encore prise en charge",
   "agents.status.running": "En cours",
   "agents.status.failing": "Dernière exécution en échec",
   "agents.status.manual": "Manuelle uniquement",
@@ -156,6 +157,7 @@ export default {
   "agents.detail.edit": "Modifier",
   "agents.detail.remove": "Supprimer",
   "agents.detail.move": "Déplacer vers cet ordinateur",
+  "agents.detail.unclaimed": "Aucun ordinateur pour l'instant",
   "agents.detail.conflict":
     "Modifiée sur un autre ordinateur : votre modification ici a été remplacée par celle-là. Modifiez-la à nouveau si vous avez encore besoin du changement.",
   "agents.detail.active": "Active",
@@ -185,6 +187,7 @@ export default {
   "agents.reason.missing": "Son backend n'est pas disponible.",
   "agents.reason.detail": "{{detail}}",
   "agents.reason.owner": "S'exécute uniquement sur {{device}}.",
+  "agents.reason.unclaimed": "Aucun ordinateur ne l'a encore prise en charge.",
   "agents.reason.finished": "Sa planification est terminée.",
   "agents.reason.replace": "Enregistrer les modifications crée une nouvelle planification.",
   "agents.reason.cancel": "Ce backend ne peut pas arrêter une exécution.",
