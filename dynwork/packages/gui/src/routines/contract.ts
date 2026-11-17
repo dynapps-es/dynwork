@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { Ipc } from "@opencode/plugin/gui"
+import { DynWorkRoutines } from "@dynwork/server-plugin/routines"
 
 // The routines contract: what every routines backend (local, Agent Farm, fakes) speaks and what crosses to a window.
 // All times are epoch milliseconds. Every backend-specific value rides in `Definition.options`, keyed as the backend's
@@ -344,5 +345,41 @@ export const Routines = Ipc.define({
     },
     /** Checks a definition without saving it; `invalid` carries one message per field. */
     validate: { input: Schema.Struct({ ...OnBackend, definition: Definition }), output: Done },
+  },
+})
+
+// Routines from a chat ("Create with Dynwork"): main shows the proposals of the routines tools as cards (`./chat`).
+
+/** The message "Create with Dynwork" opens a conversation with, sent as the user's. */
+export const chatPrompt =
+  "Help me set up a scheduled task. Ask me what it should do, how often it should run, and when, then create it."
+
+/** A proposal waiting for the user, as a window draws its card. */
+export const Card = Schema.Struct({
+  id: Schema.String,
+  /** The chat session the card belongs to. */
+  session: Schema.String,
+  backend: Schema.String,
+  /** Where it runs, as the backend calls itself: the device's name or "Agent Farm". */
+  label: Schema.String,
+  definition: Definition,
+  /** What the agent sent, for "Show full input". */
+  proposal: DynWorkRoutines.Proposal,
+})
+export type Card = typeof Card.Type
+
+export const Chat = Ipc.define({
+  id: "dynwork.routines.chat",
+  state: Schema.Struct({ cards: Schema.Array(Card) }),
+  methods: {
+    /** The user's answer on a card: `schedule` creates the routine, otherwise nothing is created. */
+    decide: {
+      input: Schema.Struct({ id: Schema.String, schedule: Schema.Boolean }),
+      output: Schema.UndefinedOr(Failure),
+    },
+    /** Opens a conversation with `prompt` in the user's home, on DynWork's service; the window then routes to it. */
+    start: {
+      output: Schema.Union([Failure, Schema.Struct({ server: Schema.String, session: Schema.String })]),
+    },
   },
 })

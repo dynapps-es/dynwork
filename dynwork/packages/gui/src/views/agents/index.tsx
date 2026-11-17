@@ -1,8 +1,11 @@
 import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
+import { Icon } from "@opencode/ui/icon"
+import { Menu } from "@opencode/ui/menu"
 import { createEffect, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { RoutinesClient } from "../../routines/client"
-import type { Routine, Run } from "../../routines/contract"
+import { isFailure, type Routine, type Run } from "../../routines/contract"
+import { sessionHref } from "../runs/model"
 import { device } from "../device"
 import { ViewShell } from "../shell"
 import { RoutineDetail } from "./detail"
@@ -101,6 +104,20 @@ export default function AgentsView(props: { where?: Where }) {
     ))
   }
 
+  // "Create with Dynwork": main opens a conversation in the user's home with the setup prompt, and this window routes
+  // to it as a link does (`views/runs/open.ts`).
+  const chat = async () => {
+    const live = RoutinesClient.chatConnection()
+    const started = live?.status === "active" ? await live.value.start().catch(() => undefined) : undefined
+    if (!started || isFailure(started)) return model.fail(started ?? undefined)
+    const link = document.createElement("a")
+    link.href = sessionHref(started.server, started.session)
+    link.hidden = true
+    document.body.append(link)
+    link.click()
+    link.remove()
+  }
+
   const remove = async (routine: Routine) => {
     const confirmed = await ctx.dialogs.confirm({
       title: ctx.t("agents.remove.title", { name: routine.definition.name }),
@@ -131,14 +148,29 @@ export default function AgentsView(props: { where?: Where }) {
         </For>
       }
       actions={
-        <Button
-          variant="contrast"
-          icon="plus"
-          disabled={!model.ready() || model.backends().length === 0}
-          onClick={() => form()}
-        >
-          {ctx.t("agents.new")}
-        </Button>
+        <Menu placement="bottom-end" gutter={6}>
+          <Menu.Trigger
+            as={Button}
+            variant="contrast"
+            icon="plus"
+            disabled={!model.ready() || model.backends().length === 0}
+          >
+            {ctx.t("agents.new")}
+            <Icon name="chevron-down" size="small" />
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Content>
+              <Menu.Item onSelect={() => void chat()}>
+                <Icon name="speech-bubble" size="small" />
+                {ctx.t("agents.new.chat")}
+              </Menu.Item>
+              <Menu.Item onSelect={() => form()}>
+                <Icon name="settings-gear" size="small" />
+                {ctx.t("agents.new.manual")}
+              </Menu.Item>
+            </Menu.Content>
+          </Menu.Portal>
+        </Menu>
       }
       detail={<Show when={model.state.viewer}>{(viewer) => <RunViewer viewer={viewer()} model={model} />}</Show>}
       detailTitle={

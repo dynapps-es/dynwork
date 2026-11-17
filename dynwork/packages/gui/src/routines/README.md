@@ -22,6 +22,7 @@ window                                    main process
 | `local/`      | The local backend (anchor and run sessions on DynWork's service, storage in the plugin's), its clock (`clock.ts`) and its Governance sync (`sync.ts`) |
 | `farm/`       | The Agent Farm backend's skeleton and its handover `README.md` for Jesús Vargas: off unless `DYNWORK_ROUTINES_FARM=1`    |
 | `main.ts`     | The main-process setup: the registry, the local backend and its clock, the demos and the Ipc. From `accounts/main.ts`    |
+| `chat.ts`     | Routines from a chat: the routines tools' requests, the approval cards (`Chat` Ipc in `contract.ts`) and Schedule. From `accounts/main.ts` |
 | `client.ts`   | The window's live Ipc client, handed over by `accounts/renderer.ts` for the views to read                                |
 
 Everything crossing to a window is a Schema value, with epoch milliseconds for time. Every backend-specific value is in
@@ -221,6 +222,43 @@ this computer reads the move (seconds with the hint, at most one poll without).
   Nothing retries them. A service restart while the app stays open is not detected yet.
 - **History.** Occurrences that did not run are runs without a session (`conversation: none`, already read), with their
   `due`. The view puts their reason in words (`agents.why.*`).
+
+## Create from a chat
+
+"New routine ▾" in Agents offers **Create with Dynwork** (and **Set up manually**, the form). It opens a conversation in
+the user's home with the setup prompt (`chatPrompt`) sent as the user's message; the agent asks what to do, how often,
+when (Europe/Madrid unless told otherwise) and how to notify, and where, permissions, folder and connectors only when
+they matter.
+
+- **Tools.** The server plugin adds `routines_list` and `routines_create` (`@dynwork/server-plugin/routines`). The
+  proposal is in the form's own terms: `name`, `instructions`, `repeat` (`manual`, `daily`, `weekdays`, `weekly`,
+  `monthly`, `cron`) with `time`, `days`, `day` or `cron`, `timezone`, `where` (`local` | `farm`), `permissions`,
+  `folder`, `connectors` (absent: all) and `notify`.
+- **Bridge.** The tools run in the service, the routines live here. The plugin's own RPC (`dynwork.routines-chat`) carries
+  them: a tool publishes a `request` event and waits; main follows the plugin's events (`chat.ts` `setup`), answers
+  with the `answer` method, reads the requests still waiting with `pending` after each (re)connection, and a stopped
+  step publishes `withdraw`. A list waits 10 s for main; a proposal waits for the user as long as it takes.
+- **Why not a permission.** The card could have been a permission request (`permission.assert`) that main creates the
+  routine from on its "once" reply. It is not, because a permission can be answered by something other than the
+  user: the app's auto-approve setting answers every request, an "Always" reply is saved as a rule, and an unattended
+  run turns "ask" into "deny". The upstream dock also cannot show a custom body without a patch. A card of our own is
+  answered only by its own buttons, needs no upstream line, and the agent has no way to press them.
+- **Validation.** `definitionOf` turns the proposal into a `Definition` with the form's presets (`cronOf`), refusing an
+  incomplete or unreadable schedule; then the `Definition` schema and the backend's own `validate`, as the form. A
+  refusal is the tool's answer, with one line per field, and no card is shown.
+- **Card.** A valid proposal becomes a `Card` in the `dynwork.routines.chat` Ipc. A window opens it as a dialog over
+  the conversation that made it, once; a pill above that conversation's composer opens it again. It shows the prompt,
+  Routine, Schedule, Runs on, Permissions, Project folder, Connectors, Notifications, Origin and "Show full input",
+  with **Cancel** and **Schedule** (⌘↵). Dismissing the dialog decides nothing.
+- **Schedule.** `decide` takes the card out first (a second answer from another window finds nothing), then creates
+  through the routines Ipc's own `create`, so every window reads the new routine, and answers the tool with the
+  routine's line. Cancel answers "nothing was created". The tool call in the conversation shows the result.
+- **Agent Farm.** `where: "farm"` goes through the registry to the `farm` backend only when it is the real one
+  (`DYNWORK_ROUTINES_FARM=1`); the skeleton's `validate` answers "not implemented", so the tool reports it and no card
+  is shown. With the demo in its place the tool says the farm is not available. See `farm/README.md`.
+
+`test/routines/chat.test.ts` drives `make` with the local demo fake and the farm skeleton;
+`dynwork/packages/server-plugin/test/routines.test.ts` drives the tools and their wait.
 
 ## What the fake does not do
 

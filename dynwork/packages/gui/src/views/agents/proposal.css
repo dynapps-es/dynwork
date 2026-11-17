@@ -1,0 +1,102 @@
+/* The card of a routine proposed in a chat. It renders in the app's dialog, so its rules hang from its own component and
+   the container class it gives the dialog; it uses the theme's v2 tokens, so light and dark follow the theme. Under
+   768px the dialog becomes a sheet over the window with the buttons pinned under a scrolling body. */
+
+[data-component="dialog-v2"][data-size] [data-slot="dialog-container"].agents-proposal-dialog {
+  width: min(calc(100vw - 32px), 640px);
+  max-height: min(calc(100dvh - 48px), 760px);
+
+  @media (max-width: 767px) {
+    width: 100vw;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+  }
+}
+
+[data-component="agents-proposal"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
+
+  [data-slot="proposal-scroll"] {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+    padding: 4px 20px 16px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  [data-slot="proposal-label"] {
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="proposal-prompt"],
+  [data-slot="proposal-input"] {
+    max-height: 220px;
+    margin: 0;
+    padding: 10px 12px;
+    overflow: auto;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 6px;
+    background: var(--v2-background-bg-layer-01);
+    font-family: var(--font-family-mono, ui-monospace, monospace);
+    font-size: 12px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  [data-slot="proposal-rows"] {
+    display: grid;
+    grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
+    gap: 8px 16px;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 6px;
+
+    dt {
+      color: var(--v2-text-text-faint);
+    }
+
+    dd {
+      min-width: 0;
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  [data-slot="proposal-warning"] {
+    margin: 0;
+    color: var(--v2-state-fg-warning);
+  }
+
+  [data-slot="proposal-error"] {
+    margin: 0;
+    color: var(--v2-state-fg-danger);
+  }
+
+  [data-slot="proposal-toggle"] {
+    align-self: flex-start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--v2-text-text-muted);
+    cursor: pointer;
+  }
+
+  [data-slot="proposal-key"] {
+    margin-left: 8px;
+    font-family: inherit;
+    font-size: 11px;
+    opacity: 0.7;
+  }
+}

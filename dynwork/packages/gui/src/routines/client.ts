@@ -2,7 +2,7 @@ export * as RoutinesClient from "./client"
 
 import { createSignal, onCleanup, type Accessor } from "solid-js"
 import type { IpcClient, Live } from "@opencode/plugin/gui"
-import type { Routines } from "./contract"
+import type { Chat, Routines } from "./contract"
 
 export type Client = IpcClient<(typeof Routines)["spec"]>
 
@@ -17,5 +17,20 @@ export function attach(live: Accessor<Live<Client>>) {
   setCurrent(() => live)
   onCleanup(() => {
     if (current() === live) setCurrent(undefined)
+  })
+}
+
+export type ChatClient = IpcClient<(typeof Chat)["spec"]>
+
+// The chat's cards (`./chat`), handed over the same way.
+const [chat, setChat] = createSignal<Accessor<Live<ChatClient>>>()
+
+export const chatConnection = () => chat()?.()
+
+/** Makes `live` the chat's connection until the current owner is disposed. */
+export function attachChat(live: Accessor<Live<ChatClient>>) {
+  setChat(() => live)
+  onCleanup(() => {
+    if (chat() === live) setChat(undefined)
   })
 }
