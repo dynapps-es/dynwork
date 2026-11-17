@@ -1,0 +1,56 @@
+import type en from "./en"
+
+// The Brain view's strings in French (`./en`).
+export default {
+  "brain.title": "Brain",
+  "brain.description": "La documentation d'Odoo Knowledge, dans les espaces que votre utilisateur Odoo peut ouvrir.",
+  "brain.search": "Rechercher dans le brain",
+  "brain.search.hint":
+    "Posez une question complète, par exemple « combien de temps les sauvegardes sont-elles conservées ».",
+  "brain.search.empty":
+    "Aucun document ne correspond. Essayez une question, par exemple « combien de temps les sauvegardes sont-elles conservées ».",
+  "brain.search.results": "Résultats de la recherche",
+  "brain.tree": "Documents",
+  "brain.footer.title": "Odoo Knowledge",
+  "brain.footer.text": "En tant que dev@dynapps.test. Vous voyez ce que votre utilisateur Odoo peut voir.",
+  "brain.access": "Accès",
+  "brain.edit": "Modifier",
+  "brain.edit.locked": "Modifiez-le à sa source Git",
+  "brain.edit.noRights": "Vous pouvez lire ce document, pas le modifier",
+  "brain.save": "Enregistrer",
+  "brain.cancel": "Annuler",
+  "brain.source": "Source Markdown",
+  "brain.editor": "Modifier le Markdown",
+  "brain.mode": "Vue du document",
+  "brain.mode.view": "Aperçu",
+  "brain.mode.markdown": "Markdown",
+  "brain.language": "Langue",
+  "brain.origin.managed": "Git",
+  "brain.origin.mirror": "Git, lecture seule",
+  "brain.origin.native": "Natif",
+  "brain.meta.type": "Type",
+  "brain.meta.owner": "Responsable",
+  "brain.meta.canon": "État canonique",
+  "brain.meta.updated": "Mis à jour",
+  "brain.canon.verified": "Vérifié jusqu'au {{date}}",
+  "brain.canon.draft": "Brouillon, personne ne l'a encore signé",
+  "brain.canon.source": "Maintenu par la source",
+  "brain.notice.saved": "Enregistré dans Odoo.",
+  "brain.notice.savedText":
+    "La dernière modification arrive dans {{repo}} avec la prochaine publication planifiée. Vous n'avez rien à faire.",
+  "brain.notice.mirror": "Copié depuis Git, lecture seule.",
+  "brain.notice.mirrorText":
+    "Modifiez-le à sa source : {{repo}}. Odoo récupère le changement à la prochaine synchronisation.",
+  "brain.access.title": "Accès",
+  "brain.access.lede": "Odoo Knowledge décide qui peut ouvrir et modifier ce document. Vous : {{role}}.",
+  "brain.access.mirror":
+    "Lecture seule pour tout le monde dans Odoo, car le document est copié depuis Git. L'accès en écriture se gère dans le dépôt.",
+  "brain.access.inherited": "Hérité",
+  "brain.access.explicit": "Explicite",
+  "brain.access.fromSpace": "Depuis {{space}}",
+  "brain.access.fromDoc": "Défini sur ce document",
+  "brain.access.role": "Accès pour {{group}}",
+  "brain.access.share": "Partager avec un groupe",
+  "brain.role.read": "Peut lire",
+  "brain.role.edit": "Peut modifier",
+} satisfies Record<keyof typeof en, string>

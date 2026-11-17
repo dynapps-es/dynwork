@@ -127,14 +127,21 @@ Not seen in a real window yet (phase 06 of the plan): that a link from a plugin 
 ## Adding to a view
 
 Each view owns its folder: `<view>/index.tsx` exports the view component as its default, `<view>/en.ts` its strings
-and `<view>/es.ts` the same keys in Spanish (keys start with `<view>.`; `./en.ts` and `./es.ts` merge them into the
-plugin's tables), and anything else it needs (`demo.ts`, components, a CSS file) lives beside them. Tests go in
-`test/views/<view>/`; `test/ui/es.test.ts` fails when a key or a `{{param}}` is missing from either language.
+and `<view>/es.ts`, `<view>/fr.ts` and `<view>/nl.ts` the same keys in Spanish, French and Dutch (keys start with
+`<view>.`; `./en.ts`, `./es.ts`, `./fr.ts` and `./nl.ts` merge them into the plugin's tables), and anything else it
+needs (`demo.ts`, components, a CSS file) lives beside them. Tests go in `test/views/<view>/`;
+`test/ui/languages.test.ts` fails when a key or a `{{param}}` is missing from any language.
 
-Spanish is Spain Spanish with "tú", short and plain: a scheduled task is a "tarea programada", a run an "ejecución",
-and Governance, Brain, Dynwork and Cloud keep their names. Text main writes for a window (a backend's field
-labels, a failure) stays English in main and is listed in `../routines/i18n/en.ts`, with its Spanish in `es.ts`; the
-window shows it through `fromMain` (`agents/format.ts`).
+Every language is short and plain, and Governance, Brain, Dynwork and Cloud keep their names:
+
+- Spanish is Spain Spanish with "tú": a scheduled task is a "tarea programada", a run an "ejecución".
+- French is France French with "vous": a "tâche planifiée", a run an "exécution".
+- Dutch is one Dutch for the Netherlands and Flanders, with "je": a "geplande taak", a run an "uitvoering". It
+  avoids words only one side uses (a phone is a "telefoon").
+
+Text main writes for a window (a backend's field labels, a failure) stays English in main and is listed in
+`../routines/i18n/en.ts`, with its translations in `es.ts`, `fr.ts` and `nl.ts`; the window shows it through
+`fromMain` (`agents/format.ts`).
 
 A view renders `ViewShell` from `./shell.tsx`, reads strings with `usePlugin().t(...)` and opens another view with
 `builtinContext(usePlugin()).layout.page(id)` (`layout.page` is not on the public plugin type):
