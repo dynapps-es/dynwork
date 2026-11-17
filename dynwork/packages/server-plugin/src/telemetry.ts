@@ -210,8 +210,9 @@ export function tool(event: ToolEvent, skills: Target["skills"], cwd: string) {
 
 /**
  * A model call with the session in `metadata.user_id`, where the bridge's proxy puts the plugin's `x-opencode-session`
- * so the gateway lands the call on the hook events' context; that header is dropped, as the proxy drops it. A body that
- * is not a JSON object, or already names a `user_id`, goes as it is.
+ * so the gateway lands the call on the hook events' context; that header is dropped, as the proxy drops it. The gateway
+ * records each session as its own conversation, so `native` is the request's own session, never its parent's. A body
+ * that is not a JSON object, or already names a `user_id`, goes as it is.
  */
 export async function stamp(request: Request, native: string) {
   const headers = new Headers(request.headers)

@@ -559,9 +559,12 @@ else:
 - Every call times out after 5 s; failures are dropped, never retried, and never hold up or fail a step.
 - Model calls on the `systemprompt` provider carry `metadata.user_id: {"session_id": "<v5 UUID>"}` in the body (kept
   when the body already has one), where the bridge's proxy moves its plugin's `x-opencode-session`, so the gateway lands
-  the call on the same context as the events; `x-opencode-session` is dropped, as the proxy drops it. Only while
-  governance telemetry is on, like the bridge, whose stamp lives in the hooks plugin. OpenCode's own `X-Session-Id`
-  still goes: 0.76 keeps a session id it did not issue as the client's, it does not reject it.
+  the call on the same context as the events; `x-opencode-session` is dropped, as the proxy drops it. The stamp
+  goes on every session's calls whenever an instance's gateway is applied, governance telemetry or not (the bridge's
+  proxy stamps every plugin's session): the gateway records each session as its own conversation, so a scheduled
+  task's run (a child session) is one of its own, never merged into its anchor's. The id is the request's own session,
+  not the parent's cache affinity. OpenCode's own `X-Session-Id` (the affinity) still goes: 0.76 keeps a session id it
+  did not issue as the client's, it does not reject it.
 - Device evidence, as the bridge's proxy forwards a hook when enrolled (`feedback/hooks.rs`): once main holds the
   account's device (see "Skill runtime files") and pushed it (`dynwork.sync/device {instance, credential}`, refused for
   any instance but the one applied), every track call carries `x-systemprompt-device-credential: <sp_device_…>` and

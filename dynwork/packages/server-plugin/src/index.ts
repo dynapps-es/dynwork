@@ -539,11 +539,14 @@ export default Plugin.define({
       ),
     )
     // The session on each gateway call, where the bridge's proxy puts it, so the call lands on the events' context.
+    // Every session's calls carry it, governance telemetry or not: the gateway records each session as its own
+    // conversation, and so each scheduled-task run (its child session) as one of its own. `event.sessionID` is the
+    // request's own session; only the `x-session-id` headers carry the parent's affinity id.
     yield* ctx.session.hook(
       "http.request",
       (event) =>
         Effect.gen(function* () {
-          if (!store.current?.telemetry) return
+          if (!store.current?.provided) return
           const request = event.request
           event.request = yield* Effect.promise(() =>
             DynWorkTelemetry.stamp(request, event.sessionID).catch(() => request),
