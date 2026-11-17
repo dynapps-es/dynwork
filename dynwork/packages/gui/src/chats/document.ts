@@ -233,8 +233,13 @@ function part(
   return { ...next, slots: { ...next.slots, [id]: slots } }
 }
 
+// A prompt and its reply share the prompt's millisecond (the server stamps the reply with it), so within one instant the
+// user's message comes first; the id only settles what is left.
 function order(messages: SessionMessageInfo[]) {
-  return messages.toSorted((a, b) => a.time.created - b.time.created || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  const rank = (message: SessionMessageInfo) => (message.type === "user" ? 0 : 1)
+  return messages.toSorted(
+    (a, b) => a.time.created - b.time.created || rank(a) - rank(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+  )
 }
 
 // A history entry: OpenCode's `SessionMessageInfo`, or the stored `{ info, parts }` pair, whose parts are an assistant

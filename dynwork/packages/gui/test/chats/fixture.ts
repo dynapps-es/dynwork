@@ -1,14 +1,23 @@
 import { ChatsClient } from "../../src/chats/client"
 import { ChatsFake } from "../../src/chats/fake"
 
-/** Phase 03's recorded cloud reply will replace this hand-written one: OpenCode v2 events of one text reply. */
+export type RecordedEvent = { type: string; durable?: { seq: number }; data: Record<string, unknown> }
+
+/**
+ * The cloud reply recorded by `dynwork-chats` (`tests/integration/dynwork-chats/fixtures/cloud-reply.jsonl` in
+ * systemprompt-dynapps, phase 03): lines of the mobile-model format, a `meta` line and one `event` line per event. A
+ * `session.text.delta` carries no `durable` (its seq travels as the SSE `id`), like the desktop's own fixtures.
+ */
 export const recorded = async () =>
   (await Bun.file(new URL("./cloud-reply.jsonl", import.meta.url)).text())
     .split("\n")
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as { type: string; durable: { seq: number }; data: Record<string, unknown> })
+    .map((line) => JSON.parse(line) as { kind: string; event?: RecordedEvent })
+    .flatMap((line) => (line.kind === "event" && line.event ? [line.event] : []))
 
-export const SESSION = "ses_01JCLOUDFIXTURE0000000001"
+export const SESSION = "ses_01JCLOUDREPLYRECORD0000001"
+
+export const RECORDED_TEXT = "Hello from the cloud. This reply streams as it is written."
 
 /** A JWT-shaped secret: the tests look for it in everything that crosses to a window. */
 export const TOKEN = "eyJhbGciOiJFZERTQSJ9.chats-test-secret.c2lnbmF0dXJl"
