@@ -3,9 +3,10 @@
    v2 tokens.
 
    Widths: a wide window gets a dialog of up to 760px; under 768px (the shell's narrow layout, down to a ~360px phone) the
-   dialog becomes a sheet over the whole window, with the buttons pinned under a scrolling body. Inside, the fields sit in
-   a grid that fills columns of at least 240px and drops to one, so a narrow sheet is a single column. Nothing scrolls
-   sideways: every control may shrink (`min-width: 0`) and long text wraps. */
+   dialog becomes a sheet over the whole window, with the buttons pinned under a scrolling body. Inside, every control is
+   the app's own, in rows as Settings draws them: label and hint on the left and a short control on the right, wrapping
+   under them in a narrow sheet; a control with long content takes the width under its label. Nothing scrolls sideways:
+   every control may shrink (`min-width: 0`) and long text wraps. */
 
 /* The dialog's own size rules have three attribute selectors; this is four so it wins whatever the load order. */
 [data-component="dialog-v2"][data-size] [data-slot="dialog-container"].agents-form-dialog {
@@ -61,21 +62,88 @@
     line-height: 16px;
   }
 
-  /* One field: label, control, hint, problem. */
+  /* One field: label and hint, the control, a warning and the problem. */
   [data-slot="form-field"] {
     display: flex;
     flex-direction: column;
     gap: 6px;
     min-width: 0;
 
-    &[data-wide] {
-      grid-column: 1 / -1;
-    }
-
     [data-component="text-input-v2"],
     [data-component="textarea-v2"] {
       width: 100%;
       min-width: 0;
+    }
+  }
+
+  [data-slot="form-copy"] {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  [data-slot="form-control"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  /* A Settings row: the copy takes the room left, the control keeps its own width on the right. */
+  [data-slot="form-field"][data-inline] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px 16px;
+
+    > [data-slot="form-control"] {
+      align-items: flex-end;
+      max-width: min(320px, 55vw);
+    }
+
+    > [data-slot="form-hint"],
+    > [data-slot="form-error"] {
+      grid-column: 1 / -1;
+    }
+
+    [data-component="text-input-v2"] {
+      width: 160px;
+    }
+
+    @media (max-width: 479px) {
+      grid-template-columns: minmax(0, 1fr);
+
+      > [data-slot="form-control"] {
+        align-items: stretch;
+        max-width: none;
+      }
+
+      [data-component="text-input-v2"] {
+        width: 100%;
+      }
+    }
+  }
+
+  /* Rows one under the other with the hairline Settings puts between them. */
+  [data-slot="form-rows"] {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+
+    > [data-slot="form-field"] {
+      padding-block: 12px;
+      border-bottom: 0.5px solid var(--v2-border-border-base);
+    }
+
+    > [data-slot="form-field"]:last-child {
+      border-bottom: none;
+    }
+
+    > [data-slot="form-hint"],
+    > [data-slot="form-preview"],
+    > [data-slot="form-error"] {
+      margin-top: 8px;
     }
   }
 
@@ -113,16 +181,6 @@
     overflow-wrap: anywhere;
   }
 
-  [data-slot="form-grid"] {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
-    gap: 14px 12px;
-
-    &[data-compact] {
-      grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
-    }
-  }
-
   [data-slot="form-inline"] {
     display: flex;
     gap: 8px;
@@ -133,165 +191,12 @@
     }
   }
 
-  /* A native select, drawn like the app's inputs. */
-  [data-slot="form-select"] {
-    width: 100%;
-    min-width: 0;
-    max-width: 100%;
-    height: 32px;
-    padding: 0 10px;
-    border: 0;
-    border-radius: 8px;
-    background: var(--v2-background-bg-base);
-    box-shadow: var(--v2-elevation-input);
-    color: var(--v2-text-text-base);
-    font: inherit;
-
-    &:focus-visible {
-      outline: none;
-      box-shadow:
-        0 0 0 1px var(--v2-border-border-focus),
-        var(--v2-elevation-input);
-    }
-
-    &[aria-invalid="true"] {
-      box-shadow: 0 0 0 1px var(--v2-state-border-danger);
-    }
-  }
-
-  /* Where it runs: two cards, one column when they do not fit side by side. */
-  [data-slot="form-where"] {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-    gap: 10px;
-
-    button {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      min-width: 0;
-      padding: 12px;
-      border: 0;
-      border-radius: 10px;
-      background: var(--v2-background-bg-layer-01);
-      color: var(--v2-text-text-muted);
-      font: inherit;
-      text-align: start;
-
-      [data-slot="icon-svg"] {
-        flex: none;
-        margin-top: 2px;
-        color: var(--v2-icon-icon-muted);
-      }
-
-      > span {
-        flex: 1;
-        min-width: 0;
-        overflow-wrap: anywhere;
-      }
-
-      b {
-        display: block;
-        margin-bottom: 2px;
-        color: var(--v2-text-text-base);
-        font-weight: 600;
-      }
-
-      small {
-        display: block;
-        margin-top: 4px;
-        color: var(--v2-text-text-faint);
-        font-size: 12px;
-      }
-
-      &[data-state="pressed"] {
-        background: var(--v2-background-bg-base);
-        box-shadow:
-          inset 0 0 0 1.5px var(--v2-border-border-focus),
-          var(--v2-elevation-raised);
-      }
-
-      &:focus-visible {
-        outline: 2px solid var(--v2-border-border-focus);
-        outline-offset: 2px;
-      }
-    }
-  }
-
   [data-slot="form-where-fixed"] {
     display: flex;
     align-items: center;
     gap: 8px;
     margin: 0;
     color: var(--v2-text-text-muted);
-  }
-
-  /* Segments (the kind of instructions) and tabs. */
-  [data-slot="form-segments"],
-  [data-slot="form-tabs"] {
-    display: inline-flex;
-    flex-wrap: wrap;
-    align-self: flex-start;
-    gap: 2px;
-    padding: 2px;
-    border-radius: 8px;
-    background: var(--v2-background-bg-layer-02);
-
-    button {
-      height: 24px;
-      padding: 0 10px;
-      border: 0;
-      border-radius: 6px;
-      background: transparent;
-      color: var(--v2-text-text-muted);
-      font: inherit;
-
-      &[data-state="pressed"],
-      &[aria-checked="true"] {
-        background: var(--v2-background-bg-base);
-        color: var(--v2-text-text-base);
-        box-shadow: var(--v2-elevation-raised);
-      }
-
-      &:focus-visible {
-        outline: 2px solid var(--v2-border-border-focus);
-      }
-    }
-  }
-
-  /* The trigger: a select and the time, day, cron and zone it needs, wrapping onto the next line. */
-  [data-slot="form-trigger"] {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    min-width: 0;
-
-    > * {
-      flex: 0 1 auto;
-      width: auto;
-      min-width: 0;
-      max-width: 100%;
-    }
-
-    [data-slot="form-select"] {
-      width: auto;
-    }
-
-    [data-component="text-input-v2"] {
-      width: auto;
-      flex: 0 1 140px;
-    }
-
-    @media (max-width: 767px) {
-      > * {
-        flex: 1 1 100%;
-        width: 100%;
-      }
-
-      [data-component="text-input-v2"] {
-        flex: 1 1 100%;
-      }
-    }
   }
 
   [data-slot="form-preview"] {
@@ -312,36 +217,45 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* Choices that fit side by side: days, plugins, the items of a list. */
-  [data-slot="form-pills"] {
+  /* The days of a weekly trigger, side by side, wrapping in a narrow sheet. */
+  [data-slot="form-days"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    min-width: 0;
+  }
+
+  /* A choice of several, such as the connectors: a row per choice with its switch on the right. */
+  [data-slot="form-switches"] {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  [data-slot="form-switch"] {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-width: 0;
+    padding-block: 8px;
+    border-bottom: 0.5px solid var(--v2-border-border-base);
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+
+  [data-slot="form-switch-label"] {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  [data-slot="form-tokens"] {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
     min-width: 0;
-
-    > button {
-      height: 28px;
-      padding: 0 10px;
-      border: 0;
-      border-radius: 6px;
-      background: var(--v2-background-bg-layer-02);
-      color: var(--v2-text-text-muted);
-      font: inherit;
-
-      &[aria-pressed="true"] {
-        background: var(--v2-background-bg-inverse);
-        color: var(--v2-text-text-inverse);
-      }
-
-      &:disabled {
-        opacity: 0.5;
-      }
-
-      &:focus-visible {
-        outline: 2px solid var(--v2-border-border-focus);
-        outline-offset: 1px;
-      }
-    }
   }
 
   [data-slot="form-token"] {
@@ -354,64 +268,12 @@
     background: var(--v2-background-bg-layer-02);
     font-size: 12px;
     overflow-wrap: anywhere;
-
-    button {
-      display: inline-flex;
-      padding: 0;
-      border: 0;
-      background: transparent;
-      color: var(--v2-icon-icon-muted);
-    }
   }
 
   [data-slot="form-list"] {
     display: flex;
     flex-direction: column;
     gap: 8px;
-  }
-
-  /* A few exclusive choices as a list of radios, as the mockup shows the permissions. */
-  [data-slot="form-radios"] {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-
-    button {
-      display: flex;
-      align-items: flex-start;
-      gap: 8px;
-      min-width: 0;
-      padding: 8px 10px;
-      border: 0;
-      border-radius: 8px;
-      background: transparent;
-      color: var(--v2-text-text-muted);
-      font: inherit;
-      text-align: start;
-      overflow-wrap: anywhere;
-
-      &[data-state="pressed"] {
-        background: var(--v2-background-bg-layer-01);
-        color: var(--v2-text-text-base);
-      }
-
-      &:focus-visible {
-        outline: 2px solid var(--v2-border-border-focus);
-      }
-    }
-  }
-
-  [data-slot="form-dot"] {
-    flex: none;
-    width: 14px;
-    height: 14px;
-    margin-top: 3px;
-    border-radius: 50%;
-    box-shadow: inset 0 0 0 1.5px var(--v2-border-border-base);
-  }
-
-  [data-slot="form-radios"] [data-state="pressed"] [data-slot="form-dot"] {
-    box-shadow: inset 0 0 0 4px var(--v2-background-bg-inverse);
   }
 
   /* The backend's blocks. The farm's own options are dashed, as they are in the detail. */
@@ -496,20 +358,6 @@
   }
 
   [data-slot="form-advanced-head"] {
-    display: flex;
-    align-items: center;
-    gap: 6px;
     align-self: flex-start;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--v2-text-text-base);
-    font: inherit;
-    font-weight: 600;
-
-    &:focus-visible {
-      outline: 2px solid var(--v2-border-border-focus);
-      outline-offset: 2px;
-    }
   }
 }

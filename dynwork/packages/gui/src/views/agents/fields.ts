@@ -30,9 +30,9 @@ export function control(field: Field, choices: readonly Choice[]): Control {
   return field.kind
 }
 
-/** Whether a control takes the whole row, rather than half of it beside another. */
-export function wide(kind: Control) {
-  return kind === "textarea" || kind === "toggle" || kind === "radio" || kind === "choices" || kind === "list"
+/** Whether a control sits on the right of its label, as in a Settings row, rather than under it with the whole width. */
+export function inline(kind: Control) {
+  return kind === "number" || kind === "toggle" || kind === "select"
 }
 
 /** The choices of a select or multiselect: its own, or its lookup's through `lookup`. */

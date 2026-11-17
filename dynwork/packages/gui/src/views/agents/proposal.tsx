@@ -129,9 +129,15 @@ function ProposalDock(props: { card: Card; client: () => ChatClient | undefined 
           <Show when={options().permissions === "bypass"}>
             <p data-slot="proposal-warning">{ctx.t("agents.chat.bypass")}</p>
           </Show>
-          <button type="button" data-slot="proposal-toggle" aria-expanded={full()} onClick={() => setFull(!full())}>
+          <Button
+            variant="ghost"
+            size="small"
+            data-slot="proposal-toggle"
+            aria-expanded={full()}
+            onClick={() => setFull(!full())}
+          >
             {ctx.t(full() ? "agents.chat.input.hide" : "agents.chat.input.show")}
-          </button>
+          </Button>
           <Show when={full()}>
             <pre data-slot="proposal-prompt">{JSON.stringify(props.card.proposal, null, 2)}</pre>
           </Show>

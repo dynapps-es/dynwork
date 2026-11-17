@@ -212,72 +212,12 @@
     border-radius: 50%;
   }
 
-  /* The bar over the list. It wraps: tabs, then the chips, then status and search, which take a row of their own. */
+  /* The bar over the list. It wraps: tabs, the Local and Remote filter, then status and search on their own row. */
   [data-slot="agents-toolbar"] {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 16px;
-  }
-
-  [data-slot="agents-tabs"] {
-    display: inline-flex;
-    max-width: 100%;
-    gap: 2px;
-    padding: 2px;
-    border-radius: 8px;
-    background: var(--v2-background-bg-layer-02);
-  }
-
-  [data-slot="agents-tab"] {
-    height: 26px;
-    padding: 0 10px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--v2-text-text-muted);
-    white-space: nowrap;
-
-    &:is(:hover, :focus-visible) {
-      color: var(--v2-text-text-base);
-      outline: none;
-    }
-
-    &[data-state="pressed"] {
-      background: var(--v2-background-bg-base);
-      color: var(--v2-text-text-base);
-      box-shadow: var(--v2-elevation-raised);
-    }
-  }
-
-  [data-slot="agents-chips"] {
-    display: inline-flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  [data-slot="agents-chip"] {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 26px;
-    padding: 0 10px;
-    border: 1px solid var(--v2-border-border-base);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--v2-text-text-muted);
-    white-space: nowrap;
-
-    &:is(:hover, :focus-visible) {
-      color: var(--v2-text-text-base);
-      outline: none;
-    }
-
-    &[data-state="pressed"] {
-      border-color: transparent;
-      background: var(--v2-background-bg-inverse);
-      color: var(--v2-text-text-inverse);
-    }
   }
 
   [data-slot="agents-count"] {
@@ -290,52 +230,18 @@
     display: flex;
     flex: 1 1 280px;
     justify-content: flex-end;
+    align-items: center;
     gap: 8px;
     min-width: 0;
-  }
-
-  [data-slot="agents-select"],
-  [data-slot="agents-search"] {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 8px 0 10px;
-    border-radius: 6px;
-    background: var(--v2-background-bg-base);
-    box-shadow: var(--v2-elevation-input);
-    color: var(--v2-text-text-base);
-
-    select,
-    input {
-      min-width: 0;
-      border: 0;
-      background: transparent;
-      color: inherit;
-      font: inherit;
-      outline: none;
-    }
   }
 
   [data-slot="agents-select-key"] {
     color: var(--v2-text-text-faint);
   }
 
-  [data-slot="agents-search"] {
+  .agents-search {
     flex: 0 1 220px;
     min-width: 120px;
-    color: var(--v2-icon-icon-muted);
-
-    input {
-      flex: 1;
-      color: var(--v2-text-text-base);
-    }
-
-    &:focus-within {
-      box-shadow:
-        0 0 0 1px var(--v2-border-border-focus),
-        var(--v2-elevation-input);
-    }
   }
 
   /* My routines: cards. */
@@ -518,24 +424,6 @@
     gap: 6px;
     min-width: 0;
     color: var(--v2-text-text-faint);
-  }
-
-  [data-slot="agents-crumb"] {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 24px;
-    padding: 0 6px 0 4px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--v2-text-text-faint);
-
-    &:is(:hover, :focus-visible) {
-      background: var(--v2-overlay-simple-overlay-hover);
-      color: var(--v2-text-text-base);
-      outline: none;
-    }
   }
 
   [data-slot="agents-crumb-current"] {
@@ -812,7 +700,7 @@
     justify-content: stretch;
   }
 
-  [data-slot="agents-search"] {
+  .agents-search {
     flex: 1 1 auto;
   }
 

@@ -4,12 +4,12 @@ import {
   choicesOf,
   control,
   defaults,
+  inline,
   layout,
   picked,
   shown,
   toggled,
   valueOf,
-  wide,
   type Control,
 } from "../../../src/views/agents/fields"
 import { setup } from "./fixture"
@@ -61,10 +61,12 @@ describe("every field kind has a control", () => {
     expect(control(field({ key: "a", kind: "select", lookup: "credentials:git_token" }), [])).toBe("select")
   })
 
-  test("the kinds that hold long content take the whole row", () => {
+  test("a short control sits beside its label, one that holds long content or several choices under it", () => {
     expect(
-      everyKind.filter((candidate) => wide(control(candidate, candidate.choices ?? []))).map((c) => c.key),
-    ).toEqual(["notes", "flag", "mode", "many", "tags"])
+      everyKind.filter((candidate) => inline(control(candidate, candidate.choices ?? []))).map((c) => c.key),
+    ).toEqual(["limit", "flag"])
+    const many = Array.from({ length: 5 }, (_, index) => ({ value: `v${index}`, label: `V${index}` }))
+    expect(inline(control(field({ key: "a", kind: "select", choices: many }), many))).toBe(true)
   })
 
   test("a select's choices come from the field, or from its lookup once loaded", () => {

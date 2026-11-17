@@ -37,10 +37,9 @@ export function RoutineDetail(props: {
   return (
     <div data-slot="agents-detail">
       <nav data-slot="agents-crumbs" aria-label={ctx.t("agents.detail.back")}>
-        <button type="button" data-slot="agents-crumb" onClick={props.model.deselect}>
-          <Icon name="arrow-left" size="small" />
+        <Button variant="ghost" size="small" icon="arrow-left" onClick={props.model.deselect}>
           {ctx.t("agents.detail.back")}
-        </button>
+        </Button>
         <Icon name="chevron-right" size="small" />
         <span data-slot="agents-crumb-current">{props.routine.definition.name}</span>
       </nav>
