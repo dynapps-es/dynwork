@@ -200,10 +200,12 @@ export default {
   "agents.form.agent": "Agent",
   "agents.form.model": "Model",
   "agents.form.model.byAgent": "Set by the agent",
+  "agents.form.agent.default": "Default agent",
+  "agents.form.model.default": "Default model",
   "agents.form.default": "Default",
   "agents.form.choose": "Choose…",
   "agents.form.notice.local":
-    "Choose below whether this routine asks for your approval, as a conversation does, or works without asking. When it asks, the run waits and you get a notification.",
+    "Choose under the instructions whether this routine asks for your approval, as a conversation does, or works without asking. When it asks, the run waits and you get a notification.",
   "agents.form.notice.remote":
     "On the Agent Farm the agent works without approvals inside its container. Give it only the access it needs.",
   "agents.form.trigger": "Trigger",
@@ -246,7 +248,8 @@ export default {
   "agents.form.advanced.general": "General",
   "agents.form.advanced.connectors": "Connectors",
   "agents.form.advanced.notifications": "Notifications",
-  "agents.form.connectors.empty": "No connectors are available: add some in Dynwork's settings, or wait for Dynwork to start.",
+  "agents.form.connectors.empty":
+    "No connectors are available: add some in Dynwork's settings, or wait for Dynwork to start.",
   "agents.form.attention": "Some fields need attention.",
   "agents.form.cancel": "Cancel",
   "agents.form.save": "Save routine",

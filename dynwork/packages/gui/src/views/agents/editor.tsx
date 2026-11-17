@@ -9,14 +9,17 @@ import { SegmentedControl, SegmentedControlItem } from "@opencode/ui/segmented-c
 import { Tabs } from "@opencode/ui/tabs"
 import { Textarea } from "@opencode/ui/textarea"
 import { TextInput } from "@opencode/ui/text-input"
-import { createEffect, createSignal, For, Match, on, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createSignal, For, lazy, Match, on, Show, Switch, type JSX } from "solid-js"
+import { isServer } from "solid-js/web"
 import type { Choice, Field, Ref } from "../../routines/contract"
-import { choicesOf, control, inline, picked as pickedOf, toggled, valueOf } from "./fields"
+import { choicesOf, control, fromSelect, inline, picked as pickedOf, selectChoices, toggled, valueOf } from "./fields"
 import { zones } from "./schedule"
 import { backendLine, when, type Translate } from "./format"
 import { draftSchedule, problemText, triggers, type FormModel } from "./form"
 import type { AgentsModel } from "./model"
 import "./editor.css"
+
+const PromptSelect = lazy(() => import("./prompt-select"))
 
 /**
  * The routine form, in the app's dialog: a dialog on a wide window and a full-screen sheet on a narrow one (`editor.css`).
@@ -259,8 +262,7 @@ function Row(props: {
   )
 }
 
-// The app's select over a field's choices. `blank` is the choice that leaves the field empty, such as "Default"; a
-// stored value the lookup does not list, or has not loaded yet, stays selectable instead of vanishing.
+// The app's select over a field's choices; `blank` and stored values as `selectChoices` says.
 function Choose(props: {
   label: string
   value: string
@@ -270,27 +272,18 @@ function Choose(props: {
   onChange: (value: string) => void
 }) {
   const ctx = usePlugin()
-  const options = () => [
-    ...(props.blank === undefined ? [] : [{ value: BLANK, label: props.blank }]),
-    ...props.options.map((option) => ({ value: option.value, label: option.label })),
-    ...(props.value !== "" && !props.options.some((option) => option.value === props.value)
-      ? [{ value: props.value, label: props.value }]
-      : []),
-  ]
+  const choices = () => selectChoices(props.value, props.options, props.blank)
 
   return (
     <ctx.ui.Select
       label={props.label}
-      value={props.value === "" ? BLANK : props.value}
-      options={options()}
+      value={choices().value}
+      options={choices().options}
       invalid={props.invalid}
-      onChange={(value) => props.onChange(value === BLANK ? "" : value)}
+      onChange={(value) => props.onChange(fromSelect(value))}
     />
   )
 }
-
-// The select treats an empty value as no selection and shows nothing, so the blank choice travels under this key.
-const BLANK = "\u0000blank"
 
 // Where the routine runs: a choice between the backends for a new routine, a fixed line for an edit.
 function Where(props: { form: FormModel; agents: AgentsModel }) {
@@ -347,6 +340,17 @@ function What(props: { form: FormModel; choices: (lookup: string) => readonly Ch
   const form = props.form
   const draft = () => form.state.draft
   const kinds = () => form.capabilities()?.instructions ?? []
+  // Under the box: the warning of the chosen permission mode, and the problems of the footer's selects.
+  const promptNotes = () => [
+    ...form.fields().prompt.flatMap((field) => {
+      const warning = field.choices?.find((choice) => choice.value === valueOf(field, draft().options))?.warning
+      return warning ? [{ text: warning, error: false }] : []
+    }),
+    ...[...form.fields().prompt.map((field) => field.key), "agent", "model"].flatMap((key) => {
+      const text = said(ctx.t, form, key)
+      return text ? [{ text, error: true }] : []
+    }),
+  ]
 
   return (
     <>
@@ -385,52 +389,94 @@ function What(props: { form: FormModel; choices: (lookup: string) => readonly Ch
             onChange={(agentRef) => form.set({ agentRef })}
           />
         </Show>
-        <Textarea
-          id="agents-form-text"
-          rows={6}
-          value={draft().text}
-          aria-label={ctx.t(textLabel[draft().what])}
-          placeholder={draft().what === "prompt" ? ctx.t("agents.form.prompt.placeholder") : undefined}
-          invalid={form.error("instructions") !== undefined}
-          onInput={(event) => form.set({ text: event.currentTarget.value })}
-        />
-      </Row>
-      <div data-slot="form-rows">
-        <Show when={form.capabilities()?.agent !== "none" && form.capabilities()}>
-          {(current) => (
-            <Row id="agent" label={ctx.t("agents.form.agent")} error={said(ctx.t, form, "agent")} inline>
-              <Choose
-                label={ctx.t("agents.form.agent")}
-                value={draft().agent}
-                options={props.choices("agents")}
-                blank={current().agent === "optional" ? ctx.t("agents.form.default") : ctx.t("agents.form.choose")}
-                invalid={form.error("agent") !== undefined}
-                onChange={(agent) => form.set({ agent })}
-              />
-            </Row>
+        <div data-slot="form-prompt" data-invalid={form.error("instructions") !== undefined ? "" : undefined}>
+          <Textarea
+            id="agents-form-text"
+            rows={6}
+            value={draft().text}
+            aria-label={ctx.t(textLabel[draft().what])}
+            placeholder={draft().what === "prompt" ? ctx.t("agents.form.prompt.placeholder") : undefined}
+            invalid={form.error("instructions") !== undefined}
+            onInput={(event) => form.set({ text: event.currentTarget.value })}
+          />
+          <PromptFooter form={form} choices={props.choices} />
+        </div>
+        <For each={promptNotes()}>
+          {(note) => (
+            <span data-slot={note.error ? "form-error" : "form-hint"} data-tone={note.error ? undefined : "warning"}>
+              {note.text}
+            </span>
           )}
-        </Show>
-        <Switch>
-          <Match when={form.capabilities()?.model === "choose"}>
-            <Row id="model" label={ctx.t("agents.form.model")} error={said(ctx.t, form, "model")} inline>
-              <Choose
-                label={ctx.t("agents.form.model")}
-                value={draft().model}
-                options={props.choices("models")}
-                blank={ctx.t("agents.form.default")}
-                invalid={form.error("model") !== undefined}
-                onChange={(model) => form.set({ model })}
-              />
-            </Row>
-          </Match>
-          <Match when={form.capabilities()?.model === "agent"}>
-            <Row id="model" label={ctx.t("agents.form.model")} inline>
-              <span data-slot="form-static">{ctx.t("agents.form.model.byAgent")}</span>
-            </Row>
-          </Match>
-        </Switch>
-      </div>
+        </For>
+      </Row>
     </>
+  )
+}
+
+// The footer of the instructions box, as Claude's task form draws it: the permission mode and the agent on the left,
+// the model on the right, each a compact select. The selects load on the client only (`prompt-select.tsx`).
+function PromptFooter(props: { form: FormModel; choices: (lookup: string) => readonly Choice[] }) {
+  const ctx = usePlugin()
+  const form = props.form
+  const draft = () => form.state.draft
+
+  return (
+    <div data-slot="form-prompt-footer">
+      <Show when={!isServer}>
+        <div data-slot="form-prompt-side">
+          <For each={form.fields().prompt}>
+            {(field) => (
+              <span data-key={field.key}>
+                <PromptSelect
+                  label={field.label}
+                  value={String(valueOf(field, draft().options) ?? "")}
+                  options={field.choices ?? []}
+                  icon={valueOf(field, draft().options) === "bypass" ? "warning" : "shield"}
+                  invalid={form.error(field.key) !== undefined}
+                  onChange={(next) => form.option(field.key, next)}
+                />
+              </span>
+            )}
+          </For>
+          <Show when={form.capabilities()?.agent !== "none" && form.capabilities()}>
+            {(current) => (
+              <span data-key="agent">
+                <PromptSelect
+                  label={ctx.t("agents.form.agent")}
+                  value={draft().agent}
+                  options={props.choices("agents")}
+                  blank={
+                    current().agent === "optional" ? ctx.t("agents.form.agent.default") : ctx.t("agents.form.choose")
+                  }
+                  invalid={form.error("agent") !== undefined}
+                  onChange={(agent) => form.set({ agent })}
+                />
+              </span>
+            )}
+          </Show>
+        </div>
+        <div data-slot="form-prompt-side">
+          <Switch>
+            <Match when={form.capabilities()?.model === "choose"}>
+              <span data-key="model">
+                <PromptSelect
+                  label={ctx.t("agents.form.model")}
+                  value={draft().model}
+                  options={props.choices("models")}
+                  blank={ctx.t("agents.form.model.default")}
+                  invalid={form.error("model") !== undefined}
+                  placement="top-end"
+                  onChange={(model) => form.set({ model })}
+                />
+              </span>
+            </Match>
+            <Match when={form.capabilities()?.model === "agent"}>
+              <span data-slot="form-hint">{ctx.t("agents.form.model.byAgent")}</span>
+            </Match>
+          </Switch>
+        </div>
+      </Show>
+    </div>
   )
 }
 

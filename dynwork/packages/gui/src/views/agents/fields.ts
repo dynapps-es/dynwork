@@ -78,6 +78,29 @@ export function defaults(capabilities: Pick<Capabilities, "fields">): Options {
   )
 }
 
+// The app's select treats an empty value as no selection and shows nothing, so a blank choice travels under this key.
+const BLANK = "\u0000blank"
+
+/**
+ * The options and the value a select shows for a field's choices. `blank` is the choice that leaves the field empty,
+ * such as "Default"; a stored value the choices do not list, or have not loaded yet, stays selectable instead of
+ * vanishing. `fromSelect` turns what the select picks back into the field's value.
+ */
+export function selectChoices(value: string, choices: readonly Choice[], blank?: string) {
+  return {
+    value: value === "" ? BLANK : value,
+    options: [
+      ...(blank === undefined ? [] : [{ value: BLANK, label: blank }]),
+      ...choices.map((choice) => ({ value: choice.value, label: choice.label })),
+      ...(value !== "" && !choices.some((choice) => choice.value === value) ? [{ value, label: value }] : []),
+    ],
+  }
+}
+
+export function fromSelect(value: string) {
+  return value === BLANK ? "" : value
+}
+
 /** The sections that make up the backend's own block, "where and with what". */
 const where = ["workspace", "permissions", "plugins", "limits"]
 
@@ -86,15 +109,20 @@ const where = ["workspace", "permissions", "plugins", "limits"]
  * - `where`: workspace, permissions, plugins and limits, under the backend's own heading.
  * - `extra`: every other section the backend invents; the farm's own options live here.
  * - `advanced`, `notifications`, `connectors`: the tabs of the advanced settings.
+ * - `prompt`: the `permissions` choice, in the footer of the instructions box beside the model, as Claude's task form
+ *   puts its permission mode.
  */
 export function layout(capabilities: Pick<Capabilities, "fields">, options: Options) {
   const fields = capabilities.fields
   const visible = fields.filter((field) => shown(field, fields, options))
-  const named = (...sections: string[]) => visible.filter((field) => sections.includes(field.section))
+  const prompt = visible.filter((field) => field.key === "permissions" && field.kind === "select")
+  const named = (...sections: string[]) =>
+    visible.filter((field) => sections.includes(field.section) && !prompt.includes(field))
   const placed = [...where, "advanced", "notifications", "connectors"]
   return {
+    prompt,
     where: named(...where),
-    extra: visible.filter((field) => !placed.includes(field.section)),
+    extra: visible.filter((field) => !placed.includes(field.section) && !prompt.includes(field)),
     advanced: named("advanced"),
     notifications: named("notifications"),
     connectors: named("connectors"),

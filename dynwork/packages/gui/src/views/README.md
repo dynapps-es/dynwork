@@ -58,6 +58,10 @@ three runs, Active); the rest is drawn from `capabilities().fields` and nothing 
 - `advanced`, `notifications` and `connectors` are the tabs of the advanced settings;
 - each `Field.kind` has a control (`fields.ts`: `control`), a `when` hides a field and its value with it, and a few fixed
   choices are radios while a lookup is a dropdown; a multiselect such as the connectors is a row per choice with a switch;
+- the instructions are one box, as Claude's task form draws it: the text, and under a hairline a footer with the local
+  permission mode (`fields.ts`: `layout().prompt`) and the agent on the left and the model on the right, each a compact
+  select with the composer chip's look (`prompt-select.tsx`, `@opencode/ui/select` loaded on the client only); the
+  chosen mode's warning shows under the box;
 - every control is the app's own (`@opencode/ui` or `ctx.ui`): `ctx.ui.Select` and `ctx.ui.Switch` as Settings uses
   them, `RadioGroup`, `SegmentedControl`, `Tabs`, `Checkbox`, `TextInput`, `Textarea`. A short control sits on the right
   of its label and hint, as a Settings row (`fields.ts`: `inline`); one with long content takes the width under them;
@@ -74,8 +78,9 @@ row's control drops under its label under 480px, and the footer keeps clear of t
 sideways.
 
 The app's `Select` and `Menu` run browser-only code as soon as they load, and Bun's tests import the view with Solid's
-server build: the selects come through `ctx.ui.Select`, which the app renders, and the New routine menu is loaded on the
-client only (`new-menu.tsx`).
+server build: the row selects come through `ctx.ui.Select`, which the app renders, and the instructions box's selects and
+the New routine menu are loaded on the client only (`prompt-select.tsx`, `new-menu.tsx`). That select treats an empty
+value as no selection, so a blank choice such as "Default" travels under its own key (`fields.ts`: `selectChoices`).
 
 A store's proxies cannot cross the Ipc: `createFormModel` sends `unwrap(state.draft)`. Bun's tests run Solid's server
 build, where a store is a plain object, so only a render with `--conditions=browser` shows that.

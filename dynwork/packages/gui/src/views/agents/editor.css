@@ -191,6 +191,72 @@
     }
   }
 
+  /* The instructions box, as Claude's task form draws it: the text and, under a hairline, a footer bar on a slightly
+     different surface with the permission mode and the agent on the left and the model on the right. The box carries
+     the field's outline, so the text area inside it drops its own. */
+  [data-slot="form-prompt"] {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border-radius: 8px;
+    outline: 1px solid transparent;
+    outline-offset: -1px;
+    background: var(--v2-background-bg-base);
+    box-shadow: var(--v2-elevation-input);
+    overflow: hidden;
+
+    &:focus-within {
+      outline-color: var(--v2-border-border-focus);
+    }
+
+    &[data-invalid] {
+      outline-color: var(--v2-state-fg-danger);
+    }
+
+    [data-component="textarea-v2"] {
+      border-radius: 0;
+      outline: none;
+      background: transparent;
+      box-shadow: none;
+    }
+  }
+
+  [data-slot="form-prompt-footer"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px 8px;
+    min-height: 40px;
+    padding: 6px;
+    border-top: 0.5px solid var(--v2-border-border-base);
+    background: var(--v2-background-bg-layer-01);
+  }
+
+  [data-slot="form-prompt-side"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  [data-slot="form-prompt-select"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    padding-inline-start: 4px;
+    color: var(--v2-icon-icon-muted);
+
+    [data-component="select-v2"] {
+      width: auto;
+      min-width: 0;
+      max-width: 260px;
+      color: var(--v2-text-text-base);
+    }
+  }
+
   [data-slot="form-where-fixed"] {
     display: flex;
     align-items: center;

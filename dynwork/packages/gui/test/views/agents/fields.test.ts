@@ -4,9 +4,11 @@ import {
   choicesOf,
   control,
   defaults,
+  fromSelect,
   inline,
   layout,
   picked,
+  selectChoices,
   shown,
   toggled,
   valueOf,
@@ -75,6 +77,29 @@ describe("every field kind has a control", () => {
     expect(choicesOf(field({ key: "a", kind: "multiselect", lookup: "plugins" }), lookup)).toEqual(choices)
     expect(choicesOf(field({ key: "a", kind: "multiselect", lookup: "other" }), lookup)).toEqual([])
     expect(choicesOf(field({ key: "a", kind: "text" }), lookup)).toEqual([])
+  })
+})
+
+describe("a select's choices", () => {
+  test("an empty value shows the blank choice, and picking it gives the empty value back", () => {
+    const shown = selectChoices("", choices, "Default")
+    const current = shown.options.find((option) => option.value === shown.value)
+    expect(current?.label).toBe("Default")
+    expect(shown.value).not.toBe("")
+    expect(fromSelect(shown.value)).toBe("")
+    expect(shown.options.slice(1)).toEqual(choices)
+  })
+
+  test("a chosen value is its own, and a stored value the choices do not list stays selectable", () => {
+    expect(selectChoices("b", choices, "Default").value).toBe("b")
+    expect(fromSelect("b")).toBe("b")
+    expect(selectChoices("gone", choices).options).toEqual([...choices, { value: "gone", label: "gone" }])
+  })
+
+  test("without a blank choice an empty value matches no option", () => {
+    const shown = selectChoices("", choices)
+    expect(shown.options).toEqual(choices)
+    expect(shown.options.some((option) => option.value === shown.value)).toBe(false)
   })
 })
 
@@ -159,14 +184,15 @@ describe("the form's blocks come from the backend's fields", () => {
     expect(defaults(caps(everyKind))).toEqual({ flag: false })
   })
 
-  test("the demo backends lay out as the mockup: folder and permissions locally, repository and limits remotely", async () => {
+  test("the demo backends lay out as the mockup: permissions in the instructions box and the folder locally, repository and limits remotely", async () => {
     const view = await setup()
     const keys = (backend: string, options = {}) => {
       const blocks = layout(view.model.capabilities(backend) as Capabilities, options)
       return Object.fromEntries(Object.entries(blocks).map(([name, list]) => [name, list.map((item) => item.key)]))
     }
     expect(keys("local")).toEqual({
-      where: ["folder", "permissions", "timeLimit", "recover", "catchUp"],
+      prompt: ["permissions"],
+      where: ["folder", "timeLimit", "recover", "catchUp"],
       extra: [],
       advanced: [],
       notifications: ["notify"],
