@@ -1,4 +1,5 @@
 import { Button } from "@opencode/ui/button"
+import { useI18n } from "@opencode/ui/context/i18n"
 import { Checkbox } from "@opencode/ui/checkbox"
 import { Collapsible } from "@opencode/ui/collapsible"
 import { Icon } from "@opencode/ui/icon"
@@ -13,19 +14,20 @@ import "./connect.css"
 // The first step of signing in: the instance URL, the browser button and the token field. The sign-in screen and the
 // Accounts page's Add instance dialog both show it over their own `SignInFlow`.
 export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> }) {
+  const i18n = useI18n()
+  const copy = () => SignInCopy.of(i18n.locale())
   const flow = props.flow
   const [ui, setUi] = createStore({ token: false })
   const refs = { browser: undefined as HTMLButtonElement | undefined }
 
   const status = () => {
-    if (flow.state.status === "checking") return { tone: "checking", text: SignInCopy.connect.checking }
+    if (flow.state.status === "checking") return { tone: "checking", text: copy().connect.checking }
 
-    if (flow.state.status === "valid") return { tone: "valid", text: SignInCopy.connect.valid(flow.state.host) }
+    if (flow.state.status === "valid") return { tone: "valid", text: copy().connect.valid(flow.state.host) }
 
-    if (flow.state.status === "invalid")
-      return { tone: "invalid", text: SignInCopy.connect.invalid[flow.state.problem] }
+    if (flow.state.status === "invalid") return { tone: "invalid", text: copy().connect.invalid[flow.state.problem] }
 
-    return { tone: "idle", text: SignInCopy.connect.empty }
+    return { tone: "idle", text: copy().connect.empty }
   }
 
   const valid = () => flow.state.status === "valid"
@@ -40,7 +42,7 @@ export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> 
         }}
       >
         <div data-slot="signin-field">
-          <label for="dynwork-signin-url">{SignInCopy.connect.label}</label>
+          <label for="dynwork-signin-url">{copy().connect.label}</label>
           <TextInput
             ref={(element: HTMLInputElement) => queueMicrotask(() => element.focus())}
             id="dynwork-signin-url"
@@ -52,7 +54,7 @@ export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> 
             autocapitalize="off"
             spellcheck={false}
             appearance="large"
-            placeholder={SignInCopy.connect.placeholder}
+            placeholder={copy().connect.placeholder}
             value={flow.state.url}
             invalid={flow.state.status === "invalid"}
             disabled={!!flow.state.pending}
@@ -80,9 +82,9 @@ export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> 
             disabled={!valid() || !!flow.state.pending}
             aria-describedby={valid() ? undefined : "dynwork-signin-browser-hint"}
           >
-            <Show when={flow.state.pending === "browser"} fallback={SignInCopy.connect.browser}>
+            <Show when={flow.state.pending === "browser"} fallback={copy().connect.browser}>
               <Loader />
-              {SignInCopy.connect.waiting}
+              {copy().connect.waiting}
             </Show>
           </Button>
           <Show when={flow.state.pending === "browser"}>
@@ -96,20 +98,20 @@ export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> 
                 queueMicrotask(() => refs.browser?.focus())
               }}
             >
-              {SignInCopy.connect.cancel}
+              {copy().connect.cancel}
             </Button>
           </Show>
         </div>
         <Show when={flow.state.error?.from === "browser" ? flow.state.error : undefined}>
           {(error) => (
             <p id="dynwork-signin-browser-error" data-slot="signin-error" role="alert">
-              {SignInCopy.failure[error().kind]}
+              {copy().failure[error().kind]}
             </p>
           )}
         </Show>
         <Show when={!valid() && !flow.state.pending}>
           <p id="dynwork-signin-browser-hint" data-slot="signin-hint">
-            {SignInCopy.connect.disabled}
+            {copy().connect.disabled}
           </p>
         </Show>
         <Checkbox
@@ -117,9 +119,9 @@ export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> 
           disabled={!!flow.state.pending}
           onChange={(keep: boolean) => flow.keep(keep)}
         >
-          {SignInCopy.connect.keep}
+          {copy().connect.keep}
         </Checkbox>
-        <p data-slot="signin-hint">{SignInCopy.connect.hint}</p>
+        <p data-slot="signin-hint">{copy().connect.hint}</p>
       </form>
       <Collapsible
         data-slot="signin-token"
@@ -128,7 +130,7 @@ export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> 
         onOpenChange={(open) => setUi("token", open)}
       >
         <Collapsible.Trigger data-slot="signin-token-toggle">
-          <span>{SignInCopy.token.toggle}</span>
+          <span>{copy().token.toggle}</span>
           <Icon name="chevron-down" size="small" />
         </Collapsible.Trigger>
         <Collapsible.Content>
@@ -140,7 +142,7 @@ export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> 
             }}
           >
             <div data-slot="signin-field">
-              <label for="dynwork-signin-token">{SignInCopy.token.label}</label>
+              <label for="dynwork-signin-token">{copy().token.label}</label>
               <TextInput
                 id="dynwork-signin-token"
                 name="token"
@@ -148,7 +150,7 @@ export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> 
                 type="password"
                 autocomplete="off"
                 appearance="large"
-                placeholder={SignInCopy.token.placeholder}
+                placeholder={copy().token.placeholder}
                 value={flow.state.token}
                 invalid={flow.state.tokenError}
                 disabled={!!flow.state.pending}
@@ -159,27 +161,27 @@ export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> 
               />
               <Show when={flow.state.tokenError}>
                 <p id="dynwork-signin-token-error" data-slot="signin-error" role="alert">
-                  {SignInCopy.token.empty}
+                  {copy().token.empty}
                 </p>
               </Show>
               <Show when={flow.state.error?.from === "token" ? flow.state.error : undefined}>
                 {(error) => (
                   <p id="dynwork-signin-token-error" data-slot="signin-error" role="alert">
-                    {SignInCopy.failure[error().kind]}
+                    {copy().failure[error().kind]}
                   </p>
                 )}
               </Show>
             </div>
             <div data-slot="signin-token-row">
               <p data-slot="signin-hint">
-                {SignInCopy.token.missing}{" "}
+                {copy().token.missing}{" "}
                 <a
                   href={valid() ? flow.state.login : undefined}
                   target="_blank"
                   rel="noreferrer"
                   aria-disabled={valid() ? undefined : "true"}
                 >
-                  {SignInCopy.token.login}
+                  {copy().token.login}
                 </a>
               </p>
               <Button
@@ -188,9 +190,9 @@ export function ConnectForm(props: { flow: ReturnType<typeof SignInFlow.create> 
                 variant={flow.state.pending === "token" ? "loading" : "ghost"}
                 disabled={!valid() || !!flow.state.pending}
               >
-                <Show when={flow.state.pending === "token"} fallback={SignInCopy.token.connect}>
+                <Show when={flow.state.pending === "token"} fallback={copy().token.connect}>
                   <Loader />
-                  {SignInCopy.token.connecting}
+                  {copy().token.connecting}
                 </Show>
               </Button>
             </div>

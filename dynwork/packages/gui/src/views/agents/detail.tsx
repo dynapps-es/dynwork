@@ -5,7 +5,7 @@ import { Switch } from "@opencode/ui/switch"
 import { For, Show, type JSX } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Capabilities, Routine, Run } from "../../routines/contract"
-import { duration, instructionsText, money, reasonText, runWhen, scheduleText, when } from "./format"
+import { duration, instructionsText, money, reasonText, runWhen, fromMain, scheduleText, when } from "./format"
 import type { AgentsModel } from "./model"
 import { routineHref, runHref } from "../runs/model"
 import { LinkButton, RunMark, Tag, Unread, WhereBadge } from "./parts"
@@ -175,7 +175,7 @@ export function RoutineDetail(props: {
         {(failure) => (
           <div data-slot="agents-notice" data-tone="danger" role="alert">
             <Icon name="circle-exclamation" size="small" />
-            <span>{failure().message}</span>
+            <span>{fromMain(ctx.t, failure().message)}</span>
             <Button variant="ghost" size="small" onClick={props.model.dismiss}>
               {ctx.t("agents.dismiss")}
             </Button>
@@ -199,7 +199,9 @@ function History(props: { routine: Routine; model: AgentsModel; open: (run: Run)
 
   return (
     <>
-      <Show when={page().failure}>{(failure) => <p data-slot="agents-error">{failure().message}</p>}</Show>
+      <Show when={page().failure}>
+        {(failure) => <p data-slot="agents-error">{fromMain(ctx.t, failure().message)}</p>}
+      </Show>
       <Show
         when={page().runs.length > 0}
         fallback={

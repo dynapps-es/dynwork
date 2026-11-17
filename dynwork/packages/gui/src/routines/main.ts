@@ -140,10 +140,9 @@ export function setup(ctx: MainContext, options: Options) {
   }
 }
 
-/** What a notification says: the routine's name and what happened to its run. */
-export function words(notice: RoutinesLocal.Notice) {
-  const what = { finished: "finished", failed: "failed", waiting: "is waiting for your permission" }
-  return { title: `${notice.routine.name} ${what[notice.kind]}`, body: notice.run.title }
+/** What a notification says, in the app's language (main's `t`): the routine's name and what happened to its run. */
+export function words(notice: RoutinesLocal.Notice, t: MainContext["t"]) {
+  return { title: t(`agents.notify.${notice.kind}`, { name: notice.routine.name }), body: notice.run.title }
 }
 
 // The service's client while it runs. The endpoint's credential changes when the service restarts: a new client then.

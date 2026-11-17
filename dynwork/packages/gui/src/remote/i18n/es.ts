@@ -1,0 +1,53 @@
+import type en from "./en"
+
+// Remote control's copy in Spanish (`./en`).
+export default {
+  "remote.title": "Control remoto",
+  "remote.description":
+    "Usa Dynwork desde el móvil. El móvil habla con este equipo a través de tu instancia de Governance, cifrado de extremo a extremo: la instancia solo reenvía lo que no puede leer.",
+  "remote.keywords": "control remoto teléfono móvil emparejar qr relay túnel",
+  "remote.unavailable": "El control remoto no está disponible ahora mismo.",
+  "remote.toggle.title": "Permitir que se conecten los móviles emparejados",
+  "remote.toggle.description":
+    "Desactivado por defecto. Mientras está activado, Dynwork mantiene una conexión saliente con la instancia activa.",
+  "remote.confirm.title": "¿Activar el control remoto?",
+  "remote.confirm.description":
+    "Un móvil emparejado puede leer y escribir en tus sesiones, enviar instrucciones, cambiar el agente y el modelo, y responder a permisos y preguntas, como si fuera este equipo. No puede abrir terminales, ejecutar comandos ni escribir archivos directamente. Puedes revocar un móvil cuando quieras.",
+  "remote.confirm": "Activar",
+  "remote.status.off": "Desactivado",
+  "remote.status.idle": "Esperando una instancia activa con la sesión iniciada",
+  "remote.status.connecting": "Conectando con {{instance}}…",
+  "remote.status.connected": "Conectado a través de {{instance}}",
+  "remote.status.error.insecure": "El almacenamiento seguro de este equipo está bloqueado",
+  "remote.status.error.offline": "No se puede conectar con el relay de {{instance}}; reintentando",
+  "remote.status.error.refused": "{{instance}} ha rechazado el control remoto; reintentando",
+  "remote.fingerprint": "Clave de este equipo: {{fingerprint}}",
+  "remote.pair": "Emparejar un móvil",
+  "remote.pair.title": "Emparejar un móvil",
+  "remote.pair.description":
+    "Escanea este código con Dynwork en el móvil, con la sesión iniciada en {{instance}}, o cópialo y pégalo en «Enter the code manually». Sirve una vez y deja de funcionar a las {{time}}.",
+  "remote.pair.qr": "Código de emparejamiento",
+  "remote.pair.failed": "Dynwork no ha podido crear un código de emparejamiento.",
+  "remote.pair.close": "Hecho",
+  "remote.pair.copy": "Copiar código",
+  "remote.pair.copied": "Copiado",
+  "remote.pair.copyFailed": "Dynwork no ha podido copiar el código.",
+  "remote.phones.title": "Móviles emparejados",
+  "remote.phones.empty": "Aún no hay ningún móvil emparejado con este equipo.",
+  "remote.phones.online": "Conectado",
+  "remote.phones.offline": "Sin conexión",
+  "remote.phones.paired": "Emparejado {{time}}",
+  "remote.revoke": "Revocar",
+  "remote.revoke.title": "¿Revocar {{name}}?",
+  "remote.revoke.description": "El móvil se desconecta al momento y tendrá que emparejarse de nuevo para conectarse.",
+  "remote.audit.title": "Conexiones recientes",
+  "remote.audit.empty": "Aún no hay conexiones.",
+  "remote.audit.paired": "{{phone}} emparejado",
+  "remote.audit.connected": "{{phone}} conectado",
+  "remote.audit.disconnected": "{{phone}} desconectado",
+  "remote.audit.revoked": "{{phone}} revocado",
+  "remote.audit.refused": "{{phone}} rechazado",
+  "remote.indicator.one": "{{name}} conectado",
+  "remote.indicator.other": "{{count}} móviles conectados",
+  "remote.indicator.title": "Control remoto: móviles conectados a este equipo",
+} satisfies Record<keyof typeof en, string>

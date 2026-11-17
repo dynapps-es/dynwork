@@ -6,7 +6,7 @@ import { Dynamic } from "solid-js/web"
 import { RoutinesClient } from "../../routines/client"
 import type { Routine, Run } from "../../routines/contract"
 import { focus } from "../agents/focus"
-import { duration, scheduleText, when } from "../agents/format"
+import { duration, fromMain, scheduleText, when } from "../agents/format"
 import { refKey } from "../agents/model"
 import { stateKey } from "../agents/routine"
 import { RunMark, Unread } from "../agents/parts"
@@ -69,7 +69,7 @@ export function RunsPanel(props: { session: MountedSession }) {
         <Show when={model.state.failure}>
           {(failure) => (
             <div data-slot="runs-notice" role="alert">
-              <span>{failure().message}</span>
+              <span>{fromMain(ctx.t, failure().message)}</span>
               <Button variant="ghost" size="small" onClick={model.dismiss}>
                 {ctx.t("runs.dismiss")}
               </Button>

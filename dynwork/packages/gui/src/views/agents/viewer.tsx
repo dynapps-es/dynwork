@@ -2,7 +2,7 @@ import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { Show } from "solid-js"
-import { duration, money, reasonText, runWhen } from "./format"
+import { duration, fromMain, money, reasonText, runWhen } from "./format"
 import type { AgentsModel, Viewer } from "./model"
 import { Tag } from "./parts"
 import { isLive, runTone, stateKey, waiting } from "./routine"
@@ -57,7 +57,7 @@ export function RunViewer(props: { viewer: Viewer; model: AgentsModel }) {
           {(failure) => (
             <div data-slot="agents-notice" data-tone="danger" role="alert">
               <Icon name="circle-exclamation" size="small" />
-              <span>{failure().message}</span>
+              <span>{fromMain(ctx.t, failure().message)}</span>
             </div>
           )}
         </Show>

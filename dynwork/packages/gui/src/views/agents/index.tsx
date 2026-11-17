@@ -8,7 +8,7 @@ import { sessionHref } from "../runs/model"
 import { device } from "../device"
 import { ViewShell } from "../shell"
 import { RoutineDetail } from "./detail"
-import { backendLine, runWhen } from "./format"
+import { backendLine, runWhen, fromMain } from "./format"
 import { RoutineForm } from "./editor"
 import { clearFocus, focused } from "./focus"
 import { createFormModel, systemZone } from "./form"
@@ -31,7 +31,11 @@ export default function AgentsView(props: { where?: Where }) {
     const current = live()
     return current?.status === "active" ? current.value : undefined
   }
-  const model = createAgentsModel({ client, where: props.where })
+  const model = createAgentsModel({
+    client,
+    where: props.where,
+    speak: { t: ctx.t, locale: () => ctx.locale.locale() },
+  })
   const selected = () => model.selected()
 
   // While the view is on screen it watches, so backends that only push while watched (the farm's poll) keep it live.
@@ -182,7 +186,7 @@ export default function AgentsView(props: { where?: Where }) {
           <Show when={model.state.failure}>
             {(failure) => (
               <div data-slot="agents-notice" data-tone="danger" role="alert">
-                <span>{failure().message}</span>
+                <span>{fromMain(ctx.t, failure().message)}</span>
                 <Button variant="ghost" size="small" onClick={model.dismiss}>
                   {ctx.t("agents.dismiss")}
                 </Button>

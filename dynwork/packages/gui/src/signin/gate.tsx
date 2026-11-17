@@ -1,5 +1,6 @@
 import { Lockup } from "@dynwork/branding/lockup"
 import { Button } from "@opencode/ui/button"
+import { useI18n } from "@opencode/ui/context/i18n"
 import { Loader } from "@opencode/ui/loader"
 import { prefersReducedMotion } from "@opencode/ui/motion"
 import { RadioGroup, RadioItem } from "@opencode/ui/radio"
@@ -19,6 +20,8 @@ import "./signin.css"
 // when the splash fades, while the shell keeps loading underneath and is ready the moment the gate fades out. Until
 // main's accounts answer for the first time, a plain cover keeps the shell from showing for a moment.
 export function SignInGate(props: { version: string; accounts?: SignInAccounts.Interface }) {
+  const i18n = useI18n()
+  const copy = () => SignInCopy.of(i18n.locale())
   const live = () => connection()
   const client = () => {
     const current = live()
@@ -42,9 +45,9 @@ export function SignInGate(props: { version: string; accounts?: SignInAccounts.I
         <div data-component="dynwork-signin-cover" data-state={cover()}>
           <Show when={cover() === "failed"}>
             <div data-slot="signin-cover-failed" role="alert">
-              <p>{SignInCopy.cover.failed}</p>
+              <p>{copy().cover.failed}</p>
               <Button type="button" variant="neutral" onClick={() => location.reload()}>
-                {SignInCopy.cover.retry}
+                {copy().cover.retry}
               </Button>
             </div>
           </Show>
@@ -65,6 +68,8 @@ export function SignInGate(props: { version: string; accounts?: SignInAccounts.I
 }
 
 function SignInScreen(props: { version: string; accounts: SignInAccounts.Interface; onClose: () => void }) {
+  const i18n = useI18n()
+  const copy = () => SignInCopy.of(i18n.locale())
   const flow = SignInFlow.create(props.accounts)
   const [ui, setUi] = createStore({ leaving: false })
   const last = { current: undefined as HTMLElement | undefined }
@@ -107,7 +112,7 @@ function SignInScreen(props: { version: string; accounts: SignInAccounts.Interfa
       data-leaving={ui.leaving ? "" : undefined}
       role="dialog"
       aria-modal="true"
-      aria-label={SignInCopy.panel.label}
+      aria-label={copy().panel.label}
       tabIndex={-1}
       onTransitionEnd={(event) => {
         if (event.target !== event.currentTarget || !ui.leaving) return
@@ -118,17 +123,17 @@ function SignInScreen(props: { version: string; accounts: SignInAccounts.Interfa
       <aside data-slot="signin-brand">
         <Lockup />
         <div data-slot="signin-pitch">
-          <p data-slot="signin-pitch-head">{SignInCopy.brand.head}</p>
-          <p data-slot="signin-pitch-body">{SignInCopy.brand.body}</p>
+          <p data-slot="signin-pitch-head">{copy().brand.head}</p>
+          <p data-slot="signin-pitch-body">{copy().brand.body}</p>
         </div>
         <footer data-slot="signin-footer">
-          <span>{SignInCopy.brand.version(props.version)}</span>
+          <span>{copy().brand.version(props.version)}</span>
           <span aria-hidden="true">·</span>
-          <a href={SignInCopy.brand.docsURL} target="_blank" rel="noreferrer">
-            {SignInCopy.brand.docs}
+          <a href={copy().brand.docsURL} target="_blank" rel="noreferrer">
+            {copy().brand.docs}
           </a>
           <span aria-hidden="true">·</span>
-          <a href={SignInCopy.brand.supportURL}>{SignInCopy.brand.support}</a>
+          <a href={copy().brand.supportURL}>{copy().brand.support}</a>
         </footer>
       </aside>
       <main data-slot="signin-panel">
@@ -137,12 +142,10 @@ function SignInScreen(props: { version: string; accounts: SignInAccounts.Interfa
             <Match when={flow.state.step === "connect" || flow.state.step === "choose"}>
               <header data-slot="signin-header">
                 <p data-slot="signin-eyebrow">
-                  {SignInCopy.panel.eyebrow(props.version, flow.state.step === "connect" ? 1 : 2)}
+                  {copy().panel.eyebrow(props.version, flow.state.step === "connect" ? 1 : 2)}
                 </p>
-                <h1>{SignInCopy.panel.heading}</h1>
-                <p data-slot="signin-lede">
-                  {flow.state.step === "connect" ? SignInCopy.panel.lede : SignInCopy.choose.lede}
-                </p>
+                <h1>{copy().panel.heading}</h1>
+                <p data-slot="signin-lede">{flow.state.step === "connect" ? copy().panel.lede : copy().choose.lede}</p>
               </header>
               <Show when={flow.state.step === "choose"} fallback={<ConnectForm flow={flow} />}>
                 <form
@@ -154,7 +157,7 @@ function SignInScreen(props: { version: string; accounts: SignInAccounts.Interfa
                 >
                   <RadioGroup
                     data-slot="signin-instances"
-                    label={SignInCopy.choose.label}
+                    label={copy().choose.label}
                     hideLabel
                     value={flow.state.selected}
                     onChange={(id: string) => flow.select(id)}
@@ -170,7 +173,7 @@ function SignInScreen(props: { version: string; accounts: SignInAccounts.Interfa
                     </For>
                   </RadioGroup>
                   <Show when={flow.selected()}>
-                    {(instance) => <p data-slot="signin-hint">{SignInCopy.choose.sync(instance())}</p>}
+                    {(instance) => <p data-slot="signin-hint">{copy().choose.sync(instance())}</p>}
                   </Show>
                   <div data-slot="signin-actions">
                     <Button
@@ -179,10 +182,10 @@ function SignInScreen(props: { version: string; accounts: SignInAccounts.Interfa
                       size="large"
                       variant="contrast"
                     >
-                      {SignInCopy.choose.finish}
+                      {copy().choose.finish}
                     </Button>
                     <Button type="button" size="large" variant="ghost" onClick={() => flow.back()}>
-                      {SignInCopy.choose.back}
+                      {copy().choose.back}
                     </Button>
                   </div>
                 </form>
@@ -192,10 +195,10 @@ function SignInScreen(props: { version: string; accounts: SignInAccounts.Interfa
               <div data-slot="signin-finalizing">
                 <Loader width={20} height={20} />
                 <p data-slot="signin-finalizing-title" role="status">
-                  {SignInCopy.finalizing.title}
+                  {copy().finalizing.title}
                 </p>
                 <p data-slot="signin-hint">
-                  {SignInCopy.finalizing.progress(flow.state.synced, flow.selected()?.skills ?? 0)}
+                  {copy().finalizing.progress(flow.state.synced, flow.selected()?.skills ?? 0)}
                 </p>
               </div>
             </Match>

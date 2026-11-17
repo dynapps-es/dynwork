@@ -1,4 +1,5 @@
-import type { Capabilities, Definition, Instructions, Run, Schedule } from "../../routines/contract"
+import type { Capabilities, Definition, Field, Instructions, Run, Schedule } from "../../routines/contract"
+import main from "../../routines/i18n/en"
 import { describe } from "./schedule"
 
 // How the Agents view writes times, durations, costs and schedules. Every function takes the window's `t` and locale,
@@ -134,4 +135,31 @@ export function cardChanges(t: Translate, before: Definition, after: Definition,
   return cardRows(t, after, where).flatMap((row, index) =>
     old[index]?.value === row.value ? [] : [{ ...row, before: old[index]?.value ?? "" }],
   )
+}
+
+// Main writes its copy in English (`routines/i18n/en.ts`): its English text names the key the window translates.
+const spoken = new Map(Object.entries(main).map(([key, text]) => [text, key]))
+
+/** Text main wrote (a failure, a field's label), in the window's language when the table has it, else as written. */
+export function fromMain(t: Translate, text: string) {
+  const key = spoken.get(text)
+  return key ? t(key) : text
+}
+
+/** A backend's field with its label, help, choices and warnings in the window's language. */
+export function fieldSaid(t: Translate, field: Field): Field {
+  return {
+    ...field,
+    label: fromMain(t, field.label),
+    ...(field.help === undefined ? {} : { help: fromMain(t, field.help) }),
+    ...(field.choices === undefined
+      ? {}
+      : {
+          choices: field.choices.map((choice) => ({
+            ...choice,
+            label: fromMain(t, choice.label),
+            ...(choice.warning === undefined ? {} : { warning: fromMain(t, choice.warning) }),
+          })),
+        }),
+  }
 }

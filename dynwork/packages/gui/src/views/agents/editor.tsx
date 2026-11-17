@@ -14,7 +14,7 @@ import { isServer } from "solid-js/web"
 import type { Choice, Field, Ref } from "../../routines/contract"
 import { choicesOf, control, fromSelect, inline, picked as pickedOf, selectChoices, toggled, valueOf } from "./fields"
 import { zones } from "./schedule"
-import { backendLine, when, type Translate } from "./format"
+import { backendLine, fromMain, when, type Translate } from "./format"
 import { draftSchedule, problemText, triggers, type FormModel } from "./form"
 import type { AgentsModel } from "./model"
 import { device } from "../device"
@@ -185,7 +185,7 @@ export function RoutineForm(props: {
               <div data-slot="form-notice" data-tone="danger" role="alert">
                 <Icon name="warning" size="small" />
                 <span>
-                  {failure().message}
+                  {fromMain(ctx.t, failure().message)}
                   <For each={form.orphans()}>
                     {(key) => <span data-slot="form-orphan">{said(ctx.t, form, key)}</span>}
                   </For>
