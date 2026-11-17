@@ -1,21 +1,30 @@
 import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
+import { Checkbox } from "@opencode/ui/checkbox"
 import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 import { Icon } from "@opencode/ui/icon"
+import { IconButton } from "@opencode/ui/icon-button"
+import { RadioGroup, RadioItem } from "@opencode/ui/radio"
+import { SegmentedControl, SegmentedControlItem } from "@opencode/ui/segmented-control"
+import { Tabs } from "@opencode/ui/tabs"
 import { Textarea } from "@opencode/ui/textarea"
 import { TextInput } from "@opencode/ui/text-input"
-import { createEffect, createSignal, For, Match, on, Show, Switch, type JSX } from "solid-js"
+import { createEffect, createSignal, For, lazy, Match, on, Show, Switch, type JSX } from "solid-js"
+import { isServer } from "solid-js/web"
 import type { Choice, Field, Ref } from "../../routines/contract"
-import { choicesOf, control, picked as pickedOf, toggled, valueOf, wide } from "./fields"
+import { choicesOf, control, fromSelect, inline, picked as pickedOf, selectChoices, toggled, valueOf } from "./fields"
 import { zones } from "./schedule"
 import { backendLine, when, type Translate } from "./format"
 import { draftSchedule, problemText, triggers, type FormModel } from "./form"
 import type { AgentsModel } from "./model"
-import { FormToggle } from "./toggle"
 import "./editor.css"
+
+const PromptSelect = lazy(() => import("./prompt-select"))
 
 /**
  * The routine form, in the app's dialog: a dialog on a wide window and a full-screen sheet on a narrow one (`editor.css`).
+ * Every control is the app's own, laid out as Settings lays out its rows: the label and its hint on the left and the
+ * control on the right, or under the label when the control holds long content.
  * The common fields are written here; what belongs to a backend is drawn from its `capabilities().fields`, so the farm
  * adds options without this file changing. It reads and writes `form` and nothing else; `agents` only supplies the
  * labels of the lookups.
@@ -76,7 +85,9 @@ export function RoutineForm(props: {
     queueMicrotask(() => {
       const target = refs.scroll?.querySelector<HTMLElement>(`[data-key="${key}"]`)
       target?.scrollIntoView?.({ block: "center" })
-      target?.querySelector<HTMLElement>("input, textarea, select, button")?.focus({ preventScroll: true })
+      target
+        ?.querySelector<HTMLElement>('input, textarea, button, [data-component="select-v2"]')
+        ?.focus({ preventScroll: true })
     })
   }
 
@@ -114,54 +125,47 @@ export function RoutineForm(props: {
             <What form={form} choices={choices} />
             <Notice form={form} />
             <Trigger form={form} />
-            <div data-slot="form-field" data-key="enabled" data-wide="">
-              <FormToggle
+            <Row id="enabled" label={ctx.t("agents.form.active")} hint={ctx.t("agents.form.active.hint")} inline>
+              <ctx.ui.Switch
                 checked={draft().enabled}
                 label={ctx.t("agents.form.active")}
-                description={ctx.t("agents.form.active.hint")}
+                hideLabel
                 onChange={(enabled) => form.set({ enabled })}
               />
-            </div>
+            </Row>
             <Block form={form} choices={choices} />
             <Show when={form.fields().extra.length > 0}>
               <Extra form={form} choices={choices} />
             </Show>
             <section data-slot="form-advanced">
-              <button
-                type="button"
+              <Button
+                variant="ghost"
+                size="small"
+                icon={advanced() ? "chevron-down" : "chevron-right"}
                 data-slot="form-advanced-head"
                 aria-expanded={advanced()}
                 onClick={() => setAdvanced(!advanced())}
               >
-                <Icon name={advanced() ? "chevron-down" : "chevron-right"} size="small" />
                 {ctx.t("agents.form.advanced")}
-              </button>
+              </Button>
               <Show when={advanced()}>
-                <div data-slot="form-tabs" role="tablist">
-                  <For each={advancedTabs()}>
-                    {(item) => (
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={tab() === item.id}
-                        data-state={tab() === item.id ? "pressed" : undefined}
-                        onClick={() => setTab(item.id)}
-                      >
-                        {ctx.t(`agents.form.advanced.${item.id}`)}
-                      </button>
-                    )}
-                  </For>
-                </div>
+                <Tabs variant="pill" value={tab()} onChange={setTab}>
+                  <Tabs.List>
+                    <For each={advancedTabs()}>
+                      {(item) => (
+                        <Tabs.Trigger value={item.id}>{ctx.t(`agents.form.advanced.${item.id}`)}</Tabs.Trigger>
+                      )}
+                    </For>
+                  </Tabs.List>
+                </Tabs>
                 <Show
-                  when={
-                    // A connectors tab with nothing to choose from (no servers, or the service unreachable) is empty.
-                    advancedTabs()
-                      .find((item) => item.id === tab())
-                      ?.fields.some((field) => tab() !== "connectors" || choicesOf(field, choices).length > 0)
-                  }
+                  when={// A connectors tab with nothing to choose from (no servers, or the service unreachable) is empty.
+                  advancedTabs()
+                    .find((item) => item.id === tab())
+                    ?.fields.some((field) => tab() !== "connectors" || choicesOf(field, choices).length > 0)}
                   fallback={<p data-slot="form-hint">{ctx.t("agents.form.connectors.empty")}</p>}
                 >
-                  <FieldGrid
+                  <FieldRows
                     form={form}
                     fields={advancedTabs().find((item) => item.id === tab())?.fields ?? []}
                     choices={choices}
@@ -211,8 +215,8 @@ function said(t: Translate, form: FormModel, key: string) {
   return found === undefined ? undefined : problemText(t, found)
 }
 
-// One labelled field: its label, the control, a hint and the problem found in it. `group` is for controls made of
-// several buttons, which have no single input for the label to point at.
+// One labelled field, as a Settings row: an `inline` control sits on the right of its label and hint, any other under
+// them. `group` is for controls with no single input for the label to point at, such as a select or a radio group.
 function Row(props: {
   id: string
   label: string
@@ -220,28 +224,30 @@ function Row(props: {
   /** A warning under the control, as the chosen option says. */
   warning?: string
   error?: string
-  wide?: boolean
+  inline?: boolean
   group?: boolean
   children: JSX.Element
 }) {
   return (
-    <div data-slot="form-field" data-key={props.id} data-wide={props.wide ? "" : undefined}>
-      <Show
-        when={props.group}
-        fallback={
-          <label data-slot="form-label" for={`agents-form-${props.id}`}>
+    <div data-slot="form-field" data-key={props.id} data-inline={props.inline ? "" : undefined}>
+      <div data-slot="form-copy">
+        <Show
+          when={props.group || props.inline}
+          fallback={
+            <label data-slot="form-label" for={`agents-form-${props.id}`}>
+              {props.label}
+            </label>
+          }
+        >
+          <span data-slot="form-label" id={`agents-form-${props.id}-label`}>
             {props.label}
-          </label>
-        }
-      >
-        <span data-slot="form-label" id={`agents-form-${props.id}-label`}>
-          {props.label}
-        </span>
-      </Show>
-      {props.children}
-      <Show when={props.hint}>
-        <span data-slot="form-hint">{props.hint}</span>
-      </Show>
+          </span>
+        </Show>
+        <Show when={props.hint}>
+          <span data-slot="form-hint">{props.hint}</span>
+        </Show>
+      </div>
+      <div data-slot="form-control">{props.children}</div>
       <Show when={props.warning}>
         <span data-slot="form-hint" data-tone="warning">
           {props.warning}
@@ -256,8 +262,8 @@ function Row(props: {
   )
 }
 
-function Select(props: {
-  id: string
+// The app's select over a field's choices; `blank` and stored values as `selectChoices` says.
+function Choose(props: {
   label: string
   value: string
   options: readonly Choice[]
@@ -265,34 +271,17 @@ function Select(props: {
   invalid?: boolean
   onChange: (value: string) => void
 }) {
+  const ctx = usePlugin()
+  const choices = () => selectChoices(props.value, props.options, props.blank)
+
   return (
-    <select
-      id={props.id}
-      data-slot="form-select"
-      aria-label={props.label}
-      aria-invalid={props.invalid ? true : undefined}
-      value={props.value}
-      onChange={(event) => props.onChange(event.currentTarget.value)}
-    >
-      <Show when={props.blank !== undefined}>
-        <option value="" selected={props.value === ""}>
-          {props.blank}
-        </option>
-      </Show>
-      <For each={props.options}>
-        {(option) => (
-          <option value={option.value} selected={props.value === option.value}>
-            {option.label}
-          </option>
-        )}
-      </For>
-      {/* A stored value the lookup does not list, or has not loaded yet, stays selectable instead of vanishing. */}
-      <Show when={props.value !== "" && !props.options.some((option) => option.value === props.value)}>
-        <option value={props.value} selected>
-          {props.value}
-        </option>
-      </Show>
-    </select>
+    <ctx.ui.Select
+      label={props.label}
+      value={choices().value}
+      options={choices().options}
+      invalid={props.invalid}
+      onChange={(value) => props.onChange(fromSelect(value))}
+    />
   )
 }
 
@@ -318,27 +307,22 @@ function Where(props: { form: FormModel; agents: AgentsModel }) {
         </Show>
       }
     >
-      <Row id="backend" label={ctx.t("agents.form.where")} group wide>
-        <div data-slot="form-where" role="radiogroup" aria-labelledby="agents-form-backend-label">
+      <Row id="backend" label={ctx.t("agents.form.where")} group>
+        <RadioGroup
+          value={form.state.backend}
+          aria-labelledby="agents-form-backend-label"
+          onChange={(backend) => form.choose(backend)}
+        >
           <For each={props.agents.backends()}>
             {(backend) => (
-              <button
-                type="button"
-                role="radio"
-                aria-checked={form.state.backend === backend.backend}
-                data-state={form.state.backend === backend.backend ? "pressed" : undefined}
-                onClick={() => form.choose(backend.backend)}
-              >
-                <Icon name={backend.kind === "remote" ? "cloud-upload" : "monitor"} />
-                <span>
-                  <b>{ctx.t(`agents.form.where.${backend.kind}.title`, { label: backend.label })}</b>
-                  {ctx.t(`agents.form.where.${backend.kind}.text`)}
-                  <small>{backendLine(ctx.t, backend)}</small>
-                </span>
-              </button>
+              <RadioItem
+                value={backend.backend}
+                label={ctx.t(`agents.form.where.${backend.kind}.title`, { label: backend.label })}
+                description={`${ctx.t(`agents.form.where.${backend.kind}.text`)} ${backendLine(ctx.t, backend)}`}
+              />
             )}
           </For>
-        </div>
+        </RadioGroup>
       </Row>
     </Show>
   )
@@ -356,30 +340,37 @@ function What(props: { form: FormModel; choices: (lookup: string) => readonly Ch
   const form = props.form
   const draft = () => form.state.draft
   const kinds = () => form.capabilities()?.instructions ?? []
+  // Under the box: the warning of the chosen permission mode, and the problems of the footer's selects.
+  const promptNotes = () => [
+    ...form.fields().prompt.flatMap((field) => {
+      const warning = field.choices?.find((choice) => choice.value === valueOf(field, draft().options))?.warning
+      return warning ? [{ text: warning, error: false }] : []
+    }),
+    ...[...form.fields().prompt.map((field) => field.key), "agent", "model"].flatMap((key) => {
+      const text = said(ctx.t, form, key)
+      return text ? [{ text, error: true }] : []
+    }),
+  ]
 
   return (
     <>
-      <Row id="instructions" label={ctx.t("agents.form.what")} group wide error={said(ctx.t, form, "instructions")}>
+      <Row id="instructions" label={ctx.t("agents.form.what")} group error={said(ctx.t, form, "instructions")}>
         <Show when={kinds().length > 1}>
-          <div data-slot="form-segments" role="radiogroup" aria-labelledby="agents-form-instructions-label">
+          <SegmentedControl
+            value={draft().what}
+            aria-labelledby="agents-form-instructions-label"
+            onChange={(value) => {
+              const what = kinds().find((kind) => kind === value)
+              if (what) form.set({ what })
+            }}
+          >
             <For each={kinds()}>
-              {(kind) => (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={draft().what === kind}
-                  data-state={draft().what === kind ? "pressed" : undefined}
-                  onClick={() => form.set({ what: kind })}
-                >
-                  {ctx.t(`agents.form.what.${kind}`)}
-                </button>
-              )}
+              {(kind) => <SegmentedControlItem value={kind}>{ctx.t(`agents.form.what.${kind}`)}</SegmentedControlItem>}
             </For>
-          </div>
+          </SegmentedControl>
         </Show>
         <Show when={draft().what === "skill"}>
-          <Select
-            id="agents-form-skill"
+          <Choose
             label={ctx.t("agents.form.skill")}
             value={draft().skill}
             options={props.choices("skills")}
@@ -389,8 +380,7 @@ function What(props: { form: FormModel; choices: (lookup: string) => readonly Ch
           />
         </Show>
         <Show when={draft().what === "agent"}>
-          <Select
-            id="agents-form-agentRef"
+          <Choose
             label={ctx.t("agents.form.agentRef")}
             value={draft().agentRef}
             options={props.choices("agents")}
@@ -399,54 +389,94 @@ function What(props: { form: FormModel; choices: (lookup: string) => readonly Ch
             onChange={(agentRef) => form.set({ agentRef })}
           />
         </Show>
-        <Textarea
-          id="agents-form-text"
-          rows={6}
-          value={draft().text}
-          aria-label={ctx.t(textLabel[draft().what])}
-          placeholder={draft().what === "prompt" ? ctx.t("agents.form.prompt.placeholder") : undefined}
-          invalid={form.error("instructions") !== undefined}
-          onInput={(event) => form.set({ text: event.currentTarget.value })}
-        />
-      </Row>
-      <div data-slot="form-grid">
-        <Show when={form.capabilities()?.agent !== "none" && form.capabilities()}>
-          {(current) => (
-            <Row id="agent" label={ctx.t("agents.form.agent")} error={said(ctx.t, form, "agent")}>
-              <Select
-                id="agents-form-agent"
-                label={ctx.t("agents.form.agent")}
-                value={draft().agent}
-                options={props.choices("agents")}
-                blank={current().agent === "optional" ? ctx.t("agents.form.default") : ctx.t("agents.form.choose")}
-                invalid={form.error("agent") !== undefined}
-                onChange={(agent) => form.set({ agent })}
-              />
-            </Row>
+        <div data-slot="form-prompt" data-invalid={form.error("instructions") !== undefined ? "" : undefined}>
+          <Textarea
+            id="agents-form-text"
+            rows={6}
+            value={draft().text}
+            aria-label={ctx.t(textLabel[draft().what])}
+            placeholder={draft().what === "prompt" ? ctx.t("agents.form.prompt.placeholder") : undefined}
+            invalid={form.error("instructions") !== undefined}
+            onInput={(event) => form.set({ text: event.currentTarget.value })}
+          />
+          <PromptFooter form={form} choices={props.choices} />
+        </div>
+        <For each={promptNotes()}>
+          {(note) => (
+            <span data-slot={note.error ? "form-error" : "form-hint"} data-tone={note.error ? undefined : "warning"}>
+              {note.text}
+            </span>
           )}
-        </Show>
-        <Switch>
-          <Match when={form.capabilities()?.model === "choose"}>
-            <Row id="model" label={ctx.t("agents.form.model")} error={said(ctx.t, form, "model")}>
-              <Select
-                id="agents-form-model"
-                label={ctx.t("agents.form.model")}
-                value={draft().model}
-                options={props.choices("models")}
-                blank={ctx.t("agents.form.default")}
-                invalid={form.error("model") !== undefined}
-                onChange={(model) => form.set({ model })}
-              />
-            </Row>
-          </Match>
-          <Match when={form.capabilities()?.model === "agent"}>
-            <Row id="model" label={ctx.t("agents.form.model")} group>
-              <span data-slot="form-static">{ctx.t("agents.form.model.byAgent")}</span>
-            </Row>
-          </Match>
-        </Switch>
-      </div>
+        </For>
+      </Row>
     </>
+  )
+}
+
+// The footer of the instructions box, as Claude's task form draws it: the permission mode and the agent on the left,
+// the model on the right, each a compact select. The selects load on the client only (`prompt-select.tsx`).
+function PromptFooter(props: { form: FormModel; choices: (lookup: string) => readonly Choice[] }) {
+  const ctx = usePlugin()
+  const form = props.form
+  const draft = () => form.state.draft
+
+  return (
+    <div data-slot="form-prompt-footer">
+      <Show when={!isServer}>
+        <div data-slot="form-prompt-side">
+          <For each={form.fields().prompt}>
+            {(field) => (
+              <span data-key={field.key}>
+                <PromptSelect
+                  label={field.label}
+                  value={String(valueOf(field, draft().options) ?? "")}
+                  options={field.choices ?? []}
+                  icon={valueOf(field, draft().options) === "bypass" ? "warning" : "shield"}
+                  invalid={form.error(field.key) !== undefined}
+                  onChange={(next) => form.option(field.key, next)}
+                />
+              </span>
+            )}
+          </For>
+          <Show when={form.capabilities()?.agent !== "none" && form.capabilities()}>
+            {(current) => (
+              <span data-key="agent">
+                <PromptSelect
+                  label={ctx.t("agents.form.agent")}
+                  value={draft().agent}
+                  options={props.choices("agents")}
+                  blank={
+                    current().agent === "optional" ? ctx.t("agents.form.agent.default") : ctx.t("agents.form.choose")
+                  }
+                  invalid={form.error("agent") !== undefined}
+                  onChange={(agent) => form.set({ agent })}
+                />
+              </span>
+            )}
+          </Show>
+        </div>
+        <div data-slot="form-prompt-side">
+          <Switch>
+            <Match when={form.capabilities()?.model === "choose"}>
+              <span data-key="model">
+                <PromptSelect
+                  label={ctx.t("agents.form.model")}
+                  value={draft().model}
+                  options={props.choices("models")}
+                  blank={ctx.t("agents.form.model.default")}
+                  invalid={form.error("model") !== undefined}
+                  placement="top-end"
+                  onChange={(model) => form.set({ model })}
+                />
+              </span>
+            </Match>
+            <Match when={form.capabilities()?.model === "agent"}>
+              <span data-slot="form-hint">{ctx.t("agents.form.model.byAgent")}</span>
+            </Match>
+          </Switch>
+        </div>
+      </Show>
+    </div>
   )
 }
 
@@ -477,29 +507,40 @@ function Trigger(props: { form: FormModel }) {
   const window = () => form.capabilities()?.schedule.window === true
 
   return (
-    <div data-slot="form-field" data-key="schedule" data-wide="">
-      <label data-slot="form-label" for="agents-form-trigger">
-        {ctx.t("agents.form.trigger")}
-      </label>
-      <div data-slot="form-trigger">
-        <Select
-          id="agents-form-trigger"
+    <div data-slot="form-rows" data-key="schedule">
+      <Row id="trigger" label={ctx.t("agents.form.trigger")} inline>
+        <Choose
           label={ctx.t("agents.form.trigger")}
           value={draft().trigger}
           options={triggers.map((value) => ({ value, label: ctx.t(`agents.form.trigger.${value}`) }))}
           onChange={(value) => form.setTrigger(triggers.find((trigger) => trigger === value) ?? "none")}
         />
-        <Show when={draft().trigger !== "none" && draft().trigger !== "cron"}>
+      </Row>
+      <Show when={draft().trigger === "weekly"}>
+        <Row id="days" label={ctx.t("agents.form.days")} group>
+          <div data-slot="form-days" role="group" aria-labelledby="agents-form-days-label">
+            <For each={order}>
+              {(day) => (
+                <Checkbox
+                  appearance="compact"
+                  checked={draft().days.includes(day)}
+                  onChange={(checked) =>
+                    form.set({
+                      days: checked ? [...draft().days, day] : draft().days.filter((other) => other !== day),
+                    })
+                  }
+                >
+                  {ctx.t(`agents.day.short.${day}`)}
+                </Checkbox>
+              )}
+            </For>
+          </div>
+        </Row>
+      </Show>
+      <Show when={draft().trigger === "monthly"}>
+        <Row id="day" label={ctx.t("agents.form.day")} inline>
           <TextInput
-            type="time"
-            aria-label={ctx.t("agents.form.time")}
-            value={draft().time}
-            invalid={form.error("schedule") !== undefined}
-            onInput={(event) => form.set({ time: event.currentTarget.value })}
-          />
-        </Show>
-        <Show when={draft().trigger === "monthly"}>
-          <TextInput
+            id="agents-form-day"
             type="number"
             min="1"
             max="31"
@@ -508,9 +549,24 @@ function Trigger(props: { form: FormModel }) {
             value={String(draft().day)}
             onInput={(event) => form.set({ day: Number(event.currentTarget.value) })}
           />
-        </Show>
-        <Show when={draft().trigger === "cron"}>
+        </Row>
+      </Show>
+      <Show when={draft().trigger !== "none" && draft().trigger !== "cron"}>
+        <Row id="time" label={ctx.t("agents.form.time")} inline>
           <TextInput
+            id="agents-form-time"
+            type="time"
+            aria-label={ctx.t("agents.form.time")}
+            value={draft().time}
+            invalid={form.error("schedule") !== undefined}
+            onInput={(event) => form.set({ time: event.currentTarget.value })}
+          />
+        </Row>
+      </Show>
+      <Show when={draft().trigger === "cron"}>
+        <Row id="cron" label={ctx.t("agents.form.cron")} hint={ctx.t("agents.form.cron.hint")}>
+          <TextInput
+            id="agents-form-cron"
             aria-label={ctx.t("agents.form.cron")}
             value={draft().cron}
             placeholder="45 8 * * 1"
@@ -518,42 +574,17 @@ function Trigger(props: { form: FormModel }) {
             invalid={form.error("schedule") !== undefined}
             onInput={(event) => form.set({ cron: event.currentTarget.value })}
           />
-        </Show>
-        <Show when={draft().trigger !== "none"}>
-          <Select
-            id="agents-form-zone"
+        </Row>
+      </Show>
+      <Show when={draft().trigger !== "none"}>
+        <Row id="zone" label={ctx.t("agents.form.zone")} inline>
+          <Choose
             label={ctx.t("agents.form.zone")}
             value={draft().timezone}
             options={zones(draft().timezone).map((value) => ({ value, label: value }))}
             onChange={(timezone) => form.set({ timezone })}
           />
-        </Show>
-      </div>
-      <Show when={draft().trigger === "weekly"}>
-        <div data-slot="form-pills" role="group" aria-label={ctx.t("agents.form.days")}>
-          <For each={order}>
-            {(day) => (
-              <button
-                type="button"
-                aria-pressed={draft().days.includes(day)}
-                onClick={() =>
-                  form.set({
-                    days: draft().days.includes(day)
-                      ? draft().days.filter((other) => other !== day)
-                      : [...draft().days, day],
-                  })
-                }
-              >
-                {ctx.t(`agents.day.short.${day}`)}
-              </button>
-            )}
-          </For>
-        </div>
-      </Show>
-      <Show when={draft().trigger === "cron"}>
-        <span data-slot="form-hint">{ctx.t("agents.form.cron.hint")}</span>
-      </Show>
-      <Show when={draft().trigger !== "none"}>
+        </Row>
         <Show when={equivalent()}>
           {(text) => <span data-slot="form-hint">{ctx.t("agents.form.cron.equivalent", { cron: text() })}</span>}
         </Show>
@@ -576,35 +607,36 @@ function Trigger(props: { form: FormModel }) {
         <Show when={window()}>
           {/* JESÚS: `starts`, `ends` and `max` are the farm's `schedule.window`; the form shows them only where
               `capabilities().schedule.window` is true, so a backend without a window never sees them. */}
-          <div data-slot="form-grid" data-compact="">
-            <Row id="starts" label={ctx.t("agents.form.starts")}>
-              <TextInput
-                id="agents-form-starts"
-                type="date"
-                value={draft().starts}
-                onInput={(event) => form.set({ starts: event.currentTarget.value })}
-              />
-            </Row>
-            <Row id="ends" label={ctx.t("agents.form.ends")}>
-              <TextInput
-                id="agents-form-ends"
-                type="date"
-                value={draft().ends}
-                onInput={(event) => form.set({ ends: event.currentTarget.value })}
-              />
-            </Row>
-            <Row id="max" label={ctx.t("agents.form.max")}>
-              <TextInput
-                id="agents-form-max"
-                type="number"
-                min="1"
-                numeric
-                value={draft().max}
-                placeholder={ctx.t("agents.form.max.placeholder")}
-                onInput={(event) => form.set({ max: event.currentTarget.value })}
-              />
-            </Row>
-          </div>
+          <Row id="starts" label={ctx.t("agents.form.starts")} inline>
+            <TextInput
+              id="agents-form-starts"
+              type="date"
+              aria-label={ctx.t("agents.form.starts")}
+              value={draft().starts}
+              onInput={(event) => form.set({ starts: event.currentTarget.value })}
+            />
+          </Row>
+          <Row id="ends" label={ctx.t("agents.form.ends")} inline>
+            <TextInput
+              id="agents-form-ends"
+              type="date"
+              aria-label={ctx.t("agents.form.ends")}
+              value={draft().ends}
+              onInput={(event) => form.set({ ends: event.currentTarget.value })}
+            />
+          </Row>
+          <Row id="max" label={ctx.t("agents.form.max")} inline>
+            <TextInput
+              id="agents-form-max"
+              type="number"
+              min="1"
+              numeric
+              aria-label={ctx.t("agents.form.max")}
+              value={draft().max}
+              placeholder={ctx.t("agents.form.max.placeholder")}
+              onInput={(event) => form.set({ max: event.currentTarget.value })}
+            />
+          </Row>
         </Show>
       </Show>
       <Show when={said(ctx.t, form, "schedule")}>
@@ -636,7 +668,7 @@ function Block(props: { form: FormModel; choices: (lookup: string) => readonly C
               <span data-slot="form-static">{current().label}</span>
             </Row>
           </Show>
-          <FieldGrid form={form} fields={form.fields().where} choices={props.choices} />
+          <FieldRows form={form} fields={form.fields().where} choices={props.choices} />
         </section>
       )}
     </Show>
@@ -656,20 +688,20 @@ function Extra(props: { form: FormModel; choices: (lookup: string) => readonly C
         <section data-slot="form-block" data-kind={current().kind} data-extra="">
           <h3 data-slot="form-block-head">{ctx.t("agents.detail.options", { label: current().label })}</h3>
           <p data-slot="form-hint">{ctx.t("agents.form.options.hint")}</p>
-          <FieldGrid form={props.form} fields={props.form.fields().extra} choices={props.choices} />
+          <FieldRows form={props.form} fields={props.form.fields().extra} choices={props.choices} />
         </section>
       )}
     </Show>
   )
 }
 
-function FieldGrid(props: {
+function FieldRows(props: {
   form: FormModel
   fields: readonly Field[]
   choices: (lookup: string) => readonly Choice[]
 }) {
   return (
-    <div data-slot="form-grid">
+    <div data-slot="form-rows">
       <For each={props.fields}>
         {(field) => <FieldControl form={props.form} field={field} choices={props.choices} />}
       </For>
@@ -700,12 +732,12 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
       hint={field().help}
       warning={options().find((choice) => choice.value === value())?.warning}
       error={said(ctx.t, form, field().key)}
-      wide={wide(kind())}
-      group={["radio", "choices", "list", "toggle"].includes(kind())}
+      inline={inline(kind())}
+      group={["radio", "choices", "list"].includes(kind())}
     >
       <Switch>
         <Match when={kind() === "toggle"}>
-          <FormToggle checked={value() === true} label={field().label} onChange={set} />
+          <ctx.ui.Switch checked={value() === true} label={field().label} hideLabel onChange={set} />
         </Match>
         <Match when={kind() === "textarea"}>
           <Textarea
@@ -722,6 +754,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
             id={id()}
             type="number"
             numeric
+            aria-label={field().label}
             min={field().min}
             max={field().max}
             value={typed()}
@@ -734,26 +767,12 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
           />
         </Match>
         <Match when={kind() === "radio"}>
-          <div data-slot="form-radios" role="radiogroup" aria-labelledby={`${id()}-label`}>
-            <For each={options()}>
-              {(option) => (
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={value() === option.value}
-                  data-state={value() === option.value ? "pressed" : undefined}
-                  onClick={() => set(option.value)}
-                >
-                  <span data-slot="form-dot" />
-                  {option.label}
-                </button>
-              )}
-            </For>
-          </div>
+          <RadioGroup value={String(value() ?? "")} aria-labelledby={`${id()}-label`} onChange={(next) => set(next)}>
+            <For each={options()}>{(option) => <RadioItem value={option.value} label={option.label} />}</For>
+          </RadioGroup>
         </Match>
         <Match when={kind() === "select"}>
-          <Select
-            id={id()}
+          <Choose
             label={field().label}
             value={String(value() ?? "")}
             options={options()}
@@ -763,21 +782,24 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
           />
         </Match>
         <Match when={kind() === "choices"}>
-          <div data-slot="form-pills" role="group" aria-labelledby={`${id()}-label`}>
+          {/* One row per choice with the app's switch, as Settings lists the MCP servers. */}
+          <div data-slot="form-switches" role="group" aria-labelledby={`${id()}-label`}>
             <For each={options()} fallback={<span data-slot="form-hint">{ctx.t("agents.form.choices.none")}</span>}>
               {(option) => (
-                <button
-                  type="button"
-                  aria-pressed={picked().includes(option.value)}
-                  disabled={
-                    !picked().includes(option.value) &&
-                    field().max !== undefined &&
-                    picked().length >= (field().max ?? 0)
-                  }
-                  onClick={() => set(toggled(field(), value(), options(), option.value))}
-                >
-                  {option.label}
-                </button>
+                <div data-slot="form-switch">
+                  <span data-slot="form-switch-label">{option.label}</span>
+                  <ctx.ui.Switch
+                    checked={picked().includes(option.value)}
+                    label={option.label}
+                    hideLabel
+                    disabled={
+                      !picked().includes(option.value) &&
+                      field().max !== undefined &&
+                      picked().length >= (field().max ?? 0)
+                    }
+                    onChange={() => set(toggled(field(), value(), options(), option.value))}
+                  />
+                </div>
               )}
             </For>
           </div>
@@ -853,18 +875,18 @@ function ListControl(props: {
 
   return (
     <div data-slot="form-list">
-      <div data-slot="form-pills">
+      <div data-slot="form-tokens">
         <For each={props.items}>
           {(item) => (
             <span data-slot="form-token">
               {item}
-              <button
-                type="button"
+              <IconButton
+                variant="ghost"
+                size="small"
+                icon={<Icon name="close-small" size="small" />}
                 aria-label={ctx.t("agents.form.list.remove", { item })}
                 onClick={() => props.onChange(props.items.filter((other) => other !== item))}
-              >
-                <Icon name="close-small" size="small" />
-              </button>
+              />
             </span>
           )}
         </For>

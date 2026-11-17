@@ -50,11 +50,6 @@
 
   [data-slot="proposal-toggle"] {
     align-self: flex-start;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: var(--v2-text-text-muted);
-    cursor: pointer;
   }
 }
 

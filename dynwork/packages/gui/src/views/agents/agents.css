@@ -212,75 +212,40 @@
     border-radius: 50%;
   }
 
-  /* The bar over the list. It wraps: tabs, then the chips, then status and search, which take a row of their own. */
+  /* The bar over the list: the tabs, then a row of filters that wraps, with status and search going under the Local and
+     Remote filter when they do not fit. It never shrinks under its content, so it cannot slide under the cards. */
   [data-slot="agents-toolbar"] {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+
+    /* The app's tabs fill their parent's height, which a toolbar does not have. */
+    > [data-component="tabs-v2"] {
+      height: auto;
+    }
+  }
+
+  [data-slot="agents-filters"] {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 8px 16px;
-  }
+    min-width: 0;
 
-  [data-slot="agents-tabs"] {
-    display: inline-flex;
-    max-width: 100%;
-    gap: 2px;
-    padding: 2px;
-    border-radius: 8px;
-    background: var(--v2-background-bg-layer-02);
-  }
-
-  [data-slot="agents-tab"] {
-    height: 26px;
-    padding: 0 10px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--v2-text-text-muted);
-    white-space: nowrap;
-
-    &:is(:hover, :focus-visible) {
-      color: var(--v2-text-text-base);
-      outline: none;
+    /* The segmented control is 232px by default; its labels carry a count here, so it takes the width they need. */
+    [data-slot="segmented-control-v2"] {
+      width: auto;
     }
 
-    &[data-state="pressed"] {
-      background: var(--v2-background-bg-base);
-      color: var(--v2-text-text-base);
-      box-shadow: var(--v2-elevation-raised);
-    }
-  }
-
-  [data-slot="agents-chips"] {
-    display: inline-flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  [data-slot="agents-chip"] {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 26px;
-    padding: 0 10px;
-    border: 1px solid var(--v2-border-border-base);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--v2-text-text-muted);
-    white-space: nowrap;
-
-    &:is(:hover, :focus-visible) {
-      color: var(--v2-text-text-base);
-      outline: none;
-    }
-
-    &[data-state="pressed"] {
-      border-color: transparent;
-      background: var(--v2-background-bg-inverse);
-      color: var(--v2-text-text-inverse);
+    [data-slot="segmented-control-v2-item"] {
+      flex: 1 0 auto;
     }
   }
 
   [data-slot="agents-count"] {
+    margin-inline-start: 6px;
     font-size: 11px;
     opacity: 0.7;
     font-variant-numeric: tabular-nums;
@@ -288,54 +253,25 @@
 
   [data-slot="agents-search-row"] {
     display: flex;
-    flex: 1 1 280px;
+    flex: 1 1 320px;
     justify-content: flex-end;
+    align-items: center;
     gap: 8px;
     min-width: 0;
-  }
 
-  [data-slot="agents-select"],
-  [data-slot="agents-search"] {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    height: 28px;
-    padding: 0 8px 0 10px;
-    border-radius: 6px;
-    background: var(--v2-background-bg-base);
-    box-shadow: var(--v2-elevation-input);
-    color: var(--v2-text-text-base);
-
-    select,
-    input {
-      min-width: 0;
-      border: 0;
-      background: transparent;
-      color: inherit;
-      font: inherit;
-      outline: none;
+    [data-component="select-v2"] {
+      flex: none;
     }
   }
 
   [data-slot="agents-select-key"] {
+    flex: none;
     color: var(--v2-text-text-faint);
   }
 
-  [data-slot="agents-search"] {
+  .agents-search {
     flex: 0 1 220px;
     min-width: 120px;
-    color: var(--v2-icon-icon-muted);
-
-    input {
-      flex: 1;
-      color: var(--v2-text-text-base);
-    }
-
-    &:focus-within {
-      box-shadow:
-        0 0 0 1px var(--v2-border-border-focus),
-        var(--v2-elevation-input);
-    }
   }
 
   /* My routines: cards. */
@@ -518,24 +454,6 @@
     gap: 6px;
     min-width: 0;
     color: var(--v2-text-text-faint);
-  }
-
-  [data-slot="agents-crumb"] {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 24px;
-    padding: 0 6px 0 4px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--v2-text-text-faint);
-
-    &:is(:hover, :focus-visible) {
-      background: var(--v2-overlay-simple-overlay-hover);
-      color: var(--v2-text-text-base);
-      outline: none;
-    }
   }
 
   [data-slot="agents-crumb-current"] {
@@ -812,7 +730,7 @@
     justify-content: stretch;
   }
 
-  [data-slot="agents-search"] {
+  .agents-search {
     flex: 1 1 auto;
   }
 

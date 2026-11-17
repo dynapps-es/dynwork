@@ -1,6 +1,9 @@
 import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
+import { SegmentedControl, SegmentedControlItem } from "@opencode/ui/segmented-control"
+import { Tabs } from "@opencode/ui/tabs"
+import { TextInput } from "@opencode/ui/text-input"
 import { For, Show } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Routine, Run } from "../../routines/contract"
@@ -10,82 +13,65 @@ import { tabs, type AgentsModel } from "./model"
 import { openable, routineStatus, stateKey, statuses, waiting, wheres } from "./routine"
 import { RunMark, Tag, Unread, WhereBadge } from "./parts"
 
-/** The bar over the list: the tabs, the Local and Remote chips with their counts, the status filter and the search. */
+/**
+ * The bar over the list, in the app's own controls: the tabs, the Local and Remote filter with its counts, the status
+ * select and the search.
+ */
 export function Toolbar(props: { model: AgentsModel }) {
   const ctx = usePlugin()
   const model = props.model
 
   return (
     <div data-slot="agents-toolbar">
-      <div data-slot="agents-tabs" role="tablist" aria-label={ctx.t("agents.tab.label")}>
-        <For each={tabs}>
-          {(tab) => (
-            <button
-              type="button"
-              role="tab"
-              data-slot="agents-tab"
-              aria-selected={model.state.tab === tab}
-              data-state={model.state.tab === tab ? "pressed" : undefined}
-              onClick={() => model.setTab(tab)}
-            >
-              {ctx.t(`agents.tab.${tab}`)}
-            </button>
-          )}
-        </For>
-      </div>
-      <Show when={model.state.tab !== "templates"}>
-        <div data-slot="agents-chips" role="radiogroup" aria-label={ctx.t("agents.where.label")}>
-          <For each={wheres}>
-            {(where) => (
-              <button
-                type="button"
-                role="radio"
-                data-slot="agents-chip"
-                aria-checked={model.state.where === where}
-                data-state={model.state.where === where ? "pressed" : undefined}
-                onClick={() => model.setWhere(where)}
-              >
-                <Show when={where !== "all"}>
-                  <Icon name={where === "remote" ? "cloud-upload" : "monitor"} size="small" />
-                </Show>
-                {ctx.t(`agents.where.${where}`)}
-                <Show when={model.state.tab === "mine"}>
-                  <span data-slot="agents-count">{model.count(where)}</span>
-                </Show>
-              </button>
-            )}
-          </For>
-        </div>
-      </Show>
-      <Show when={model.state.tab === "mine"}>
-        <div data-slot="agents-search-row">
-          <label data-slot="agents-select">
+      <Tabs
+        variant="pill"
+        value={model.state.tab}
+        onChange={(value) => model.setTab(tabs.find((tab) => tab === value) ?? "mine")}
+      >
+        <Tabs.List aria-label={ctx.t("agents.tab.label")}>
+          <For each={tabs}>{(tab) => <Tabs.Trigger value={tab}>{ctx.t(`agents.tab.${tab}`)}</Tabs.Trigger>}</For>
+        </Tabs.List>
+      </Tabs>
+      <div data-slot="agents-filters">
+        <Show when={model.state.tab !== "templates"}>
+          <SegmentedControl
+            value={model.state.where}
+            aria-label={ctx.t("agents.where.label")}
+            onChange={(value) => model.setWhere(wheres.find((where) => where === value) ?? "all")}
+          >
+            <For each={wheres}>
+              {(where) => (
+                <SegmentedControlItem value={where}>
+                  {ctx.t(`agents.where.${where}`)}
+                  <Show when={model.state.tab === "mine"}>
+                    <span data-slot="agents-count">{model.count(where)}</span>
+                  </Show>
+                </SegmentedControlItem>
+              )}
+            </For>
+          </SegmentedControl>
+        </Show>
+        <Show when={model.state.tab === "mine"}>
+          <div data-slot="agents-search-row">
             <span data-slot="agents-select-key">{ctx.t("agents.filter.status")}</span>
-            <select
+            <ctx.ui.Select
+              label={ctx.t("agents.filter.status")}
               value={model.state.status}
-              onChange={(event) => model.setStatus(event.currentTarget.value as (typeof statuses)[number])}
-            >
-              <For each={statuses}>
-                {(status) => (
-                  <option value={status} selected={model.state.status === status}>
-                    {ctx.t(`agents.filter.${status}`)}
-                  </option>
-                )}
-              </For>
-            </select>
-          </label>
-          <label data-slot="agents-search">
-            <Icon name="magnifying-glass" size="small" />
-            <input
+              options={statuses.map((status) => ({ value: status, label: ctx.t(`agents.filter.${status}`) }))}
+              onChange={model.setStatus}
+            />
+            <TextInput
               type="search"
+              class="agents-search"
+              leadingIcon={<Icon name="magnifying-glass" size="small" />}
               value={model.state.search}
               placeholder={ctx.t("agents.search")}
               aria-label={ctx.t("agents.search")}
               onInput={(event) => model.setSearch(event.currentTarget.value)}
             />
-          </label>
-        </div>
-      </Show>
+          </div>
+        </Show>
+      </div>
     </div>
   )
 }
