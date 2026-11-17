@@ -20,6 +20,7 @@ export default {
   "agents.chat.row.origin": "Origin",
   "agents.chat.origin": "Your request in this conversation",
   "agents.chat.connectors.all": "All",
+  "agents.chat.connectors.none": "None",
   "agents.chat.permissions.ask": "Ask me",
   "agents.chat.permissions.bypass": "Don't ask",
   "agents.chat.bypass": "The routine may edit files and run commands without asking you.",

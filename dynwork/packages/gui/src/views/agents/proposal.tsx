@@ -77,7 +77,9 @@ function ProposalCard(props: { card: Card; client: () => ChatClient | undefined;
   }
   const connectors = () => {
     const value = options().connectors
-    return Array.isArray(value) ? value.join(", ") : ctx.t("agents.chat.connectors.all")
+    if (!Array.isArray(value)) return ctx.t("agents.chat.connectors.all")
+    if (value.length === 0) return ctx.t("agents.chat.connectors.none")
+    return value.map((name) => (name === "systemprompt" ? "Governance" : String(name))).join(", ")
   }
   const rows = () => [
     [ctx.t("agents.chat.row.routine"), props.card.definition.name],

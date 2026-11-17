@@ -173,11 +173,13 @@ describe("a proposal", () => {
 })
 
 describe("the list", () => {
-  test("returns the local routines, one line each", async () => {
+  test("returns the local routines, one line each, and the connectors a local routine may name", async () => {
     const subject = stand()
     await subject.chat.request({ id: "call_list", session: "ses_chat", kind: "list" })
     expect(subject.answers).toHaveLength(1)
-    const lines = subject.answers[0]?.text.split("\n") ?? []
+    const all = subject.answers[0]?.text.split("\n") ?? []
+    expect(all.at(-1)).toStartWith("Connectors available to local routines: ")
+    const lines = all.slice(0, -1)
     expect(lines).toHaveLength((await subject.names()).length)
     expect(lines.every((line) => line.startsWith("- ") && line.includes(" · Demo MacBook · "))).toBe(true)
     expect(subject.answers[0]?.error).toBe(false)

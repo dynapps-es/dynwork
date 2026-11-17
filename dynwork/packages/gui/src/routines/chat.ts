@@ -52,7 +52,13 @@ export function make(options: Options) {
       }),
     )
     const all = lines.flat()
-    await reply(request.id, all.length === 0 ? "The user has no routines yet." : all.join("\n"), false)
+    // The connectors a local routine may name, so the agent proposes real ones.
+    const connectors = await options.registry.get(RoutinesLocal.id)?.options("connectors")
+    const available =
+      connectors && !isFailure(connectors)
+        ? `\nConnectors available to local routines: ${connectors.map((choice) => choice.value).join(", ") || "none"}.`
+        : ""
+    await reply(request.id, (all.length === 0 ? "The user has no routines yet." : all.join("\n")) + available, false)
   }
 
   async function propose(request: DynWorkRoutines.Request, proposal: DynWorkRoutines.Proposal) {

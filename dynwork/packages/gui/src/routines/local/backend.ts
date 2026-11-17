@@ -891,6 +891,12 @@ function catchUp(since: number, definition: Definition) {
 }
 
 // The choices of the shared selects; undefined for a lookup this backend does not serve.
+// Governance's own MCP server is named after the product behind it, which the UI never shows.
+function connectorLabel(name: string, status: string) {
+  const shown = name === "systemprompt" ? "Governance" : name
+  return status === "connected" ? shown : `${shown} · ${status}`
+}
+
 async function lookupOf(client: OpenCodeClient, lookup: string): Promise<Choice[] | undefined> {
   if (lookup === "agents") {
     const agents = await client.agent.list()
@@ -906,7 +912,7 @@ async function lookupOf(client: OpenCodeClient, lookup: string): Promise<Choice[
     const servers = await client.mcp.list()
     return servers.data.map((server) => ({
       value: server.name,
-      label: server.status.status === "connected" ? server.name : `${server.name} · ${server.status.status}`,
+      label: connectorLabel(server.name, server.status.status),
     }))
   }
   if (lookup === "skills") {

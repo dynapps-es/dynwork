@@ -53,7 +53,8 @@ export const Proposal = Schema.Struct({
     description: "The absolute path of the project folder it works in, when it needs one.",
   }),
   connectors: Schema.optional(Schema.Array(Schema.String)).annotate({
-    description: "The connectors (MCP server names) it may use. Leave it out for all of them.",
+    description: "The connectors (MCP server names, as routines_list gives them) it may use. Leave it out for all of " +
+      "them; [] when the user wants none.",
   }),
   notify: Schema.optional(Schema.Literals(["failures", "every", "never"])).annotate({
     description: "When to tell the user: 'failures' (the default, only when something fails), 'every' run, or 'never'.",
