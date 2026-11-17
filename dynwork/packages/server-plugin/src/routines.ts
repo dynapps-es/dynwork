@@ -42,7 +42,9 @@ export const Proposal = Schema.Struct({
     description: `The IANA zone the time is read in. Default ${zone}, unless the user says otherwise.`,
   }),
   where: Schema.optional(Schema.Literals(["local", "farm"])).annotate({
-    description: "Where it runs: 'local' (this computer, only while Dynwork is open; the default) or 'farm' (Cloud, which keeps going with the user's laptop closed).",
+    description:
+      "Where it runs: 'local' (this computer or this Mac, only while Dynwork is open; the default) or 'farm' (Cloud, " +
+      "formerly the Agent Farm or 'the farm', which keeps going with the user's laptop closed).",
   }),
   permissions: Schema.optional(Schema.Literals(["ask", "bypass"])).annotate({
     description:
@@ -53,7 +55,8 @@ export const Proposal = Schema.Struct({
     description: "The absolute path of the project folder it works in, when it needs one.",
   }),
   connectors: Schema.optional(Schema.Array(Schema.String)).annotate({
-    description: "The connectors (MCP server names, as list_scheduled_tasks gives them) it may use. Leave it out for all of " +
+    description:
+      "The connectors (MCP server names, as list_scheduled_tasks gives them) it may use. Leave it out for all of " +
       "them; [] when the user wants none.",
   }),
   notify: Schema.optional(Schema.Literals(["failures", "every", "never"])).annotate({
@@ -158,16 +161,35 @@ export function pending(): Pending {
   return { requests: [...waiting.values()].map((item) => item.request) }
 }
 
+// What people call a scheduled task, in the four languages of Dynwork's UI. Every description names it, so a request in
+// any of those words leads the agent to these tools; the UI word is task (`decisions.md`, 17-11-2026), routine only an
+// alias. `words` adds the tool's own verbs in each language.
+const aka = (words?: { es: string; fr: string; nl: string }) =>
+  "scheduled task, also called a routine, recurring task, automation or cron job (ES tarea programada, rutina" +
+  (words
+    ? `, ${words.es}; FR tâche planifiée, ${words.fr}; NL geplande taak, ${words.nl})`
+    : "; FR tâche planifiée; NL geplande taak)")
+
 // What every scheduled-task tool says once, in the list's description: the agent reads every tool's description anyway.
-// The user calls routines "tasks" (`decisions.md`, 17-11-2026), so the tools and their words do too.
+// What they are not for names the tools a request could reach instead: OpenCode's session `schedule_*` tools (flag
+// `schedules`), its `todowrite`, and the agent-farm connector, which runs farm tasks now.
 const rules =
+  'Words people use: scheduled task, routine, recurring or repeating task, automation, cron-like job, "every morning", ' +
+  '"every Monday", "daily at 8"; ES tarea programada, rutina, automatización, "todos los días", "cada lunes"; FR ' +
+  'tâche planifiée, routine, automatisation, "tous les jours"; NL geplande taak, routine, automatisering, "elke dag". ' +
+  'A task runs on this computer ("this Mac", where \'local\') or on Cloud, formerly the Agent Farm or "the farm" ' +
+  "(where 'farm'). These are direct tools, not in Code Mode's search. Anything recurring, or meant to show in Tasks, is a " +
+  "scheduled task: never a shell crontab, a launchd job, a reminder app, todowrite (this conversation's to-do list) or " +
+  "OpenCode's schedule_* tools, which only wake this same conversation later (use those just for a one-off follow-up " +
+  "here, such as \"check again in 10 minutes\"). To schedule on the farm use create_scheduled_task with where 'farm', " +
+  "never the agent-farm connector's tools; that connector only runs a farm task once, now. " +
   "Scheduled tasks are managed only with the *_scheduled_task(s) tools: never edit Dynwork's files or its database, and " +
   "never call its or OpenCode's APIs or CLI to change one. Before creating a task, call list_scheduled_tasks; if one " +
   "already does the same thing, propose update_scheduled_task instead of a new one, and to rename a task use " +
   "update_scheduled_task. Permissions: 'Ask me' makes a scheduled run wait for the user's approval before it edits " +
-  "files or runs shell commands, so a task meant to run unattended needs \"Don't ask\", which lets it edit files, run " +
+  'files or runs shell commands, so a task meant to run unattended needs "Don\'t ask", which lets it edit files, run ' +
   "commands and use its connectors without asking. When the task runs commands, ask the user which one they want and " +
-  "say what \"Don't ask\" allows. When the user names a target that does not match what you see (a cluster context " +
+  'say what "Don\'t ask" allows. When the user names a target that does not match what you see (a cluster context ' +
   "missing from the kubeconfig, a folder that does not exist), ask them instead of silently changing the instructions. " +
   "Reply in the user's language."
 
@@ -179,7 +201,9 @@ export function tools(emitter: Emitter) {
   const quick = (request: Request) =>
     ask(emitter, request).pipe(
       Effect.timeoutOption(listTimeout),
-      Effect.map((answered) => result(Option.getOrElse(answered, () => ({ id: request.id, text: closed, error: true })))),
+      Effect.map((answered) =>
+        result(Option.getOrElse(answered, () => ({ id: request.id, text: closed, error: true }))),
+      ),
     )
   // Waits for the user's answer on a card, as long as it takes.
   const waits = (request: Request) => ask(emitter, request).pipe(Effect.map(result))
@@ -188,7 +212,8 @@ export function tools(emitter: Emitter) {
     list: {
       name: "list_scheduled_tasks",
       description:
-        "Lists the user's Dynwork scheduled tasks, one line each: id, name, where it runs, schedule, state, " +
+        `When the user asks about a ${aka()}: which they have, whether one exists, or before creating, changing or ` +
+        "removing one. Lists the user's Dynwork scheduled tasks, one line each: id, name, where it runs, schedule, state, " +
         "permissions, connectors, next run, last run and the start of its instructions; then the connectors a task on " +
         `this computer may use. ${rules}`,
       input: Schema.Struct({}),
@@ -199,8 +224,10 @@ export function tools(emitter: Emitter) {
     running: {
       name: "list_running_tasks",
       description:
+        "When the user asks what is running now or whether a run waits for them, the runs of a " +
+        `${aka({ es: "qué se está ejecutando", fr: "ce qui tourne", nl: "wat er nu draait" })}. ` +
         "Lists every run of a Dynwork task going right now, on this computer and on Cloud: the task, where, " +
-        "when it started, its state (\"Waiting for your permission\" when it waits for the user) and its conversation " +
+        'when it started, its state ("Waiting for your permission" when it waits for the user) and its conversation ' +
         "id. Use it to answer what is running.",
       input: Schema.Struct({}),
       options: { codemode: false },
@@ -210,7 +237,8 @@ export function tools(emitter: Emitter) {
     get: {
       name: "get_scheduled_task",
       description:
-        "Reads one Dynwork scheduled task in full: its definition in create_scheduled_task's terms (as " +
+        `When the user asks about one ${aka()}: what it does, when it runs next, how its last runs went or why ` +
+        "one failed. Reads one Dynwork scheduled task in full: its definition in create_scheduled_task's terms (as " +
         "update_scheduled_task takes it), its state and next run, and its last runs with their state, reason, time and " +
         "conversation id.",
       input: target,
@@ -221,7 +249,11 @@ export function tools(emitter: Emitter) {
     create: {
       name: "create_scheduled_task",
       description:
-        "Proposes a new Dynwork scheduled task: a prompt an agent runs on a schedule. Call list_scheduled_tasks first: " +
+        'When the user wants something done on a schedule or again and again ("every morning", "every Monday", ' +
+        '"daily at 8", "schedule this"; ES "todos los días", "cada lunes", "prográmalo"; FR "tous les jours", ' +
+        `\"chaque lundi\"; NL \"elke dag\", \"elke maandag\"), it is a ${aka()}. Proposes a new Dynwork scheduled task: a ` +
+        'prompt an agent runs on a schedule, on this computer or on Cloud (formerly the Agent Farm: "on the farm" is ' +
+        "where 'farm'). Call list_scheduled_tasks first: " +
         "if a task already does this, use update_scheduled_task instead. Before calling it, ask the user what it should " +
         "do and what the result should be, how often and when it runs (times are " +
         `${zone} unless they say otherwise), and how to be told when it finishes; ask where it runs (this computer or ` +
@@ -237,7 +269,10 @@ export function tools(emitter: Emitter) {
     update: {
       name: "update_scheduled_task",
       description:
-        "Changes a Dynwork scheduled task: its id plus only the fields to change, in create_scheduled_task's terms (a " +
+        "When the user wants to change, rename, reschedule or edit a " +
+        `${aka({ es: "cambiar, renombrar", fr: "modifier, renommer", nl: "wijzigen, hernoemen" })}; ` +
+        "never create a new task to change one. Changes a Dynwork scheduled task: its id plus only the fields to " +
+        "change, in create_scheduled_task's terms (a " +
         "rename is just `name`; a new time is `time`, with `repeat` only when how often changes). Fields left out stay " +
         "as they are. The user sees each change as before → after on a card and saves it, or cancels; this tool waits " +
         "for that answer and changes nothing by itself. Where a task runs cannot change.",
@@ -251,6 +286,7 @@ export function tools(emitter: Emitter) {
     delete: {
       name: "delete_scheduled_task",
       description:
+        `When the user wants to delete or remove a ${aka({ es: "borrar, eliminar", fr: "supprimer", nl: "verwijderen" })}. ` +
         "Deletes a Dynwork scheduled task. The user confirms it on a card; this tool waits for that answer and deletes " +
         "nothing by itself. Prefer pause_scheduled_task when the user may want it back.",
       input: target,
@@ -260,7 +296,10 @@ export function tools(emitter: Emitter) {
     },
     pause: {
       name: "pause_scheduled_task",
-      description: "Pauses a Dynwork scheduled task at once: it does not run on its schedule until it is resumed.",
+      description:
+        "When the user wants to pause, stop for now or turn off a " +
+        `${aka({ es: "pausar, desactivar", fr: "mettre en pause", nl: "pauzeren" })}. ` +
+        "Pauses a Dynwork scheduled task at once: it does not run on its schedule until it is resumed.",
       input: target,
       options: { codemode: false },
       execute: (input: { readonly id: string }, context: Context) =>
@@ -268,7 +307,9 @@ export function tools(emitter: Emitter) {
     },
     resume: {
       name: "resume_scheduled_task",
-      description: "Resumes a paused Dynwork scheduled task at once: it runs on its schedule again.",
+      description:
+        `When the user wants to resume or turn back on a ${aka({ es: "reanudar, reactivar", fr: "reprendre", nl: "hervatten" })}. ` +
+        "Resumes a paused Dynwork scheduled task at once: it runs on its schedule again.",
       input: target,
       options: { codemode: false },
       execute: (input: { readonly id: string }, context: Context) =>
@@ -277,7 +318,10 @@ export function tools(emitter: Emitter) {
     run: {
       name: "run_scheduled_task",
       description:
-        "Starts a run of a Dynwork scheduled task now, whatever its schedule. A \"Don't ask\" task starts only after the " +
+        "When the user wants to run a " +
+        `${aka({ es: "ejecutar ahora", fr: "lancer maintenant", nl: "nu uitvoeren" })} now, once, outside its ` +
+        'schedule. Starts a run of a Dynwork scheduled task now, whatever its schedule. A "Don\'t ask" task starts ' +
+        "only after the " +
         "user confirms it on a card; an 'Ask me' one starts at once, as its run asks before edits and commands anyway. " +
         "The run's result shows in Tasks, not here.",
       input: target,
