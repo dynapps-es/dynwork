@@ -29,12 +29,14 @@ const variants = {
     background: { light: white, dark: black },
     aperture: { light: black, dark: white },
   },
+  // Canary follows the system like internal, with an amber aperture dark enough to read on white (#EBA800) and a
+  // brighter one on black (#F5B400).
   canary: {
     folder: path.join(base, "canary"),
-    squircle: "#FFC400",
-    symbol: "#000000",
-    background: { light: "srgb:1.00000,0.76863,0.00000,1.00000", dark: "srgb:0.80000,0.61000,0.00000,1.00000" },
-    aperture: { light: black, dark: black },
+    squircle: "#FFFFFF",
+    symbol: "#EBA800",
+    background: { light: white, dark: black },
+    aperture: { light: "srgb:0.92157,0.65882,0.00000,1.00000", dark: "srgb:0.96078,0.70588,0.00000,1.00000" },
   },
   dev: {
     folder: path.join(base, "dev"),

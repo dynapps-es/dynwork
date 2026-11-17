@@ -42,7 +42,7 @@ export const Proposal = Schema.Struct({
     description: `The IANA zone the time is read in. Default ${zone}, unless the user says otherwise.`,
   }),
   where: Schema.optional(Schema.Literals(["local", "farm"])).annotate({
-    description: "Where it runs: 'local' (this computer, only while Dynwork is open; the default) or 'farm' (Dynapps Cloud, which keeps going with the user's laptop closed).",
+    description: "Where it runs: 'local' (this computer, only while Dynwork is open; the default) or 'farm' (Cloud, which keeps going with the user's laptop closed).",
   }),
   permissions: Schema.optional(Schema.Literals(["ask", "bypass"])).annotate({
     description:
@@ -199,7 +199,7 @@ export function tools(emitter: Emitter) {
     running: {
       name: "list_running_tasks",
       description:
-        "Lists every run of a Dynwork task going right now, on this computer and on Dynapps Cloud: the task, where, " +
+        "Lists every run of a Dynwork task going right now, on this computer and on Cloud: the task, where, " +
         "when it started, its state (\"Waiting for your permission\" when it waits for the user) and its conversation " +
         "id. Use it to answer what is running.",
       input: Schema.Struct({}),
@@ -225,7 +225,7 @@ export function tools(emitter: Emitter) {
         "if a task already does this, use update_scheduled_task instead. Before calling it, ask the user what it should " +
         "do and what the result should be, how often and when it runs (times are " +
         `${zone} unless they say otherwise), and how to be told when it finishes; ask where it runs (this computer or ` +
-        "Dynapps Cloud), the project folder and the connectors only when they matter, and 'Ask me' or \"Don't ask\" " +
+        "Cloud), the project folder and the connectors only when they matter, and 'Ask me' or \"Don't ask\" " +
         "whenever the task runs commands. The user sees the proposal on a card and creates it with Schedule, or " +
         "cancels; this tool waits for that answer. It never creates a task by itself. If the user cancels, ask what to " +
         "change.",

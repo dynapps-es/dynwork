@@ -313,7 +313,7 @@ function subject(definition: Definition, ref: Ref, label: string): Subject {
   }
 }
 
-const cloud = "Dynapps Cloud is not available in this Dynwork yet."
+const cloud = "Cloud is not available in this Dynwork yet."
 
 const cancelled: Record<Card["kind"], string> = {
   create: "The user cancelled: nothing was created. Ask what to change before proposing again.",

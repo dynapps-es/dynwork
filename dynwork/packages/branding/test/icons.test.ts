@@ -86,13 +86,17 @@ describe.each(channels)("the %s icons", (channel) => {
     expect(await sizes(folder)).toEqual(await sizes(root))
   })
 
-  test("icon.icon is tinted in both appearances and still draws the aperture", async () => {
+  test("icon.icon is told apart from internal's by its background or its aperture, and still draws the aperture", async () => {
     const composer = path.join(folder, "icon.icon")
     const icon = await Bun.file(path.join(composer, "icon.json")).json()
     const internal = await Bun.file(path.join(root, "icon.icon/icon.json")).json()
     const layer = icon.groups[0].layers[0]
+    const fills = (json: typeof icon) => [
+      json["fill-specializations"],
+      json.groups[0].layers[0]["fill-specializations"],
+    ]
 
-    expect(icon["fill-specializations"]).not.toEqual(internal["fill-specializations"])
+    expect(fills(icon)).not.toEqual(fills(internal))
     expect(await Bun.file(path.join(composer, "Assets", layer["image-name"])).exists()).toBe(true)
   })
 

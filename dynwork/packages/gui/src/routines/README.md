@@ -5,7 +5,7 @@ in one of two places, **local** (this computer) or **remote** (the Agent Farm), 
 
 **What the user reads** (`decisions.md`, 17-11-2026): the section is **Tasks** and each routine is a **task** ("scheduled
 task" where it needs precision); where it runs is **This Mac** (**This PC**, "This computer" elsewhere, from
-`views/device.ts`) or **Dynapps Cloud**. "Agent Farm", "Remote" and "routine" never reach the UI, the notifications, the
+`views/device.ts`) or **Cloud**. "Agent Farm", "Remote" and "routine" never reach the UI, the notifications, the
 prompts or the tool names. The code, the `Backend` contract, `RoutinesFarm` and the Governance extension keep
 `routines`, and "local", "remote" and "farm" stay the backend's internal names.
 This directory is the contract between the views and the places they run, the backends, and the clock of the local
@@ -298,7 +298,7 @@ they matter. The same conversation, or any other, then manages the user's tasks 
   the tool. Cancel answers that nothing changed.
 - **Agent Farm.** `where: "farm"` and a `farm:` id go through the registry to the `farm` backend only when it is the
   real one (`DYNWORK_ROUTINES_FARM=1`); the skeleton answers "not implemented", and the tool reports it. With the demo
-  in its place the tool says Dynapps Cloud is not available. See `farm/README.md`.
+  in its place the tool says Cloud is not available. See `farm/README.md`.
 
 `test/routines/chat.test.ts` drives `make` with the local demo fake and the farm skeleton;
 `dynwork/packages/server-plugin/test/routines.test.ts` drives the tools and their wait.

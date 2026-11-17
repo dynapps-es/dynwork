@@ -132,7 +132,7 @@ plugin's tables), and anything else it needs (`demo.ts`, components, a CSS file)
 `test/views/<view>/`; `test/ui/es.test.ts` fails when a key or a `{{param}}` is missing from either language.
 
 Spanish is Spain Spanish with "tú", short and plain: a scheduled task is a "tarea programada", a run an "ejecución",
-and Governance, Brain, Dynwork and Dynapps Cloud keep their names. Text main writes for a window (a backend's field
+and Governance, Brain, Dynwork and Cloud keep their names. Text main writes for a window (a backend's field
 labels, a failure) stays English in main and is listed in `../routines/i18n/en.ts`, with its Spanish in `es.ts`; the
 window shows it through `fromMain` (`agents/format.ts`).
 

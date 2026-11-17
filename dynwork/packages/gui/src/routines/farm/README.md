@@ -23,14 +23,14 @@ Not here, on purpose: any farm HTTP call, any token handling. See "Where the tok
 A **routine** is an agent, its instructions and a trigger (a schedule, or "only when I start it"), plus where it runs:
 local (this computer) or remote (the farm). In the UI it is called a **task**, never an "agent" or a "routine": "agent"
 is the definition in both worlds (an OpenCode agent, a farm catalogue agent). The view is called **Tasks**; where a task
-runs reads **This Mac** (This PC) or **Dynapps Cloud**, and "Agent Farm" and "Remote" never reach the UI.
+runs reads **This Mac** (This PC) or **Cloud**, and "Agent Farm" and "Remote" never reach the UI.
 
-- One list for every task, local and remote. Chips `All | This Mac | Dynapps Cloud` only narrow it; each card has a
-  badge for where it runs ("Dynapps Cloud" for yours). Tabs: My tasks, Templates, Activity (every run, including farm tasks that
+- One list for every task, local and remote. Chips `All | This Mac | Cloud` only narrow it; each card has a
+  badge for where it runs ("Cloud" for yours). Tabs: My tasks, Templates, Activity (every run, including farm tasks that
   were started outside DynWork).
 - The detail page has the same layout for both kinds: History on the left (every run with its state and reason), and
   on the right Instructions, Repeats (the next three), Where and with what, Permissions, Notifications. For a farm
-  routine it adds a dashed "Dynapps Cloud options" block, painted from your `capabilities().fields`.
+  routine it adds a dashed "Cloud options" block, painted from your `capabilities().fields`.
 - Actions: Open (for a farm routine, the read-only viewer of its latest run), Run now, Pause/Resume, Edit, Duplicate,
   Remove. An action your backend cannot do is shown disabled with the reason taken from `capabilities`.
 - Clicking a farm run opens a read-only viewer: the result in Markdown, usage and cost, the tail of the log, "Download
@@ -239,7 +239,7 @@ David decides which of these the farm team takes on.
 ## Tasks from a chat
 
 The scheduled-task tools (`@dynwork/server-plugin/routines`, "Create from a chat" in `routines/README.md`) let the
-agent manage the user's tasks in a chat; the user sees them as tasks, and yours as **Dynapps Cloud** (your
+agent manage the user's tasks in a chat; the user sees them as tasks, and yours as **Cloud** (your
 `capabilities().label`; "Agent Farm" never reaches the UI). Every tool goes through the registry to the task's own
 backend, so a `farm:<id>` task reaches yours:
 
@@ -266,4 +266,4 @@ backend, so a `farm:<id>` task reaches yours:
 - **How to test it.** `test/routines/chat.test.ts` has "a farm proposal reaches the farm backend" and "a farm task
   reaches the farm backend": point them at your backend and expect a card or a change instead of "not implemented".
   Live: run Dynwork with `DYNWORK_ROUTINES_FARM=1`, open Tasks › New task › Create with Dynwork, ask for a task on
-  Dynapps Cloud, press Schedule, and see it in the list; then ask the chat to rename, pause and run it.
+  Cloud, press Schedule, and see it in the list; then ask the chat to rename, pause and run it.

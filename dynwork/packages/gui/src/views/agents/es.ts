@@ -4,7 +4,7 @@ import type en from "./en"
 export default {
   "agents.title": "Programadas",
   "agents.description":
-    "Todo lo que tus agentes hacen con horario, en una sola lista. Las tareas en {{device}} usan tus carpetas, skills y conectores mientras Dynwork está abierto; las de Dynapps Cloud siguen aunque cierres el portátil.",
+    "Todo lo que tus agentes hacen con horario, en una sola lista. Las tareas en {{device}} usan tus carpetas, skills y conectores mientras Dynwork está abierto; las de Cloud siguen aunque cierres el portátil.",
   "agents.new": "Nueva tarea",
   "agents.new.chat": "Crear con Dynwork",
   "agents.new.manual": "Configurar a mano",
@@ -69,7 +69,7 @@ export default {
   "agents.where.label": "Dónde se ejecutan",
   "agents.where.all": "Todas",
   "agents.where.local": "{{device}}",
-  "agents.where.remote": "Dynapps Cloud",
+  "agents.where.remote": "Cloud",
   "agents.filter.status": "Estado",
   "agents.filter.all": "Todas",
   "agents.filter.active": "Activas",
@@ -78,7 +78,7 @@ export default {
   "agents.filter.running": "En marcha",
   "agents.search": "Buscar tareas",
   "agents.list.label": "Tareas programadas",
-  "agents.list.empty": "Aún no hay tareas. Aquí salen tanto las de {{device}} como las de Dynapps Cloud.",
+  "agents.list.empty": "Aún no hay tareas. Aquí salen tanto las de {{device}} como las de Cloud.",
   "agents.list.none": "Ninguna tarea coincide con estos filtros.",
   "agents.list.and": "{{first}} y {{last}}",
   "agents.unread": "Ejecución sin leer",
@@ -142,7 +142,7 @@ export default {
   "agents.templates.empty":
     "Las plantillas las publica Governance para tu organización. Al usar una se crea una tarea tuya que puedes editar. Aún no hay ninguna publicada.",
   "agents.activity.hint":
-    "Cada ejecución, aquí y en la nube, de la más reciente a la más antigua. Incluye las de Dynapps Cloud lanzadas fuera de Dynwork, por ejemplo desde el chat.",
+    "Cada ejecución, en este equipo y en Cloud, de la más reciente a la más antigua. Incluye las de Cloud lanzadas fuera de Dynwork, por ejemplo desde el chat.",
   "agents.activity.empty": "Aún no hay ejecuciones.",
 
   "agents.detail.back": "Programadas",
@@ -162,7 +162,7 @@ export default {
   "agents.detail.history": "Historial",
   "agents.detail.history.empty": "Aún no hay ejecuciones.",
   "agents.detail.history.hint":
-    "Las ejecuciones de Dynapps Cloud se abren en un visor de solo lectura con su resultado y su registro. Continuar lanza una ejecución nueva que retoma la sesión.",
+    "Las ejecuciones de Cloud se abren en un visor de solo lectura con su resultado y su registro. Continuar lanza una ejecución nueva que retoma la sesión.",
   "agents.detail.instructions": "Instrucciones",
   "agents.detail.repeats": "Se repite",
   "agents.detail.upcoming": "Próximas ejecuciones",
@@ -174,7 +174,7 @@ export default {
   "agents.detail.modelByAgent": "Modelo: lo elige el agente",
   "agents.detail.permissions": "Permisos",
   "agents.detail.permissionsRemote":
-    "En Dynapps Cloud no hay aprobaciones: el agente trabaja dentro de su propio contenedor, solo con el acceso que le has dado.",
+    "En Cloud no hay aprobaciones: el agente trabaja dentro de su propio contenedor, solo con el acceso que le has dado.",
   "agents.detail.notifications": "Avisos",
   "agents.detail.options": "Opciones de {{label}}",
   "agents.detail.yes": "Sí",
@@ -193,7 +193,7 @@ export default {
 
   "agents.form.title.create": "Nueva tarea",
   "agents.form.title.edit": "Editar tarea",
-  "agents.form.description": "El mismo formulario para tareas en este Mac y en Dynapps Cloud: solo cambia dónde se ejecutan.",
+  "agents.form.description": "El mismo formulario para tareas en este Mac y en Cloud: solo cambia dónde se ejecutan.",
   "agents.form.where": "Dónde se ejecuta",
   "agents.form.where.local.title": "{{device}}",
   "agents.form.where.local.text": "Con tus carpetas, skills y conectores. Solo con Dynwork abierto.",
@@ -222,7 +222,7 @@ export default {
   "agents.form.notice.local":
     "Elige bajo las instrucciones si esta tarea te pide aprobación, como una conversación, o trabaja sin preguntar. Cuando pregunta, la ejecución espera y te llega un aviso.",
   "agents.form.notice.remote":
-    "En Dynapps Cloud el agente trabaja sin aprobaciones dentro de su contenedor. Dale solo el acceso que necesita.",
+    "En Cloud el agente trabaja sin aprobaciones dentro de su contenedor. Dale solo el acceso que necesita.",
   "agents.form.trigger": "Cuándo",
   "agents.form.trigger.none": "Solo cuando la ejecuto",
   "agents.form.trigger.daily": "Todos los días",
