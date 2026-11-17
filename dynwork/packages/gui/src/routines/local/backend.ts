@@ -30,7 +30,9 @@ export { Saved, initial } from "./store"
 //
 // The clock that fires a schedule and recovers missed runs is `./clock.ts`: it decides, and this backend records what it
 // took (`take`) and starts the run (`fire`). A run asks for permissions as in any conversation ("Ask me"), or has them
-// all granted ("Don't ask"); either way it is told to the user (`notify`). Not here yet: the time limit.
+// all granted ("Don't ask"); either way it is told to the user (`notify`). A run still going when its "Time limit"
+// passes is interrupted and recorded as failed (`timeout`): one timer per run, and every read of a run checks it too, so
+// a run left going by a closed app is stopped at once when it opens again.
 //
 // Definitions are shared with the user's other computers through Governance (`./sync.ts`): every change made here goes
 // to the store and to its outbox in one write, and a routine runs only on its owner computer (`here`).
@@ -38,6 +40,8 @@ export { Saved, initial } from "./store"
 export const id = "local"
 
 const PAGE = 20
+// A routine's "Time limit (minutes)" when it does not say (the field's default).
+const LIMIT = 30
 // How long to wait before following the service's events again after the stream ended.
 const RETRY = 2_000
 const EVENTS = [
@@ -180,6 +184,8 @@ export interface Options {
   /** Where a routine without a folder works (`~/Dynwork/Routines`). */
   home: string
   now: () => number
+  /** Arms the timer of a run's time limit; `set` answers what cancels it. Tests pass their own. */
+  timers?: RoutinesClock.Timers
   /** Something the routine's "Notify me" says to tell the user (`Notice`). */
   notify?: (notice: Notice) => void
   /** Whether a run is going: called when the first one starts and when the last one ends. */
@@ -243,6 +249,15 @@ export function make(options: Options): Local {
   // The permission requests each running session waits for, by session id.
   const asking = new Map<string, Set<string>>()
   const busy = { value: false }
+  // The timer of each running run's time limit, by run id: what cancels it.
+  const deadlines = new Map<string, () => void>()
+  const timers = options.timers ?? {
+    set: (fire: () => unknown, ms: number) => {
+      const timer = setTimeout(fire, ms)
+      timer.unref()
+      return () => clearTimeout(timer)
+    },
+  }
 
   const saved = () => options.store.value
   // Another account's routine is not there for anything here: not listed, read, edited, run or fired.
@@ -344,17 +359,51 @@ export function make(options: Options): Local {
     options.queued()
   }
 
-  const saveRun = (record: SavedRun) =>
+  // When a run's time limit passes: its start plus the routine's limit.
+  const deadline = (record: SavedRun) => {
+    const minutes = saved().routines.find((stored) => stored.id === record.routine)?.definition.options.timeLimit
+    return (record.started ?? 0) + (typeof minutes === "number" ? minutes : LIMIT) * 60_000
+  }
+
+  const saveRun = (record: SavedRun) => {
     options.store.update((draft) => {
       const index = draft.runs.findIndex((stored) => stored.id === record.id)
       if (index >= 0) draft.runs[index] = record
     })
+    // Whatever ended the run, its timer goes with it.
+    if (!ended(record.state)) return
+    deadlines.get(record.id)?.()
+    deadlines.delete(record.id)
+  }
+
+  const arm = (record: SavedRun) => {
+    if (record.started === undefined || deadlines.has(record.id)) return
+    deadlines.set(
+      record.id,
+      timers.set(() => expire(record.id), Math.max(deadline(record) - options.now(), 0)),
+    )
+  }
+
+  // The time limit passed with the run going, even while it waits for a permission: it is recorded before the session is
+  // interrupted, or the interrupt's own event would read as the user stopping it.
+  async function expire(run: string): Promise<SavedRun | undefined> {
+    const record = recordOf(run)
+    if (!record || ended(record.state)) return record
+    const stopped: SavedRun = { ...quiet(record), state: "failed", reason: "timeout", finished: options.now() }
+    saveRun(stopped)
+    emit({ routine: ref(stopped.routine), run: toRun(stopped) })
+    finished(stopped)
+    await options.client()?.session.interrupt({ sessionID: run }).catch(() => undefined)
+    return stopped
+  }
 
   // Reads a run that has not ended from its session, and records and reports what changed. A run that ended stays as
   // it is: its session may go on with a reply, which is the conversation's business, not the run's.
   async function refresh(record: SavedRun): Promise<SavedRun> {
+    if (ended(record.state)) return record
+    if (record.started !== undefined && deadline(record) <= options.now()) return (await expire(record.id)) ?? record
     const client = options.client()
-    if (ended(record.state) || !client) return record
+    if (!client) return record
     const info = await client.session.get({ sessionID: record.id }).then(
       (session) => session,
       (error: unknown) => (gone(error) ? null : undefined),
@@ -535,6 +584,8 @@ export function make(options: Options): Local {
     dispose: () => {
       follower.disposed = true
       stop()
+      deadlines.forEach((cancel) => cancel())
+      deadlines.clear()
     },
     options: async (lookup, query) => {
       const client = options.client()
@@ -794,6 +845,7 @@ export function make(options: Options): Local {
       viewed: false,
     }
     options.store.update((draft) => void draft.runs.unshift(record))
+    arm(record)
     const prompt = promptOf(definition)
     const text =
       occurrence.since === undefined ? prompt.text : `${catchUp(occurrence.since, definition)}\n\n${prompt.text}`
@@ -834,7 +886,8 @@ export function make(options: Options): Local {
     if (moved) saveRoutine(stored.id, { directory })
   }
 
-  // A run left going when the app last closed is read again as soon as the service answers.
+  // A run left going when the app last closed is read again as soon as the service answers, and its limit still counts.
+  inflight().forEach(arm)
   follow()
   return local
 }

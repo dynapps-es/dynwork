@@ -119,6 +119,7 @@ export default {
   "agents.why.overlap": "The previous run was still running",
   "agents.why.restart": "Interrupted by a restart",
   "agents.why.start": "Could not start",
+  "agents.why.timeout": "Stopped at the time limit",
   "agents.duration.short": "under a minute",
   "agents.duration.minutes": "{{minutes}} min",
   "agents.duration.hours": "{{hours}} h {{minutes}} min",

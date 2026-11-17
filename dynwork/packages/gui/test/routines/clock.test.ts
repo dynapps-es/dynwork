@@ -200,7 +200,8 @@ describe("the clock fires a schedule at its time", () => {
   test("a run whose previous run is still going is skipped, not queued", async () => {
     const subject = app(Date.UTC(2026, 10, 16, 9))
     const open = subject.launch()
-    const routine = await create(open.backend, schedule("*/30 * * * *"))
+    // The run must outlast the next occurrence, so its time limit is longer than the default 30 minutes.
+    const routine = await create(open.backend, schedule("*/30 * * * *", { timeLimit: 60 }))
     await open.engine.check()
     await open.run(Date.UTC(2026, 10, 16, 9, 30))
     await until(() => subject.service.prompts().length === 1)
