@@ -29,7 +29,12 @@ export interface Notify {
  *   into plain text (`accounts/ipc.ts`).
  * - `watch` holds a window's call open. While at least one is open, each backend's own `watch` is subscribed once.
  */
-export function implementation(registry: Registry, notify: Notify): IpcImpl<(typeof Routines)["spec"]> {
+export function implementation(
+  registry: Registry,
+  notify: Notify,
+  /** How long to wait before reading again a backend that answered `unreachable`. */
+  retry = 5_000,
+): IpcImpl<(typeof Routines)["spec"]> {
   const snapshot = new Map<string, { capabilities: Capabilities; routines: readonly Routine[] }>()
   // The newest read each backend has begun, so that one that answers late does not replace a newer one.
   const reads = new Map<string, number>()
@@ -37,6 +42,9 @@ export function implementation(registry: Registry, notify: Notify): IpcImpl<(typ
   // many windows watch.
   const live = new Map<string, { backend: Backend; stop: () => void }>()
   const windows = { watching: 0 }
+  // A backend that was unreachable when read, such as the local service still starting, says nothing when it comes up:
+  // it is read again until it answers something else.
+  const retrying = new Map<string, ReturnType<typeof setTimeout>>()
 
   async function load(backend: Backend) {
     const read = (reads.get(backend.id) ?? 0) + 1
@@ -49,6 +57,13 @@ export function implementation(registry: Registry, notify: Notify): IpcImpl<(typ
     // A list that failed keeps the last one: a window does not blank because a token expired.
     const kept = snapshot.get(backend.id)?.routines ?? []
     snapshot.set(backend.id, { capabilities, routines: isFailure(routines) ? kept : routines })
+    if (capabilities.status !== "unreachable" || retrying.has(backend.id)) return
+    const timer = setTimeout(() => {
+      retrying.delete(backend.id)
+      if (registry.get(backend.id) === backend) void load(backend).then(notify.changed)
+    }, retry)
+    timer.unref?.()
+    retrying.set(backend.id, timer)
   }
 
   async function loadAll() {

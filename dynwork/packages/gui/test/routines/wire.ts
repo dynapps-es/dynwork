@@ -15,14 +15,18 @@ export function crossing<A>(schema: Schema.ConstraintCodec<A, unknown>, value: u
  * A window's client for the routines Ipc over `registry`, with every input and output crossing the way the bridge makes
  * it cross. `pushes` counts the state pushes main made; `events` holds the `run` events the window received.
  */
-export function connect(registry: Registry) {
+export function connect(registry: Registry, retry?: number) {
   const pushes = { count: 0 }
   const events: Run[] = []
   const listeners = new Set<(run: Run) => void>()
-  const impl = RoutinesIpc.implementation(registry, {
-    changed: () => void pushes.count++,
-    run: (run) => listeners.forEach((listener) => listener(crossing(Run, run))),
-  })
+  const impl = RoutinesIpc.implementation(
+    registry,
+    {
+      changed: () => void pushes.count++,
+      run: (run) => listeners.forEach((listener) => listener(crossing(Run, run))),
+    },
+    retry,
+  )
   listeners.add((run) => events.push(run))
 
   const spec = Routines.spec

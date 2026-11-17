@@ -53,7 +53,7 @@ export default {
   "routines.fail.max": "The limit of runs is at least 1.",
   "routines.fail.onePlace": "Tasks here run in one place.",
   "routines.fail.noAnswer": "Where the task runs did not answer.",
-  "routines.fail.offline": "DynWork's service is not running.",
+  "routines.fail.offline": "Dynwork's service is not running.",
   "routines.fail.otherComputers": "This computer cannot run tasks of other computers.",
   "routines.fail.finished": "The run has already finished.",
   "routines.fail.cursor": "That cursor is not one of this backend's.",

@@ -193,7 +193,7 @@ export default {
 
   "agents.form.title.create": "Nueva tarea",
   "agents.form.title.edit": "Editar tarea",
-  "agents.form.description": "El mismo formulario se ejecute donde se ejecute la tarea: solo cambia dónde.",
+  "agents.form.description": "El mismo formulario para tareas en este Mac y en Dynapps Cloud: solo cambia dónde se ejecutan.",
   "agents.form.where": "Dónde se ejecuta",
   "agents.form.where.local.title": "{{device}}",
   "agents.form.where.local.text": "Con tus carpetas, skills y conectores. Solo con Dynwork abierto.",

@@ -333,3 +333,24 @@ describe("viewing", () => {
     expect(routinesIn(client).find((item) => item.ref.id === routine.ref.id)?.unread).toBe(routine.unread - 1)
   })
 })
+
+describe("a backend that is unreachable when read", () => {
+  test("is read again until it answers, so a service that starts late shows up without a reload", async () => {
+    const registry = RoutinesBackend.make()
+    const local = RoutinesDemo.local(clock().now)
+    const up = { ready: false }
+    registry.register({
+      ...local,
+      capabilities: async () => {
+        const capabilities = await local.capabilities()
+        return up.ready ? capabilities : { ...capabilities, status: "unreachable" as const }
+      },
+    })
+    const { client } = connect(registry, 20)
+    await flush()
+    expect(client.state()?.backends[0]?.status).toBe("unreachable")
+    up.ready = true
+    await Bun.sleep(80)
+    expect(client.state()?.backends[0]?.status).toBe("ready")
+  })
+})

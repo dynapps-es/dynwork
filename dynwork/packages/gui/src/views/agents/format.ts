@@ -79,7 +79,7 @@ export function backendLine(t: Translate, capabilities: Capabilities) {
   if (capabilities.status !== "ready")
     return t("agents.backend.status", {
       label: capabilities.label,
-      status: capabilities.detail ?? t(`agents.backend.${capabilities.status}`),
+      status: capabilities.detail ? fromMain(t, capabilities.detail) : t(`agents.backend.${capabilities.status}`),
     })
   const ready = t(`agents.backend.${capabilities.kind}.ready`, { label: capabilities.label })
   const line = capabilities.synced === false ? `${ready} · ${t("agents.backend.unsynced")}` : ready
