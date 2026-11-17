@@ -101,7 +101,7 @@ const setup: Plugin.MainSetup = (ctx) => {
     farm: RoutinesFarm.enabled(process.env),
     notify: (notice) => {
       if (!Notification.isSupported()) return
-      const shown = new Notification(RoutinesMain.words(notice))
+      const shown = new Notification(RoutinesMain.words(notice, ctx.t))
       // Held until it is clicked or closed: a notification nobody refers to may be collected before the click.
       notices.add(shown)
       shown.on("click", notice.open)

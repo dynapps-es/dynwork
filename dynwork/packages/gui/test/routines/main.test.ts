@@ -5,6 +5,9 @@ import type { MainContext } from "@opencode/plugin/gui/main"
 import { isFailure, Routines, type Run } from "../../src/routines/contract"
 import { RoutinesFarm } from "../../src/routines/farm/backend"
 import { RoutinesMain } from "../../src/routines/main"
+import en from "../../src/views/en"
+import es from "../../src/views/es"
+import { translator } from "../ui/translator"
 import { MINUTE, storage } from "./fixture"
 import { fakeService, until } from "./service"
 
@@ -159,10 +162,12 @@ describe("main", () => {
     await until(() => told.length === 1)
 
     expect(told[0]).toMatchObject({ kind: "waiting", routine: { name: "Digest" }, run: { ref: run.ref } })
-    expect(RoutinesMain.words(told[0]!)).toEqual({
+    // Main's `t` reads the plugin's table in the app's language.
+    expect(RoutinesMain.words(told[0]!, translator(en))).toEqual({
       title: "Digest is waiting for your permission",
       body: run.title,
     })
+    expect(RoutinesMain.words(told[0]!, translator(es)).title).toBe("Digest espera tu permiso")
     expect(main.pushed.opened).toEqual([])
     told[0]!.open()
     expect(main.pushed.window).toEqual(["restore", "show", "focus"])

@@ -8,7 +8,7 @@ import { For, Show } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Routine, Run } from "../../routines/contract"
 import { device } from "../device"
-import { duration, instructionsText, reasonText, runWhen, scheduleText } from "./format"
+import { duration, fromMain, instructionsText, reasonText, runWhen, scheduleText } from "./format"
 import { runHref } from "../runs/model"
 import { tabs, type AgentsModel } from "./model"
 import { openable, routineStatus, stateKey, statuses, waiting, wheres } from "./routine"
@@ -137,7 +137,7 @@ export function Activity(props: { model: AgentsModel; open: (run: Run) => void }
   return (
     <div data-slot="agents-activity">
       <p data-slot="agents-hint">{ctx.t("agents.activity.hint")}</p>
-      <For each={model.activityPage().failures}>{(failure) => <p data-slot="agents-error">{failure.message}</p>}</For>
+      <For each={model.activityPage().failures}>{(failure) => <p data-slot="agents-error">{fromMain(ctx.t, failure.message)}</p>}</For>
       <Show
         when={model.activity().length > 0}
         fallback={

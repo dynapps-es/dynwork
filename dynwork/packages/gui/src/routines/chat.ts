@@ -381,7 +381,7 @@ export function setup(
       const client = input.client()
       if (!client) return fail("unreachable", "Dynwork's service is not running.")
       const session = await client.session
-        .create({ title: "New task", location: { directory: input.home } })
+        .create({ title: ctx.t("agents.new"), location: { directory: input.home } })
         .catch(() => undefined)
       if (!session) return fail("failed", "The conversation could not be opened.")
       const sent = await client.session

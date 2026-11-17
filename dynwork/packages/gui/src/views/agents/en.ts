@@ -286,4 +286,8 @@ export default {
   "agents.viewer.continue": "Continue",
   "agents.viewer.continueHint": "The session is kept: continuing starts a new run of this task.",
   "agents.viewer.loading": "Loading the run…",
+
+  "agents.notify.finished": "{{name}} finished",
+  "agents.notify.failed": "{{name}} failed",
+  "agents.notify.waiting": "{{name}} is waiting for your permission",
 }

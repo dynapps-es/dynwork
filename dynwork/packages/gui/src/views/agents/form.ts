@@ -11,7 +11,7 @@ import {
   type Schedule,
 } from "../../routines/contract"
 import { defaults, layout, shown, valueOf, type Options } from "./fields"
-import type { Translate } from "./format"
+import { fromMain, type Translate } from "./format"
 import {
   cronOf,
   dayEnd,
@@ -68,7 +68,7 @@ export interface Draft {
 export type Problem = string | Words
 
 export const problemText = (t: Translate, problem: Problem) =>
-  typeof problem === "string" ? problem : t(problem.key, problem.params)
+  typeof problem === "string" ? fromMain(t, problem) : t(problem.key, problem.params)
 
 /** The keys of the common fields, as a backend's `Failure.fields` names them. */
 export const common = ["name", "instructions", "agent", "model", "schedule"] as const

@@ -10,7 +10,7 @@ import {
   type Run,
   type Transcript,
 } from "../../routines/contract"
-import { runTime } from "./format"
+import { fieldSaid, runTime, type Translate } from "./format"
 import { matchesStatus, matchesWhere, type Status, type Where } from "./routine"
 
 /** The list's three tabs: the user's routines, Governance's templates, and every run. */
@@ -41,9 +41,14 @@ export const sameRef = (a?: Ref, b?: Ref) => !!a && !!b && a.backend === b.backe
  * It reads routines and backends from the Ipc's state, and loads runs, transcripts and lookups on demand. Every read
  * is a plain function rather than a memo, so it follows the client's state wherever it is read.
  *
- * `client` is the window's routines client while the Ipc is active; every action is a no-op without it.
+ * `client` is the window's routines client while the Ipc is active; every action is a no-op without it. `speak` puts
+ * the backends' fields, which main writes in English, in the window's language.
  */
-export function createAgentsModel(input: { client: () => Client | undefined; where?: Where }) {
+export function createAgentsModel(input: {
+  client: () => Client | undefined
+  where?: Where
+  speak?: { t: Translate; locale: () => string }
+}) {
   const [state, setState] = createStore({
     tab: "mine" as Tab,
     where: input.where ?? ("all" as Where),
@@ -58,7 +63,19 @@ export function createAgentsModel(input: { client: () => Client | undefined; whe
     failure: undefined as Failure | undefined,
   })
 
-  const backends = (): readonly Capabilities[] => input.client()?.state()?.backends ?? []
+  // One translated copy per backend and language: the form's field lists keep their identity while the user types.
+  const spoken = new WeakMap<Capabilities, { locale: string; value: Capabilities }>()
+  const speak = (capabilities: Capabilities) => {
+    const language = input.speak
+    if (!language) return capabilities
+    const locale = language.locale()
+    const cached = spoken.get(capabilities)
+    if (cached?.locale === locale) return cached.value
+    const value = { ...capabilities, fields: capabilities.fields.map((field) => fieldSaid(language.t, field)) }
+    spoken.set(capabilities, { locale, value })
+    return value
+  }
+  const backends = (): readonly Capabilities[] => (input.client()?.state()?.backends ?? []).map(speak)
   const routines = (): readonly Routine[] => input.client()?.state()?.routines ?? []
   const capabilities = (backend: string) => backends().find((candidate) => candidate.backend === backend)
   const inWhere = (where: Where, ref: Ref) => matchesWhere(where, capabilities(ref.backend))

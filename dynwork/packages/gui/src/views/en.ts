@@ -1,6 +1,7 @@
 import agents from "./agents/en"
 import brain from "./brain/en"
 import runs from "./runs/en"
+import routines from "../routines/i18n/en"
 
 // The views' strings, merged into the `dynwork` built-in's table. Each view owns the table in its folder.
 export default {
@@ -22,4 +23,5 @@ export default {
   ...agents,
   ...brain,
   ...runs,
+  ...routines,
 }

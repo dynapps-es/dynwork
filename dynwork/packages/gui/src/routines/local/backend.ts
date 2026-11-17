@@ -276,7 +276,7 @@ export function make(options: Options): Local {
   }
   const ref = (routine: string) => ({ backend, id: routine })
   const missing = (what: string, key: string) => fail("not-found", `No ${what} ${key}.`)
-  const offline = () => fail("unreachable", "DynWork's service is not running.")
+  const offline = () => fail("unreachable", "Dynwork's service is not running.")
 
   const toRun = (record: SavedRun): Run => ({
     ref: { backend, id: record.id },
@@ -322,7 +322,7 @@ export function make(options: Options): Local {
     kind: "local",
     label: options.label,
     status: options.client() ? "ready" : "unreachable",
-    ...(options.client() ? {} : { detail: "DynWork's service is not running." }),
+    ...(options.client() ? {} : { detail: "Dynwork's service is not running." }),
     ...(options.synced?.() === undefined ? {} : { synced: options.synced() }),
     instructions: ["prompt", "skill"],
     agent: "optional",

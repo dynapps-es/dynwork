@@ -7,7 +7,7 @@ import { createSignal, For, onCleanup, Show, type Accessor } from "solid-js"
 import type definition from "../../accounts/index"
 import type { ChatClient } from "../../routines/client"
 import type { Card } from "../../routines/contract"
-import { cardChanges, cardRows } from "./format"
+import { cardChanges, cardRows, fromMain } from "./format"
 import "./proposal.css"
 
 // Tasks from a chat: the approval of what the scheduled-task tools ask for (`routines/chat.ts`). One dock with a
@@ -71,7 +71,7 @@ function TaskDock(props: { card: Card; client: () => ChatClient | undefined }) {
     const failure = await client.decide({ id: props.card.id, accept }).catch(() => undefined)
     setBusy(false)
     // A card answered elsewhere (another window) is `not-found`: it leaves with the state.
-    if (failure && failure.code !== "not-found") setError(failure.message)
+    if (failure && failure.code !== "not-found") setError(fromMain(ctx.t, failure.message))
   }
   const keys = (event: KeyboardEvent) => {
     if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return
