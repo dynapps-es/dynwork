@@ -5,7 +5,7 @@
 
 :root[data-vibrancy] {
   /* How much of the theme's color covers the material. */
-  --dynwork-vibrancy-tint: 55%;
+  --dynwork-vibrancy-tint: 45%;
   /* The theme's own color, resolved here before the shell tints the token below. */
   --dynwork-deep: var(--v2-background-bg-deep);
   /* The preload and the theme set an inline color on the root. */
@@ -23,16 +23,16 @@
   }
 }
 
-/* The shell's root is the titlebar's parent, in every layout. Tailwind's `bg-v2-background-bg-deep` reads its own
+/* The shell's root is the titlebar's parent, in every layout, and it paints the tint once for the whole window. What
+   it holds (the sidebar, the titlebar, rows and tabs) lets the root show through rather than tint the material a
+   second time, which would set the sidebar apart from the frame. Tailwind's `bg-v2-background-bg-deep` reads its own
    variable, which `:root` already resolved, so both are set. */
 :root[data-vibrancy] :has(> [data-slot="titlebar-v2"]) {
-  --v2-background-bg-deep: color-mix(in srgb, var(--dynwork-deep) var(--dynwork-vibrancy-tint), transparent);
-  --color-v2-background-bg-deep: var(--v2-background-bg-deep);
+  --color-v2-background-bg-deep: color-mix(in srgb, var(--dynwork-deep) var(--dynwork-vibrancy-tint), transparent);
 
-  /* Rows and tabs paint the chrome's color under their hover overlay; over the tinted chrome a second tint would show
-     each row as a darker block. */
-  :is([data-titlebar-tab], [data-titlebar-tab-action]) {
-    --tab-base: transparent;
+  > * {
+    --v2-background-bg-deep: transparent;
+    --color-v2-background-bg-deep: transparent;
   }
 }
 

@@ -179,6 +179,7 @@ Tailwind does not scan `dynwork/`.
 On macOS the desktop window is transparent over the native `sidebar` vibrancy (`platformFrame` in
 `packages/desktop/src/main/windows/defaults.ts`), and `registerViews` marks the root with `data-vibrancy`. Only the
 shell's chrome paints `--v2-background-bg-deep`: the frame around the panels, the sidebar, the titlebar and its tabs.
-`./vibrancy.css` tints that token over the material inside the shell, so every theme and layout keeps its own color, and
-puts the opaque color back on what sits over the panels (the panels, the peeking sidebar, the narrow window's drawer).
+`./vibrancy.css` paints that color once, partly transparent, on the shell's root, and makes the token transparent inside
+it, so the sidebar and the frame show the same material and every theme and layout keeps its own color. What sits over
+the panels gets the opaque color back (the panels, the peeking sidebar, the narrow window's drawer).
 The sign-in screen's brand column gets the same material. Windows and Linux keep the opaque window.
