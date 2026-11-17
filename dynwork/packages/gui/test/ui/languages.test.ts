@@ -2,8 +2,12 @@ import { describe, expect, test } from "bun:test"
 import { createRoot } from "solid-js"
 import en from "../../src/accounts/i18n/en"
 import es from "../../src/accounts/i18n/es"
+import fr from "../../src/accounts/i18n/fr"
+import nl from "../../src/accounts/i18n/nl"
 import remote from "../../src/remote/i18n/en"
 import remoteEs from "../../src/remote/i18n/es"
+import remoteFr from "../../src/remote/i18n/fr"
+import remoteNl from "../../src/remote/i18n/nl"
 import { RoutinesBackend } from "../../src/routines/backend"
 import type { Field } from "../../src/routines/contract"
 import { RoutinesDemo } from "../../src/routines/demo"
@@ -19,6 +23,13 @@ import { translator } from "./translator"
 // The `dynwork` built-in's catalog, as `accounts/index.ts` declares it.
 const english: Record<string, string> = { ...en, ...remote }
 const spanish: Record<string, string> = { ...es, ...remoteEs }
+const french: Record<string, string> = { ...fr, ...remoteFr }
+const dutch: Record<string, string> = { ...nl, ...remoteNl }
+const languages: Array<[string, Record<string, string>]> = [
+  ["Spanish", spanish],
+  ["French", french],
+  ["Dutch", dutch],
+]
 const params = (text: string) => [...text.matchAll(/\{\{(\w+)\}\}/g)].map((match) => match[1]).toSorted()
 const texts = (field: Field) => [
   field.label,
@@ -31,24 +42,26 @@ const texts = (field: Field) => [
 // The main-process sources whose failures and fields a window shows.
 const sources = ["validate.ts", "ipc.ts", "chat.ts", "local/backend.ts", "farm/backend.ts"]
 
-describe("Dynwork in Spanish", () => {
-  test("every English key has a Spanish one with the same placeholders, and none extra", () => {
+describe.each(languages)("Dynwork in %s", (_, table) => {
+  test("every English key has one with the same placeholders, and none extra", () => {
     expect(Object.keys(english).length).toBeGreaterThan(400)
-    expect(Object.keys(spanish).toSorted()).toEqual(Object.keys(english).toSorted())
+    expect(Object.keys(table).toSorted()).toEqual(Object.keys(english).toSorted())
     expect(
-      Object.keys(english).filter((key) => params(english[key] ?? "").join() !== params(spanish[key] ?? "").join()),
+      Object.keys(english).filter((key) => params(english[key] ?? "").join() !== params(table[key] ?? "").join()),
     ).toEqual([])
   })
 
-  test("is written in Spanish, not copied from English", () => {
+  test("is translated, not copied from English", () => {
     // Names and short tokens read the same in both; three words or more that match were left untranslated.
     const words = (text: string) => text.replace(/\{\{\w+\}\}/g, "").match(/[A-Za-z]{3,}/g) ?? []
     const same = Object.keys(english).filter(
-      (key) => english[key] === spanish[key] && words(english[key] ?? "").length >= 3,
+      (key) => english[key] === table[key] && words(english[key] ?? "").length >= 3,
     )
     expect(same).toEqual([])
   })
+})
 
+describe("Dynwork in other languages", () => {
   test("every field a backend declares has its words in main's table", () => {
     const written = new Set(Object.values(main))
     expect(
@@ -116,11 +129,21 @@ describe("Dynwork in Spanish", () => {
     expect(labels()).toContain("Project folder")
   })
 
+  test("a window shows main's English in French and Dutch", () => {
+    expect(fromMain(translator(french), "Don't ask")).toBe("Ne pas demander")
+    expect(fromMain(translator(dutch), "If recent")).toBe("Indien recent")
+  })
+
   test("the sign-in screen follows the app's language", () => {
     expect(SignInCopy.of("es")).toBe(SignInCopy.es)
     expect(SignInCopy.of("es-ES")).toBe(SignInCopy.es)
+    expect(SignInCopy.of("fr")).toBe(SignInCopy.fr)
+    expect(SignInCopy.of("nl")).toBe(SignInCopy.nl)
+    expect(SignInCopy.of("nl-BE")).toBe(SignInCopy.nl)
     expect(SignInCopy.of("en")).toBe(SignInCopy.en)
-    expect(SignInCopy.of("fr")).toBe(SignInCopy.en)
+    expect(SignInCopy.of("de")).toBe(SignInCopy.en)
+    expect(SignInCopy.fr.choose.sync({ skills: 2, agents: 1, servers: 1 })).toBe("2 skills · 1 agent · 1 serveur MCP")
+    expect(SignInCopy.nl.choose.sync({ skills: 1, agents: 2, servers: 3 })).toBe("1 skill · 2 agents · 3 MCP-servers")
     expect(SignInCopy.es.choose.sync({ skills: 1, agents: 2, servers: 3 })).toBe(
       "1 skill · 2 agentes · 3 servidores MCP",
     )

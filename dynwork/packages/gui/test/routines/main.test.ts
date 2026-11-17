@@ -7,6 +7,8 @@ import { RoutinesFarm } from "../../src/routines/farm/backend"
 import { RoutinesMain } from "../../src/routines/main"
 import en from "../../src/views/en"
 import es from "../../src/views/es"
+import fr from "../../src/views/fr"
+import nl from "../../src/views/nl"
 import { translator } from "../ui/translator"
 import { MINUTE, storage } from "./fixture"
 import { fakeService, until } from "./service"
@@ -168,6 +170,8 @@ describe("main", () => {
       body: run.title,
     })
     expect(RoutinesMain.words(told[0]!, translator(es)).title).toBe("Digest espera tu permiso")
+    expect(RoutinesMain.words(told[0]!, translator(fr)).title).toBe("Digest attend votre autorisation")
+    expect(RoutinesMain.words(told[0]!, translator(nl)).title).toBe("Digest wacht op je toestemming")
     expect(main.pushed.opened).toEqual([])
     told[0]!.open()
     expect(main.pushed.window).toEqual(["restore", "show", "focus"])

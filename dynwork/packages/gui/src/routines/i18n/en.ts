@@ -1,6 +1,6 @@
 // The copy main writes for the windows: the backends' field labels, help, choices and warnings, and the failures their
 // methods answer with. Main keeps writing it in English; a window shows it in its language by finding the English text
-// here (`fromMain` in `views/agents/format.ts`). Each value is exactly the text main writes: `test/ui/es.test.ts` checks it.
+// here (`fromMain` in `views/agents/format.ts`). Each value is exactly the text main writes: `test/ui/languages.test.ts` checks it.
 export default {
   "routines.field.folder": "Project folder",
   "routines.field.folder.help": "Where the task works.",

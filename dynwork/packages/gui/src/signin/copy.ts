@@ -174,9 +174,182 @@ export const es: typeof en = {
   },
 }
 
-/** The copy for the app's locale, a BCP 47 tag such as `es` or `es-ES`. */
+export const fr: typeof en = {
+  brand: {
+    head: "Un seul espace de travail pour vos agents.",
+    body: "Vos skills, agents et outils de votre instance Governance, prêts dans chaque session.",
+    version: (version: string) => `Dynwork v${version}`,
+    docs: "Documentation →",
+    docsURL: "https://dynapps.es",
+    support: "Assistance — soporte@dynapps.es",
+    supportURL: "mailto:soporte@dynapps.es",
+  },
+
+  // The cover that holds the window until main's accounts answer, when they never do.
+  cover: {
+    failed: "Dynwork n'a pas pu charger vos comptes.",
+    retry: "Réessayer",
+  },
+
+  panel: {
+    label: "Se connecter à Dynwork",
+    eyebrow: (version: string, step: number) => `v${version} · Étape ${step} sur 2`,
+    heading: "Bienvenue dans Dynwork",
+    lede: "Connectez cet appareil à votre instance Governance. Vos skills, agents et serveurs MCP se synchronisent automatiquement.",
+  },
+
+  connect: {
+    label: "URL de l'instance",
+    placeholder: "https://sp.example.com",
+    empty: "Saisissez l'URL de votre instance",
+    checking: "Vérification…",
+    valid: (host: string) => `Accessible · Connexion à ${host}`,
+    invalid: {
+      format: "L'URL de l'instance doit commencer par http:// ou https://",
+      unreachable: "Impossible de joindre cette instance. Vérifiez l'URL et votre connexion.",
+      incompatible: "Cette adresse n'est pas une instance Governance prise en charge (0.76 ou ultérieure).",
+    },
+    browser: "Se connecter avec le navigateur",
+    waiting: "En attente du navigateur…",
+    cancel: "Annuler",
+    disabled: "Vérifiez l'URL de l'instance ci-dessus, puis réessayez.",
+    keep: "Rester connecté sur cet appareil",
+    hint: "Ouvre votre navigateur pour vous connecter ; cet appareil est associé automatiquement.",
+  },
+
+  token: {
+    toggle: "Utiliser plutôt un jeton d'accès personnel",
+    label: "Jeton d'accès personnel",
+    placeholder: "sp-live-… ou un code à usage unique",
+    missing: "Vous n'en avez pas ?",
+    login: "Obtenez un code à usage unique auprès de votre instance →",
+    connect: "Se connecter",
+    connecting: "Connexion…",
+    empty: "Saisissez un jeton d'accès personnel.",
+  },
+
+  // What a failed sign-in says, by the kind the accounts service answers with.
+  failure: {
+    denied: "La connexion a été refusée dans le navigateur.",
+    expired: "Le lien de connexion a expiré. Réessayez.",
+    unreachable: "Impossible de joindre l'instance. Vérifiez votre connexion et réessayez.",
+    refused: "L'instance a refusé la connexion. Vérifiez le jeton ou le code et réessayez.",
+    "rate-limited": "Trop de tentatives. Patientez un instant et réessayez.",
+    incompatible: "Cette instance n'est pas prise en charge. Dynwork nécessite la version 0.76 ou ultérieure.",
+    insecure:
+      "Cet appareil n'a pas de stockage sécurisé pour les identifiants : Dynwork ne peut donc pas vous connecter.",
+    failed: "La connexion a échoué. Réessayez.",
+  },
+
+  choose: {
+    lede: "Choisissez l'instance avec laquelle travaille cet espace. Vous pourrez en ajouter d'autres plus tard dans les Paramètres.",
+    label: "Instance",
+    sync: (counts: { skills: number; agents: number; servers: number }) =>
+      [
+        count(counts.skills, "skill", "skills"),
+        count(counts.agents, "agent", "agents"),
+        count(counts.servers, "serveur MCP", "serveurs MCP"),
+      ].join(" · "),
+    finish: "Terminer",
+    back: "Retour",
+  },
+
+  finalizing: {
+    title: "Finalisation de la configuration…",
+    progress: (synced: number, total: number) => `Synchronisation de vos skills et agents (${synced}/${total})`,
+  },
+}
+
+export const nl: typeof en = {
+  brand: {
+    head: "Eén werkruimte voor je agents.",
+    body: "Je skills, agents en tools van je Governance-instantie, klaar in elke sessie.",
+    version: (version: string) => `Dynwork v${version}`,
+    docs: "Documentatie →",
+    docsURL: "https://dynapps.es",
+    support: "Ondersteuning — soporte@dynapps.es",
+    supportURL: "mailto:soporte@dynapps.es",
+  },
+
+  // The cover that holds the window until main's accounts answer, when they never do.
+  cover: {
+    failed: "Dynwork kon je accounts niet laden.",
+    retry: "Opnieuw proberen",
+  },
+
+  panel: {
+    label: "Aanmelden bij Dynwork",
+    eyebrow: (version: string, step: number) => `v${version} · Stap ${step} van 2`,
+    heading: "Welkom bij Dynwork",
+    lede: "Verbind dit apparaat met je Governance-instantie. Je skills, agents en MCP-servers synchroniseren automatisch.",
+  },
+
+  connect: {
+    label: "URL van de instantie",
+    placeholder: "https://sp.example.com",
+    empty: "Voer de URL van je instantie in",
+    checking: "Controleren…",
+    valid: (host: string) => `Bereikbaar · Aanmelden bij ${host}`,
+    invalid: {
+      format: "De URL van de instantie moet beginnen met http:// of https://",
+      unreachable: "Deze instantie is niet bereikbaar. Controleer de URL en je verbinding.",
+      incompatible: "Dit adres is geen ondersteunde Governance-instantie (0.76 of later).",
+    },
+    browser: "Aanmelden met je browser",
+    waiting: "Wachten op je browser…",
+    cancel: "Annuleren",
+    disabled: "Controleer de URL van de instantie hierboven en probeer het opnieuw.",
+    keep: "Aangemeld blijven op dit apparaat",
+    hint: "Opent je browser om je aan te melden; dit apparaat wordt automatisch gekoppeld.",
+  },
+
+  token: {
+    toggle: "Een persoonlijk toegangstoken gebruiken",
+    label: "Persoonlijk toegangstoken",
+    placeholder: "sp-live-… of een eenmalige code",
+    missing: "Heb je er geen?",
+    login: "Vraag een eenmalige code aan bij je instantie →",
+    connect: "Verbinden",
+    connecting: "Verbinden…",
+    empty: "Voer een persoonlijk toegangstoken in.",
+  },
+
+  // What a failed sign-in says, by the kind the accounts service answers with.
+  failure: {
+    denied: "De aanmelding is in de browser geweigerd.",
+    expired: "De aanmeldlink is verlopen. Probeer het opnieuw.",
+    unreachable: "De instantie is niet bereikbaar. Controleer je verbinding en probeer het opnieuw.",
+    refused: "De instantie heeft de aanmelding geweigerd. Controleer het token of de code en probeer het opnieuw.",
+    "rate-limited": "Te veel pogingen. Wacht even en probeer het opnieuw.",
+    incompatible: "Deze instantie wordt niet ondersteund. Dynwork heeft versie 0.76 of later nodig.",
+    insecure: "Dit apparaat heeft geen beveiligde opslag voor inloggegevens, dus Dynwork kan je niet aanmelden.",
+    failed: "Het aanmelden is mislukt. Probeer het opnieuw.",
+  },
+
+  choose: {
+    lede: "Kies de instantie waarmee deze werkruimte werkt. Je kunt er later meer toevoegen in Instellingen.",
+    label: "Instantie",
+    sync: (counts: { skills: number; agents: number; servers: number }) =>
+      [
+        count(counts.skills, "skill", "skills"),
+        count(counts.agents, "agent", "agents"),
+        count(counts.servers, "MCP-server", "MCP-servers"),
+      ].join(" · "),
+    finish: "Voltooien",
+    back: "Terug",
+  },
+
+  finalizing: {
+    title: "Configuratie voltooien…",
+    progress: (synced: number, total: number) => `Je skills en agents synchroniseren (${synced}/${total})`,
+  },
+}
+
+const languages: Partial<Record<string, typeof en>> = { es, fr, nl }
+
+/** The copy for the app's locale, a BCP 47 tag such as `es`, `fr` or `nl-NL`. */
 export function of(locale: string) {
-  return locale.split("-")[0] === "es" ? es : en
+  return languages[locale.split("-")[0] ?? ""] ?? en
 }
 
 function count(value: number, one: string, many: string) {

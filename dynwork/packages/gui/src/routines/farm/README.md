@@ -230,8 +230,8 @@ David decides which of these the farm team takes on.
 - [ ] No upstream line touched: `bun dynwork/script/patches.ts` still says 249 of 250 lines used. New files only.
 - [ ] No farm token, no response body that could carry one, in any `Failure`, log or event.
 - [ ] Copy goes through the views' i18n files. Text a backend supplies (`Field.label`, `help`, choices, warnings,
-      fixed `Failure` messages) is English; add each one to `routines/i18n/en.ts` and `es.ts` so the window shows it
-      in Spanish (`test/ui/es.test.ts` checks the fields).
+      fixed `Failure` messages) is English; add each one to `routines/i18n/en.ts`, `es.ts`, `fr.ts` and `nl.ts` so
+      the window shows it in the app's language (`test/ui/languages.test.ts` checks the fields).
 - [ ] Every `JESÚS:` comment you finished is deleted or turned into a plain comment, and the ones you did not finish
       are still there.
 - [ ] Commits follow upstream's convention with the `dynwork` scope: `feat(dynwork): connect the Agent Farm routines`.
