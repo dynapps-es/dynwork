@@ -197,3 +197,15 @@ shell, so the sidebar and the frame show the same material in every theme and la
 shell's root paints the theme's color instead. What sits over the panels gets the opaque color back (the panels, the
 peeking sidebar, the narrow window's drawer). The sign-in screen's brand column gets the same material. Windows and
 Linux keep the opaque window.
+
+## The Dynapps look
+
+- `./bubble.css` paints the user's message bubble in the Dynapps theme (`oc-2`) as Dynwork mobile does: on light, the
+  primary at 10% over white with the primary as its text; on dark, the violet at 22% over the session's background with
+  white text. Both mix from `--dynwork-primary` (`../brand.css`). A pending message and the other themes keep
+  upstream's look.
+- `./font.css` bundles Readex Pro (`../fonts/ReadexPro.ttf`, the variable font from google/fonts, weights 160-700, SIL
+  OFL in `../fonts/OFL.txt`) and makes it the sans when Settings' font is "Default": the app writes upstream's stack,
+  which starts with "Inter", inline on the root, and the rule matches that value and puts Readex Pro first. A chosen
+  font starts the stack with its own name and wins. `test/ui/look.test.ts` checks the stack, the weights and the
+  bubble's contrast.
