@@ -5,7 +5,9 @@ import {
   control,
   defaults,
   layout,
+  picked,
   shown,
+  toggled,
   valueOf,
   wide,
   type Control,
@@ -166,11 +168,32 @@ describe("the form's blocks come from the backend's fields", () => {
       extra: [],
       advanced: [],
       notifications: ["notify"],
-      connectors: [],
+      connectors: ["connectors"],
     })
     expect(keys("farm").where).toEqual(["repository", "branch", "access", "plugins", "timeLimit", "capped"])
     expect(keys("farm", { capped: true }).where).toContain("budget")
     expect(keys("farm").extra).toEqual(["overlap"])
     expect(keys("farm").advanced).toEqual(["profile", "label"])
+  })
+})
+
+describe("a multiselect whose default is all", () => {
+  const servers = field({ key: "connectors", kind: "multiselect", default: "all" })
+  const some: Choice[] = [
+    { value: "a", label: "a" },
+    { value: "b", label: "b" },
+  ]
+
+  test("holds all until one is unpicked, then the rest; picking every one again goes back to all", () => {
+    expect(picked(servers, "all", some)).toEqual(["a", "b"])
+    expect(toggled(servers, "all", some, "a")).toEqual(["b"])
+    expect(toggled(servers, ["b"], some, "a")).toBe("all")
+    expect(toggled(servers, ["b"], some, "b")).toEqual([])
+  })
+
+  test("a multiselect without that default keeps lists", () => {
+    const plain = field({ key: "plugins", kind: "multiselect" })
+    expect(picked(plain, undefined, some)).toEqual([])
+    expect(toggled(plain, ["a"], some, "b")).toEqual(["a", "b"])
   })
 })

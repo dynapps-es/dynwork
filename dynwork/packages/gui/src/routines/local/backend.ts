@@ -67,6 +67,15 @@ export const fields: readonly Field[] = [
     ],
     default: "ask",
   },
+  {
+    key: "connectors",
+    section: "connectors",
+    label: "Connectors",
+    help: "The routine's runs can use only the checked connectors.",
+    kind: "multiselect",
+    lookup: "connectors",
+    default: "all",
+  },
   { key: "timeLimit", section: "limits", label: "Time limit (minutes)", kind: "number", min: 1, max: 240, default: 30 },
   {
     key: "recover",
@@ -125,6 +134,18 @@ const ask = () => [
   { action: "read", resource: "*.env.*", effect: "ask" as const },
   { action: "read", resource: "*.env.example", effect: "allow" as const },
 ]
+
+// A connector's tools are permission actions named `<namespace>_<tool>`, where the namespace is the server's name with
+// everything but letters, digits, `_` and `-` replaced by `_` (`normalizedName` in `packages/core/src/tool/runtime.ts`,
+// `McpTool.namespace` in `packages/core/src/tool/mcp.ts`): gui may not import core, so it is mirrored here.
+// Denying `<namespace>_*` hides a server whose tools are all denied from the model and refuses every call.
+const namespace = (server: string) => server.replace(/[^a-zA-Z0-9_-]/g, "_")
+
+/** The rules that keep a run off the connectors it may not use: one deny per server the routine's list leaves out. */
+export const denyConnectors = (servers: readonly string[], allowed: readonly string[]) =>
+  servers
+    .filter((server) => !allowed.includes(server))
+    .map((server) => ({ action: `${namespace(server)}_*`, resource: "*", effect: "deny" as const }))
 
 /** What the user is told about a run: it finished, it failed, or it waits for a permission. */
 export interface Notice {
@@ -732,6 +753,15 @@ export function make(options: Options): Local {
     const definition = stored.definition
     const title = `${definition.name} · ${stamp(at, definition.schedule?.timezone)}`
     const trigger = occurrence.trigger
+    // "all" (or no option, as in a routine made before it) leaves every connector to the run. A list is checked against
+    // the servers the service has now, so one added later stays out.
+    const connectors = definition.options.connectors
+    const servers = Array.isArray(connectors)
+      ? await call(() =>
+          client.mcp.list({ location: { directory: folderOf(definition, options.home) } }).then((list) => list.data),
+        )
+      : []
+    if (isFailure(servers)) return servers
     // Every run carries its own permissions and metadata, or it would inherit the anchor's (docs/04-ui.md §A.3.1).
     // `conversation: true` has the app treat the child as a conversation of its own, with the standard composer,
     // rather than as a subagent's read-only session (DynWork's patch in `packages/app/src/session/subagent.ts`).
@@ -741,7 +771,13 @@ export function make(options: Options): Local {
         title,
         ...(definition.agent ? { agent: definition.agent } : {}),
         ...modelOf(definition),
-        permissions: definition.options.permissions === "bypass" ? bypass() : ask(),
+        permissions: [
+          ...(definition.options.permissions === "bypass" ? bypass() : ask()),
+          ...denyConnectors(
+            servers.map((server) => server.name),
+            Array.isArray(connectors) ? connectors.map(String) : [],
+          ),
+        ],
         metadata: { conversation: true, dynwork: { backend, routine, role: "run", trigger } },
       }),
     )
@@ -865,6 +901,13 @@ async function lookupOf(client: OpenCodeClient, lookup: string): Promise<Choice[
   if (lookup === "models") {
     const models = await client.model.list()
     return models.data.map((model) => ({ value: `${model.providerID}/${model.id}`, label: model.name }))
+  }
+  if (lookup === "connectors") {
+    const servers = await client.mcp.list()
+    return servers.data.map((server) => ({
+      value: server.name,
+      label: server.status.status === "connected" ? server.name : `${server.name} · ${server.status.status}`,
+    }))
   }
   if (lookup === "skills") {
     const skills = await client.skill.list()
