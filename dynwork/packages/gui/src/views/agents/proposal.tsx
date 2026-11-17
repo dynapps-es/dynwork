@@ -1,47 +1,39 @@
-import { ComposerPill, usePlugin, type Live, type SetupContext } from "@opencode/plugin/gui"
+import { usePlugin, type Live, type SetupContext } from "@opencode/plugin/gui"
+import { BuiltinSlot } from "@opencode/plugin/gui/builtin"
+import { DockPrompt } from "@opencode/session-ui/dock-prompt"
 import { Button } from "@opencode/ui/button"
-import { Dialog, DialogBody, DialogFooter, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
-import { createEffect, createSignal, For, onCleanup, Show, type Accessor } from "solid-js"
+import { Icon } from "@opencode/ui/icon"
+import { createSignal, For, onCleanup, Show, type Accessor } from "solid-js"
 import type definition from "../../accounts/index"
 import type { ChatClient } from "../../routines/client"
 import type { Card } from "../../routines/contract"
 import { scheduleText } from "./format"
 import "./proposal.css"
 
-// Routines from a chat: the card of a proposal of the routines tools (`routines/chat.ts`). It opens over the
-// conversation that made it when that conversation is on screen, and a pill above its composer opens it again after
-// it was dismissed. Only Schedule creates the routine; Cancel tells the agent nothing was created. Dismissing the card
-// decides nothing: the agent keeps waiting.
+// Routines from a chat: the approval of a proposal of the routines tools (`routines/chat.ts`). It takes the composer's
+// place in the conversation that made it, as OpenCode's permission dock does (the `session.composer.dock` slot), and
+// is drawn with the same `DockPrompt` and data slots, so the app styles it as one. Only Schedule creates the routine;
+// Cancel tells the agent nothing was created.
 export function registerChat(ctx: SetupContext<typeof definition>, live: Accessor<Live<ChatClient>>) {
   const client = () => {
     const current = live()
     return current.status === "active" ? current.value : undefined
   }
-  const cards = () => client()?.state()?.cards ?? []
-  const cardOf = (session: string) => cards().find((card) => card.session === session)
-  const shown = new Set<string>()
-  const open = (card: Card) =>
-    ctx.dialogs.open((dialog) => <ProposalCard card={card} client={client} close={dialog.close} />)
-
-  ctx.add(ComposerPill, {
-    id: "routine-proposal",
-    show: (input) => {
-      const card = cardOf(input.session.id)
-      if (!card) return undefined
-      return { label: ctx.t("agents.chat.pill", { name: card.definition.name }), tone: "warning", run: () => open(card) }
-    },
-  })
-
-  createEffect(() => {
+  const card = () => {
     const session = ctx.sessions.current()
-    const card = session && cardOf(session.id)
-    if (!card || shown.has(card.id)) return
-    shown.add(card.id)
-    open(card)
+    return session && (client()?.state()?.cards ?? []).find((item) => item.session === session.id)
+  }
+  ctx.add(BuiltinSlot, {
+    at: "session.composer.dock",
+    render: () => (
+      <Show when={card()} keyed>
+        {(current) => <ProposalDock card={current} client={client} />}
+      </Show>
+    ),
   })
 }
 
-function ProposalCard(props: { card: Card; client: () => ChatClient | undefined; close: () => void }) {
+function ProposalDock(props: { card: Card; client: () => ChatClient | undefined }) {
   const ctx = usePlugin()
   const [full, setFull] = createSignal(false)
   const [busy, setBusy] = createSignal(false)
@@ -53,19 +45,13 @@ function ProposalCard(props: { card: Card; client: () => ChatClient | undefined;
     setBusy(true)
     const failure = await client.decide({ id: props.card.id, schedule }).catch(() => undefined)
     setBusy(false)
-    if (failure && failure.code !== "not-found") return setError(failure.message)
-    props.close()
+    // A card answered elsewhere (another window) is `not-found`: it leaves with the state.
+    if (failure && failure.code !== "not-found") setError(failure.message)
   }
-  // The card goes when it is decided anywhere: in another window, or by the agent's step being stopped.
-  createEffect(() => {
-    const client = props.client()
-    if (client && !(client.state()?.cards ?? []).some((card) => card.id === props.card.id)) props.close()
-  })
   const keys = (event: KeyboardEvent) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-      event.preventDefault()
-      void decide(true)
-    }
+    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return
+    event.preventDefault()
+    void decide(true)
   }
   document.addEventListener("keydown", keys)
   onCleanup(() => document.removeEventListener("keydown", keys))
@@ -79,7 +65,7 @@ function ProposalCard(props: { card: Card; client: () => ChatClient | undefined;
     const value = options().connectors
     if (!Array.isArray(value)) return ctx.t("agents.chat.connectors.all")
     if (value.length === 0) return ctx.t("agents.chat.connectors.none")
-    return value.map((name) => (name === "systemprompt" ? "Governance" : String(name))).join(", ")
+    return value.join(", ")
   }
   const rows = () => [
     [ctx.t("agents.chat.row.routine"), props.card.definition.name],
@@ -97,47 +83,61 @@ function ProposalCard(props: { card: Card; client: () => ChatClient | undefined;
   }
 
   return (
-    <Dialog size="large" containerClass="agents-proposal-dialog">
-      <DialogHeader>
-        <DialogTitleGroup title={ctx.t("agents.chat.title")} description={ctx.t("agents.chat.description")} />
-      </DialogHeader>
-      <DialogBody>
-        <div data-component="agents-proposal">
-          <div data-slot="proposal-scroll">
-            <div data-slot="proposal-label">{ctx.t("agents.chat.prompt")}</div>
-            <pre data-slot="proposal-prompt">{text()}</pre>
-            <dl data-slot="proposal-rows">
-              <For each={rows()}>
-                {(row) => (
-                  <>
-                    <dt>{row[0]}</dt>
-                    <dd>{row[1]}</dd>
-                  </>
-                )}
-              </For>
-            </dl>
-            <Show when={options().permissions === "bypass"}>
-              <p data-slot="proposal-warning">{ctx.t("agents.chat.bypass")}</p>
-            </Show>
-            <button type="button" data-slot="proposal-toggle" aria-expanded={full()} onClick={() => setFull(!full())}>
-              {ctx.t(full() ? "agents.chat.input.hide" : "agents.chat.input.show")}
-            </button>
-            <Show when={full()}>
-              <pre data-slot="proposal-input">{JSON.stringify(props.card.proposal, null, 2)}</pre>
-            </Show>
-            <Show when={error()}>{(message) => <p data-slot="proposal-error">{message()}</p>}</Show>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" disabled={busy()} onClick={() => void decide(false)}>
+    <DockPrompt
+      kind="permission"
+      header={
+        <div data-slot="permission-row" data-variant="header">
+          <span data-slot="permission-icon">
+            <Icon name="warning" size="normal" />
+          </span>
+          <div data-slot="permission-header-title">{ctx.t("agents.chat.title")}</div>
+        </div>
+      }
+      footer={
+        <>
+          <div />
+          <div data-slot="permission-footer-actions">
+            <Button variant="ghost" size="normal" disabled={busy()} onClick={() => void decide(false)}>
               {ctx.t("agents.chat.cancel")}
             </Button>
-            <Button variant="contrast" disabled={busy()} onClick={() => void decide(true)}>
+            <Button variant="submit" size="normal" disabled={busy()} onClick={() => void decide(true)}>
               {ctx.t("agents.chat.schedule")}
               <kbd data-slot="proposal-key">⌘↵</kbd>
             </Button>
-          </DialogFooter>
+          </div>
+        </>
+      }
+    >
+      <div data-slot="permission-row">
+        <span data-slot="permission-spacer" aria-hidden="true" />
+        <div data-slot="permission-hint">{ctx.t("agents.chat.description")}</div>
+      </div>
+      <div data-slot="permission-row">
+        <span data-slot="permission-spacer" aria-hidden="true" />
+        <div data-slot="permission-input" data-scrollable data-component="agents-proposal">
+          <pre data-slot="proposal-prompt">{text()}</pre>
+          <dl data-slot="proposal-rows">
+            <For each={rows()}>
+              {(row) => (
+                <>
+                  <dt>{row[0]}</dt>
+                  <dd>{row[1]}</dd>
+                </>
+              )}
+            </For>
+          </dl>
+          <Show when={options().permissions === "bypass"}>
+            <p data-slot="proposal-warning">{ctx.t("agents.chat.bypass")}</p>
+          </Show>
+          <button type="button" data-slot="proposal-toggle" aria-expanded={full()} onClick={() => setFull(!full())}>
+            {ctx.t(full() ? "agents.chat.input.hide" : "agents.chat.input.show")}
+          </button>
+          <Show when={full()}>
+            <pre data-slot="proposal-prompt">{JSON.stringify(props.card.proposal, null, 2)}</pre>
+          </Show>
+          <Show when={error()}>{(message) => <p data-slot="proposal-error">{message()}</p>}</Show>
         </div>
-      </DialogBody>
-    </Dialog>
+      </div>
+    </DockPrompt>
   )
 }

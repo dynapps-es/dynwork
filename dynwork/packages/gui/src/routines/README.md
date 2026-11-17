@@ -254,15 +254,16 @@ they matter.
 - **Why not a permission.** The card could have been a permission request (`permission.assert`) that main creates the
   routine from on its "once" reply. It is not, because a permission can be answered by something other than the
   user: the app's auto-approve setting answers every request, an "Always" reply is saved as a rule, and an unattended
-  run turns "ask" into "deny". The upstream dock also cannot show a custom body without a patch. A card of our own is
-  answered only by its own buttons, needs no upstream line, and the agent has no way to press them.
+  run turns "ask" into "deny". The card looks like the permission prompt and sits where it does, but only its own buttons answer it, and the
+  agent has no way to press them.
 - **Validation.** `definitionOf` turns the proposal into a `Definition` with the form's presets (`cronOf`), refusing an
   incomplete or unreadable schedule; then the `Definition` schema and the backend's own `validate`, as the form. A
   refusal is the tool's answer, with one line per field, and no card is shown.
-- **Card.** A valid proposal becomes a `Card` in the `dynwork.routines.chat` Ipc. A window opens it as a dialog over
-  the conversation that made it, once; a pill above that conversation's composer opens it again. It shows the prompt,
+- **Card.** A valid proposal becomes a `Card` in the `dynwork.routines.chat` Ipc. The conversation that made it shows
+  it in its composer region, in place of the composer, drawn with OpenCode's `DockPrompt` and the permission dock's
+  slots (`views/agents/proposal.tsx`, through the `session.composer.dock` slot, DynWork's patch). It shows the prompt,
   Routine, Schedule, Runs on, Permissions, Project folder, Connectors, Notifications, Origin and "Show full input",
-  with **Cancel** and **Schedule** (⌘↵). Dismissing the dialog decides nothing.
+  with **Cancel** and **Schedule** (⌘↵).
 - **Schedule.** `decide` takes the card out first (a second answer from another window finds nothing), then creates
   through the routines Ipc's own `create`, so every window reads the new routine, and answers the tool with the
   routine's line. Cancel answers "nothing was created". The tool call in the conversation shows the result.

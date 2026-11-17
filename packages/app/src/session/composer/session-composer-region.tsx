@@ -1,4 +1,4 @@
-import { createMemo, Show, type JSX } from "solid-js"
+import { children, createMemo, Show, type JSX } from "solid-js"
 import { SessionElicitationDock } from "@/session/requests/session-elicitation-dock"
 import { SessionPermissionDock } from "@/session/requests/session-permission-dock"
 import { SessionQuestionDock } from "@/session/requests/session-question-dock"
@@ -29,8 +29,10 @@ export function SessionComposerRegion(props: {
   above?: JSX.Element
   composer: JSX.Element
   subagent: JSX.Element
+  dock?: JSX.Element
 }) {
   const controller = props.controller
+  const dock = children(() => props.dock)
   const settings = useSettings()
 
   const face = createMemo(() => {
@@ -38,9 +40,10 @@ export function SessionComposerRegion(props: {
     const question = controller.state.questionRequest()
     const elicitation = controller.state.elicitationRequest()
     const permission = controller.state.permissionRequest()
-    const composer = controller.showComposer() && !controller.child() && !controller.state.blocked()
+    const docked = dock.toArray().some(Boolean)
+    const composer = controller.showComposer() && !controller.child() && !controller.state.blocked() && !docked
 
-    return { key: composer ? "composer" : "docks", websearch, question, elicitation, permission, composer }
+    return { key: composer ? "composer" : "docks", websearch, question, elicitation, permission, composer, docked }
   })
 
   return (
@@ -92,6 +95,10 @@ export function SessionComposerRegion(props: {
                       }}
                     />
                   )}
+                </Grow>
+
+                <Grow when={current().docked} fade card>
+                  {dock()}
                 </Grow>
 
                 <Show when={current().composer}>
