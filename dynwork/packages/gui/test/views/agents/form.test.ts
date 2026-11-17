@@ -45,6 +45,7 @@ describe("a new routine starts closed and manual", () => {
       timeLimit: 30,
       recover: "recent",
       catchUp: 6,
+      connectors: "all",
       notify: "failures",
     })
   })
@@ -77,6 +78,7 @@ describe("a new routine starts closed and manual", () => {
         timeLimit: 30,
         recover: "recent",
         catchUp: 6,
+        connectors: "all",
         notify: "failures",
       },
     })
@@ -515,7 +517,12 @@ describe("editing and saving", () => {
     const ref = await model.save()
     expect(ref).toEqual(routine.ref)
     const saved = view.model.routines().find((candidate) => candidate.ref.id === routine.ref.id)
-    expect(saved?.definition).toEqual({ ...routine.definition, name: "Weekly tickets" })
+    // The routine had no connectors option, which reads as "all": saving writes it.
+    expect(saved?.definition).toEqual({
+      ...routine.definition,
+      name: "Weekly tickets",
+      options: { ...routine.definition.options, connectors: "all" },
+    })
   })
 
   test("changing the schedule through the presets rewrites its cron", async () => {

@@ -150,7 +150,8 @@ export type Choice = typeof Choice.Type
 /**
  * One backend field of the form, rendered from this data alone.
  * - `text`, `textarea`, `number`, `toggle`: plain values (`string`, `string`, `number`, `boolean`).
- * - `select` takes a string from `choices` or `lookup`; `multiselect` an array of them.
+ * - `select` takes a string from `choices` or `lookup`; `multiselect` an array of them, or `"all"` (every choice, those
+ *   added later too) when its `default` is `"all"`.
  * - `folder` is a local path picked with the desktop's picker; `repo` an https repository URL.
  * - `list` is an array of strings the user adds and removes.
  */

@@ -46,6 +46,23 @@ export function valueOf(field: Field, options: Options) {
   return options[field.key] ?? field.default
 }
 
+/**
+ * What a `multiselect` has picked. A field whose default is `"all"` holds `"all"` until the user unpicks one: every
+ * choice then counts as picked, and picking them all again goes back to `"all"`, so a choice added later is included.
+ */
+export function picked(field: Field, value: unknown, choices: readonly Choice[]) {
+  if (value === "all" && field.default === "all") return choices.map((choice) => choice.value)
+  return Array.isArray(value) ? value.map(String) : []
+}
+
+/** The value after the user toggles `choice`; see `picked`. */
+export function toggled(field: Field, value: unknown, choices: readonly Choice[], choice: string) {
+  const current = picked(field, value, choices)
+  const next = current.includes(choice) ? current.filter((item) => item !== choice) : [...current, choice]
+  const everything = choices.every((item) => next.includes(item.value))
+  return field.default === "all" && everything ? "all" : next
+}
+
 /** Whether a field is shown: always, or while the field its `when` names has the value it asks for. */
 export function shown(field: Field, fields: readonly Field[], options: Options) {
   if (!field.when) return true

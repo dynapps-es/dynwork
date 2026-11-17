@@ -92,6 +92,8 @@ function numberProblem(field: Field, value: unknown) {
 }
 
 function listProblem(field: Field, value: unknown) {
+  // A multiselect whose default is "all" holds "all" (every choice, those added later too) until the user picks some.
+  if (field.kind === "multiselect" && field.default === "all" && value === "all") return undefined
   if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) return `${field.label} is a list.`
   if (field.required && value.length === 0) return `${field.label} is required.`
   if (field.max !== undefined && value.length > field.max) return `${field.label} takes at most ${field.max}.`

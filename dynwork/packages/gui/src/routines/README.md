@@ -145,6 +145,19 @@ and fake timers over the same service.
 - **Awake.** `Options.busy` is called when the first run starts and when the last one ends; `accounts/main.ts` holds a
   `powerSaveBlocker("prevent-app-suspension")` while it is true.
 
+## Connectors
+
+- **"Connectors"** (`connectors`, a `multiselect` whose lookup is `connectors`): `"all"` (the default, and what a routine
+  made before the option reads as) or the names of the MCP servers a run may use. The form lists the servers
+  `mcp.list` returns (Governance's and the user's own), all checked, and saves `"all"` while every one is checked, so a
+  server added later is allowed; with an explicit list it is not. Without the service the tab says there are none.
+- **No OpenCode patch.** A run's session is created with the "Ask me" or "Don't ask" rules and, after them, one
+  `{ action: "<namespace>_*", resource: "*", effect: "deny" }` per server of `mcp.list` (read when the run starts, in the
+  routine's folder) that the list leaves out. The namespace is the server's name with everything but letters, digits,
+  `_` and `-` replaced by `_`, as core computes it (`normalizedName`, `McpTool.name`); `denyConnectors` mirrors it. A
+  server whose tools are all denied is hidden from the model. Limit: `a_*` also matches the tools of a server named
+  `a_b`, so a server whose name starts with another's followed by `_` shares its fate.
+
 ## Sync with Governance
 
 `local/sync.ts` (`RoutinesSync.make`) shares the local routines' definitions with the user's other computers through

@@ -6,7 +6,7 @@ import { Textarea } from "@opencode/ui/textarea"
 import { TextInput } from "@opencode/ui/text-input"
 import { createEffect, createSignal, For, Match, on, Show, Switch, type JSX } from "solid-js"
 import type { Choice, Field, Ref } from "../../routines/contract"
-import { choicesOf, control, valueOf, wide } from "./fields"
+import { choicesOf, control, picked as pickedOf, toggled, valueOf, wide } from "./fields"
 import { zones } from "./schedule"
 import { backendLine, when, type Translate } from "./format"
 import { draftSchedule, problemText, triggers, type FormModel } from "./form"
@@ -153,7 +153,12 @@ export function RoutineForm(props: {
                   </For>
                 </div>
                 <Show
-                  when={advancedTabs().find((item) => item.id === tab())?.fields.length}
+                  when={
+                    // A connectors tab with nothing to choose from (no servers, or the service unreachable) is empty.
+                    advancedTabs()
+                      .find((item) => item.id === tab())
+                      ?.fields.some((field) => tab() !== "connectors" || choicesOf(field, choices).length > 0)
+                  }
                   fallback={<p data-slot="form-hint">{ctx.t("agents.form.connectors.empty")}</p>}
                 >
                   <FieldGrid
@@ -686,10 +691,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
   const placeholder = () => (field().default === undefined ? undefined : String(field().default))
   const invalid = () => form.error(field().key) !== undefined
   const set = (next: Parameters<FormModel["option"]>[1]) => form.option(field().key, next)
-  const picked = () => {
-    const current = value()
-    return Array.isArray(current) ? current.map(String) : []
-  }
+  const picked = () => pickedOf(field(), value(), options())
 
   return (
     <Row
@@ -772,13 +774,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
                     field().max !== undefined &&
                     picked().length >= (field().max ?? 0)
                   }
-                  onClick={() =>
-                    set(
-                      picked().includes(option.value)
-                        ? picked().filter((item) => item !== option.value)
-                        : [...picked(), option.value],
-                    )
-                  }
+                  onClick={() => set(toggled(field(), value(), options(), option.value))}
                 >
                   {option.label}
                 </button>

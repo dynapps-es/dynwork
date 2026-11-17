@@ -245,7 +245,7 @@ export default {
   "agents.form.advanced.general": "General",
   "agents.form.advanced.connectors": "Connectors",
   "agents.form.advanced.notifications": "Notifications",
-  "agents.form.connectors.empty": "Connectors come from Governance. None are available to routines yet.",
+  "agents.form.connectors.empty": "No connectors are available: add some in Dynwork's settings, or wait for Dynwork to start.",
   "agents.form.attention": "Some fields need attention.",
   "agents.form.cancel": "Cancel",
   "agents.form.save": "Save routine",

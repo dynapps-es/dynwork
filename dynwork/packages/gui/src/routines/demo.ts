@@ -212,6 +212,10 @@ export function local(now: () => number) {
         { value: "timesheet-report", label: "Timesheet report" },
         { value: "standup-facilitator", label: "Standup facilitator" },
       ],
+      connectors: [
+        { value: "dynbrain", label: "Dynbrain" },
+        { value: "odoo", label: "Odoo" },
+      ],
     },
     owner: here,
     conversation: "session",
