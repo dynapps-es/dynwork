@@ -9,12 +9,16 @@ import { RoutinesMain } from "../routines/main"
 import { DynWorkSyncEngine } from "../sync/engine"
 import { DynWorkHeartbeat } from "../sync/heartbeat"
 import { DynWorkRuntime } from "../sync/runtime"
+import { SidebarGlass } from "../views/glass/glass"
 import { DynWorkAccounts } from "./accounts"
 import { Accounts, type SyncStatus } from "./contract"
 import { AccountsIpc } from "./ipc"
 import { DynWorkSyncMain } from "./sync"
 
 const setup: Plugin.MainSetup = (ctx) => {
+  // macOS 26 and later: AppKit's sidebar glass behind the windows, as Claude desktop has it.
+  SidebarGlass.setup(ctx)
+
   const provider: { changed: () => void; emit: (status: SyncStatus) => void } = {
     changed: () => {},
     emit: () => {},

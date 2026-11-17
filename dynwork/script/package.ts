@@ -119,9 +119,12 @@ const debian = [
 ]
 // A channel other than internal packs under its own package name, which names its deb and the updater's cache folder.
 const named = ChannelBuild.builderFlags(channel)
+// The sidebar glass addon (`@dynwork/gui`'s `views/glass`) loads from a real file, so it stays out of the asar and is
+// signed with the app.
+const glass = "-c.asarUnpack=out/main/sidebar-glass.node"
 await (
   os === "mac"
-    ? $`bunx electron-builder --mac ${flags} ${named} -c.mac.target=dmg -c.mac.identity=- -c.mac.hardenedRuntime=false`
+    ? $`bunx electron-builder --mac ${flags} ${named} ${glass} -c.mac.target=dmg -c.mac.identity=- -c.mac.hardenedRuntime=false`
     : os === "win"
       ? $`bunx electron-builder --win ${flags} ${named} -c.win.target=nsis`
       : $`bunx electron-builder --linux deb AppImage ${flags} ${named} ${debian}`

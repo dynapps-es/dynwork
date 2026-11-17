@@ -20,9 +20,9 @@
     "v2Overrides": {
       "v2-text-text-faint": "#9290A6",
       "v2-text-text-accent": "#01007C",
-      "v2-text-text-accent-hover": "#7B00DC",
+      "v2-text-text-accent-hover": "#951CF3",
       "v2-icon-icon-accent": "#01007C",
-      "v2-icon-icon-accent-hover": "#7B00DC",
+      "v2-icon-icon-accent-hover": "#951CF3",
       "v2-background-bg-accent": "#01007C",
       "v2-state-bg-info": "#E4E8FE",
       "v2-state-fg-info": "#4349AF",
@@ -54,6 +54,12 @@
       "text-weak": "#FFFFFF"
     },
     "v2Overrides": {
+      "v2-background-bg-deep": "#101118",
+      "v2-background-bg-base": "#101118",
+      "v2-background-bg-layer-01": "#16171f",
+      "v2-background-bg-layer-02": "#1f2029",
+      "v2-background-bg-layer-03": "#2c2d38",
+      "v2-background-bg-layer-04": "#4e4f5c",
       "v2-text-text-base": "#FFFFFF",
       "v2-text-text-muted": "#FFFFFF",
       "v2-text-text-faint": "#FFFFFF",

@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
 import { fileURLToPath } from "node:url"
 import type { Plugin } from "vite"
 
@@ -40,6 +44,51 @@ const channel: Plugin = {
   }),
 }
 
+// AppKit's sidebar glass (`@dynwork/gui`'s `views/glass`): a Mac build compiles its addon, for both Mac architectures,
+// and writes it next to the main bundle, where `SidebarGlass` loads it. Other platforms build without it. It compiles
+// once per run, and a watching dev build reuses it.
+const glassSource = fileURLToPath(new URL("../../gui/src/views/glass/glass.mm", import.meta.url))
+
+const compileGlass = () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "dynwork-glass-"))
+  const out = path.join(dir, "glass.node")
+  execFileSync("xcrun", [
+    "clang++",
+    "-std=c++17",
+    "-ObjC++",
+    "-fobjc-arc",
+    "-O2",
+    "-shared",
+    "-undefined",
+    "dynamic_lookup",
+    "-arch",
+    "arm64",
+    "-arch",
+    "x86_64",
+    "-mmacosx-version-min=12.0",
+    "-framework",
+    "AppKit",
+    glassSource,
+    "-o",
+    out,
+  ])
+  const addon = readFileSync(out)
+  rmSync(dir, { recursive: true, force: true })
+  return addon
+}
+
+const glass = (): Plugin => {
+  const built: { addon?: Buffer } = {}
+  return {
+    name: "dynwork:sidebar-glass",
+    apply: () => process.platform === "darwin",
+    generateBundle() {
+      built.addon ??= compileGlass()
+      this.emitFile({ type: "asset", fileName: "sidebar-glass.node", source: built.addon })
+    },
+  }
+}
+
 const aliases = { main: [defaultTheme], renderer: [defaultTheme, ...logos] }
 
 const aliasing = (name: string, alias: typeof logos): Plugin => ({
@@ -55,6 +104,7 @@ export const DynWorkVite = {
   newSessionView,
   newSessionWordmark,
   channel,
-  main: (): Plugin[] => [channel, aliasing("dynwork:main-aliases", aliases.main)],
+  glassSource,
+  main: (): Plugin[] => [channel, aliasing("dynwork:main-aliases", aliases.main), glass()],
   renderer: (): Plugin[] => [channel, aliasing("dynwork:renderer-aliases", aliases.renderer), newSessionWordmark],
 }

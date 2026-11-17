@@ -1,20 +1,7 @@
 /* The connect form: the sign-in screen's first step and the Add instance dialog share it. Tailwind does not scan
    dynwork/, so the form styles itself here with the theme's v2 tokens. */
 
-/* The primary button is the Dynapps brand color: Midnight on light, Unicorn Violet (the dark-background tone) on
-   dark. The theme's contrast surface is a near-black grey, and its accent keeps the brand hue but not the exact tone,
-   so these two tones are set here, keyed on the color scheme the theme provider puts on the root. */
-:is([data-component="dynwork-signin"], [data-component="dynwork-signin-form"]) {
-  --dynwork-primary: #050543;
-  --dynwork-primary-hover: color-mix(in srgb, var(--dynwork-primary), white 16%);
-  --dynwork-primary-pressed: color-mix(in srgb, var(--dynwork-primary), black 40%);
-}
-
-:root[data-color-scheme="dark"] :is([data-component="dynwork-signin"], [data-component="dynwork-signin-form"]) {
-  --dynwork-primary: #951cf3;
-  --dynwork-primary-hover: color-mix(in srgb, var(--dynwork-primary), white 14%);
-  --dynwork-primary-pressed: color-mix(in srgb, var(--dynwork-primary), black 18%);
-}
+/* The primary button is the Dynapps brand color (`../brand.css`). */
 
 :is([data-component="dynwork-signin"], [data-component="dynwork-signin-form"]) {
   [data-slot="signin-form"] {

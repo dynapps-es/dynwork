@@ -61,6 +61,8 @@ export function platformFrame(mode: "light" | "dark", zoom: number) {
   if (process.platform === "darwin") {
     frame.titleBarStyle = "hidden"
     frame.trafficLightPosition = { x: 14, y: 14 }
+    // DynWork's chrome shows this material, tinted by the desktop picture rather than the windows behind (`inactive`).
+    Object.assign(frame, { vibrancy: "sidebar", visualEffectState: "inactive", backgroundColor: "#00000000" })
   }
 
   if (process.platform === "win32") {
