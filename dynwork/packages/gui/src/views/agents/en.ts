@@ -1,8 +1,8 @@
-// The Tasks view's strings (the `agents` view in code). Keys start with `agents.` so the views' tables merge into the plugin's without clashes.
+// The Scheduled view's strings (the `agents` view in code). Keys start with `agents.` so the views' tables merge into the plugin's without clashes.
 export default {
-  "agents.title": "Tasks",
+  "agents.title": "Scheduled",
   "agents.description":
-    "Everything your agents do on their own, in one list. Tasks on {{device}} run with your folders, skills and connectors while Dynwork is open; tasks on Dynapps Cloud keep going even with your laptop closed.",
+    "Everything your agents do on a schedule, in one list. Tasks on {{device}} run with your folders, skills and connectors while Dynwork is open; tasks on Dynapps Cloud keep going even with your laptop closed.",
   "agents.new": "New task",
   "agents.new.chat": "Create with Dynwork",
   "agents.new.manual": "Set up manually",
@@ -44,7 +44,7 @@ export default {
     "This task is set to Don't ask: it may edit files and run commands without asking you. Nothing runs until you press Run now.",
   "agents.chat.run.accept": "Run now",
   "agents.loading": "Loading tasks…",
-  "agents.unavailable": "Tasks are not available in this window.",
+  "agents.unavailable": "Scheduled tasks are not available in this window.",
   "agents.failed": "Could not load the tasks.",
   "agents.retry": "Try again",
   "agents.dismiss": "Dismiss",
@@ -60,7 +60,7 @@ export default {
   "agents.backend.status": "{{label}}: {{status}}",
   "agents.backend.unsynced": "Not synced",
 
-  "agents.tab.label": "Tasks",
+  "agents.tab.label": "Scheduled",
   "agents.tab.mine": "My tasks",
   "agents.tab.templates": "Templates",
   "agents.tab.activity": "Activity",
@@ -75,7 +75,7 @@ export default {
   "agents.filter.failing": "Failing",
   "agents.filter.running": "Running",
   "agents.search": "Search tasks",
-  "agents.list.label": "Tasks",
+  "agents.list.label": "Scheduled tasks",
   "agents.list.empty": "No tasks yet. Tasks on {{device}} and on Dynapps Cloud both show up here.",
   "agents.list.none": "No tasks match these filters.",
   "agents.list.and": "{{first}} and {{last}}",
@@ -143,7 +143,7 @@ export default {
     "Every run, here and in the cloud, newest first. It includes Dynapps Cloud runs started outside Dynwork, such as from the chat.",
   "agents.activity.empty": "No runs yet.",
 
-  "agents.detail.back": "Tasks",
+  "agents.detail.back": "Scheduled",
   "agents.detail.local": "Runs on {{device}}",
   "agents.detail.remote": "{{label}} · works with your laptop closed",
   "agents.detail.next": "Next run: {{when}}",

@@ -12,6 +12,6 @@ export default {
   "runs.empty": "No runs yet. Run it now to start its first conversation.",
   "runs.loading": "Loading runs…",
   "runs.more": "Show more",
-  "runs.unavailable": "Tasks are not available in this window.",
+  "runs.unavailable": "Scheduled tasks are not available in this window.",
   "runs.dismiss": "Dismiss",
 }
