@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { runsOn } from "@opencode/plugin/gui/host"
 import { createRoot } from "solid-js"
 import { Accounts } from "../../src/accounts/contract"
+import { ChatsBackend } from "../../src/chats/backend"
+import { Chats } from "../../src/chats/contract"
 import { Remote } from "../../src/remote/contract"
 import { RoutinesClient } from "../../src/routines/client"
 import { Chat, Routines } from "../../src/routines/contract"
@@ -15,6 +17,7 @@ describe("dynwork built-in", () => {
     expect(entry).toBeDefined()
     expect(Accounts.id.split(".")[0]).toBe(entry?.id ?? "")
     expect(Routines.id.split(".")[0]).toBe(entry?.id ?? "")
+    expect(Chats.id.split(".")[0]).toBe(entry?.id ?? "")
     // The entry itself imports electron, which only loads inside Electron.
     expect(entry?.mainEntry).toBeFunction()
     // Every upstream built-in is still listed.
@@ -67,15 +70,17 @@ describe("dynwork built-in", () => {
       renderer(ctx as unknown as Parameters<typeof renderer>[0])
       return dispose
     })
-    // Remote control, the routines and their chat cards ride on the same built-in
-    expect(used).toEqual([Accounts, Remote, Routines, Chat])
+    // Remote control, the routines, their chat cards and the cloud chats ride on the same built-in
+    expect(used).toEqual([Accounts, Remote, Routines, Chat, Chats])
     expect(connection()).toEqual({ status: "pending" })
     expect(RoutinesClient.connection()).toEqual({ status: "pending" })
     expect(RoutinesClient.chatConnection()).toEqual({ status: "pending" })
+    expect(ChatsBackend.connection()).toEqual({ status: "pending" })
     dispose()
     expect(connection()).toBeUndefined()
     expect(RoutinesClient.connection()).toBeUndefined()
     expect(RoutinesClient.chatConnection()).toBeUndefined()
+    expect(ChatsBackend.connection()).toBeUndefined()
   })
 
   test("the window entry does nothing on the web", () => {

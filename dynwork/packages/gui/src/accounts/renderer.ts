@@ -1,6 +1,8 @@
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js"
 import type { IpcClient, Live, Plugin } from "@opencode/plugin/gui"
 import { Accounts } from "./contract"
+import { ChatsBackend } from "../chats/backend"
+import { Chats } from "../chats/contract"
 import type definition from "./index"
 import { Remote } from "../remote/contract"
 import { registerRemote } from "../remote/ui/register"
@@ -34,6 +36,7 @@ const setup: Plugin.Setup<typeof definition> = (ctx) => {
   const chat = ctx.use(Chat)
   RoutinesClient.attachChat(chat)
   registerChat(ctx, chat)
+  ChatsBackend.attach(ctx.use(Chats))
   // A notification's click: main focused this window or another, and says which run to open.
   createEffect(() => {
     const connection = routines()

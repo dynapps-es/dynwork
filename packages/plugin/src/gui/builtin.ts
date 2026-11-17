@@ -2,6 +2,7 @@
 // out of `dist`, and `script/pack.ts` exports it as `null`. Public SDK modules never import it.
 
 import type { Schema } from "effect"
+import type { BuiltinUi } from "./builtin-chat.js"
 import type { Context } from "./context.js"
 import { Registry, type Catalog, type Messages, type Persisted, type StoreDeclaration, type StoreFrom } from "./core.js"
 import type { Desktop, Layout, Locale, StorageScope, StoreOptions } from "./host-apis.js"
@@ -317,6 +318,8 @@ export interface BuiltinContext extends Context {
   readonly layout: BuiltinLayout
   /** Stores whose older homes may be parts of shared app keys. */
   readonly storage: BuiltinStorage
+  /** The app's components, with the chat composer. */
+  readonly ui: BuiltinUi
 }
 
 /**

@@ -94,7 +94,7 @@ import {
   storeImports,
   storeName,
 } from "./stores"
-import { ui } from "./ui"
+import { builtinUi } from "./builtin-ui"
 
 type Attached = {
   sessions: Accessor<readonly SessionRef[]>
@@ -487,7 +487,7 @@ export function createHostApis() {
       page: (id) => write((value) => value.page(id)),
     }),
     embeds: () => embeds,
-    ui: () => ui,
+    ui: () => builtinUi,
   }
 
   return {
