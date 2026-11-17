@@ -1,0 +1,22 @@
+/* Readex Pro, the Dynapps corporate font, is Dynwork's default sans: bundled (the variable font from google/fonts,
+   SIL OFL, `../fonts/OFL.txt`) so it renders on any computer without a network. Its weight axis runs 160-700, so the
+   in-between weights the UI asks for (440 body, 530 medium, 670 bold) and its `font-variation-settings: "wght"` render
+   exactly; anything heavier stays at 700.
+
+   The app writes the sans stack inline on the root from Settings (`packages/app/src/settings/model.tsx`). With no font
+   chosen it writes the stack that starts with "Inter", and this rule puts Readex Pro first; a chosen font starts the
+   stack with its own name, so the rule stops matching and the choice wins. Settings' "Default" therefore means Readex
+   Pro in every theme. `!important` is what lets a stylesheet win over the inline value. Before Settings write it (the
+   sign-in screen), the root has no inline stack and Readex Pro applies too. */
+@font-face {
+  font-family: "Readex Pro";
+  src: url("../fonts/ReadexPro.ttf") format("truetype");
+  font-weight: 160 700;
+  font-style: normal;
+}
+
+:root:not([style*="--font-family-sans:"]),
+:root[style*='--font-family-sans: "Inter", ui-sans-serif'] {
+  --font-family-sans:
+    "Readex Pro", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
+}

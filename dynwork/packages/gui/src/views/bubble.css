@@ -1,0 +1,19 @@
+/* The user's message bubble in the Dynapps theme, as in Dynwork mobile: a light tint of the primary (`../brand.css`).
+   On light, Midnight at 10% over white with Midnight text; on dark, the violet at 22% over the session's background
+   with white text. Both mix from `--dynwork-primary`, so they follow it. A pending message keeps upstream's look, and
+   other themes keep upstream's grey layer. The upstream rule is `:root body [data-component="user-message"] …`, so
+   this one names the theme on the root to win. */
+:root[data-theme="oc-2"] {
+  --dynwork-bubble: color-mix(in srgb, var(--dynwork-primary) 10%, #ffffff);
+  --dynwork-bubble-text: var(--dynwork-primary);
+}
+
+:root[data-theme="oc-2"][data-color-scheme="dark"] {
+  --dynwork-bubble: color-mix(in srgb, var(--dynwork-primary) 22%, var(--v2-background-bg-base));
+  --dynwork-bubble-text: #ffffff;
+}
+
+:root[data-theme="oc-2"] body [data-component="user-message"]:not([data-pending]) [data-slot="user-message-text"] {
+  background: var(--dynwork-bubble);
+  color: var(--dynwork-bubble-text);
+}
