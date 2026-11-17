@@ -117,3 +117,21 @@ describe("the cloud composer model", () => {
     expect(world.fake.requests.filter((request) => request.method === "PUT")).toHaveLength(1)
   })
 })
+
+describe("a new chat's title", () => {
+  // The same inputs run on the phone (`src/core/cloud/title.test.ts` in the mobile app): both name a chat alike.
+  test.each([
+    ["Hello", "Hello"],
+    ["  padded  \n second line", "padded  "],
+    ["first line\nsecond line\nthird", "first line"],
+    ["\n\n  after blank lines\nrest", "after blank lines"],
+    ["a".repeat(60), "a".repeat(60)],
+    ["a".repeat(61), `${"a".repeat(59)}…`],
+    ["x".repeat(80), `${"x".repeat(59)}…`],
+    [`${"x".repeat(80)}\nsecond`, `${"x".repeat(59)}…`],
+    ["", ""],
+    ["   \n  ", ""],
+  ])("the title of %j is %j", (text, title) => {
+    expect(ChatsChat.titleOf(text)).toBe(title)
+  })
+})

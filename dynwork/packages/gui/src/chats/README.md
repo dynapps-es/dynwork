@@ -64,7 +64,10 @@ tombstones. A cursor the instance refuses starts over. Without an instance the l
 
 ## A chat in a window
 
-`chat.ts` loads the newest page of history, then follows the log from the last durable seq it holds. `document.ts` folds
+`chat.ts` loads the newest page of history, then follows the log from the last seq it holds. Every event reaches a window
+with its seq in `durable.seq`: a text delta's envelope has none, so main (`sync.ts`) takes the SSE `id:` as its seq and sets it
+(a resume after the last durable event would replay deltas already applied and double the text until `text.ended`).
+`document.ts` folds
 the events a cloud chat emits (the contract's "Events on /log": a reply's execution, steps, text and reasoning) the way
 OpenCode's projection does, so a text delta shows as soon as it arrives; a replayed seq changes nothing, and a message
 that did not change keeps its identity. When a reply ends the history is read again, which brings its final parts and

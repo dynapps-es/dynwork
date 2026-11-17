@@ -248,12 +248,14 @@ export function make(options: Options) {
     },
     /**
      * Follows `GET /threads/{id}/log?after=<seq>&follow=1` until the stream ends or `signal` aborts, handing over each
-     * event. Answers how it ended: `ended` (the instance closed it, or the call was aborted) or a failure.
+     * event with its seq in the thread: the SSE `id:`, which every event has, a text delta too (a delta's envelope
+     * carries no `durable`). Answers how it ended: `ended` (the instance closed it, or the call was aborted) or a
+     * failure.
      */
     async log(
       id: string,
       after: number | undefined,
-      event: (value: unknown) => void,
+      event: (value: unknown, seq: number | undefined) => void,
       signal: AbortSignal,
     ): Promise<"ended" | Failure> {
       const response = await request(
@@ -280,8 +282,14 @@ export function make(options: Options) {
             .map((line) => line.slice(5).replace(/^ /, ""))
             .join("\n")
           if (!data) return
+          const id = Number(
+            block
+              .split("\n")
+              .find((line) => line.startsWith("id:"))
+              ?.slice(3),
+          )
           const value = decodeJson(data)
-          if (Option.isSome(value)) event(value.value)
+          if (Option.isSome(value)) event(value.value, Number.isInteger(id) && id > 0 ? id : undefined)
         })
       }
     },

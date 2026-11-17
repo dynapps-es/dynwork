@@ -10,7 +10,9 @@ import type { State, Status, Thread } from "./contract"
 //   (as the live sync polls). Each page's rows replace the threads they name, and its tombstones drop them.
 // - Writes made here apply their answer at once, so a window does not wait for the next read.
 // - The open chat: `follow` reads `GET /threads/{id}/log?after=<seq>&follow=1` and hands each event over, once by its
-//   durable seq, and reconnects after the last seq it handed over when the stream drops.
+//   seq, and reconnects after the last seq it handed over when the stream drops. The seq is the SSE `id:` (every event
+//   has one); a text delta's envelope has no `durable`, so resuming from the last durable event would replay the deltas
+//   already applied and double the text until `text.ended`.
 //
 // The list is held in memory only: a launch shows it after the first read.
 
@@ -152,7 +154,9 @@ export function make(options: Options) {
     },
     /**
      * Hands over each live event of the thread after `after`, until `signal` aborts. A dropped stream reconnects from
-     * the last durable seq it handed over; an event it already handed over is not handed over again.
+     * the last seq it handed over; an event it already handed over is not handed over again. An event whose envelope
+     * has no `durable` (a text delta) is handed over with its SSE seq as one, so the document folding it also knows
+     * where the stream is.
      */
     async follow(id: string, after: number | undefined, emit: (event: unknown) => void, signal: AbortSignal) {
       const last = { seq: after }
@@ -160,11 +164,11 @@ export function make(options: Options) {
         const ended = await options.client.log(
           id,
           last.seq,
-          (event) => {
-            const seq = seqOf(event)
+          (event, id) => {
+            const seq = id ?? seqOf(event)
             if (seq !== undefined && last.seq !== undefined && seq <= last.seq) return
             if (seq !== undefined) last.seq = seq
-            emit(event)
+            emit(seq !== undefined && seqOf(event) === undefined ? withSeq(event, seq) : event)
           },
           signal,
         )
@@ -197,4 +201,9 @@ function seqOf(event: unknown) {
   const durable = event.durable
   if (typeof durable !== "object" || durable === null || !("seq" in durable)) return undefined
   return typeof durable.seq === "number" ? durable.seq : undefined
+}
+
+// The event with `durable.seq` set when its envelope had none (the instance sends the seq of a delta as the SSE id only).
+function withSeq(event: unknown, seq: number) {
+  return typeof event === "object" && event !== null ? { ...event, durable: { seq } } : event
 }
