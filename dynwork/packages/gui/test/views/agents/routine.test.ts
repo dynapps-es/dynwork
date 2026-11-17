@@ -55,6 +55,21 @@ describe("actions follow the capabilities", () => {
     expect(said(actions(crm, view.model.capabilities("farm")).start.reason)).toBe("The Agent Farm does not answer.")
   })
 
+  test("a routine a template assigns cannot be deleted, only paused; an optional one can be deleted", async () => {
+    const view = await setup()
+    const assigned = view.find("Timesheet draft")
+    expect(assigned.template).toMatchObject({ mandatory: true })
+    const allowed = actions(assigned, view.model.capabilities("local"))
+    expect([allowed.remove.enabled, said(allowed.remove.reason)]).toEqual([
+      false,
+      "Assigned by Dynapps; you can pause it",
+    ])
+    expect([allowed.toggle.enabled, allowed.edit.enabled]).toEqual([true, true])
+    if (!assigned.template) throw new Error("not linked")
+    const optional = { ...assigned, template: { ...assigned.template, mandatory: false } }
+    expect(actions(optional, view.model.capabilities("local")).remove.enabled).toBe(true)
+  })
+
   test("a routine of another device runs only there, but can still be paused, edited and moved here", async () => {
     const view = await setup()
     const allowed = actions(view.find("Timesheet draft"), view.model.capabilities("local"))

@@ -311,9 +311,26 @@ export function make(options: Options): Local {
       : { kind: "none" },
   })
 
+  // What the views and the chat tools need of a routine's template: its locks and whether it is mandatory come from the
+  // template Governance last offered; a template the person no longer sees locks nothing here (Governance still checks).
+  const templateOf = (definition: Definition): Routine["template"] => {
+    const link = definition.template
+    if (!link) return undefined
+    const read = options.templates?.()
+    const found = read?.templates.find((template) => template.id === link.id)
+    return {
+      id: link.id,
+      name: found?.name ?? definition.name,
+      locked: found ? RoutinesTemplates.locked(found) : [],
+      state: read?.links.find((candidate) => candidate.id === link.id)?.state ?? "published",
+      mandatory: found?.mandatory ?? false,
+    }
+  }
+
   const toRoutine = (stored: SavedRoutine): Routine => {
     const own = saved().runs.filter((record) => record.routine === stored.id)
     const next = RoutinesClock.next(stored.definition, options.now())
+    const template = templateOf(stored.definition)
     return {
       ref: ref(stored.id),
       definition: stored.definition,
@@ -333,6 +350,7 @@ export function make(options: Options): Local {
         : { kind: "none" },
       updated: stored.updated,
       ...(stored.conflict === undefined ? {} : { conflict: stored.conflict }),
+      ...(template ? { template } : {}),
     }
   }
 

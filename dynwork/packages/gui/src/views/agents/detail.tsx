@@ -61,6 +61,16 @@ export function RoutineDetail(props: {
               }
             />
             <Tag tone={status().tone}>{ctx.t(status().key, status().params)}</Tag>
+            <Show when={props.routine.template}>
+              {(template) => (
+                <>
+                  <Tag tone="info">{ctx.t("agents.template.badge")}</Tag>
+                  <Show when={template().mandatory}>
+                    <Tag tone="info">{ctx.t("agents.template.assigned")}</Tag>
+                  </Show>
+                </>
+              )}
+            </Show>
             <Show when={props.routine.state === "active" ? next() : undefined}>
               {(at) => (
                 <>

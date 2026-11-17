@@ -85,21 +85,59 @@ export const Changes = Schema.Struct({
 })
 export type Changes = typeof Changes.Type
 
+/**
+ * What the person gives to activate a template; the rest is the template's. A schedule only where the template lets the
+ * person choose one: `repeat` and its fields where the schedule is free, `time` alone where only the time is theirs.
+ */
+export const Activation = Schema.Struct({
+  id: Schema.String.annotate({
+    description: "The template's id, as list_task_templates gives it, such as 'project-health'.",
+  }),
+  repeat: Schema.optional(Proposal.fields.repeat),
+  time: Proposal.fields.time,
+  days: Proposal.fields.days,
+  day: Proposal.fields.day,
+  cron: Proposal.fields.cron,
+  timezone: Proposal.fields.timezone,
+  folder: Schema.optional(Schema.String).annotate({
+    description:
+      "The absolute path of the project folder the task works in. Required when the template asks for one: ask the user.",
+  }),
+  model: Schema.optional(Schema.String).annotate({
+    description: "A model of this computer, only when the template's own is not available here and it lets it change.",
+  }),
+})
+export type Activation = typeof Activation.Type
+
 /** A task as the tools name it: `<backend>:<id>`, as `list_scheduled_tasks` gives it. */
 const Task = Schema.String.annotate({
   description: "The task's id, as list_scheduled_tasks gives it, such as 'local:3f2a'.",
 })
 
 /**
- * What a tool asks main. `list`, `running` and `get` read; `propose`, `update`, `delete` and `run` may wait for the user's answer
- * on a card; `pause` and `resume` act at once. Every kind but `list`, `running` and `propose` names its `routine`.
+ * What a tool asks main. `list`, `running`, `templates` and `get` read; `propose`, `activate`, `update`, `delete` and
+ * `run` may wait for the user's answer on a card; `pause` and `resume` act at once. Every kind but `list`, `running`,
+ * `templates`, `propose` and `activate` names its `routine`.
  */
 export const Request = Schema.Struct({
   id: Schema.String,
   /** The chat session the tool runs in: the card shows in it. */
   session: Schema.String,
-  kind: Schema.Literals(["list", "running", "get", "propose", "update", "delete", "pause", "resume", "run"]),
+  kind: Schema.Literals([
+    "list",
+    "running",
+    "get",
+    "propose",
+    "update",
+    "delete",
+    "pause",
+    "resume",
+    "run",
+    "templates",
+    "activate",
+  ]),
   proposal: Schema.optional(Proposal),
+  activation: Schema.optional(Activation),
   routine: Schema.optional(Schema.String),
   changes: Schema.optional(Changes),
 })
@@ -255,7 +293,9 @@ export function tools(emitter: Emitter) {
         `\"chaque lundi\"; NL \"elke dag\", \"elke maandag\"), it is a ${aka()}. Proposes a new Dynwork scheduled task: a ` +
         'prompt an agent runs on a schedule, on this computer or on Cloud (formerly the Agent Farm: "on the farm" is ' +
         "where 'farm'). Call list_scheduled_tasks first: " +
-        "if a task already does this, use update_scheduled_task instead. Before calling it, ask the user what it should " +
+        "if a task already does this, use update_scheduled_task instead; then list_task_templates: if a template Dynapps " +
+        "offers the user already does this, propose activate_task_template instead of copying it here. Before " +
+        "calling it, ask the user what it should " +
         "do and what the result should be, how often and when it runs (times are " +
         `${zone} unless they say otherwise), and how to be told when it finishes; ask where it runs (this computer or ` +
         "Cloud), the project folder and the connectors only when they matter, and 'Ask me' or \"Don't ask\" " +
@@ -276,7 +316,9 @@ export function tools(emitter: Emitter) {
         "change, in create_scheduled_task's terms (a " +
         "rename is just `name`; a new time is `time`, with `repeat` only when how often changes). Fields left out stay " +
         "as they are. The user sees each change as before → after on a card and saves it, or cancels; this tool waits " +
-        "for that answer and changes nothing by itself. Where a task runs cannot change.",
+        "for that answer and changes nothing by itself. Where a task runs cannot change. A task made from a Dynapps " +
+        "template has fields the template sets (list_scheduled_tasks says which): a change to one is refused with " +
+        '"ask your administrator"; do not retry it, tell the user.',
       input: Schema.Struct({ id: Task, ...Changes.fields }),
       options: { codemode: false },
       execute: (input: Changes & { readonly id: string }, context: Context) => {
@@ -289,7 +331,10 @@ export function tools(emitter: Emitter) {
       description:
         `When the user wants to delete or remove a ${aka({ es: "borrar, eliminar", fr: "supprimer", nl: "verwijderen" })}. ` +
         "Deletes a Dynwork scheduled task. The user confirms it on a card; this tool waits for that answer and deletes " +
-        "nothing by itself. Prefer pause_scheduled_task when the user may want it back.",
+        "nothing by itself. Prefer pause_scheduled_task when the user may want it back. A task assigned by Dynapps " +
+        "(a mandatory template) cannot be deleted, only paused. Deleting one made from an optional template " +
+        "deactivates that template for the user, who can activate it again with activate_task_template: say so " +
+        "before calling.",
       input: target,
       options: { codemode: false },
       execute: (input: { readonly id: string }, context: Context) =>
@@ -329,6 +374,36 @@ export function tools(emitter: Emitter) {
       options: { codemode: false },
       execute: (input: { readonly id: string }, context: Context) =>
         waits({ id: context.id, session: context.sessionID, kind: "run", routine: input.id }),
+    },
+    templates: {
+      name: "list_task_templates",
+      description:
+        "When the user asks which task templates they can use, what Dynapps or their administrator offers or " +
+        'assigns them ("plantillas", "modèles", "sjablonen"), or before proposing a new task that a template may ' +
+        `already cover. Lists the templates of ${aka()} that the user sees, one block each: id, name, whether it is ` +
+        "optional or assigned by Dynapps, its schedule, whether the user already has it active (and as which task), " +
+        "what the template sets and cannot be changed, and what the user must give to activate it (a project folder, " +
+        "the time). Use the ids with activate_task_template.",
+      input: Schema.Struct({}),
+      options: { codemode: false },
+      execute: (_input: unknown, context: Context) =>
+        quick({ id: context.id, session: context.sessionID, kind: "templates" }),
+    },
+    activate: {
+      name: "activate_task_template",
+      description:
+        "When the user wants to use, activate or turn on one of the templates list_task_templates gives " +
+        `(${aka({ es: "usar o activar una plantilla", fr: "activer un modèle", nl: "een sjabloon activeren" })}). ` +
+        "Proposes a Dynwork scheduled task made from a Dynapps template: the template sets the task and the user " +
+        "gives only the personal part: the project folder when the template asks for one (ask the user for it, " +
+        "never invent it), the time of day or, where the template lets it, how often it runs, and the time zone " +
+        `(${zone} unless they say otherwise). The user sees the task on a card and creates it with Schedule, or ` +
+        "cancels; this tool waits for that answer. It never creates a task by itself. A template assigned by Dynapps " +
+        "arrives on its own and is refused here, as is one the user already has.",
+      input: Activation,
+      options: { codemode: false },
+      execute: (input: Activation, context: Context) =>
+        waits({ id: context.id, session: context.sessionID, kind: "activate", activation: input }),
     },
   }
 }

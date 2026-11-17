@@ -160,6 +160,10 @@ export default {
   "agents.template.folder.required": "Choose the project folder this task works in.",
   "agents.template.confirm": "Approved by Dynapps; runs without asking",
   "agents.template.confirm.required": "Confirm that it runs without asking.",
+  "agents.template.badge": "Dynapps template",
+  "agents.template.lockedBy": "Set by the template {{name}}",
+  "agents.template.locks":
+    "Some fields are set by the template {{name}} and cannot be changed here. The rest is yours.",
   "agents.activity.hint":
     "Every run, on this computer and on Cloud, newest first. It includes Cloud runs started outside Dynwork, such as from the chat.",
   "agents.activity.empty": "No runs yet.",
@@ -207,6 +211,7 @@ export default {
   "agents.reason.owner": "Runs only on {{device}}.",
   "agents.reason.unclaimed": "No computer has claimed it yet.",
   "agents.reason.finished": "Its schedule has ended.",
+  "agents.reason.mandatory": "Assigned by Dynapps; you can pause it",
   "agents.reason.replace": "Saving changes creates a new schedule.",
   "agents.reason.cancel": "This backend cannot stop a run.",
   "agents.reason.empty": "Nothing to open yet.",

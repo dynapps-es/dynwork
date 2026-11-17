@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { DynWorkRoutines } from "@dynwork/server-plugin/routines"
 import { RoutinesBackend, type Backend } from "../../src/routines/backend"
 import { RoutinesChat } from "../../src/routines/chat"
-import { Card, chatPrompt, isFailure, type Definition, type Routine } from "../../src/routines/contract"
+import { Card, chatPrompt, isFailure, type Definition, type Routine, type Template } from "../../src/routines/contract"
 import { RoutinesDemo } from "../../src/routines/demo"
 import { RoutinesFarm } from "../../src/routines/farm/backend"
 import { clock } from "./fixture"
@@ -479,4 +479,232 @@ test("Create with Dynwork opens the conversation with David's setup prompt", () 
   expect(chatPrompt).toBe(
     "Help me set up a scheduled task. Ask me what it should do, how often it should run, and when, then create it.",
   )
+})
+
+// The demo's `timesheet` is the person's task of the mandatory template `timesheet-draft`: its instructions, connectors
+// and permissions are set, and so is how often it runs (Fridays); only the time of day is theirs.
+describe("a task made from a template", () => {
+  test("is listed and read with where it comes from and what it sets", async () => {
+    const subject = stand()
+    await subject.chat.request({ id: "call_list", session: "ses_chat", kind: "list" })
+    const line = subject.answers[0]?.text.split("\n").find((item) => item.startsWith("- local:timesheet")) ?? ""
+    expect(line).toContain('from Dynapps template "Timesheet draft"')
+    expect(line).toContain("assigned by Dynapps: it cannot be deleted, only paused")
+    expect(line).toContain(
+      "set by the template: instructions, agent, connectors, permissions, how often it runs (the time is the user's)",
+    )
+    // A task of the person's own says nothing of the kind.
+    expect(subject.answers[0]?.text.split("\n").find((item) => item.startsWith("- local:tests"))).not.toContain(
+      "template",
+    )
+
+    await subject.chat.request(ask("call_get", "get", "local:timesheet"))
+    expect(subject.answers[1]?.text).toContain('from Dynapps template "Timesheet draft"')
+  })
+
+  test.each([
+    ["instructions", { instructions: "Draft something else." }],
+    ["permissions", { permissions: "bypass" }],
+    ["connectors", { connectors: ["dynbrain"] }],
+    ["repeat", { repeat: "daily" }],
+  ] satisfies Array<[string, DynWorkRoutines.Changes]>)(
+    "refuses a change to %s before any card, and changes nothing",
+    async (field, changes) => {
+      const subject = stand()
+      const before = await subject.routine("timesheet")
+      await subject.chat.request(ask("call_locked", "update", "local:timesheet", changes))
+      expect(subject.chat.cards()).toEqual([])
+      expect(subject.answers).toHaveLength(1)
+      expect(subject.answers[0]?.error).toBe(true)
+      expect(subject.answers[0]?.text).toContain(
+        'Set by the Dynapps template "Timesheet draft"; ask your administrator.',
+      )
+      expect(subject.answers[0]?.text).toContain(`- ${field}: Set by the template.`)
+      expect(subject.answers[0]?.text.endsWith("Nothing changed.")).toBe(true)
+      expect(await subject.routine("timesheet")).toEqual(before)
+    },
+  )
+
+  test("takes a change to a field the template leaves free: the name, the time, the notifications", async () => {
+    const subject = stand()
+    const before = await subject.routine("timesheet")
+    await subject.chat.request(
+      ask("call_free", "update", "local:timesheet", { name: "My timesheet", time: "08:15", notify: "every" }),
+    )
+    expect(subject.answers).toEqual([])
+    const card = subject.chat.cards()[0]
+    expect(card?.definition).toMatchObject({
+      name: "My timesheet",
+      schedule: { cron: "15 8 * * 5" },
+      options: { notify: "every", connectors: ["odoo"] },
+      template: { id: "timesheet-draft", revision: 3 },
+    })
+    expect(await subject.chat.decide("call_free", true)).toBeUndefined()
+    expect((await subject.routine("timesheet")).definition.name).toBe("My timesheet")
+    expect((await subject.routine("timesheet")).definition.schedule?.cron).toBe("15 8 * * 5")
+    expect((await subject.routine("timesheet")).definition).not.toEqual(before.definition)
+  })
+
+  test("that is assigned by Dynapps is not deleted, and says to pause it", async () => {
+    const subject = stand()
+    await subject.chat.request(ask("call_delete", "delete", "local:timesheet"))
+    expect(subject.chat.cards()).toEqual([])
+    expect(subject.answers[0]?.error).toBe(true)
+    expect(subject.answers[0]?.text).toContain(
+      'is assigned by the Dynapps template "Timesheet draft" and cannot be deleted',
+    )
+    expect(subject.answers[0]?.text).toContain("pause_scheduled_task")
+    expect(await subject.names()).toContain("Timesheet draft")
+    // Pausing it is allowed.
+    await subject.chat.request(ask("call_pause", "pause", "local:timesheet"))
+    expect(subject.answers[1]?.error).toBe(false)
+    expect((await subject.routine("timesheet")).state).toBe("paused")
+  })
+})
+
+const template = (id: string, changes: Omit<DynWorkRoutines.Activation, "id"> = {}): DynWorkRoutines.Request => ({
+  id: `call_${id}`,
+  session: "ses_chat",
+  kind: "activate",
+  activation: { id, ...changes },
+})
+
+describe("the templates", () => {
+  test("are listed with what they set, what the user gives and where the user stands", async () => {
+    const subject = stand()
+    await subject.chat.request({ id: "call_templates", session: "ses_chat", kind: "templates" })
+    expect(subject.answers[0]?.error).toBe(false)
+    const text = subject.answers[0]?.text ?? ""
+    expect(text).toContain("- project-health · Project health check · optional · Weekdays at 09:00 · not active")
+    expect(text).toContain(
+      "Set by the template: instructions, agent, connectors, permissions, model, how often it runs (the time is the user's), time limit.",
+    )
+    expect(text).toContain("The user gives: a project folder (The folder of the project it reviews.); the time of day.")
+    expect(text).toContain(
+      "- timesheet-draft · Timesheet draft · assigned by Dynapps · Fridays at 17:00 · active as local:timesheet",
+    )
+  })
+
+  test("are not available where the backend has none", async () => {
+    const answers: DynWorkRoutines.Answer[] = []
+    const alone = RoutinesChat.make({
+      registry: RoutinesBackend.make(),
+      farm: false,
+      answer: async (answer) => void answers.push(answer),
+      act: {} as never,
+      changed: () => {},
+      now: Date.now,
+    })
+    await alone.request({ id: "call_none", session: "ses_chat", kind: "templates" })
+    expect(answers).toEqual([{ id: "call_none", text: "No templates are available in this Dynwork.", error: true }])
+  })
+
+  test("are activated on a card with the user's folder, and the task keeps its link", async () => {
+    const subject = stand()
+    await subject.chat.request(template("project-health", { folder: "/Users/demo/Projects/portal", time: "07:30" }))
+    expect(subject.answers).toEqual([])
+    const card = subject.chat.cards()[0]
+    expect(card).toMatchObject({ kind: "create", backend: "local", id: "call_project-health" })
+    expect(card?.definition).toMatchObject({
+      name: "Project health check",
+      schedule: { cron: "30 7 * * 1-5", timezone: "Europe/Madrid" },
+      model: "claude-sonnet-5-5",
+      options: { folder: "/Users/demo/Projects/portal", permissions: "ask", connectors: ["dynbrain"], timeLimit: 30 },
+      template: { id: "project-health", revision: 2 },
+    })
+    expect(crossing(Card, card)).toEqual(card)
+    expect(await subject.names()).not.toContain("Project health check")
+
+    expect(await subject.chat.decide("call_project-health", true)).toBeUndefined()
+    const made = (await subject.local.list()) as Routine[]
+    expect(made.find((routine) => routine.definition.name === "Project health check")?.template).toMatchObject({
+      id: "project-health",
+      name: "Project health check",
+      mandatory: false,
+    })
+    // A second activation of the same template is refused, naming the task.
+    await subject.chat.request(template("project-health", { folder: "/elsewhere" }))
+    expect(subject.chat.cards()).toEqual([])
+    expect(subject.answers.at(-1)?.text).toContain("The user already has this template active as local:")
+  })
+
+  test("that run without asking show it on the card, which is the user's confirmation", async () => {
+    const time = clock()
+    const base = RoutinesDemo.local(time.now)
+    const offered = await base.templates?.()
+    if (!offered || isFailure(offered)) throw new Error("no templates")
+    const bypass = {
+      ...(offered.templates[0] as Template),
+      id: "tidy",
+      name: "Tidy up",
+      definition: {
+        instructions: { kind: "prompt" as const, text: "Tidy up." },
+        options: { permissions: "bypass" as const },
+      },
+      locks: { model: false, schedule: "free" as const, timeLimitMax: null },
+      personal: { folder: "none" as const, hint: null },
+    }
+    const registry = RoutinesBackend.make()
+    registry.register({ ...base, templates: async () => ({ templates: [bypass], links: [] }) })
+    const chat = RoutinesChat.make({
+      registry,
+      farm: false,
+      answer: async () => undefined,
+      act: {} as never,
+      changed: () => {},
+      now: time.now,
+    })
+    await chat.request(template("tidy"))
+    expect(chat.cards()[0]?.definition.options.permissions).toBe("bypass")
+    expect(chat.cards()[0]?.definition.template).toEqual({ id: "tidy", revision: 2 })
+  })
+
+  test("are refused without the folder they need, with the field named", async () => {
+    const subject = stand()
+    await subject.chat.request(template("project-health"))
+    expect(subject.chat.cards()).toEqual([])
+    expect(subject.answers[0]).toMatchObject({ error: true })
+    expect(subject.answers[0]?.text).toContain("- folder: This template needs a project folder.")
+    expect(subject.answers[0]?.text.endsWith("Nothing was created.")).toBe(true)
+  })
+
+  test.each([
+    ["a mandatory one", template("timesheet-draft"), "Dynapps assigns this template to the user"],
+    ["an unknown one", template("nothing"), 'No template has the id "nothing"'],
+    [
+      "a change of how often it runs",
+      template("project-health", { folder: "/work", repeat: "daily", time: "09:00" }),
+      "- schedule: The template sets it.",
+    ],
+    [
+      "a model the template sets",
+      template("project-health", { folder: "/work", model: "claude-opus-5-5" }),
+      "- model:",
+    ],
+    ["a manual task", template("project-health", { folder: "/work", repeat: "manual" }), "manual is not an option"],
+    ["an unreadable time", template("project-health", { folder: "/work", time: "8am" }), "Choose a time"],
+  ])("refuses %s, and shows no card", async (_, request, text) => {
+    const subject = stand()
+    await subject.chat.request(request)
+    expect(subject.chat.cards()).toEqual([])
+    expect(subject.answers[0]?.error).toBe(true)
+    expect(subject.answers[0]?.text).toContain(text)
+  })
+
+  test("that the user made from one are deleted only after Delete, and the answer says the template is off", async () => {
+    const subject = stand()
+    await subject.chat.request(template("project-health", { folder: "/work" }))
+    await subject.chat.decide("call_project-health", true)
+    const made = ((await subject.local.list()) as Routine[]).find(
+      (routine) => routine.template?.id === "project-health",
+    )
+    if (!made) throw new Error("not made")
+    await subject.chat.request(ask("call_off", "delete", `local:${made.ref.id}`))
+    expect(subject.chat.cards()[0]).toMatchObject({ kind: "delete" })
+    expect(await subject.chat.decide("call_off", true)).toBeUndefined()
+    expect(subject.answers.at(-1)?.text).toContain(
+      "It was made from the Dynapps template project-health: that template is no longer active",
+    )
+    expect(subject.answers.at(-1)?.text).toContain("activate_task_template")
+  })
 })

@@ -7,6 +7,7 @@ import {
   createFormModel,
   fromRoutine,
   localProblems,
+  locksOf,
   problemText,
   toDefinition,
   unplaced,
@@ -559,5 +560,57 @@ describe("editing and saving", () => {
     model.set({ trigger: "none" })
     await model.save()
     expect(view.find("Weekly ticket summary").definition.schedule).toBeUndefined()
+  })
+})
+
+describe("a routine made from a template", () => {
+  test("has its template's locked rows read only, and a routine of the person's own has none", async () => {
+    const view = await setup()
+    const linked = form(view, { routine: view.find("Timesheet draft") })
+    expect(linked.locks.template).toBe("Timesheet draft")
+    expect(linked.locks).toMatchObject({ instructions: true, agent: true, model: false, schedule: "time" })
+    expect(["permissions", "connectors"].map((key) => linked.locks.option(key))).toEqual([true, true])
+    // The folder, the limits and the notifications are always the person's.
+    expect(["folder", "recover", "catchUp", "notify"].map((key) => linked.locks.option(key))).toEqual([
+      false,
+      false,
+      false,
+      false,
+    ])
+    expect(locksOf(view.find("Weekly ticket summary"))).toMatchObject({
+      template: undefined,
+      instructions: false,
+      model: false,
+      schedule: undefined,
+    })
+    expect(form(view, { routine: view.find("Weekly ticket summary") }).locks.option("permissions")).toBe(false)
+  })
+
+  test("reads each kind of schedule lock from the paths the template locks", async () => {
+    const view = await setup()
+    const linked = view.find("Timesheet draft")
+    const withPaths = (locked: string[]): Routine => {
+      if (!linked.template) throw new Error("not linked")
+      return { ...linked, template: { ...linked.template, locked } }
+    }
+    expect(locksOf(withPaths(["schedule.day", "schedule.month", "schedule.weekday"])).schedule).toBe("time")
+    expect(locksOf(withPaths(["schedule.minute", "schedule.hour", "schedule.day"])).schedule).toBe("locked")
+    expect(locksOf(withPaths(["model", "options.timeLimit"]))).toMatchObject({ model: true, schedule: undefined })
+    expect(locksOf(withPaths(["model", "options.timeLimit"])).option("timeLimit")).toBe(true)
+  })
+
+  test("is saved with its link, and the fields it sets come back as they were", async () => {
+    const view = await setup()
+    const routine = view.find("Timesheet draft")
+    const model = form(view, { routine })
+    model.set({ name: "My Friday timesheet", time: "16:30" })
+    expect(await model.save()).toEqual(routine.ref)
+    expect(model.state.failure).toBeUndefined()
+    const saved = view.find("My Friday timesheet")
+    expect(saved.definition.template).toEqual({ id: "timesheet-draft", revision: 3 })
+    expect(saved.definition.schedule?.cron).toBe("30 16 * * 5")
+    expect(saved.definition.instructions).toEqual(routine.definition.instructions)
+    expect(saved.definition.options.connectors).toEqual(["odoo"])
+    expect(saved.template).toMatchObject({ id: "timesheet-draft", mandatory: true })
   })
 })

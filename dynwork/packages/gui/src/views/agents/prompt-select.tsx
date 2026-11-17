@@ -16,6 +16,7 @@ export default function PromptSelect(props: {
   blank?: string
   icon?: IconName
   invalid?: boolean
+  disabled?: boolean
   placement?: "top-start" | "top-end"
   onChange: (value: string) => void
 }) {
@@ -33,6 +34,7 @@ export default function PromptSelect(props: {
         value={(option) => option.value}
         label={(option) => option.label}
         invalid={props.invalid}
+        disabled={props.disabled}
         placement={props.placement ?? "top-start"}
         gutter={6}
         onSelect={(option) => option && props.onChange(fromSelect(option.value))}

@@ -5,11 +5,24 @@ import type { OpenCodeClient } from "@opencode/client/promise"
 import type { MainContext } from "@opencode/plugin/gui/main"
 import { DynWorkRoutines } from "@dynwork/server-plugin/routines"
 import { fail, type Backend, type Registry } from "./backend"
-import { Chat, chatPrompt, Definition, isFailure, type Card, type Failure, type Ref, type Routine, type Run } from "./contract"
+import {
+  Chat,
+  chatPrompt,
+  Definition,
+  isFailure,
+  type Card,
+  type Failure,
+  type Personal,
+  type Ref,
+  type Routine,
+  type Run,
+  type Template,
+} from "./contract"
 import { RoutinesFarm } from "./farm/backend"
 import { RoutinesLocal } from "./local/backend"
+import { RoutinesTemplates } from "./templates"
 import en from "../views/agents/en"
-import { cardChanges, cardRows, instructionsText, runTime } from "../views/agents/format"
+import { cardChanges, cardRows, instructionsText, runTime, scheduleText } from "../views/agents/format"
 import { stateKey } from "../views/agents/routine"
 import { cronOf, presetOf, scheduleProblem, upcoming, type Preset } from "../views/agents/schedule"
 
@@ -20,6 +33,10 @@ import { cronOf, presetOf, scheduleProblem, upcoming, type Preset } from "../vie
 // `dynwork.routines.chat` Ipc): only the card's button does it, through the routines Ipc; Cancel, a refusal and a
 // withdrawn request change nothing. The session's permissions ("Don't ask" too) and the app's auto-approve play no part,
 // as the card is not a permission. Every change goes to the routine's own backend through the registry.
+//
+// A task made from a template (`Routine.template`) keeps what the template locks (`RoutinesTemplates`): an update that
+// `violates` it is refused before any card, a mandatory one is not deleted, and `activate_task_template` shows the card
+// of the task `RoutinesTemplates.activate` makes from the template and the user's personal part.
 
 export interface Options {
   registry: Registry
@@ -127,6 +144,71 @@ export function make(options: Options) {
     )
   }
 
+  // The templates the user sees, with what each sets and asks, and whether they already have it. They live on this computer.
+  async function templates(request: DynWorkRoutines.Request) {
+    const backend = options.registry.get(RoutinesLocal.id)
+    const offered = await backend?.templates?.().catch(() => fail("failed", "The templates could not be read."))
+    if (!backend || !offered) return reply(request.id, "No templates are available in this Dynwork.", true)
+    if (isFailure(offered)) return reply(request.id, `Templates could not be read: ${offered.message}`, true)
+    if (offered.templates.length === 0)
+      return reply(request.id, "Dynapps offers the user no templates right now.", false)
+    const tasks = await backend.list()
+    const owned = (template: Template) =>
+      isFailure(tasks) ? undefined : tasks.find((task) => task.template?.id === template.id)
+    const linked = (template: Template) => offered.links.find((link) => link.id === template.id)
+    await reply(
+      request.id,
+      offered.templates
+        .map((template) => describeTemplate(template, owned(template), linked(template)?.state))
+        .join("\n"),
+      false,
+    )
+  }
+
+  async function activate(request: DynWorkRoutines.Request, activation: DynWorkRoutines.Activation) {
+    const backend = options.registry.get(RoutinesLocal.id)
+    const offered = await backend?.templates?.().catch(() => fail("failed", "The templates could not be read."))
+    if (!backend || !offered) return refuse(request, fail("unsupported", "No templates are available in this Dynwork."))
+    if (isFailure(offered)) return refuse(request, offered)
+    const template = offered.templates.find((candidate) => candidate.id === activation.id)
+    if (!template)
+      return refuse(
+        request,
+        fail("not-found", `No template has the id "${activation.id}". Call list_task_templates for the ids.`),
+      )
+    if (template.mandatory)
+      return refuse(
+        request,
+        fail("conflict", "Dynapps assigns this template to the user: its task arrives on its own."),
+      )
+    const tasks = await backend.list()
+    const twin = isFailure(tasks) ? undefined : tasks.find((task) => task.template?.id === template.id)
+    if (twin || offered.links.some((link) => link.id === template.id))
+      return refuse(
+        request,
+        fail(
+          "conflict",
+          `The user already has this template active${twin ? ` as ${taskId(twin.ref)}` : " on another computer"}.`,
+        ),
+      )
+    const personal = personalOf(activation, template)
+    if (isFailure(personal)) return refuse(request, personal)
+    const built = RoutinesTemplates.activate(template, personal)
+    if (isFailure(built)) return refuse(request, built)
+    const checked = await check(backend, built)
+    if (isFailure(checked)) return refuse(request, checked)
+    // The card is the user's confirmation of a template that runs without asking: it shows the permissions row.
+    show({
+      id: request.id,
+      session: request.session,
+      kind: "create",
+      backend: RoutinesLocal.id,
+      label: await label(backend),
+      definition: checked,
+      input: JSON.stringify(activation, null, 2),
+    })
+  }
+
   async function propose(request: DynWorkRoutines.Request, proposal: DynWorkRoutines.Proposal) {
     const where = proposal.where ?? "local"
     const id = where === "farm" ? RoutinesFarm.id : RoutinesLocal.id
@@ -144,6 +226,8 @@ export function make(options: Options) {
   async function update(request: DynWorkRoutines.Request, found: Found, changes: DynWorkRoutines.Changes) {
     const built = changed(found.routine, changes, options.now())
     if (isFailure(built)) return refuse(request, built)
+    const locked = await lockedBy(found, built)
+    if (locked) return refuse(request, locked)
     // JESÚS: a change to a farm task reaches your `validate` here and, once the user presses Save, your `update`.
     const checked = await check(found.backend, built)
     if (isFailure(checked)) return refuse(request, checked)
@@ -179,7 +263,7 @@ export function make(options: Options) {
   async function refuse(request: DynWorkRoutines.Request, failure: Failure) {
     known.delete(request.id)
     const fields = Object.entries(failure.fields ?? {}).map(([key, message]) => `\n- ${key}: ${message}`)
-    const creating = request.kind === "propose"
+    const creating = request.kind === "propose" || request.kind === "activate"
     await reply(
       request.id,
       `${creating ? "Not proposed" : "Not done"}: ${failure.message}${fields.join("")}\n${creating ? "Nothing was created." : "Nothing changed."}`,
@@ -214,6 +298,11 @@ export function make(options: Options) {
     known.add(input.id)
     if (input.kind === "list") return list(input).finally(() => known.delete(input.id))
     if (input.kind === "running") return running(input).finally(() => known.delete(input.id))
+    if (input.kind === "templates") return templates(input).finally(() => known.delete(input.id))
+    if (input.kind === "activate") {
+      if (!input.activation) return refuse(input, fail("invalid", "The template is missing."))
+      return activate(input, input.activation)
+    }
     if (input.kind === "propose") {
       if (!input.proposal) return refuse(input, fail("invalid", "The proposal is missing."))
       return propose(input, input.proposal)
@@ -225,6 +314,15 @@ export function make(options: Options) {
       return toggle(input, found, input.kind === "resume").finally(() => known.delete(input.id))
     if (input.kind === "update") return update(input, found, input.changes ?? {})
     if (input.kind === "run") return run(input, found)
+    const template = found.routine.template
+    if (template?.mandatory)
+      return refuse(
+        input,
+        fail(
+          "conflict",
+          `${subject(found.routine.definition, found.routine.ref, found.label).name} is assigned by the Dynapps template "${template.name}" and cannot be deleted. pause_scheduled_task stops it.`,
+        ),
+      )
     return show(cardOf(input, found, "delete"))
   }
 
@@ -260,7 +358,14 @@ export function make(options: Options) {
     if (card.kind === "delete") {
       const failure = await options.act.remove(ref)
       if (failure) return reply(card.id, `The task could not be deleted: ${failure.message}`, true).then(() => failure)
-      return reply(card.id, `Deleted ${task.name}. Its past runs stay in Tasks.`, false).then(() => undefined)
+      // A task made from an optional template: deleting it deactivates the template, which can be activated again.
+      const template = card.definition.template
+      const deactivated = template
+        ? ` It was made from the Dynapps template ${template.id}: that template is no longer active for the user, who can activate it again with activate_task_template.`
+        : ""
+      return reply(card.id, `Deleted ${task.name}. Its past runs stay in Tasks.${deactivated}`, false).then(
+        () => undefined,
+      )
     }
     const outcome = await options.act.start(ref)
     await started(card.id, task, outcome)
@@ -333,6 +438,105 @@ function cardOf(request: DynWorkRoutines.Request, found: Found, kind: Card["kind
     definition: found.routine.definition,
     input: JSON.stringify({ id: request.routine, ...request.changes }, null, 2),
   }
+}
+
+/**
+ * What the template of a task keeps an edit from changing, as a refusal the agent can act on, or undefined. The template
+ * is read from the task's own backend; one the person no longer sees locks nothing here (Governance still checks).
+ */
+async function lockedBy(found: Found, built: Definition): Promise<Failure | undefined> {
+  const link = found.routine.template
+  if (!link) return undefined
+  const offered = await found.backend.templates?.().catch(() => undefined)
+  const template =
+    offered && !isFailure(offered) ? offered.templates.find((candidate) => candidate.id === link.id) : undefined
+  if (!template) return undefined
+  const paths = RoutinesTemplates.violates(template, found.routine.definition, built)
+  if (paths.length === 0) return undefined
+  return fail(
+    "conflict",
+    `Set by the Dynapps template "${link.name}"; ask your administrator.`,
+    Object.fromEntries(paths.map((path) => [changeKey(path), "Set by the template."])),
+  )
+}
+
+// A locked path as the tools name the field: `update_scheduled_task`'s own terms.
+function changeKey(path: string) {
+  if (path === "schedule.minute" || path === "schedule.hour") return "time"
+  if (path.startsWith("schedule.")) return "repeat"
+  if (path === "options.timeLimit") return "time limit"
+  return path.replace("options.", "")
+}
+
+/** What a template locks, in words for the agent: each once, the schedule apart from the time that stays the user's. */
+function lockedWords(paths: readonly string[]) {
+  const words = paths.flatMap((path) => {
+    if (path === "where") return []
+    if (path === "schedule.minute") return ["how often it runs and its time"]
+    if (path === "schedule.day" && !paths.includes("schedule.minute"))
+      return ["how often it runs (the time is the user's)"]
+    if (path.startsWith("schedule.")) return []
+    if (path === "options.timeLimit") return ["time limit"]
+    return [path.replace("options.", "")]
+  })
+  return words.length === 0 ? "nothing" : words.join(", ")
+}
+
+/** One template for the agent: what it is, where the user stands with it, what it sets and what it asks. */
+function describeTemplate(template: Template, task?: Routine, state?: string) {
+  const cron = template.definition.schedule?.cron
+  const asks = [
+    ...(template.personal.folder === "required"
+      ? [`a project folder${template.personal.hint ? ` (${template.personal.hint})` : ""}`]
+      : []),
+    ...(cron && template.locks.schedule !== "locked"
+      ? [template.locks.schedule === "time" ? "the time of day" : "how often and when"]
+      : []),
+    ...(template.locks.model || template.definition.model === undefined
+      ? []
+      : ["a model, if the template's is not on this computer"]),
+  ]
+  const where = task ? `active as ${taskId(task.ref)}` : state ? "active on another computer" : "not active"
+  return [
+    `- ${template.id} · ${template.name} · ${template.mandatory ? "assigned by Dynapps" : "optional"} · ${
+      cron ? scheduleText(words, { cron, timezone: DynWorkRoutines.zone }) : "manual"
+    } · ${where}${state && state !== "published" ? ` (${state})` : ""}`,
+    `  ${template.description}`,
+    `  Set by the template: ${lockedWords(RoutinesTemplates.locked(template))}.`,
+    `  The user gives: ${asks.length === 0 ? "nothing" : asks.join("; ")}.`,
+  ].join("\n")
+}
+
+// The personal part of an activation: the zone, the folder and, where the template lets it, the schedule.
+function personalOf(activation: DynWorkRoutines.Activation, template: Template): Personal | Failure {
+  const cron = scheduleFor(activation, template)
+  if (isFailure(cron)) return cron
+  return {
+    timezone: activation.timezone ?? DynWorkRoutines.zone,
+    // The card is the user's confirmation of a template that runs without asking.
+    approved: true,
+    ...(activation.folder ? { folder: activation.folder } : {}),
+    ...(cron ? { cron } : {}),
+    ...(activation.model ? { model: activation.model } : {}),
+  }
+}
+
+// `repeat` writes the schedule as the form's presets do; `time` alone keeps the template's cron and changes its minute and hour.
+function scheduleFor(activation: DynWorkRoutines.Activation, template: Template): string | Failure | undefined {
+  const own = template.definition.schedule?.cron
+  if (activation.repeat !== undefined) {
+    const preset = presetFrom({ ...activation, repeat: activation.repeat })
+    if (!preset) return fail("invalid", "The template runs on a schedule: manual is not an option.")
+    const problem = scheduleProblem(preset)
+    if (problem) return fail("invalid", "The schedule is not complete.", { schedule: words(problem) })
+    return cronOf(preset)
+  }
+  if (activation.time === undefined || own === undefined) return undefined
+  const at = /^(\d{1,2}):(\d{2})$/.exec(activation.time.trim())
+  const [hour, minute] = [Number(at?.[1]), Number(at?.[2])]
+  if (!at || hour > 23 || minute > 59)
+    return fail("invalid", "The schedule is not complete.", { schedule: "Choose a time, HH:MM." })
+  return [String(minute), String(hour), ...own.trim().split(/\s+/).slice(2)].join(" ")
 }
 
 export type Logic = ReturnType<typeof make>
@@ -512,10 +716,14 @@ export function changed(routine: Routine, changes: DynWorkRoutines.Changes, now:
     ...(schedule ? { schedule } : {}),
     enabled: current.enabled,
     options,
+    // The link to a template is not a field the agent changes: an edit keeps it.
+    ...(current.template ? { template: current.template } : {}),
   }
 }
 
-function presetFrom(proposal: DynWorkRoutines.Proposal): Preset | undefined {
+function presetFrom(
+  proposal: Pick<DynWorkRoutines.Proposal, "repeat" | "time" | "days" | "day" | "cron">,
+): Preset | undefined {
   const time = proposal.time ?? ""
   if (proposal.repeat === "manual") return undefined
   if (proposal.repeat === "cron") return { kind: "cron", cron: proposal.cron ?? "" }
@@ -559,8 +767,16 @@ function describe(routine: Routine, label: string) {
     last
       ? `last run: ${words(stateKey(last))}${last.reason && last.reason !== "permission" ? ` (${last.reason})` : ""}${runTime(last) === undefined ? "" : ` ${stamp(runTime(last) ?? 0, definition.schedule?.timezone)}`}`
       : "never run",
+    ...(routine.template ? [fromTemplate(routine.template)] : []),
     ...(what ? [what] : []),
   ].join(" · ")
+}
+
+function fromTemplate(template: NonNullable<Routine["template"]>) {
+  const kind = template.mandatory
+    ? "assigned by Dynapps: it cannot be deleted, only paused"
+    : "optional: deleting it deactivates the template"
+  return `from Dynapps template "${template.name}" (${kind}; set by the template: ${lockedWords(template.locked)})`
 }
 
 // The English table of the Tasks view, read without a window.

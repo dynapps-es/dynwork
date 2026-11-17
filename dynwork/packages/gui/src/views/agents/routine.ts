@@ -86,7 +86,8 @@ export function actions(routine: Routine, capabilities?: Capabilities) {
     edit:
       blocked ??
       (capabilities?.actions.edit === "replace" ? { enabled: true, reason: words("agents.reason.replace") } : yes),
-    remove: blocked ?? yes,
+    // Assigned by Dynapps: the person pauses it, Governance keeps it.
+    remove: blocked ?? (routine.template?.mandatory ? no("agents.reason.mandatory") : yes),
     cancel: blocked ?? (capabilities?.actions.cancel ? yes : no("agents.reason.cancel")),
     open: blocked ?? (routine.conversation.kind !== "none" || routine.last ? yes : no("agents.reason.empty")),
   }

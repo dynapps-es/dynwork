@@ -116,6 +116,8 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
     "pause_scheduled_task",
     "resume_scheduled_task",
     "run_scheduled_task",
+    "list_task_templates",
+    "activate_task_template",
   ])
 })
 

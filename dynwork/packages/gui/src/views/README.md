@@ -86,6 +86,15 @@ hint), a model only where the template's is not on this computer and it may chan
 Dynapps; runs without asking" for a template that runs without asking. A missing folder, model or confirmation stops the
 save before it leaves the window (`personalProblems`); the rest goes to `activate` as a `Personal` (`personalOf`).
 
+A task made from a template (`Routine.template`, which the local backend fills from `Definition.template` and the
+template Governance last offered) shows a "Dynapps template" tag on its card and in its detail, and "Assigned by Dynapps"
+too when it is mandatory. Its edit form is the same form with the rows the template locks read only (`locksOf` in
+`form.ts`, from `Routine.template.locked`; the instructions, the agent, the model, the schedule as far as `schedule`
+says, and each backend option such as `permissions`, `connectors` or `timeLimit`), each with "Set by the template
+<name>" and a notice at the top; the name, the folder, the notifications and the zone stay editable. Saving keeps
+`Definition.template`: the link is not a field of the form. Deleting a mandatory one is disabled with "Assigned by
+Dynapps; you can pause it" (`actions().remove`); an optional one deletes as any, which deactivates its template.
+
 The trigger is written as a cron in an IANA zone (`schedule.ts`: `presetOf`, `cronOf`), a cron a preset would write
 differently opens as a custom one so saving never rewrites it, and the preview is Effect's `Cron` in that zone, so it
 follows the Madrid changes of 29 March and 25 October. A run set on the hour carries a hint that it can start late.

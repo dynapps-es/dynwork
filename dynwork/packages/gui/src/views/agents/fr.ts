@@ -162,6 +162,10 @@ export default {
   "agents.template.folder.required": "Choisissez le dossier du projet dans lequel travaille cette tâche.",
   "agents.template.confirm": "Approuvé par Dynapps ; s'exécute sans demander",
   "agents.template.confirm.required": "Confirmez qu'il s'exécute sans demander.",
+  "agents.template.badge": "Modèle Dynapps",
+  "agents.template.lockedBy": "Fixé par le modèle {{name}}",
+  "agents.template.locks":
+    "Certains champs sont fixés par le modèle {{name}} et ne peuvent pas être modifiés ici. Le reste vous appartient.",
   "agents.activity.hint":
     "Chaque exécution, sur cet ordinateur et sur Cloud, de la plus récente à la plus ancienne. Elle inclut les exécutions Cloud lancées hors de Dynwork, par exemple depuis le chat.",
   "agents.activity.empty": "Aucune exécution pour l'instant.",
@@ -209,6 +213,7 @@ export default {
   "agents.reason.owner": "S'exécute uniquement sur {{device}}.",
   "agents.reason.unclaimed": "Aucun ordinateur ne l'a encore prise en charge.",
   "agents.reason.finished": "Sa planification est terminée.",
+  "agents.reason.mandatory": "Attribuée par Dynapps ; vous pouvez la mettre en pause",
   "agents.reason.replace": "Enregistrer les modifications crée une nouvelle planification.",
   "agents.reason.cancel": "Ce backend ne peut pas arrêter une exécution.",
   "agents.reason.empty": "Rien à ouvrir pour l'instant.",

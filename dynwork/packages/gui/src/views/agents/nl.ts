@@ -162,6 +162,10 @@ export default {
   "agents.template.folder.required": "Kies de projectmap waarin deze taak werkt.",
   "agents.template.confirm": "Goedgekeurd door Dynapps; draait zonder te vragen",
   "agents.template.confirm.required": "Bevestig dat het zonder te vragen draait.",
+  "agents.template.badge": "Dynapps-sjabloon",
+  "agents.template.lockedBy": "Vastgelegd door het sjabloon {{name}}",
+  "agents.template.locks":
+    "Sommige velden zijn vastgelegd door het sjabloon {{name}} en kunnen hier niet worden gewijzigd. De rest bepaal je zelf.",
   "agents.activity.hint":
     "Elke uitvoering, op deze computer en op Cloud, nieuwste eerst. Ook uitvoeringen op Cloud die buiten Dynwork zijn gestart, bijvoorbeeld vanuit de chat.",
   "agents.activity.empty": "Nog geen uitvoeringen.",
@@ -209,6 +213,7 @@ export default {
   "agents.reason.owner": "Draait alleen op {{device}}.",
   "agents.reason.unclaimed": "Nog geen computer heeft deze taak opgepakt.",
   "agents.reason.finished": "De planning is afgelopen.",
+  "agents.reason.mandatory": "Toegewezen door Dynapps; je kunt de taak pauzeren",
   "agents.reason.replace": "Wijzigingen opslaan maakt een nieuwe planning.",
   "agents.reason.cancel": "Deze backend kan geen uitvoering stoppen.",
   "agents.reason.empty": "Nog niets om te openen.",

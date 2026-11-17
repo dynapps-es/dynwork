@@ -79,6 +79,30 @@ export const common = ["name", "instructions", "agent", "model", "schedule"] as 
 type Shape = Pick<Capabilities, "instructions" | "fields">
 const nothing: Shape = { instructions: ["prompt"], fields: [] }
 
+/**
+ * What the template of a routine keeps the form from changing (`Routine.template.locked`, the paths
+ * `RoutinesTemplates.locked` lists): which rows are read only. `schedule` is `locked` when the time is the template's too,
+ * `time` when only how often it runs is; the zone is always the person's. Nothing is locked on a routine of their own.
+ */
+export function locksOf(routine?: Routine) {
+  const link = routine?.template
+  const paths = link?.locked ?? []
+  return {
+    /** The template that sets them, or undefined for a routine of the person's own. */
+    template: link?.name,
+    instructions: paths.includes("instructions"),
+    agent: paths.includes("agent"),
+    model: paths.includes("model"),
+    schedule: paths.includes("schedule.minute")
+      ? ("locked" as const)
+      : paths.includes("schedule.day")
+        ? ("time" as const)
+        : undefined,
+    /** A backend option (`Field.key`), such as `permissions`, `connectors` or `timeLimit`. */
+    option: (key: string) => paths.includes(`options.${key}`),
+  }
+}
+
 /** The zone of this computer, where a schedule starts when the user has not chosen one. */
 export const systemZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -289,6 +313,8 @@ export function createFormModel(input: {
     mode: input.routine ? ("edit" as const) : template ? ("activate" as const) : ("create" as const),
     /** The template being activated. */
     template,
+    /** What the template of the routine being edited keeps read only. */
+    locks: locksOf(input.routine),
     /** What the activation asks of the person; undefined outside an activation. */
     asks: () => (template ? asks(template, input.models?.()) : undefined),
     /** The triggers to choose from: a template with a schedule keeps one. */
@@ -380,7 +406,12 @@ export function createFormModel(input: {
     const draft = unwrap(state.draft)
     const problems = localProblems(draft, target)
     if (Object.keys(problems).length > 0) return refuse(undefined, problems)
-    const definition = toDefinition(draft, target)
+    // The link to a template is not a field of the form: an edit keeps it.
+    const link = input.routine?.definition.template
+    const definition = {
+      ...toDefinition(draft, target),
+      ...(link ? { template: { id: link.id, revision: link.revision } } : {}),
+    }
     // JESÚS: `validate` then `create` or `update` are your backend's methods: the form only shows what they answer. An
     // `invalid` failure with `fields` keyed by `Field.key` (or `name`, `instructions`, `agent`, `model`, `schedule`)
     // marks each field; any other failure, such as `quota`, shows above the buttons.

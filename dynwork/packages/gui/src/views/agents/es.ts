@@ -162,6 +162,10 @@ export default {
   "agents.template.folder.required": "Elige la carpeta del proyecto en la que trabaja esta tarea.",
   "agents.template.confirm": "Aprobada por Dynapps; se ejecuta sin preguntar",
   "agents.template.confirm.required": "Confirma que se ejecuta sin preguntar.",
+  "agents.template.badge": "Plantilla de Dynapps",
+  "agents.template.lockedBy": "Lo fija la plantilla {{name}}",
+  "agents.template.locks":
+    "Algunos campos los fija la plantilla {{name}} y no se pueden cambiar aquí. Lo demás es tuyo.",
   "agents.activity.hint":
     "Cada ejecución, en este equipo y en Cloud, de la más reciente a la más antigua. Incluye las de Cloud lanzadas fuera de Dynwork, por ejemplo desde el chat.",
   "agents.activity.empty": "Aún no hay ejecuciones.",
@@ -209,6 +213,7 @@ export default {
   "agents.reason.owner": "Solo se ejecuta en {{device}}.",
   "agents.reason.unclaimed": "Aún no se ha asignado a ningún equipo.",
   "agents.reason.finished": "Su horario ha terminado.",
+  "agents.reason.mandatory": "Asignada por Dynapps; puedes pausarla",
   "agents.reason.replace": "Al guardar los cambios se crea un horario nuevo.",
   "agents.reason.cancel": "Aquí no se puede detener una ejecución.",
   "agents.reason.empty": "Aún no hay nada que abrir.",

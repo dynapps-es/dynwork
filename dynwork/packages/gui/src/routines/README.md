@@ -326,6 +326,8 @@ they matter. The same conversation, or any other, then manages the user's tasks 
   | `delete_scheduled_task` | `id` | name, schedule, where; Delete (danger) / Cancel |
   | `pause_scheduled_task`, `resume_scheduled_task` | `id`: at once, as they are reversible and run nothing | none |
   | `run_scheduled_task` | `id`: Run now | "Run now?" only for a "Don't ask" task; an "Ask me" one starts at once, as it asks anyway |
+  | `list_task_templates` | the templates the user sees: id, name, optional or assigned, schedule, whether and as which task it is active, what it sets, what the user must give (folder, time) | none |
+  | `activate_task_template` | `Activation`: the template's `id` plus the user's part (`folder`, `time` or `repeat`…, `timezone`, `model`) | the task `RoutinesTemplates.activate` makes, as a create card: Schedule / Cancel |
 
   A task's id is `<backend>:<id>` (`local:3f2a`). An id that names no task answers "No scheduled task has the id …",
   and the tool results stay short: what changed, the task's id and name, where it runs. The rules the agent follows
@@ -333,6 +335,19 @@ they matter. The same conversation, or any other, then manages the user's tasks 
   rename; what "Ask me" and "Don't ask" mean and asking which; asking when a named target does not match; the user's
   language) are in `list_scheduled_tasks`'s description, which the agent reads with every tool.
 
+- **Templates.** A task made from a template (`Routine.template`, filled by the local backend from `Definition.template`
+  and the template Governance last offered) keeps what the template locks, and the tools read it through the backend's
+  `templates()`, never by importing `templates.ts` (gui depends on the server plugin, not the reverse). `list_scheduled_tasks`
+  and `get_scheduled_task` say "from Dynapps template X" and which fields it sets. `update_scheduled_task` refuses, before
+  any card, a change `RoutinesTemplates.violates` reports: "Set by the Dynapps template X; ask your administrator", one
+  line per field in the tool's own terms (`time`, `repeat`, `connectors`…); a name, a time within a `time` lock, the
+  notifications and the like go through. `changed` keeps `Definition.template`. `delete_scheduled_task` refuses a
+  mandatory task (it can be paused); for an optional one the answer after Delete says the template is off and can be
+  activated again. `activate_task_template` refuses a mandatory template, an unknown one, one already active and a
+  personal value the template locks, and answers `invalid` with the missing field (the folder) for the agent to ask; its
+  card is the create card of the template's own task, and pressing it is the confirmation ("Approved by Dynapps") of a
+  template that runs without asking. `create_scheduled_task`'s description sends the agent to a matching template first.
+  The form and the cards read the same rules: see `views/README.md` ("Templates").
 - **Bridge.** The tools run in the service, the routines live here. The plugin's own RPC (`dynwork.routines-chat`) carries
   them: a tool publishes a `request` event and waits; main follows the plugin's events (`chat.ts` `setup`), answers
   with the `answer` method, reads the requests still waiting with `pending` after each (re)connection, and a stopped

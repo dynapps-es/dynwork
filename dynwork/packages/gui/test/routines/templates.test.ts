@@ -5,6 +5,7 @@ import path from "node:path"
 import type { MainContext } from "@opencode/plugin/gui/main"
 import { isFailure, type Template } from "../../src/routines/contract"
 import { RoutinesMain } from "../../src/routines/main"
+import { RoutinesTemplates } from "../../src/routines/templates"
 import { RoutinesLocal } from "../../src/routines/local/backend"
 import { RoutinesSync } from "../../src/routines/local/sync"
 import { RoutinesTemplatesReader } from "../../src/routines/local/templates"
@@ -240,6 +241,55 @@ describe("the local backend's templates", () => {
       code: "conflict",
     })
     expect((await offered(a.local)).links).toEqual([{ id: "review", state: "published", retire: null }])
+  })
+
+  test("a linked routine says which template it came from, what it locks and whether it is mandatory", async () => {
+    const gov = governance()
+    gov.state.templates = [template("review", { name: "Project review" })]
+    const a = computer(gov, "Mac A")
+    await a.reader.read()
+    const made = await a.local.activate?.("review", { timezone: ZONE, folder: "/work" })
+    if (!made || isFailure(made)) throw new Error(made?.message ?? "Not activated")
+    const expected = { id: "review", name: "Project review", state: "published", mandatory: false }
+    expect(made.template).toEqual({ ...expected, locked: RoutinesTemplates.locked(template("review")) })
+    expect(made.template?.locked).toContain("schedule.weekday")
+    const listed = await a.local.list()
+    if (isFailure(listed)) throw new Error(listed.message)
+    expect(listed[0]?.template).toEqual(made.template)
+    const read = await a.local.get(made.ref.id)
+    if (isFailure(read)) throw new Error(read.message)
+    expect(read.template).toEqual(made.template)
+    // A routine of the person's own carries none.
+    const own = await a.local.create({
+      name: "Own",
+      instructions: { kind: "prompt", text: "Do it." },
+      enabled: true,
+      options: {},
+    })
+    if (isFailure(own)) throw new Error(own.message)
+    expect(own.template).toBeUndefined()
+
+    // The template changes under it, and its link says where it stands now.
+    gov.state.templates = [
+      template("review", {
+        name: "Project review",
+        mandatory: true,
+        locks: { model: true, schedule: "locked", timeLimitMax: null },
+      }),
+    ]
+    await a.reader.read()
+    const later = await a.local.get(made.ref.id)
+    if (isFailure(later)) throw new Error(later.message)
+    expect(later.template?.mandatory).toBe(true)
+    expect(later.template?.locked).toContain("schedule.minute")
+    expect(later.template?.locked).toContain("model")
+
+    // A template the person no longer sees locks nothing here: Governance still checks.
+    gov.state.templates = []
+    await a.reader.read()
+    const gone = await a.local.get(made.ref.id)
+    if (isFailure(gone)) throw new Error(gone.message)
+    expect(gone.template).toMatchObject({ id: "review", name: "Project review", locked: [], mandatory: false })
   })
 
   test("a template linked on another computer, a mandatory one and an unknown one are refused", async () => {

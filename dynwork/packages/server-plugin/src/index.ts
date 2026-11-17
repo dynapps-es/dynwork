@@ -604,6 +604,8 @@ export default Plugin.define({
       editor.add(routinesTools.pause)
       editor.add(routinesTools.resume)
       editor.add(routinesTools.run)
+      editor.add(routinesTools.templates)
+      editor.add(routinesTools.activate)
     })
   }),
 })

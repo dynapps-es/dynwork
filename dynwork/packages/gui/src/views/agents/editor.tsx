@@ -121,6 +121,7 @@ export function RoutineForm(props: {
             fallback={
               <div data-slot="form-scroll" ref={(element) => (refs.scroll = element)}>
                 <Where form={form} agents={props.agents} />
+                <Locks form={form} />
                 <Row id="name" label={ctx.t("agents.form.name")} error={said(ctx.t, form, "name")}>
                   <TextInput
                     id="agents-form-name"
@@ -133,7 +134,7 @@ export function RoutineForm(props: {
                 </Row>
                 <What form={form} choices={choices} />
                 <Notice form={form} />
-                <Trigger form={form} />
+                <Trigger form={form} lock={form.locks.schedule} />
                 <Row id="enabled" label={ctx.t("agents.form.active")} hint={ctx.t("agents.form.active.hint")} inline>
                   <ctx.ui.Switch
                     checked={draft().enabled}
@@ -375,10 +376,17 @@ function What(props: { form: FormModel; choices: (lookup: string) => readonly Ch
 
   return (
     <>
-      <Row id="instructions" label={ctx.t("agents.form.what")} group error={said(ctx.t, form, "instructions")}>
+      <Row
+        id="instructions"
+        label={ctx.t("agents.form.what")}
+        hint={form.locks.instructions ? lockedBy(ctx.t, form) : undefined}
+        group
+        error={said(ctx.t, form, "instructions")}
+      >
         <Show when={kinds().length > 1}>
           <SegmentedControl
             value={draft().what}
+            disabled={form.locks.instructions}
             aria-labelledby="agents-form-instructions-label"
             onChange={(value) => {
               const what = kinds().find((kind) => kind === value)
@@ -397,6 +405,7 @@ function What(props: { form: FormModel; choices: (lookup: string) => readonly Ch
             options={props.choices("skills")}
             blank={ctx.t("agents.form.choose")}
             invalid={form.error("instructions") !== undefined}
+            disabled={form.locks.instructions}
             onChange={(skill) => form.set({ skill })}
           />
         </Show>
@@ -407,6 +416,7 @@ function What(props: { form: FormModel; choices: (lookup: string) => readonly Ch
             options={props.choices("agents")}
             blank={ctx.t("agents.form.choose")}
             invalid={form.error("instructions") !== undefined}
+            disabled={form.locks.instructions}
             onChange={(agentRef) => form.set({ agentRef })}
           />
         </Show>
@@ -418,6 +428,7 @@ function What(props: { form: FormModel; choices: (lookup: string) => readonly Ch
             aria-label={ctx.t(textLabel[draft().what])}
             placeholder={draft().what === "prompt" ? ctx.t("agents.form.prompt.placeholder") : undefined}
             invalid={form.error("instructions") !== undefined}
+            disabled={form.locks.instructions}
             onInput={(event) => form.set({ text: event.currentTarget.value })}
           />
           <PromptFooter form={form} choices={props.choices} />
@@ -454,6 +465,7 @@ function PromptFooter(props: { form: FormModel; choices: (lookup: string) => rea
                   options={field.choices ?? []}
                   icon={valueOf(field, draft().options) === "bypass" ? "warning" : "shield"}
                   invalid={form.error(field.key) !== undefined}
+                  disabled={form.locks.option(field.key)}
                   onChange={(next) => form.option(field.key, next)}
                 />
               </span>
@@ -470,6 +482,7 @@ function PromptFooter(props: { form: FormModel; choices: (lookup: string) => rea
                     current().agent === "optional" ? ctx.t("agents.form.agent.default") : ctx.t("agents.form.choose")
                   }
                   invalid={form.error("agent") !== undefined}
+                  disabled={form.locks.agent}
                   onChange={(agent) => form.set({ agent })}
                 />
               </span>
@@ -486,6 +499,7 @@ function PromptFooter(props: { form: FormModel; choices: (lookup: string) => rea
                   options={props.choices("models")}
                   blank={ctx.t("agents.form.model.default")}
                   invalid={form.error("model") !== undefined}
+                  disabled={form.locks.model}
                   placement="top-end"
                   onChange={(model) => form.set({ model })}
                 />
@@ -516,6 +530,24 @@ function Notice(props: { form: FormModel }) {
   )
 }
 
+// What a routine made from a template cannot change: said once at the top, and again on each row it locks.
+function Locks(props: { form: FormModel }) {
+  const ctx = usePlugin()
+
+  return (
+    <Show when={props.form.locks.template}>
+      {(name) => (
+        <div data-slot="form-notice" data-tone="info">
+          <Icon name="lock" size="small" />
+          <span>{ctx.t("agents.template.locks", { name: name() })}</span>
+        </div>
+      )}
+    </Show>
+  )
+}
+
+const lockedBy = (t: Translate, form: FormModel) => t("agents.template.lockedBy", { name: form.locks.template ?? "" })
+
 // The trigger: nothing, or a preset or a cron, in a zone, with the next three runs as a preview. A template's `lock`
 // keeps how often it runs (`time`: the time stays the person's) or all of it (`locked`); the zone is always theirs.
 function Trigger(props: { form: FormModel; lock?: "time" | "locked" }) {
@@ -533,7 +565,13 @@ function Trigger(props: { form: FormModel; lock?: "time" | "locked" }) {
       <Row
         id="trigger"
         label={ctx.t("agents.form.trigger")}
-        hint={props.lock ? ctx.t(`agents.template.schedule.${props.lock}`) : undefined}
+        hint={
+          props.lock === "locked" && form.locks.template
+            ? lockedBy(ctx.t, form)
+            : props.lock
+              ? ctx.t(`agents.template.schedule.${props.lock}`)
+              : undefined
+        }
         inline
       >
         <Choose
@@ -883,12 +921,13 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
   const invalid = () => form.error(field().key) !== undefined
   const set = (next: Parameters<FormModel["option"]>[1]) => form.option(field().key, next)
   const picked = () => pickedOf(field(), value(), options())
+  const off = () => form.locks.option(field().key)
 
   return (
     <Row
       id={field().key}
       label={field().label}
-      hint={field().help}
+      hint={off() ? lockedBy(ctx.t, form) : field().help}
       warning={options().find((choice) => choice.value === value())?.warning}
       error={said(ctx.t, form, field().key)}
       inline={inline(kind())}
@@ -896,7 +935,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
     >
       <Switch>
         <Match when={kind() === "toggle"}>
-          <ctx.ui.Switch checked={value() === true} label={field().label} hideLabel onChange={set} />
+          <ctx.ui.Switch checked={value() === true} label={field().label} hideLabel disabled={off()} onChange={set} />
         </Match>
         <Match when={kind() === "textarea"}>
           <Textarea
@@ -905,6 +944,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
             value={typed()}
             placeholder={placeholder()}
             invalid={invalid()}
+            disabled={off()}
             onInput={(event) => set(event.currentTarget.value)}
           />
         </Match>
@@ -919,6 +959,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
             value={typed()}
             placeholder={placeholder()}
             invalid={invalid()}
+            disabled={off()}
             onInput={(event) => {
               const text = event.currentTarget.value.trim()
               set(text === "" ? undefined : Number.isFinite(Number(text)) ? Number(text) : text)
@@ -926,7 +967,12 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
           />
         </Match>
         <Match when={kind() === "radio"}>
-          <RadioGroup value={String(value() ?? "")} aria-labelledby={`${id()}-label`} onChange={(next) => set(next)}>
+          <RadioGroup
+            value={String(value() ?? "")}
+            aria-labelledby={`${id()}-label`}
+            disabled={off()}
+            onChange={(next) => set(next)}
+          >
             <For each={options()}>{(option) => <RadioItem value={option.value} label={option.label} />}</For>
           </RadioGroup>
         </Match>
@@ -937,6 +983,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
             options={options()}
             blank={field().required ? ctx.t("agents.form.choose") : ctx.t("agents.form.default")}
             invalid={invalid()}
+            disabled={off()}
             onChange={(next) => set(next === "" ? undefined : next)}
           />
         </Match>
@@ -952,9 +999,10 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
                     label={option.label}
                     hideLabel
                     disabled={
-                      !picked().includes(option.value) &&
-                      field().max !== undefined &&
-                      picked().length >= (field().max ?? 0)
+                      off() ||
+                      (!picked().includes(option.value) &&
+                        field().max !== undefined &&
+                        picked().length >= (field().max ?? 0))
                     }
                     onChange={() => set(toggled(field(), value(), options(), option.value))}
                   />
@@ -969,6 +1017,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
             label={field().label}
             items={picked()}
             invalid={invalid()}
+            disabled={off()}
             onChange={(items) => set(items.length === 0 ? undefined : items)}
           />
         </Match>
@@ -979,6 +1028,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
               value={typed()}
               placeholder={placeholder()}
               invalid={invalid()}
+              disabled={off()}
               spellcheck={false}
               onInput={(event) => set(event.currentTarget.value)}
             />
@@ -986,6 +1036,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
               {(desktop) => (
                 <Button
                   icon="folder"
+                  disabled={off()}
                   onClick={() =>
                     void desktop()
                       .pick({ directory: true, title: ctx.t("agents.form.folder.title") })
@@ -1006,6 +1057,7 @@ function FieldControl(props: { form: FormModel; field: Field; choices: (lookup: 
             value={typed()}
             placeholder={placeholder()}
             invalid={invalid()}
+            disabled={off()}
             spellcheck={false}
             onInput={(event) => set(event.currentTarget.value)}
           />
@@ -1021,6 +1073,7 @@ function ListControl(props: {
   label: string
   items: readonly string[]
   invalid: boolean
+  disabled?: boolean
   onChange: (items: string[]) => void
 }) {
   const ctx = usePlugin()
@@ -1044,6 +1097,7 @@ function ListControl(props: {
                 size="small"
                 icon={<Icon name="close-small" size="small" />}
                 aria-label={ctx.t("agents.form.list.remove", { item })}
+                disabled={props.disabled}
                 onClick={() => props.onChange(props.items.filter((other) => other !== item))}
               />
             </span>
@@ -1056,6 +1110,7 @@ function ListControl(props: {
           value={text()}
           placeholder={ctx.t("agents.form.list.placeholder")}
           invalid={props.invalid}
+          disabled={props.disabled}
           onInput={(event) => setText(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key !== "Enter") return
@@ -1063,7 +1118,9 @@ function ListControl(props: {
             add()
           }}
         />
-        <Button onClick={add}>{ctx.t("agents.form.list.add")}</Button>
+        <Button disabled={props.disabled} onClick={add}>
+          {ctx.t("agents.form.list.add")}
+        </Button>
       </div>
     </div>
   )
