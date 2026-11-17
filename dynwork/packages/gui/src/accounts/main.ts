@@ -99,6 +99,7 @@ const setup: Plugin.MainSetup = (ctx) => {
   const routinesMain = RoutinesMain.setup(ctx, {
     label,
     farm: RoutinesFarm.enabled(process.env),
+    demo: DynWorkIdentity.channel === "dev",
     notify: (notice) => {
       if (!Notification.isSupported()) return
       const shown = new Notification(RoutinesMain.words(notice, ctx.t))

@@ -39,8 +39,9 @@ runs reads **This Mac** (This PC) or **Cloud**, and "Agent Farm" and "Remote" ne
 - One form creates and edits, with the same layout for both kinds: common fields (name, what to do, schedule, on/off)
   and then the backend's sections, painted from `capabilities().fields`.
 
-To see it now, start DynWork from this branch: the farm you see in the list is the **demo fake** (`demo.ts`,
-`RoutinesDemo.remote`), shaped like the approved mockup. Read it as the target behavior of your backend, from the
+To see it now, start a development build (`bun dynwork/script/desktop.ts --channel dev`): the farm you see in the list
+is the **demo fake** (`demo.ts`, `RoutinesDemo.remote`), shaped like the approved mockup. Released builds (internal and
+canary) seed no demo, so until your backend registers they show no Cloud tasks and no Cloud filter. Read it as the target behavior of your backend, from the
 fields it declares to the transcripts it serves. Screenshots of the view and the form with the fake are attached to the
 PR of the canary review, not committed here.
 
