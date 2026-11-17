@@ -164,6 +164,17 @@ export function implementation(
     },
     options: (input) => on(input.backend, (backend) => backend.options(input.lookup, input.query)),
     validate: (input) => on(input.backend, (backend) => backend.validate(input.definition)),
+    templates: (input) =>
+      on(
+        input.backend,
+        async (backend) => backend.templates?.() ?? fail("unsupported", "There are no templates here."),
+      ),
+    activate: (input) =>
+      changing(input.backend, async (backend) =>
+        backend.activate
+          ? backend.activate(input.template, input.personal)
+          : fail("unsupported", "There are no templates here."),
+      ),
   }
 }
 

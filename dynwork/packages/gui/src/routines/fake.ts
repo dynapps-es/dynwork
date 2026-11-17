@@ -12,8 +12,10 @@ import type {
   Owner,
   Routine,
   Run,
+  Template,
   Transcript,
 } from "./contract"
+import { RoutinesTemplates } from "./templates"
 import { RoutinesValidate } from "./validate"
 
 const DAY = 24 * 60 * 60 * 1000
@@ -33,6 +35,8 @@ export interface Options {
   choices?: Readonly<Record<string, readonly Choice[]>>
   /** The owner a new routine gets. */
   owner?: Owner
+  /** The templates the person sees, all published. Absent: the backend has no templates (`unsupported`). */
+  templates?: readonly Template[]
   /**
    * What a run started here reads from: a `session` (as the local backend will) or a `transcript` (as the farm's).
    * A `session` backend also removes a routine's runs with it, as removing the anchor session does.
@@ -84,8 +88,30 @@ export function make(options: Options): Fake {
 
   const view = (routine: Routine): Routine => {
     const own = runs.filter((run) => run.routine?.id === routine.ref.id)
-    return { ...routine, last: own[0], unread: own.filter((run) => run.unread).length }
+    const template = templateOf(routine.definition)
+    return {
+      ...routine,
+      last: own[0],
+      unread: own.filter((run) => run.unread).length,
+      ...(template
+        ? {
+            template: {
+              id: template.id,
+              name: template.name,
+              locked: RoutinesTemplates.locked(template),
+              state: "published" as const,
+              mandatory: template.mandatory,
+            },
+          }
+        : {}),
+    }
   }
+
+  // As Governance does: one live routine per template, the template's locks on every edit, and a mandatory one stays.
+  const templateOf = (definition: Definition) =>
+    options.templates?.find((template) => template.id === definition.template?.id)
+  const activated = (template: string) =>
+    [...routines.values()].find((routine) => routine.definition.template?.id === template)
 
   // A gate every call but `capabilities` goes through: a backend that cannot serve says why.
   const unavailable = (): Failure | undefined => {
@@ -149,6 +175,8 @@ export function make(options: Options): Fake {
     create: async (definition) => {
       const blocked = unavailable() ?? RoutinesValidate.check(await capabilities(), definition)
       if (blocked) return blocked
+      const twin = definition.template && activated(definition.template.id)
+      if (twin) return fail("conflict", `This template is already active as ${twin.definition.name}.`)
       const quota = (await capabilities()).quota
       if (definition.schedule && quota && quota.used >= quota.max)
         return fail("quota", `All ${quota.max} schedules are taken.`)
@@ -163,6 +191,9 @@ export function make(options: Options): Fake {
       if (isFailure(previous)) return previous
       const invalid = RoutinesValidate.check(await capabilities(), definition)
       if (invalid) return invalid
+      const template = templateOf(previous.definition)
+      if (template && RoutinesTemplates.violates(template, previous.definition, definition).length > 0)
+        return fail("conflict", `${template.name} sets that, and it cannot be changed here.`)
       // `replace` makes a new routine and removes the old: the new ref is the answer, and the old history stays behind.
       // JESÚS: the farm's `update` does the same: `POST /schedules` with the new definition, then `DELETE` the old one, and
       // answers the new ref. Keep the chain of ids (old to new) in DynWork's own table so the history can be joined.
@@ -177,6 +208,8 @@ export function make(options: Options): Fake {
     remove: async (id) => {
       const routine = findRoutine(id)
       if (isFailure(routine)) return routine
+      if (templateOf(routine.definition)?.mandatory)
+        return fail("conflict", "A mandatory task can be paused, not removed.")
       routines.delete(id)
       if (options.conversation === "session")
         runs.splice(0, runs.length, ...runs.filter((run) => run.routine?.id !== id))
@@ -235,6 +268,24 @@ export function make(options: Options): Fake {
       const run = runs.find((candidate) => candidate.ref.id === id)
       if (!run?.unread) return
       emit({ routine: run.routine, run: patchRun(run, { unread: false }) })
+    },
+    templates: async () => {
+      if (!options.templates) return fail("unsupported", "There are no templates here.")
+      return (
+        unavailable() ?? {
+          templates: options.templates,
+          links: options.templates.flatMap((template) =>
+            activated(template.id) ? [{ id: template.id, state: "published" as const, retire: null }] : [],
+          ),
+        }
+      )
+    },
+    activate: async (id, personal) => {
+      if (!options.templates) return fail("unsupported", "There are no templates here.")
+      const template = unavailable() ?? options.templates.find((item) => item.id === id) ?? missing("template", id)
+      if (isFailure(template)) return template
+      const definition = RoutinesTemplates.activate(template, personal)
+      return isFailure(definition) ? definition : backend.create(definition)
     },
     watch: (changed) => {
       watchers.add(changed)

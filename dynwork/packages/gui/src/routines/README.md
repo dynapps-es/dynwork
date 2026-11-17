@@ -22,6 +22,7 @@ window                                    main process
 | `contract.ts` | The Schema data (`Definition`, `Routine`, `Run`, `Capabilities`, `Field`, `Failure`, ...) and the `dynwork.routines` Ipc |
 | `backend.ts`  | `interface Backend`, the `Registry` of backends and `fail`, which builds a `Failure`                                     |
 | `validate.ts` | `check(capabilities, definition)`: the rules the capabilities state, for any backend to run before its own               |
+| `templates.ts` | `locked`, `violates` and `activate`: the rules a routine made from a template follows ("Templates" below) |
 | `ipc.ts`      | The Ipc implementation over a registry: the state snapshot, routing, watching, failures as data                          |
 | `fake.ts`     | An in-memory backend with an injectable clock: `Fake.make(options)`                                                      |
 | `demo.ts`     | The two seeded fakes (`local`, `farm`) shaped like the approved mockup, and `register`, which adds those not taken       |
@@ -68,6 +69,8 @@ fails: a backend that cannot serve says so in `status`.
   open, each backend's own `watch` is subscribed once, and a backend that registers meanwhile is subscribed too.
 - `move`: makes this device the one that runs a routine of another device; a backend without owners (the optional
   `Backend.move`) answers `unsupported`.
+- `templates`, `activate`: a backend's templates and the activation of one ("Templates" below); a backend without them
+  (the optional `Backend.templates` and `Backend.activate`) answers `unsupported`.
 - Every other method names its `backend` and answers the backend's own answer.
 
 ## Backends
@@ -83,6 +86,40 @@ replacing), pause, resume, start, finish, unread and viewed, paging, cancel, rem
 its fields, watch, quota, transcripts, and everything surviving the Ipc's wire. `test/routines/fake.test.ts` shows how to
 run it; `test/routines/wire.ts` is a window's client over a registry, with every value crossing as the bridge makes it
 cross, for the views' tests.
+
+## Templates
+
+An admin publishes **templates** of scheduled tasks in Governance for groups of people; each person activates one as a
+routine of their own, or gets it unasked when it is mandatory. The wire is fixed by the plan's `docs/contract.md`, which
+Governance implements too; this is what Dynwork holds of it.
+
+- **Template** (`contract.ts`): `id` (a slug), `revision`, `name`, `description`, `mandatory`, `where` (`local`; `cloud`
+  is decoded and reserved for the Agent Farm), the template's part of a `Definition` (never a time zone or a folder),
+  `locks` (`model`, `schedule`: `free`, `time` or `locked`, `timeLimitMax`) and `personal` (`folder`: `none` or
+  `required`, and a `hint`). `templates()` answers them with a `TemplateLink` (`state`: `published`, `closed`,
+  `retired`, `no_access`; `retire`: `unlink`, `pause`, `remove`) per template the person has a routine of.
+- **The link.** A routine made from a template carries `Definition.template = { id, revision }`, next to `name`, not in
+  `options`. Governance keeps at most one live routine per person and template, refuses an edit that changes what the
+  template locks, and refuses removing a mandatory one; each refusal is a `conflict` here. `Routine.template` carries
+  what the views need: the template's name, its `locked` paths, its `state`, `mandatory`, and `update`, a merged revision
+  the view still announces.
+- **Locked** (`locked(template)`): always `instructions`, `agent`, `where`, `options.connectors` and
+  `options.permissions`; `model` when `locks.model`; the cron's `schedule.day`, `schedule.month` and `schedule.weekday`
+  when `locks.schedule` is `time`, and `schedule.minute` and `schedule.hour` too when it is `locked`; `options.timeLimit`
+  when `timeLimitMax` is a number. The name, pausing, the time zone, the folder, `recover`, `catchUp` and `notify` are
+  always the person's.
+- **Violations** (`violates(template, before, after)`): the locked paths an edit changes to something the template does
+  not allow. A path the edit leaves alone is never one. `options.permissions` and `options.timeLimit` are ceilings:
+  `bypass` to `ask` and a lower time limit are allowed, `ask` to `bypass` and a limit past `timeLimitMax` are not.
+- **Activation** (`activate(template, personal)`): the template's defaults, the person's `Personal` (time zone, the
+  folder where it is `required`, a cron and a model where the template leaves them free), and the link to its revision;
+  a time limit with a ceiling and no default starts at the ceiling. It answers `invalid`, one message per field, for a
+  Cloud template, a missing zone or required folder, a template that runs without asking (`permissions: "bypass"`) the
+  person did not confirm (`approved`), and a personal value the template locks.
+- **Backends.** The local backend answers `unsupported` until it reads Governance's `GET /templates`. The local demo fake
+  serves two templates, an optional one that needs a folder and a mandatory one already linked to "Timesheet draft",
+  and enforces the link's rules as Governance does; the farm's has none. The conformance suite checks, where a backend
+  has templates, that one activates once, answers its link, and survives the wire.
 
 ## The local backend
 
@@ -280,6 +317,7 @@ they matter. The same conversation, or any other, then manages the user's tasks 
   (only these tools, never Dynwork's files, database or APIs; list before creating; update instead of duplicating or to
   rename; what "Ask me" and "Don't ask" mean and asking which; asking when a named target does not match; the user's
   language) are in `list_scheduled_tasks`'s description, which the agent reads with every tool.
+
 - **Bridge.** The tools run in the service, the routines live here. The plugin's own RPC (`dynwork.routines-chat`) carries
   them: a tool publishes a `request` event and waits; main follows the plugin's events (`chat.ts` `setup`), answers
   with the `answer` method, reads the requests still waiting with `pending` after each (re)connection, and a stopped
@@ -314,4 +352,4 @@ they matter. The same conversation, or any other, then manages the user's tasks 
 
 It reads no cron: a scheduled, enabled routine's `next` is a day after its last change. Runs start only through `start`
 and finish when the clock passes their duration and `settle()` runs (`main.ts` calls it every few seconds). Nothing is
-persisted, and nothing syncs.
+persisted, and nothing syncs. Its templates are all `published`: it never closes, retires or hides one.

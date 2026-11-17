@@ -774,6 +774,9 @@ export function make(options: Options): Local {
     },
     transcript: async (run) =>
       recordOf(run) ? fail("unsupported", "This run is read in its session.") : missing("run", run),
+    // Templates come from Governance's `GET /templates`, which this backend does not read yet.
+    templates: async () => fail("unsupported", "Templates are not available yet."),
+    activate: async () => fail("unsupported", "Templates are not available yet."),
     // Upstream marks only a root session viewed, never a child: the run's own session is marked here.
     viewed: async (run) => {
       const record = recordOf(run)
