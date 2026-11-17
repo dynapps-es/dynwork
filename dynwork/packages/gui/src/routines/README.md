@@ -2,6 +2,12 @@
 
 Routines are scheduled or recurring agent tasks: a prompt, a skill or a farm agent, with a schedule or none. They run
 in one of two places, **local** (this computer) or **remote** (the Agent Farm), and the app shows them in one list.
+
+**What the user reads** (`decisions.md`, 17-11-2026): the section is **Tasks** and each routine is a **task** ("scheduled
+task" where it needs precision); where it runs is **This Mac** (**This PC**, "This computer" elsewhere, from
+`views/device.ts`) or **Dynapps Cloud**. "Agent Farm", "Remote" and "routine" never reach the UI, the notifications, the
+prompts or the tool names. The code, the `Backend` contract, `RoutinesFarm` and the Governance extension keep
+`routines`, and "local", "remote" and "farm" stay the backend's internal names.
 This directory is the contract between the views and the places they run, the backends, and the clock of the local
 ones; no view.
 
@@ -244,38 +250,55 @@ this computer reads the move (seconds with the hint, at most one poll without).
 
 ## Create from a chat
 
-"New routine ▾" in Agents offers **Create with Dynwork** (and **Set up manually**, the form). It opens a conversation in
+"New task ▾" in Tasks offers **Create with Dynwork** (and **Set up manually**, the form). It opens a conversation in
 the user's home with the setup prompt (`chatPrompt`) sent as the user's message; the agent asks what to do, how often,
 when (Europe/Madrid unless told otherwise) and how to notify, and where, permissions, folder and connectors only when
-they matter.
+they matter. The same conversation, or any other, then manages the user's tasks with the tools.
 
-- **Tools.** The server plugin adds `routines_list` and `routines_create` (`@dynwork/server-plugin/routines`). The
-  proposal is in the form's own terms: `name`, `instructions`, `repeat` (`manual`, `daily`, `weekdays`, `weekly`,
-  `monthly`, `cron`) with `time`, `days`, `day` or `cron`, `timezone`, `where` (`local` | `farm`), `permissions`,
-  `folder`, `connectors` (absent: all) and `notify`.
+- **Tools.** The server plugin (`@dynwork/server-plugin/routines`) adds, all `codemode: false`:
+
+  | Tool | Does | Card |
+  | --- | --- | --- |
+  | `list_scheduled_tasks` | every task: id, name, where, schedule, state, permissions, connectors, next run, last run (state and reason), the start of its instructions; then the local connectors | none |
+  | `list_running_tasks` | every run going now on every backend: task, id, where, state ("Waiting for your permission"), when it started, conversation id | none |
+  | `get_scheduled_task` | one task: its definition in the proposal's terms (`proposalOf`) and its last five runs | none |
+  | `create_scheduled_task` | a proposal, as before | Schedule / Cancel |
+  | `update_scheduled_task` | `id` plus only the fields to change (`Changes`: the proposal's fields, all optional, no `where`) | each change as before → after; Save / Cancel |
+  | `delete_scheduled_task` | `id` | name, schedule, where; Delete (danger) / Cancel |
+  | `pause_scheduled_task`, `resume_scheduled_task` | `id`: at once, as they are reversible and run nothing | none |
+  | `run_scheduled_task` | `id`: Run now | "Run now?" only for a "Don't ask" task; an "Ask me" one starts at once, as it asks anyway |
+
+  A task's id is `<backend>:<id>` (`local:3f2a`). An id that names no task answers "No scheduled task has the id …",
+  and the tool results stay short: what changed, the task's id and name, where it runs. The rules the agent follows
+  (only these tools, never Dynwork's files, database or APIs; list before creating; update instead of duplicating or to
+  rename; what "Ask me" and "Don't ask" mean and asking which; asking when a named target does not match; the user's
+  language) are in `list_scheduled_tasks`'s description, which the agent reads with every tool.
 - **Bridge.** The tools run in the service, the routines live here. The plugin's own RPC (`dynwork.routines-chat`) carries
   them: a tool publishes a `request` event and waits; main follows the plugin's events (`chat.ts` `setup`), answers
   with the `answer` method, reads the requests still waiting with `pending` after each (re)connection, and a stopped
-  step publishes `withdraw`. A list waits 10 s for main; a proposal waits for the user as long as it takes.
-- **Why not a permission.** The card could have been a permission request (`permission.assert`) that main creates the
-  routine from on its "once" reply. It is not, because a permission can be answered by something other than the
-  user: the app's auto-approve setting answers every request, an "Always" reply is saved as a rule, and an unattended
-  run turns "ask" into "deny". The card looks like the permission prompt and sits where it does, but only its own buttons answer it, and the
-  agent has no way to press them.
-- **Validation.** `definitionOf` turns the proposal into a `Definition` with the form's presets (`cronOf`), refusing an
-  incomplete or unreadable schedule; then the `Definition` schema and the backend's own `validate`, as the form. A
-  refusal is the tool's answer, with one line per field, and no card is shown.
-- **Card.** A valid proposal becomes a `Card` in the `dynwork.routines.chat` Ipc. The conversation that made it shows
-  it in its composer region, in place of the composer, drawn with OpenCode's `DockPrompt` and the permission dock's
-  slots (`views/agents/proposal.tsx`, through the `session.composer.dock` slot, DynWork's patch). It shows the prompt,
-  Routine, Schedule, Runs on, Permissions, Project folder, Connectors, Notifications, Origin and "Show full input",
-  with **Cancel** and **Schedule** (⌘↵).
-- **Schedule.** `decide` takes the card out first (a second answer from another window finds nothing), then creates
-  through the routines Ipc's own `create`, so every window reads the new routine, and answers the tool with the
-  routine's line. Cancel answers "nothing was created". The tool call in the conversation shows the result.
-- **Agent Farm.** `where: "farm"` goes through the registry to the `farm` backend only when it is the real one
-  (`DYNWORK_ROUTINES_FARM=1`); the skeleton's `validate` answers "not implemented", so the tool reports it and no card
-  is shown. With the demo in its place the tool says the farm is not available. See `farm/README.md`.
+  step publishes `withdraw`. Reads, pause and resume wait 10 s for main; a card waits for the user as long as it takes.
+- **Why not a permission.** The card could have been a permission request (`permission.assert`) that main acts on from
+  its "once" reply. It is not, because a permission can be answered by something other than the user: the app's
+  auto-approve setting answers every request, an "Always" reply is saved as a rule, and an unattended run turns "ask"
+  into "deny". The card looks like the permission prompt and sits where it does, but only its own buttons answer it,
+  and the agent has no way to press them.
+- **Validation.** `definitionOf` turns a proposal into a `Definition` with the form's presets (`cronOf`), refusing an
+  incomplete or unreadable schedule. `changed` applies an update on top of the routine: a schedule field rebuilds the
+  schedule from the routine's own preset (a new `time` keeps how often it runs), and every field not given, the
+  backend's other options, agent and model included, stays as it was. Then the `Definition` schema and the backend's own
+  `validate`, as the form. A refusal, or an update that changes nothing, is the tool's answer, with one line per field,
+  and no card is shown.
+- **Card.** A `Card` (`kind`: `create`, `update`, `delete`, `run`) in the `dynwork.routines.chat` Ipc. The conversation
+  that asked shows it in its composer region, in place of the composer, drawn with OpenCode's `DockPrompt` and the
+  permission dock's slots (`views/agents/proposal.tsx`, one component with a variant per kind, through the
+  `session.composer.dock` slot, DynWork's patch). Its rows are `cardRows` (`views/agents/format.ts`), the same rows main
+  describes a change to the agent with (`cardChanges`).
+- **The button.** `decide` takes the card out first (a second answer from another window finds nothing), then acts
+  through the routines Ipc's own methods (`RoutinesMain.setup`'s `act`), so every window reads the change, and answers
+  the tool. Cancel answers that nothing changed.
+- **Agent Farm.** `where: "farm"` and a `farm:` id go through the registry to the `farm` backend only when it is the
+  real one (`DYNWORK_ROUTINES_FARM=1`); the skeleton answers "not implemented", and the tool reports it. With the demo
+  in its place the tool says Dynapps Cloud is not available. See `farm/README.md`.
 
 `test/routines/chat.test.ts` drives `make` with the local demo fake and the farm skeleton;
 `dynwork/packages/server-plugin/test/routines.test.ts` drives the tools and their wait.

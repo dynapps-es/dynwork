@@ -23,8 +23,8 @@ describe("this computer's name", () => {
     expect(device(setup(os))).toEqual({ label, inline })
   })
 
-  test("reaches the Agents view's description", () => {
+  test("reaches the Tasks view's description", () => {
     const ctx = setup("windows")
-    expect(ctx.t("agents.description", { device: device(ctx).inline })).toContain("Local routines run on this PC")
+    expect(ctx.t("agents.description", { device: device(ctx).inline })).toContain("Tasks on this PC run")
   })
 })

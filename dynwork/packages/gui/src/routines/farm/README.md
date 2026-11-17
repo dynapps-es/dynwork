@@ -21,15 +21,16 @@ Not here, on purpose: any farm HTTP call, any token handling. See "Where the tok
 ## 1. What a routine is, and how the user sees it
 
 A **routine** is an agent, its instructions and a trigger (a schedule, or "only when I start it"), plus where it runs:
-**Local** (this computer) or **Remote** (the farm). In the UI it is called a "routine", never an "agent": "agent" is the
-definition in both worlds (an OpenCode agent, a farm catalogue agent). The view is still called **Agents**.
+local (this computer) or remote (the farm). In the UI it is called a **task**, never an "agent" or a "routine": "agent"
+is the definition in both worlds (an OpenCode agent, a farm catalogue agent). The view is called **Tasks**; where a task
+runs reads **This Mac** (This PC) or **Dynapps Cloud**, and "Agent Farm" and "Remote" never reach the UI.
 
-- One list for every routine, local and remote. Chips `All | Local | Remote` only narrow it; each card has a badge for
-  where it runs ("Agent Farm" for yours). Tabs: My routines, Templates, Activity (every run, including farm tasks that
+- One list for every task, local and remote. Chips `All | This Mac | Dynapps Cloud` only narrow it; each card has a
+  badge for where it runs ("Dynapps Cloud" for yours). Tabs: My tasks, Templates, Activity (every run, including farm tasks that
   were started outside DynWork).
 - The detail page has the same layout for both kinds: History on the left (every run with its state and reason), and
   on the right Instructions, Repeats (the next three), Where and with what, Permissions, Notifications. For a farm
-  routine it adds a dashed "Agent Farm options" block, painted from your `capabilities().fields`.
+  routine it adds a dashed "Dynapps Cloud options" block, painted from your `capabilities().fields`.
 - Actions: Open (for a farm routine, the read-only viewer of its latest run), Run now, Pause/Resume, Edit, Duplicate,
   Remove. An action your backend cannot do is shown disabled with the reason taken from `capabilities`.
 - Clicking a farm run opens a read-only viewer: the result in Markdown, usage and cost, the tail of the log, "Download
@@ -234,21 +235,34 @@ David decides which of these the farm team takes on.
       are still there.
 - [ ] Commits follow upstream's convention with the `dynwork` scope: `feat(dynwork): connect the Agent Farm routines`.
 
-## Routines created from a chat
+## Tasks from a chat
 
-The `routines_create` tool (`@dynwork/server-plugin/routines`) lets the agent propose a routine in a chat; the user
-creates it with the card's Schedule (`routines/chat.ts`, "Create from a chat" in `routines/README.md`). With
-`where: "farm"` the proposal comes to this backend:
+The scheduled-task tools (`@dynwork/server-plugin/routines`, "Create from a chat" in `routines/README.md`) let the
+agent manage the user's tasks in a chat; the user sees them as tasks, and yours as **Dynapps Cloud** (your
+`capabilities().label`; "Agent Farm" never reaches the UI). Every tool goes through the registry to the task's own
+backend, so a `farm:<id>` task reaches yours:
 
-- **What it sends.** A `Definition` built by `RoutinesChat.definitionOf`: `name`, `instructions` of kind `prompt`,
-  `schedule` (`cron` and `timezone`, Europe/Madrid by default; absent for a manual routine), `enabled: true`, and
-  `options` with `permissions` (`ask` | `bypass`), `notify` (`failures` | `every` | `never`), and `folder` and
-  `connectors` (MCP server names) when the user gave them. No `agent`, no `model`.
-- **What you implement.** Your `validate(definition)` runs first, before any card (`JESÚS:` in `routines/chat.ts`); a
-  `Failure` there goes back to the agent with its `fields`, and no card is shown. Then, only after the user presses
-  Schedule, your `create(definition)`. Map what the farm needs from these options (a prompt routine runs on your default
-  agent, or ask for an agent through `instructions` of kind `agent` later), and refuse what it cannot take with an
-  `invalid` field. Nothing else changes: the tools, the card and the bridge are the same as for local routines.
-- **How to test it.** `test/routines/chat.test.ts` has "a farm proposal reaches the farm backend": point it at your
-  backend and expect a card instead of the refusal. Live: run Dynwork with `DYNWORK_ROUTINES_FARM=1`, open Agents ›
-  New routine › Create with Dynwork, ask for a routine on the Agent Farm, press Schedule, and see it in the list.
+| Tool | Your methods |
+| --- | --- |
+| `list_scheduled_tasks` | `list()`, with `capabilities().label` |
+| `list_running_tasks` | `runs({})` (the `queued` and `running` ones) and `list()` for the names |
+| `get_scheduled_task` | `get(id)`, `runs({ routine: id })` |
+| `create_scheduled_task` (`where: "farm"`) | `validate(definition)` before the card, `create(definition)` after Schedule |
+| `update_scheduled_task` | `get(id)`, `validate(definition)` before the card, `update(id, definition)` after Save |
+| `delete_scheduled_task` | `get(id)`, `remove(id)` after Delete |
+| `pause_scheduled_task`, `resume_scheduled_task` | `get(id)`, then `pause(id)` or `resume(id)` at once |
+| `run_scheduled_task` | `get(id)`, then `start(id)`: at once for "Ask me", after the card for "Don't ask" |
+
+- **What it sends.** A `Definition` built by `RoutinesChat.definitionOf` (create) or `RoutinesChat.changed` (update:
+  your routine with only the given fields changed, its other options kept): `name`, `instructions` of kind `prompt`,
+  `schedule` (`cron` and `timezone`, Europe/Madrid by default; absent for a manual task), `enabled`, and `options` with
+  `permissions` (`ask` | `bypass`), `notify` (`failures` | `every` | `never`), and `folder` and `connectors` (MCP server
+  names) when the user gave them. No `agent`, no `model` on a new one.
+- **What you implement.** The methods above, as for the views; nothing else changes (`JESÚS:` in `routines/chat.ts`). A
+  `Failure` goes back to the agent as the tool's answer, with its `fields`, and no card is shown. Until you write a
+  method its "not implemented" is the answer. An `update` that answers a new ref (`edit: "replace"`) is reported with
+  the new id.
+- **How to test it.** `test/routines/chat.test.ts` has "a farm proposal reaches the farm backend" and "a farm task
+  reaches the farm backend": point them at your backend and expect a card or a change instead of "not implemented".
+  Live: run Dynwork with `DYNWORK_ROUTINES_FARM=1`, open Tasks › New task › Create with Dynwork, ask for a task on
+  Dynapps Cloud, press Schedule, and see it in the list; then ask the chat to rename, pause and run it.

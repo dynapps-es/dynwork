@@ -5,7 +5,7 @@ import path from "node:path"
 import { OpenCode, type OpenCodeClient } from "@opencode/client/promise"
 import type { MainContext } from "@opencode/plugin/gui/main"
 import { RoutinesBackend } from "./backend"
-import { Routines, type Definition, type Run } from "./contract"
+import { Routines, type Definition, type Ref, type Run } from "./contract"
 import { RoutinesDemo } from "./demo"
 import { RoutinesFarm } from "./farm/backend"
 import { RoutinesIpc } from "./ipc"
@@ -128,8 +128,15 @@ export function setup(ctx: MainContext, options: Options) {
     pull: () => void shared.sync?.sync(),
     /** DynWork's service, while it runs. */
     client,
-    /** Creates through the Ipc's own `create`, so every window reads the new routine. */
-    create: (backend: string, definition: Definition) => Promise.resolve(routines.create({ backend, definition }, main)),
+    /** Changes through the Ipc's own methods, so every window reads the change (the chat's cards, `RoutinesChat`). */
+    act: {
+      create: (backend: string, definition: Definition) => Promise.resolve(routines.create({ backend, definition }, main)),
+      update: (ref: Ref, definition: Definition) => Promise.resolve(routines.update({ ...ref, definition }, main)),
+      remove: (ref: Ref) => Promise.resolve(routines.remove(ref, main)),
+      pause: (ref: Ref) => Promise.resolve(routines.pause(ref, main)),
+      resume: (ref: Ref) => Promise.resolve(routines.resume(ref, main)),
+      start: (ref: Ref) => Promise.resolve(routines.start(ref, main)),
+    },
   }
 }
 

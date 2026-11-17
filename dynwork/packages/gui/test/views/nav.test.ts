@@ -19,9 +19,9 @@ function setup(path = "/") {
 }
 
 describe("the DynWork sidebar rows", () => {
-  test("show Agents and Brain, in that order; the governance settings are not a row", () => {
+  test("show Tasks and Brain, in that order; the governance settings are not a row", () => {
     const view = setup()
-    expect(view.rows.map((row) => row.label())).toEqual(["Agents", "Brain"])
+    expect(view.rows.map((row) => row.label())).toEqual(["Tasks", "Brain"])
     expect(view.rows.map((row) => row.icon)).toEqual([robot, "brain"])
   })
 

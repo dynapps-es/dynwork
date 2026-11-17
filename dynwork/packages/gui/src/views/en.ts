@@ -4,7 +4,7 @@ import runs from "./runs/en"
 
 // The views' strings, merged into the `dynwork` built-in's table. Each view owns the table in its folder.
 export default {
-  "views.nav.agents": "Agents",
+  "views.nav.agents": "Tasks",
   "views.nav.brain": "Brain",
   "views.device.macos": "This Mac",
   "views.device.macos.inline": "this Mac",

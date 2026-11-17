@@ -103,10 +103,20 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
     "rpc.register(dynwork.routines-chat)",
     "tool.transform",
   ])
-  // The routines tools (`../src/routines`), added for the chat's "Create with Dynwork".
+  // The scheduled-task tools (`../src/routines`), with which a chat manages the user's tasks.
   const tools: string[] = []
   recorded.transforms.tool?.({ add: (tool: { name: string }) => tools.push(tool.name) } as never)
-  expect(tools).toEqual(["routines_list", "routines_create"])
+  expect(tools).toEqual([
+    "list_scheduled_tasks",
+    "list_running_tasks",
+    "get_scheduled_task",
+    "create_scheduled_task",
+    "update_scheduled_task",
+    "delete_scheduled_task",
+    "pause_scheduled_task",
+    "resume_scheduled_task",
+    "run_scheduled_task",
+  ])
 })
 
 test("without saved shell values the plugin leaves shells alone", async () => {

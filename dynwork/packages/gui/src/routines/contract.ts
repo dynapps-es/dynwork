@@ -1,6 +1,5 @@
 import { Schema } from "effect"
 import { Ipc } from "@opencode/plugin/gui"
-import { DynWorkRoutines } from "@dynwork/server-plugin/routines"
 
 // The routines contract: what every routines backend (local, Agent Farm, fakes) speaks and what crosses to a window.
 // All times are epoch milliseconds. Every backend-specific value rides in `Definition.options`, keyed as the backend's
@@ -355,17 +354,26 @@ export const Routines = Ipc.define({
 export const chatPrompt =
   "Help me set up a scheduled task. Ask me what it should do, how often it should run, and when, then create it."
 
-/** A proposal waiting for the user, as a window draws its card. */
+/**
+ * A change the routines tools ask for, waiting for the user, as a window draws its card: a new routine (`create`), a
+ * change (`update`), a deletion (`delete`), or a run of a "Don't ask" routine (`run`).
+ */
 export const Card = Schema.Struct({
   id: Schema.String,
   /** The chat session the card belongs to. */
   session: Schema.String,
+  kind: Schema.Literals(["create", "update", "delete", "run"]),
   backend: Schema.String,
   /** Where it runs, as the backend calls itself: the device's name or "Agent Farm". */
   label: Schema.String,
+  /** The routine it acts on, by its backend's id; absent for `create`. */
+  routine: Schema.optional(Schema.String),
+  /** The routine as it will be (`create`, `update`) or as it is (`delete`, `run`). */
   definition: Definition,
-  /** What the agent sent, for "Show full input". */
-  proposal: DynWorkRoutines.Proposal,
+  /** For `update`: the routine as it is now, so the card shows each change as before → after. */
+  before: Schema.optional(Definition),
+  /** What the agent sent, as JSON, for "Show full input". */
+  input: Schema.String,
 })
 export type Card = typeof Card.Type
 
@@ -373,9 +381,9 @@ export const Chat = Ipc.define({
   id: "dynwork.routines.chat",
   state: Schema.Struct({ cards: Schema.Array(Card) }),
   methods: {
-    /** The user's answer on a card: `schedule` creates the routine, otherwise nothing is created. */
+    /** The user's answer on a card: `accept` does what it asks, otherwise nothing changes. */
     decide: {
-      input: Schema.Struct({ id: Schema.String, schedule: Schema.Boolean }),
+      input: Schema.Struct({ id: Schema.String, accept: Schema.Boolean }),
       output: Schema.UndefinedOr(Failure),
     },
     /** Opens a conversation with `prompt` in the user's home, on DynWork's service; the window then routes to it. */

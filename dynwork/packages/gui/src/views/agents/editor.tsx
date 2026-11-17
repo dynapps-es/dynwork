@@ -17,6 +17,7 @@ import { zones } from "./schedule"
 import { backendLine, when, type Translate } from "./format"
 import { draftSchedule, problemText, triggers, type FormModel } from "./form"
 import type { AgentsModel } from "./model"
+import { device } from "../device"
 import "./editor.css"
 
 const PromptSelect = lazy(() => import("./prompt-select"))
@@ -317,7 +318,7 @@ function Where(props: { form: FormModel; agents: AgentsModel }) {
             {(backend) => (
               <RadioItem
                 value={backend.backend}
-                label={ctx.t(`agents.form.where.${backend.kind}.title`, { label: backend.label })}
+                label={ctx.t(`agents.form.where.${backend.kind}.title`, { label: backend.label, device: device(ctx).label })}
                 description={`${ctx.t(`agents.form.where.${backend.kind}.text`)} ${backendLine(ctx.t, backend)}`}
               />
             )}
@@ -661,7 +662,7 @@ function Block(props: { form: FormModel; choices: (lookup: string) => readonly C
         <section data-slot="form-block" data-kind={current().kind}>
           <h3 data-slot="form-block-head">
             <Icon name={current().kind === "remote" ? "cloud-upload" : "monitor"} size="small" />
-            {ctx.t(`agents.form.block.${current().kind}`, { label: current().label })}
+            {ctx.t(`agents.form.block.${current().kind}`, { label: current().label, device: device(ctx).inline })}
           </h3>
           <Show when={current().kind === "local"}>
             <Row id="device" label={ctx.t("agents.form.device")} group hint={ctx.t("agents.form.device.hint")}>

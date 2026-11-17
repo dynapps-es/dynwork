@@ -7,6 +7,7 @@ import { TextInput } from "@opencode/ui/text-input"
 import { For, Show } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import type { Routine, Run } from "../../routines/contract"
+import { device } from "../device"
 import { duration, instructionsText, reasonText, runWhen, scheduleText } from "./format"
 import { runHref } from "../runs/model"
 import { tabs, type AgentsModel } from "./model"
@@ -42,7 +43,7 @@ export function Toolbar(props: { model: AgentsModel }) {
             <For each={wheres}>
               {(where) => (
                 <SegmentedControlItem value={where}>
-                  {ctx.t(`agents.where.${where}`)}
+                  {ctx.t(`agents.where.${where}`, { device: device(ctx).label })}
                   <Show when={model.state.tab === "mine"}>
                     <span data-slot="agents-count">{model.count(where)}</span>
                   </Show>
@@ -86,7 +87,7 @@ export function RoutineCards(props: { model: AgentsModel }) {
       when={model.visible().length > 0}
       fallback={
         <p data-slot="agents-empty">
-          {ctx.t(model.routines().length === 0 ? "agents.list.empty" : "agents.list.none")}
+          {ctx.t(model.routines().length === 0 ? "agents.list.empty" : "agents.list.none", { device: device(ctx).inline })}
         </p>
       }
     >

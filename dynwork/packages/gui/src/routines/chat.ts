@@ -4,20 +4,22 @@ import { Schema } from "effect"
 import type { OpenCodeClient } from "@opencode/client/promise"
 import type { MainContext } from "@opencode/plugin/gui/main"
 import { DynWorkRoutines } from "@dynwork/server-plugin/routines"
-import { fail, type Registry } from "./backend"
-import { Chat, chatPrompt, Definition, isFailure, type Card, type Failure, type Routine } from "./contract"
+import { fail, type Backend, type Registry } from "./backend"
+import { Chat, chatPrompt, Definition, isFailure, type Card, type Failure, type Ref, type Routine, type Run } from "./contract"
 import { RoutinesFarm } from "./farm/backend"
 import { RoutinesLocal } from "./local/backend"
 import en from "../views/agents/en"
-import { scheduleText } from "../views/agents/format"
-import { cronOf, scheduleProblem, upcoming, type Preset } from "../views/agents/schedule"
+import { cardChanges, cardRows, instructionsText, runTime } from "../views/agents/format"
+import { stateKey } from "../views/agents/routine"
+import { cronOf, presetOf, scheduleProblem, upcoming, type Preset } from "../views/agents/schedule"
 
-// Routines from a chat ("Create with Dynwork"), main's side. The `routines_list` and `routines_create` tools of the
-// server plugin (`@dynwork/server-plugin/routines`) publish requests on its RPC; main follows them, answers a list at
-// once, and turns a proposal into a routine `Definition`, validates it with the schema and the backend the form uses,
-// and shows it as a card in the windows (the `dynwork.routines.chat` Ipc). Only the card's Schedule creates it, here,
-// through the routines Ipc; Cancel, a refusal and a withdrawn request create nothing. The agent never creates a routine:
-// the session's permissions ("Don't ask" too) and the app's auto-approve play no part, as the card is not a permission.
+// Tasks (routines) from a chat, main's side. The server plugin's tools (`@dynwork/server-plugin/routines`) publish
+// requests on its RPC; main follows them and answers. Reads (`list`, `running`, `get`) and the reversible `pause` and
+// `resume` are answered at once. A new task, a change, a deletion and a run of a "Don't ask" task are validated as the
+// form validates (the `Definition` schema and the backend's own `validate`) and shown as a card in the windows (the
+// `dynwork.routines.chat` Ipc): only the card's button does it, through the routines Ipc; Cancel, a refusal and a
+// withdrawn request change nothing. The session's permissions ("Don't ask" too) and the app's auto-approve play no part,
+// as the card is not a permission. Every change goes to the routine's own backend through the registry.
 
 export interface Options {
   registry: Registry
@@ -25,11 +27,20 @@ export interface Options {
   farm: boolean
   /** Sends main's answer to the waiting tool. */
   answer: (answer: DynWorkRoutines.Answer) => Promise<unknown>
-  /** Creates through the routines Ipc, so the windows read the new routine. */
-  create: (backend: string, definition: Definition) => Promise<Routine | Failure>
+  /** The routines Ipc's own methods, so every window reads the change. */
+  act: Act
   /** The cards changed. */
   changed: () => void
   now: () => number
+}
+
+export interface Act {
+  create: (backend: string, definition: Definition) => Promise<Routine | Failure>
+  update: (ref: Ref, definition: Definition) => Promise<Routine | Failure>
+  remove: (ref: Ref) => Promise<Failure | undefined>
+  pause: (ref: Ref) => Promise<Failure | undefined>
+  resume: (ref: Ref) => Promise<Failure | undefined>
+  start: (ref: Ref) => Promise<Run | Failure>
 }
 
 /** The chat's logic, with no service and no window: what `setup` wires, and what the tests drive. */
@@ -39,66 +50,221 @@ export function make(options: Options) {
   const known = new Set<string>()
 
   const reply = (id: string, text: string, error: boolean) => options.answer({ id, text, error }).catch(() => undefined)
+  const label = async (backend: Backend) => (await backend.capabilities()).label
 
   async function list(request: DynWorkRoutines.Request) {
     const lines = await Promise.all(
       backends().map(async (id) => {
         const backend = options.registry.get(id)
         if (!backend) return []
-        const label = (await backend.capabilities()).label
+        const where = await label(backend)
         const routines = await backend.list()
-        if (isFailure(routines)) return [`- ${label}: could not be read (${routines.message})`]
-        return routines.map((routine) => describe(routine, label))
+        if (isFailure(routines)) return [`- ${where}: could not be read (${routines.message})`]
+        return routines.map((routine) => describe(routine, where))
       }),
     )
     const all = lines.flat()
-    // The connectors a local routine may name, so the agent proposes real ones.
+    // The connectors a local task may name, so the agent proposes real ones.
     const connectors = await options.registry.get(RoutinesLocal.id)?.options("connectors")
     const available =
       connectors && !isFailure(connectors)
-        ? `\nConnectors available to local routines: ${connectors.map((choice) => choice.value).join(", ") || "none"}.`
+        ? `\nConnectors available to tasks on this computer: ${connectors.map((choice) => choice.value).join(", ") || "none"}.`
         : ""
-    await reply(request.id, (all.length === 0 ? "The user has no routines yet." : all.join("\n")) + available, false)
+    await reply(request.id, (all.length === 0 ? "The user has no scheduled tasks yet." : all.join("\n")) + available, false)
+  }
+
+  // Every run going right now, on every backend: its task, where, since when, and whether it waits for the user.
+  async function running(request: DynWorkRoutines.Request) {
+    const lines = await Promise.all(
+      backends().map(async (id) => {
+        const backend = options.registry.get(id)
+        if (!backend) return []
+        const where = await label(backend)
+        const page = await backend.runs({}).catch(() => fail("failed", "The runs could not be read."))
+        if (isFailure(page)) return [`- ${where}: could not be read (${page.message})`]
+        const names = await backend.list()
+        const name = (run: Run) =>
+          (isFailure(names) ? undefined : names.find((routine) => routine.ref.id === run.routine?.id))?.definition.name
+        return page.items
+          .filter((run) => run.state === "running" || run.state === "queued")
+          .map((run) =>
+            [
+              `- ${name(run) ?? run.title}`,
+              ...(run.routine ? [taskId(run.routine)] : []),
+              where,
+              words(stateKey(run)),
+              ...(run.started === undefined ? [] : [`started ${stamp(run.started)}`]),
+              ...(run.conversation.kind === "session" ? [`conversation ${run.conversation.session}`] : []),
+            ].join(" · "),
+          )
+      }),
+    )
+    const all = lines.flat()
+    await reply(request.id, all.length === 0 ? "Nothing is running right now." : all.join("\n"), false)
+  }
+
+  async function get(request: DynWorkRoutines.Request, found: Found) {
+    const page = await found.backend.runs({ routine: found.routine.ref.id }).catch(() => fail("failed", "unreadable"))
+    const runs = isFailure(page)
+      ? [`Runs could not be read (${page.message}).`]
+      : page.items.slice(0, 5).map((run) =>
+          [
+            `- ${words(stateKey(run))}`,
+            ...(run.reason && run.reason !== "permission" ? [run.reason] : []),
+            ...(runTime(run) === undefined ? [] : [stamp(runTime(run) ?? 0)]),
+            ...(run.conversation.kind === "session" ? [`conversation ${run.conversation.session}`] : []),
+          ].join(" · "),
+        )
+    const routine = found.routine
+    await reply(
+      request.id,
+      [
+        describe(routine, found.label).slice(2),
+        `Definition, in create_scheduled_task's terms: ${JSON.stringify(proposalOf(routine))}`,
+        runs.length === 0 ? "No runs yet." : `Last runs, newest first:\n${runs.join("\n")}`,
+      ].join("\n"),
+      false,
+    )
   }
 
   async function propose(request: DynWorkRoutines.Request, proposal: DynWorkRoutines.Proposal) {
     const where = proposal.where ?? "local"
     const id = where === "farm" ? RoutinesFarm.id : RoutinesLocal.id
     const backend = options.registry.get(id)
-    if (where === "farm" && !options.farm)
-      return refuse(request.id, fail("unsupported", "The Agent Farm is not available in this Dynwork yet."))
-    if (!backend) return refuse(request.id, fail("unreachable", "Dynwork cannot reach where this routine would run."))
+    if (where === "farm" && !options.farm) return refuse(request, fail("unsupported", cloud))
+    if (!backend) return refuse(request, fail("unreachable", "Dynwork cannot reach where this task would run."))
     const built = definitionOf(proposal, options.now())
-    if (isFailure(built)) return refuse(request.id, built)
-    // The same checks as the form's: the `Definition` schema, then the backend's own `validate`. JESÚS: a farm proposal
-    // reaches your `validate` here and, once the user presses Schedule, your `create`.
-    const decoded = Schema.decodeUnknownExit(Definition)(built)
-    if (decoded._tag === "Failure") return refuse(request.id, fail("invalid", "The proposal is not a routine."))
-    const invalid = await backend.validate(decoded.value).catch(() => fail("failed", "The routine could not be checked."))
-    if (invalid) return refuse(request.id, invalid)
-    if (!known.has(request.id)) return
-    const label = (await backend.capabilities()).label
-    cards.set(request.id, { id: request.id, session: request.session, backend: id, label, definition: decoded.value, proposal })
+    if (isFailure(built)) return refuse(request, built)
+    // JESÚS: a farm proposal reaches your `validate` here and, once the user presses Schedule, your `create`.
+    const checked = await check(backend, built)
+    if (isFailure(checked)) return refuse(request, checked)
+    show({ id: request.id, session: request.session, kind: "create", backend: id, label: await label(backend), definition: checked, input: JSON.stringify(proposal, null, 2) })
+  }
+
+  async function update(request: DynWorkRoutines.Request, found: Found, changes: DynWorkRoutines.Changes) {
+    const built = changed(found.routine, changes, options.now())
+    if (isFailure(built)) return refuse(request, built)
+    // JESÚS: a change to a farm task reaches your `validate` here and, once the user presses Save, your `update`.
+    const checked = await check(found.backend, built)
+    if (isFailure(checked)) return refuse(request, checked)
+    if (cardChanges(words, found.routine.definition, checked, found.label).length === 0)
+      return refuse(request, fail("invalid", "These values are the ones the task already has."))
+    show({ ...cardOf(request, found, "update"), definition: checked, before: found.routine.definition, input: JSON.stringify(changes, null, 2) })
+  }
+
+  async function run(request: DynWorkRoutines.Request, found: Found) {
+    // "Ask me": the run asks before edits and commands anyway, so it starts at once.
+    if (found.routine.definition.options.permissions === "bypass") return show(cardOf(request, found, "run"))
+    known.delete(request.id)
+    await started(request.id, subject(found.routine.definition, found.routine.ref, found.label), await options.act.start(found.routine.ref))
+  }
+
+  // Pause and resume are reversible and run nothing: they happen at once.
+  async function toggle(request: DynWorkRoutines.Request, found: Found, on: boolean) {
+    const failure = await (on ? options.act.resume : options.act.pause)(found.routine.ref)
+    if (failure) return reply(request.id, `Not done: ${failure.message}\nNothing changed.`, true)
+    const name = subject(found.routine.definition, found.routine.ref, found.label).name
+    if (!on) return reply(request.id, `Paused ${name}: it does not run on its schedule until it is resumed.`, false)
+    const now = await found.backend.get(found.routine.ref.id)
+    const next = !isFailure(now) && now.next !== undefined ? ` Next run: ${stamp(now.next, now.definition.schedule?.timezone)}.` : ""
+    return reply(request.id, `Resumed ${name}.${next}`, false)
+  }
+
+  function show(card: Card) {
+    if (!known.has(card.id)) return
+    cards.set(card.id, card)
     options.changed()
   }
 
-  async function refuse(id: string, failure: Failure) {
-    known.delete(id)
+  async function refuse(request: DynWorkRoutines.Request, failure: Failure) {
+    known.delete(request.id)
     const fields = Object.entries(failure.fields ?? {}).map(([key, message]) => `\n- ${key}: ${message}`)
-    await reply(id, `Not proposed: ${failure.message}${fields.join("")}\nNothing was created.`, true)
+    const creating = request.kind === "propose"
+    await reply(
+      request.id,
+      `${creating ? "Not proposed" : "Not done"}: ${failure.message}${fields.join("")}\n${creating ? "Nothing was created." : "Nothing changed."}`,
+      true,
+    )
   }
 
-  function request(input: DynWorkRoutines.Request) {
-    if (known.has(input.id)) return Promise.resolve()
+  // The routine a request names, on its own backend; `not-found` says how to find the ids.
+  async function find(name: string | undefined): Promise<Found | Failure> {
+    const ref = refOf(name ?? "")
+    const unknown = fail("not-found", `No scheduled task has the id "${name ?? ""}". Call list_scheduled_tasks for the ids.`)
+    if (!ref) return unknown
+    if (ref.backend === RoutinesFarm.id && !options.farm) return fail("unsupported", cloud)
+    const backend = options.registry.get(ref.backend)
+    if (!backend) return unknown
+    // JESÚS: every tool that names a farm task reaches your `get` first, then `update`, `remove`, `pause`, `resume` or
+    // `start` on the routine's own backend. Until they are written, their "not implemented" is the tool's answer.
+    const routine = await backend.get(ref.id).catch(() => fail("failed", "The task could not be read."))
+    if (isFailure(routine)) return routine.code === "not-found" ? unknown : routine
+    return { backend, routine, label: await label(backend) }
+  }
+
+  async function check(backend: Backend, built: Definition) {
+    const decoded = Schema.decodeUnknownExit(Definition)(built)
+    if (decoded._tag === "Failure") return fail("invalid", "This is not a task.")
+    const invalid = await backend.validate(decoded.value).catch(() => fail("failed", "The task could not be checked."))
+    return invalid ?? decoded.value
+  }
+
+  async function request(input: DynWorkRoutines.Request) {
+    if (known.has(input.id)) return
     known.add(input.id)
     if (input.kind === "list") return list(input).finally(() => known.delete(input.id))
-    if (!input.proposal) return refuse(input.id, fail("invalid", "The proposal is missing."))
-    return propose(input, input.proposal)
+    if (input.kind === "running") return running(input).finally(() => known.delete(input.id))
+    if (input.kind === "propose") {
+      if (!input.proposal) return refuse(input, fail("invalid", "The proposal is missing."))
+      return propose(input, input.proposal)
+    }
+    const found = await find(input.routine)
+    if (isFailure(found)) return refuse(input, found)
+    if (input.kind === "get") return get(input, found).finally(() => known.delete(input.id))
+    if (input.kind === "pause" || input.kind === "resume")
+      return toggle(input, found, input.kind === "resume").finally(() => known.delete(input.id))
+    if (input.kind === "update") return update(input, found, input.changes ?? {})
+    if (input.kind === "run") return run(input, found)
+    return show(cardOf(input, found, "delete"))
+  }
+
+  async function started(id: string, task: Subject, outcome: Run | Failure) {
+    if (isFailure(outcome)) return reply(id, `The run could not start: ${outcome.message}`, true)
+    const conversation = outcome.conversation.kind === "session" ? ` Its conversation is ${outcome.conversation.session}.` : ""
+    const asks = task.bypass ? "" : " It is set to Ask me: it waits for the user's approval before edits and commands."
+    return reply(id, `Started a run of ${task.name}.${asks}${conversation} Its result shows in Tasks.`, false)
   }
 
   function withdraw(id: string) {
     known.delete(id)
     if (cards.delete(id)) options.changed()
+  }
+
+  // What the card's button does, and what the agent reads after it.
+  async function accept(card: Card) {
+    const ref = { backend: card.backend, id: card.routine ?? "" }
+    const task = subject(card.definition, ref, card.label)
+    if (card.kind === "create") {
+      const created = await options.act.create(card.backend, card.definition)
+      if (isFailure(created)) return reply(card.id, `The task could not be created: ${created.message}`, true).then(() => created)
+      return reply(card.id, `Created the task. It is in Tasks.\n${describe(created, card.label)}`, false).then(() => undefined)
+    }
+    if (card.kind === "update") {
+      const updated = await options.act.update(ref, card.definition)
+      if (isFailure(updated)) return reply(card.id, `The task could not be changed: ${updated.message}`, true).then(() => updated)
+      const lines = cardChanges(words, card.before ?? card.definition, card.definition, card.label).map((row) =>
+        row.key === "instructions" ? `- ${row.label}: changed` : `- ${row.label}: ${row.before} → ${row.value}`,
+      )
+      return reply(card.id, `Changed "${updated.definition.name}" (${taskId(updated.ref)}) on ${card.label}:\n${lines.join("\n")}`, false).then(() => undefined)
+    }
+    if (card.kind === "delete") {
+      const failure = await options.act.remove(ref)
+      if (failure) return reply(card.id, `The task could not be deleted: ${failure.message}`, true).then(() => failure)
+      return reply(card.id, `Deleted ${task.name}. Its past runs stay in Tasks.`, false).then(() => undefined)
+    }
+    const outcome = await options.act.start(ref)
+    await started(card.id, task, outcome)
+    return isFailure(outcome) ? outcome : undefined
   }
 
   return {
@@ -113,25 +279,59 @@ export function make(options: Options) {
       await Promise.all(waiting.map(request))
     },
     cards: () => [...cards.values()],
-    /** The card's answer. The card leaves before anything is created, so a second answer (another window) finds none. */
-    decide: async (id: string, schedule: boolean) => {
+    /** The card's answer. The card leaves before anything changes, so a second answer (another window) finds none. */
+    decide: async (id: string, yes: boolean) => {
       const card = cards.get(id)
-      if (!card) return fail("not-found", "This proposal is no longer waiting.")
+      if (!card) return fail("not-found", "This request is no longer waiting.")
       cards.delete(id)
       known.delete(id)
       options.changed()
-      if (!schedule) {
-        await reply(id, "The user cancelled: nothing was created. Ask what to change before proposing again.", true)
-        return undefined
-      }
-      const created = await options.create(card.backend, card.definition)
-      if (isFailure(created)) {
-        await reply(id, `The routine could not be created: ${created.message}`, true)
-        return created
-      }
-      await reply(id, `Created the routine. It is in Agents.\n${describe(created, card.label)}`, false)
+      if (yes) return accept(card)
+      await reply(id, cancelled[card.kind], true)
       return undefined
     },
+  }
+}
+
+interface Found {
+  backend: Backend
+  routine: Routine
+  /** Where it runs, as its backend calls itself. */
+  label: string
+}
+
+/** A task as a result names it: `"Name" (local:3f2a) on This Mac`, and whether it runs without asking. */
+interface Subject {
+  name: string
+  bypass: boolean
+}
+
+function subject(definition: Definition, ref: Ref, label: string): Subject {
+  return {
+    name: `"${definition.name}" (${taskId(ref)}) on ${label}`,
+    bypass: definition.options.permissions === "bypass",
+  }
+}
+
+const cloud = "Dynapps Cloud is not available in this Dynwork yet."
+
+const cancelled: Record<Card["kind"], string> = {
+  create: "The user cancelled: nothing was created. Ask what to change before proposing again.",
+  update: "The user cancelled: the task was not changed. Ask what to change before proposing again.",
+  delete: "The user cancelled: the task was not deleted.",
+  run: "The user cancelled: the task did not run.",
+}
+
+function cardOf(request: DynWorkRoutines.Request, found: Found, kind: Card["kind"]): Card {
+  return {
+    id: request.id,
+    session: request.session,
+    kind,
+    backend: found.routine.ref.backend,
+    label: found.label,
+    routine: found.routine.ref.id,
+    definition: found.routine.definition,
+    input: JSON.stringify({ id: request.routine, ...request.changes }, null, 2),
   }
 }
 
@@ -155,7 +355,7 @@ export function setup(
     registry: Registry
     farm: boolean
     client: () => OpenCodeClient | undefined
-    create: Options["create"]
+    act: Act
     server: string
     home: string
   },
@@ -170,18 +370,18 @@ export function setup(
     registry: input.registry,
     farm: input.farm,
     answer: (answer) => call("answer", answer),
-    create: input.create,
+    act: input.act,
     changed: () => provider.changed(),
     now: Date.now,
   })
   const ipc = ctx.provide(Chat, {
     state: () => ({ cards: chat.cards() }),
-    decide: (value) => chat.decide(value.id, value.schedule),
+    decide: (value) => chat.decide(value.id, value.accept),
     start: async () => {
       const client = input.client()
       if (!client) return fail("unreachable", "Dynwork's service is not running.")
       const session = await client.session
-        .create({ title: "New routine", location: { directory: input.home } })
+        .create({ title: "New task", location: { directory: input.home } })
         .catch(() => undefined)
       if (!session) return fail("failed", "The conversation could not be opened.")
       const sent = await client.session
@@ -235,7 +435,7 @@ function backends() {
 /** A proposal in the form's terms as a routine `Definition`, or what keeps it from being one. */
 export function definitionOf(proposal: DynWorkRoutines.Proposal, now: number): Definition | Failure {
   const timezone = proposal.timezone ?? DynWorkRoutines.zone
-  const preset = presetOf(proposal)
+  const preset = presetFrom(proposal)
   const problem = preset && scheduleProblem(preset)
   if (problem) return fail("invalid", "The schedule is not complete.", { schedule: words(problem) })
   const cron = preset && cronOf(preset)
@@ -256,7 +456,66 @@ export function definitionOf(proposal: DynWorkRoutines.Proposal, now: number): D
   }
 }
 
-function presetOf(proposal: DynWorkRoutines.Proposal): Preset | undefined {
+/** A routine in the form's terms, as `get` shows it and `changed` starts from: the inverse of `definitionOf`. */
+export function proposalOf(routine: Routine): DynWorkRoutines.Proposal {
+  const definition = routine.definition
+  const options = definition.options
+  const preset = definition.schedule && presetOf(definition.schedule.cron)
+  return {
+    name: definition.name,
+    instructions: instructionsText(words, definition.instructions),
+    repeat: preset?.kind ?? "manual",
+    ...(preset && preset.kind !== "cron" ? { time: preset.time } : {}),
+    ...(preset?.kind === "weekly" ? { days: [...preset.days] } : {}),
+    ...(preset?.kind === "monthly" ? { day: preset.day } : {}),
+    ...(preset?.kind === "cron" ? { cron: preset.cron } : {}),
+    ...(definition.schedule ? { timezone: definition.schedule.timezone } : {}),
+    where: routine.ref.backend === RoutinesFarm.id ? "farm" : "local",
+    permissions: options.permissions === "bypass" ? "bypass" : "ask",
+    ...(typeof options.folder === "string" ? { folder: options.folder } : {}),
+    ...(Array.isArray(options.connectors)
+      ? { connectors: options.connectors.filter((item): item is string => typeof item === "string") }
+      : {}),
+    notify: options.notify === "every" || options.notify === "never" ? options.notify : "failures",
+  }
+}
+
+/**
+ * The routine with only the given fields changed. A schedule field rebuilds the schedule from the routine's own one
+ * with the change on top (a new `time` keeps how often it runs); anything not given stays as it was, the backend's other
+ * options, agent, model and a skill's instructions too. An empty `folder` takes the folder away.
+ */
+export function changed(routine: Routine, changes: DynWorkRoutines.Changes, now: number): Definition | Failure {
+  const current = routine.definition
+  // Changes cross as JSON, so a field not given is absent, never `undefined`.
+  const built = definitionOf({ ...proposalOf(routine), ...changes }, now)
+  if (isFailure(built)) return built
+  const timing = (["repeat", "time", "days", "day", "cron", "timezone"] as const).some((key) => changes[key] !== undefined)
+  const schedule = timing ? built.schedule && { ...current.schedule, ...built.schedule } : current.schedule
+  const options = Object.fromEntries(
+    Object.entries({
+      ...current.options,
+      ...Object.fromEntries(
+        (["permissions", "notify", "folder", "connectors"] as const).flatMap((key) => {
+          const value = changes[key]
+          if (value === undefined) return []
+          return [[key, Array.isArray(value) ? [...value] : value]]
+        }),
+      ),
+    }).filter((entry) => !(entry[0] === "folder" && entry[1] === "")),
+  )
+  return {
+    name: changes.name === undefined ? current.name : built.name,
+    instructions: changes.instructions === undefined ? current.instructions : built.instructions,
+    ...(current.agent === undefined ? {} : { agent: current.agent }),
+    ...(current.model === undefined ? {} : { model: current.model }),
+    ...(schedule ? { schedule } : {}),
+    enabled: current.enabled,
+    options,
+  }
+}
+
+function presetFrom(proposal: DynWorkRoutines.Proposal): Preset | undefined {
   const time = proposal.time ?? ""
   if (proposal.repeat === "manual") return undefined
   if (proposal.repeat === "cron") return { kind: "cron", cron: proposal.cron ?? "" }
@@ -265,14 +524,46 @@ function presetOf(proposal: DynWorkRoutines.Proposal): Preset | undefined {
   return { kind: proposal.repeat, time }
 }
 
-/** One line of a routine for the agent, in the Agents view's own English words. */
-function describe(routine: Routine, label: string) {
-  const text = routine.definition.instructions.kind === "prompt" ? routine.definition.instructions.text : ""
-  const what = text.split("\n")[0]?.slice(0, 120) ?? ""
-  return `- ${routine.definition.name} · ${label} · ${scheduleText(words, routine.definition.schedule)} · ${routine.state}${what ? ` · ${what}` : ""}`
+/** A task's id as the tools name it: `<backend>:<id>`. */
+function taskId(ref: Ref) {
+  return `${ref.backend}:${ref.id}`
 }
 
-// The English table of the Agents view, read without a window.
+function refOf(id: string): Ref | undefined {
+  const at = id.indexOf(":")
+  if (at < 1 || at === id.length - 1) return undefined
+  return { backend: id.slice(0, at), id: id.slice(at + 1) }
+}
+
+/** A moment for the agent: "2026-11-18 08:00 Europe/Madrid". */
+function stamp(at: number, zone = DynWorkRoutines.zone) {
+  return `${new Intl.DateTimeFormat("sv-SE", { dateStyle: "short", timeStyle: "short", timeZone: zone }).format(at)} ${zone}`
+}
+
+/** One line of a task for the agent, in the Tasks view's own English words. */
+function describe(routine: Routine, label: string) {
+  const definition = routine.definition
+  const rows = cardRows(words, definition, label)
+  const row = (key: string) => rows.find((item) => item.key === key)?.value ?? ""
+  const last = routine.last
+  const what = instructionsText(words, definition.instructions).split("\n")[0]?.slice(0, 120) ?? ""
+  return [
+    `- ${taskId(routine.ref)}`,
+    definition.name,
+    label,
+    row("schedule"),
+    routine.state,
+    `permissions: ${row("permissions")}`,
+    `connectors: ${row("connectors")}`,
+    ...(routine.next === undefined ? [] : [`next run: ${stamp(routine.next, definition.schedule?.timezone)}`]),
+    last
+      ? `last run: ${words(stateKey(last))}${last.reason && last.reason !== "permission" ? ` (${last.reason})` : ""}${runTime(last) === undefined ? "" : ` ${stamp(runTime(last) ?? 0, definition.schedule?.timezone)}`}`
+      : "never run",
+    ...(what ? [what] : []),
+  ].join(" · ")
+}
+
+// The English table of the Tasks view, read without a window.
 function words(key: string, params: Record<string, string | number> = {}) {
   const table: Record<string, string> = en
   return (table[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(params[name] ?? ""))
