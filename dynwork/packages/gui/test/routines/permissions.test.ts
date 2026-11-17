@@ -130,6 +130,24 @@ describe("the permissions of a run", () => {
     stop()
   })
 
+  test("denying a request ends the run as stopped by the user, though core never marks its session idle", async () => {
+    const { backend, service } = setup()
+    const routine = await ok(backend.create(prompt()))
+    const started = await ok(backend.start(routine.ref.id))
+    const seen: Run[] = []
+    const stop = backend.watch((change) => change.run && seen.push(change.run))
+    await until(() => service.listeners() > 0)
+
+    service.ask(started.ref.id, "per_1")
+    await until(() => seen.some((run) => run.reason === "permission"))
+    service.reply(started.ref.id, "per_1", "reject")
+    await until(() => backend.running() === 0)
+    // The session still reads as busy, and reading it again does not bring the run back.
+    await ok(backend.runs({ routine: routine.ref.id }))
+    expect(await read(backend, routine.ref.id)).toMatchObject({ state: "cancelled", reason: "user" })
+    stop()
+  })
+
   test("the routine's Notify me decides what is told; a run waiting for a permission is always told", async () => {
     const wanted = {
       failures: { ok: [], failed: ["failed"] },

@@ -393,6 +393,17 @@ export function make(options: Options): Local {
     if (waiting && stored) options.notify?.({ kind: "waiting", run: toRun(next), routine: stored.definition })
   }
 
+  // The user denied a request: core ends the step there (`packages/core/src/session/runner/step.ts`) but never marks
+  // the session idle, so the run ends here, as if the user had stopped it.
+  function declined(session: string) {
+    const record = recordOf(session)
+    if (!record || ended(record.state)) return
+    asking.delete(session)
+    const cancelled: SavedRun = { ...quiet(record), state: "cancelled", reason: "user", finished: options.now() }
+    saveRun(cancelled)
+    emit({ routine: ref(cancelled.routine), run: toRun(cancelled) })
+  }
+
   // The routine's anchor session: the one it has, or a new one when it has none or the user deleted it.
   function anchor(stored: SavedRoutine, client: OpenCodeClient) {
     const pending = anchoring.get(stored.id)
@@ -460,6 +471,7 @@ export function make(options: Options): Local {
         if (dropped !== undefined) await cut(inflight().filter((record) => (record.started ?? 0) <= dropped))
       }
       if (event.type === "permission.asked") permission(event.data.sessionID, event.data.id, true)
+      if (event.type === "permission.replied" && event.data.reply === "reject") declined(event.data.sessionID)
       if (event.type === "permission.replied") permission(event.data.sessionID, event.data.requestID, false)
       if (event.type !== "server.connected" && !event.type.startsWith("permission.")) {
         const record = recordOf(event.data.sessionID)

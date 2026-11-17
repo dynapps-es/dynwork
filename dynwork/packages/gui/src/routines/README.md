@@ -134,6 +134,8 @@ and fake timers over the same service.
   `reason: "permission"` (the contract has no `waiting` state) while any request is open; the views read it as
   "Waiting for your permission" (`stateKey`, `waiting` in `views/agents/routine.ts`), in the warning tone, and it counts
   as unread. The first request of a wait is notified; the open requests are kept in memory only.
+- **Denied.** Denying a request ends the step (`packages/core/src/session/runner/step.ts`), but core never marks the
+  session idle, so `permission.replied` with `reply: "reject"` ends the run as `cancelled` / `user`, like "Stop run".
 - **Notify me** (`notify`): "Only when something fails" (default), "Every run" or "Never", for a run that finished
   (`ok`) or failed. A cancelled run is never notified. A run waiting for a permission is always notified. The backend
   decides (`Options.notify`, a `Notice`); `accounts/main.ts` shows an Electron notification (`RoutinesMain.words`), and

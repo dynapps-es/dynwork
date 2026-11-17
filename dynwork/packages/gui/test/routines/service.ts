@@ -219,8 +219,8 @@ export function fakeService(input: { now: () => number }) {
     /** A running session asks for a permission, or the user answers one, as core's events say. */
     ask: (sessionID: string, id: string) =>
       emit({ type: "permission.asked", data: { id, sessionID, action: "edit", resources: ["*"] } }),
-    reply: (sessionID: string, requestID: string) =>
-      emit({ type: "permission.replied", data: { sessionID, requestID, reply: "once" } }),
+    reply: (sessionID: string, requestID: string, reply: "once" | "always" | "reject" = "once") =>
+      emit({ type: "permission.replied", data: { sessionID, requestID, reply } }),
     /** The text of every prompt sent, in order. */
     prompts: () =>
       received.filter((request) => request.path.endsWith("/prompt")).map((request) => String(request.body?.text)),
