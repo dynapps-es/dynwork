@@ -125,7 +125,11 @@ and fake timers over the same service.
   is created with a ruleset (`session.create` `permissions`; the last matching rule wins, `packages/core/src/permission.ts`).
   - "Don't ask": `[{ action: "*", resource: "*", effect: "allow" }, { action: "question", resource: "*", effect: "deny" }]`.
     The `question` deny matters: an allowed question opens a form that waits for a person.
-  - "Ask me": no rule. A request waits for ever (`permission.ts`), and nothing here ever answers one on the user's behalf.
+  - "Ask me": OpenCode's agents allow almost everything (`packages/schema/src/agent.ts`), so asking needs rules too:
+    `*` asks, then `read`, `glob`, `grep`, `webfetch`, `websearch`, `skill`, `todowrite`, `question` and `subagent` are
+    allowed, and `.env` reads ask again. Edits, the shell, other folders and connectors wait for the user, as in Claude
+    Code. Subagents inherit the rules (`packages/core/src/session.ts`). A request waits for ever (`permission.ts`), and
+    nothing here ever answers one on the user's behalf.
 - **Waiting.** `permission.asked` and `permission.replied` events of a run's session put the run in `running` with
   `reason: "permission"` (the contract has no `waiting` state) while any request is open; the views read it as
   "Waiting for your permission" (`stateKey`, `waiting` in `views/agents/routine.ts`), in the warning tone, and it counts

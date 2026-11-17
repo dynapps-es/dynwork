@@ -104,11 +104,26 @@ export const fields: readonly Field[] = [
   },
 ]
 
-// "Don't ask": every request is allowed (the last matching rule wins, `packages/core/src/permission.ts`) except a
-// question, which would open a form that waits for a person. "Ask me" adds no rule: a request waits for the user.
+// A session's rules come after its agent's and the last matching rule wins (`packages/core/src/permission.ts`).
+// "Don't ask": every request is allowed except a question, which would open a form that waits for a person.
 const bypass = () => [
   { action: "*", resource: "*", effect: "allow" as const },
   { action: "question", resource: "*", effect: "deny" as const },
+]
+
+// "Ask me": OpenCode's agents allow almost everything by default, so asking takes rules of its own. As in Claude Code,
+// reading and searching go ahead and everything else (edits, the shell, other folders, connectors) waits for the user.
+// Subagents inherit these rules (`packages/core/src/session.ts`).
+const ask = () => [
+  { action: "*", resource: "*", effect: "ask" as const },
+  ...["read", "glob", "grep", "webfetch", "websearch", "skill", "todowrite", "question", "subagent"].map((action) => ({
+    action,
+    resource: "*",
+    effect: "allow" as const,
+  })),
+  { action: "read", resource: "*.env", effect: "ask" as const },
+  { action: "read", resource: "*.env.*", effect: "ask" as const },
+  { action: "read", resource: "*.env.example", effect: "allow" as const },
 ]
 
 /** What the user is told about a run: it finished, it failed, or it waits for a permission. */
@@ -714,7 +729,7 @@ export function make(options: Options): Local {
         title,
         ...(definition.agent ? { agent: definition.agent } : {}),
         ...modelOf(definition),
-        ...(definition.options.permissions === "bypass" ? { permissions: bypass() } : {}),
+        permissions: definition.options.permissions === "bypass" ? bypass() : ask(),
         metadata: { conversation: true, dynwork: { backend, routine, role: "run", trigger } },
       }),
     )

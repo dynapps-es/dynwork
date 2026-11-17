@@ -63,7 +63,7 @@ async function read(backend: RoutinesLocal.Local, routine: string) {
 }
 
 describe("the permissions of a run", () => {
-  test("Don't ask creates the run's session with every request allowed and questions denied; Ask me adds no rule", async () => {
+  test("Don't ask creates the run's session with every request allowed and questions denied; Ask me asks for changes", async () => {
     const { backend, service } = setup()
     const bypass = await ok(backend.create(prompt({ permissions: "bypass" })))
     const asking = await ok(backend.create(prompt({ permissions: "ask" })))
@@ -79,7 +79,18 @@ describe("the permissions of a run", () => {
       { action: "*", resource: "*", effect: "allow" },
       { action: "question", resource: "*", effect: "deny" },
     ])
-    expect(children[1]?.body).not.toHaveProperty("permissions")
+    // The last matching rule wins: reads and searches go ahead; edits, the shell, other folders and .env files ask.
+    expect(children[1]?.body?.permissions).toEqual([
+      { action: "*", resource: "*", effect: "ask" },
+      ...["read", "glob", "grep", "webfetch", "websearch", "skill", "todowrite", "question", "subagent"].map((action) => ({
+        action,
+        resource: "*",
+        effect: "allow",
+      })),
+      { action: "read", resource: "*.env", effect: "ask" },
+      { action: "read", resource: "*.env.*", effect: "ask" },
+      { action: "read", resource: "*.env.example", effect: "allow" },
+    ])
   })
 
   test("a request makes the run wait, told once; answering the last one has it run again, and the run's end clears it", async () => {

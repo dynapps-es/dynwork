@@ -106,8 +106,10 @@ describe("the local backend", () => {
         metadata: { conversation: true, dynwork: { routine: routine.ref.id, role: "run", trigger: "manual" } },
       }),
     )
-    // "Ask me" adds no rule: a permission request waits for the user.
-    created.slice(1).forEach((request) => expect(request.body).not.toHaveProperty("permissions"))
+    // "Ask me" brings rules that make edits and the shell wait for the user (permissions.test.ts has them all).
+    created.slice(1).forEach((request) =>
+      expect((request.body?.permissions as unknown[])[0]).toEqual({ action: "*", resource: "*", effect: "ask" }),
+    )
     // A child gets no automatic title: the run's own is "<name> · <when>".
     expect(String(created[1]?.body?.title)).toStartWith("Weekly report · ")
     expect(created[1]?.body?.location).toBeUndefined()

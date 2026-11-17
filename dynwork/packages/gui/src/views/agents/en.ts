@@ -176,7 +176,7 @@ export default {
   "agents.form.default": "Default",
   "agents.form.choose": "Choose…",
   "agents.form.notice.local":
-    "This routine works without asking for approval, inside the permissions you choose below. Anything else is denied; it never waits for an answer.",
+    "Choose below whether this routine asks for your approval, as a conversation does, or works without asking. When it asks, the run waits and you get a notification.",
   "agents.form.notice.remote":
     "On the Agent Farm the agent works without approvals inside its container. Give it only the access it needs.",
   "agents.form.trigger": "Trigger",
