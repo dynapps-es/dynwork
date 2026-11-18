@@ -50,6 +50,22 @@ describe("MCP servers", () => {
   const mcp = (url: string, headers?: Record<string, string>) =>
     DynWorkMapping.map(apply({ ...alpha, managed_mcp_servers: [server(url, headers)] })).mcp
 
+  test("a local instance's own server, announced at its container address, is reached at the instance with the JWT", () => {
+    expect(mcp("http://localhost:8080/api/v1/mcp/documents/mcp")[0]?.[1]).toMatchObject({
+      url: "http://127.0.0.1:18101/api/v1/mcp/documents/mcp",
+      headers: { Authorization: `Bearer ${jwt}` },
+    })
+    // Off that path, or off loopback, a server keeps its URL and gets no JWT.
+    expect(mcp("http://localhost:8080/docs/mcp")[0]?.[1]).toMatchObject({
+      url: "http://localhost:8080/docs/mcp",
+      headers: {},
+    })
+    expect(mcp("https://docs.example.com/api/v1/mcp/docs/mcp")[0]?.[1]).toMatchObject({
+      url: "https://docs.example.com/api/v1/mcp/docs/mcp",
+      headers: {},
+    })
+  })
+
   test("one on the instance origin carries the JWT, replacing any declared authorization", () => {
     expect(
       mcp("http://127.0.0.1:18101/api/v1/mcp/docs/mcp", { authorization: "x", "X-Team": "a" })[0]?.[1],

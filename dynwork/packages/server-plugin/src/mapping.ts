@@ -108,9 +108,9 @@ const decodeRemote = Schema.decodeUnknownOption(Mcp.ServerConfig)
 // (the instance proxies connector and externally authenticated servers through it). Any other server gets only the
 // headers the manifest declares, and like the protocol client, plain HTTP only reaches loopback.
 function remote(server: DynWorkSync.Manifest["managed_mcp_servers"][number], input: DynWorkSync.Apply) {
-  const url = URL.canParse(server.url) ? new URL(server.url) : undefined
-  if (!url || !secure(url)) return Option.none()
   const origin = URL.canParse(input.instance.url) ? new URL(input.instance.url).origin : undefined
+  const url = URL.canParse(server.url) ? internal(new URL(server.url), origin) : undefined
+  if (!url || !secure(url)) return Option.none()
   const declared = Object.entries(server.headers ?? {}).filter((entry) => entry[0].toLowerCase() !== "authorization")
   const headers = Object.fromEntries(
     url.origin === origin ? [...declared, ["Authorization", `Bearer ${input.jwt}`]] : declared,
@@ -118,10 +118,21 @@ function remote(server: DynWorkSync.Manifest["managed_mcp_servers"][number], inp
   return decodeRemote({ type: "remote", url: url.href, headers, oauth: false })
 }
 
+// An instance on this computer (sp-local) announces the servers it proxies at its own address inside its container,
+// `http://localhost:8080/api/v1/mcp/<name>/mcp`. On loopback, a server under that path is the instance's own: it is
+// reached at the instance's origin. Anything else keeps its URL.
+function internal(url: URL, origin: string | undefined) {
+  if (!origin || !url.pathname.startsWith("/api/v1/mcp/")) return url
+  if (!loopback.includes(url.hostname) || !loopback.includes(new URL(origin).hostname)) return url
+  return new URL(`${url.pathname}${url.search}`, origin)
+}
+
+const loopback = ["127.0.0.1", "localhost", "[::1]"]
+
 /** Plain HTTP only reaches loopback, so a JWT never travels in clear text to a remote host. */
 export function secure(url: URL) {
   if (url.protocol === "https:") return true
-  return url.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)
+  return url.protocol === "http:" && loopback.includes(url.hostname)
 }
 
 // `cli_defaults` is the free-form settings map of a marketplace's `opencode` block. A service with a config dir of its
