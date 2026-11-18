@@ -154,12 +154,28 @@ describe("reading", () => {
     expect(sent(`/api/v1/documents/${created.id}/read`)[0]?.query).toBe("?view=outline")
   })
 
+  test("content gives the stored bytes, at the head or at an earlier revision", async () => {
+    const created = await upload("notes.md", "# Notes")
+    const head = await run(SpDrive.content(fake.url, state.jwt, created.id))
+    expect(new TextDecoder().decode(head.bytes)).toBe("# Notes")
+    expect(head.revision).toBe(created.head_revision_id)
+    expect(sent(`/api/v1/documents/${created.id}/content`)[0]?.query).toBe("")
+    await run(SpDrive.content(fake.url, state.jwt, created.id, { revision: created.head_revision_id }))
+    expect(sent(`/api/v1/documents/${created.id}/content`)[1]?.query).toBe(`?revision=${created.head_revision_id}`)
+    const error = await fail(SpDrive.content(fake.url, state.jwt, created.id, { revision: crypto.randomUUID() }))
+    expect(error).toBeInstanceOf(SpClient.NotFound)
+  })
+
   test("pdf gives the bytes of the PDF", async () => {
     const created = await upload("a.html", html)
     const file = await run(SpDrive.pdf(fake.url, state.jwt, created.id))
     expect(new TextDecoder().decode(file.bytes.subarray(0, 5))).toBe("%PDF-")
     expect(file.revision).toBe(created.head_revision_id)
     expect(sent(`/api/v1/documents/${created.id}/content`)[0]?.query).toBe("?format=pdf")
+    await run(SpDrive.pdf(fake.url, state.jwt, created.id, { revision: created.head_revision_id }))
+    expect(sent(`/api/v1/documents/${created.id}/content`)[1]?.query).toBe(
+      `?format=pdf&revision=${created.head_revision_id}`,
+    )
   })
 
   test("access and the agent cap tell what DynWork may do as an attended agent", async () => {

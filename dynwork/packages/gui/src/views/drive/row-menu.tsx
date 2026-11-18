@@ -4,7 +4,7 @@ import { IconButton } from "@opencode/ui/icon-button"
 import { Menu } from "@opencode/ui/menu"
 import { isFailure, type Document } from "../../drive/contract"
 import { askAgent } from "./chat"
-import { stem } from "./model"
+import { isPdf, stem } from "./model"
 import { failureText, openGovernance } from "./parts"
 import { drive, governance } from "./store"
 
@@ -13,9 +13,13 @@ import { drive, governance } from "./store"
 
 type Host = Pick<Context, "t" | "toast" | "system">
 
-/** Saves the document as the Drive exports it to PDF, through the browser's download. */
+/**
+ * Saves the document as the Drive exports it to PDF, through the browser's download. An uploaded PDF is saved as
+ * stored: the instance renders only its own formats to PDF.
+ */
 export async function exportPdf(ctx: Host, doc: Document) {
-  const pdf = await drive.client()?.pdf({ id: doc.id })
+  const client = drive.client()
+  const pdf = isPdf(doc) ? await client?.content({ id: doc.id }) : await client?.pdf({ id: doc.id })
   if (!pdf || isFailure(pdf))
     return ctx.toast.show({
       title: ctx.t("drive.export.failed"),

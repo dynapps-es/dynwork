@@ -466,12 +466,14 @@ export function startFake() {
           },
         })
       if (route.startsWith("GET") && rest === "content") {
+        const revision = url.searchParams.get("revision")
+        if (revision !== null && !entry.revisions.some((item) => item.id === revision)) return notFound("revision")
         if (url.searchParams.get("format") !== "pdf")
           return new Response(entry.bytes, {
-            headers: { "content-type": entry.mime_type, ...quoted(entry.head_revision_id) },
+            headers: { "content-type": entry.mime_type, ...quoted(revision ?? entry.head_revision_id), ...sha256 },
           })
         return new Response(new TextEncoder().encode(`%PDF-1.7 ${entry.name}`), {
-          headers: { "content-type": "application/pdf", ...quoted(entry.head_revision_id), ...sha256 },
+          headers: { "content-type": "application/pdf", ...quoted(revision ?? entry.head_revision_id), ...sha256 },
         })
       }
       if (route.startsWith("GET") && rest === "read") {

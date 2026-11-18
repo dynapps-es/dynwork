@@ -20,6 +20,7 @@ import type {
   Pdf,
   Proposal,
   Query,
+  Content,
   Revision,
 } from "./contract"
 
@@ -40,7 +41,9 @@ export interface Backend {
   rendered(id: string, revision?: string): Promise<Page | Failure>
   /** A sanitised HTML view of any format. */
   preview(id: string, revision?: string): Promise<Page | Failure>
-  pdf(id: string): Promise<Pdf | Failure>
+  /** A document's stored bytes. */
+  content(id: string, revision?: string): Promise<Content | Failure>
+  pdf(id: string, revision?: string): Promise<Pdf | Failure>
   outline(id: string): Promise<Outline | Failure>
   /** Newest first. */
   revisions(id: string): Promise<readonly Revision[] | Failure>
@@ -150,9 +153,14 @@ export function remote(options: Remote): Backend {
       ),
     rendered: (id, at) => call((jwt) => SpDrive.rendered(url, jwt, id, { revision: at }), page),
     preview: (id, at) => call((jwt) => SpDrive.preview(url, jwt, id, { revision: at }), page),
-    pdf: (id) =>
+    content: (id, at) =>
       call(
-        (jwt) => SpDrive.pdf(url, jwt, id),
+        (jwt) => SpDrive.content(url, jwt, id, { revision: at }),
+        (answer) => ({ bytes: new Uint8Array(answer.bytes), revision: answer.revision, sha256: answer.sha256 }),
+      ),
+    pdf: (id, at) =>
+      call(
+        (jwt) => SpDrive.pdf(url, jwt, id, { revision: at }),
         (answer) => ({
           bytes: new Uint8Array(answer.bytes),
           revision: answer.revision,

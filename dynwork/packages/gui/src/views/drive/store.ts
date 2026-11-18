@@ -11,7 +11,6 @@ import {
   type Document,
   type Failure,
   type Listing,
-  type Page,
   type Proposal,
   type Query,
   type Revision,
@@ -43,7 +42,6 @@ export interface Opened {
   proposals?: readonly Proposal[]
   access?: Access
   cap?: AgentCap
-  page?: Page | Failure
   failure?: Failure
 }
 
@@ -162,15 +160,21 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     })
   }
 
-  // Reads by id the documents no listing holds, for From my chats.
+  // Reads by id the documents no listing holds, for From my chats and restored tabs; answers why any could not be read.
   async function learn(ids: readonly string[]) {
     const client = options.client()
     const missing = [...new Set(ids)].filter((id) => !doc(id))
-    if (!client || missing.length === 0) return
+    if (!client || missing.length === 0) return new Map<string, Failure>()
     const details = await Promise.all(missing.map((id) => client.get({ id })))
     details.forEach((detail) => {
       if (!isFailure(detail)) setState("known", detail.document.id, detail.document)
     })
+    return new Map(
+      missing.flatMap((id, index) => {
+        const detail = details[index]
+        return detail && isFailure(detail) ? [[id, detail] as const] : []
+      }),
+    )
   }
 
   const store = {
@@ -306,13 +310,22 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
       const keep = (part: Opened) => {
         if (read === asked.open) setState("opened", part)
       }
+      // The document by id carries no size; the one the window already listed does.
+      const size = doc(id)?.size
       await Promise.all([
-        client.get({ id }).then((detail) => keep(isFailure(detail) ? { failure: detail } : { detail })),
+        client
+          .get({ id })
+          .then((detail) =>
+            keep(
+              isFailure(detail)
+                ? { failure: detail }
+                : { detail: { ...detail, document: { ...detail.document, size: detail.document.size ?? size } } },
+            ),
+          ),
         client.revisions({ id }).then((answer) => keep(isFailure(answer) ? {} : { revisions: answer })),
         client.proposals({ id }).then((answer) => keep(isFailure(answer) ? {} : { proposals: answer })),
         client.access({ id }).then((answer) => keep(isFailure(answer) ? {} : { access: answer })),
         client.agentCap({ kind: "document", id }).then((answer) => keep(isFailure(answer) ? {} : { cap: answer })),
-        client.preview({ id }).then((page) => keep({ page })),
       ])
     },
     closeDoc() {

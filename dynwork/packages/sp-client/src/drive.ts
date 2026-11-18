@@ -157,12 +157,49 @@ export const preview = Effect.fn("SpDrive.preview")(function* (
   return yield* page("preview", baseUrl, jwt, id, options?.revision)
 })
 
-/** The document as a PDF (`GET /{id}/content?format=pdf`). */
-export const pdf = Effect.fn("SpDrive.pdf")(function* (baseUrl: string, jwt: string, id: string) {
+/**
+ * A document's stored bytes (`GET /{id}/content`), at `revision` or at its head: the Markdown source or the uploaded PDF
+ * a viewer draws itself.
+ */
+export const content = Effect.fn("SpDrive.content")(function* (
+  baseUrl: string,
+  jwt: string,
+  id: string,
+  options?: { readonly revision?: string },
+) {
   const answer = yield* send({
     method: "GET",
     path: `${documents}/${encodeURIComponent(id)}/content`,
-    query: new URLSearchParams({ format: "pdf" }),
+    query: options?.revision === undefined ? undefined : new URLSearchParams({ revision: options.revision }),
+    endpoint: "GET /api/v1/documents/{id}/content",
+    baseUrl,
+    jwt,
+    limit: 64 * 1024 * 1024,
+  })
+  return {
+    bytes: answer.body,
+    revision: revisionOf(answer.headers),
+    sha256: answer.headers.get("x-document-content-sha256") ?? undefined,
+  }
+})
+
+/**
+ * The document rendered as a PDF (`GET /{id}/content?format=pdf`), at `revision` or at its head. Only the instance's own
+ * formats render; an uploaded file (format `file`) does not.
+ */
+export const pdf = Effect.fn("SpDrive.pdf")(function* (
+  baseUrl: string,
+  jwt: string,
+  id: string,
+  options?: { readonly revision?: string },
+) {
+  const answer = yield* send({
+    method: "GET",
+    path: `${documents}/${encodeURIComponent(id)}/content`,
+    query: new URLSearchParams({
+      format: "pdf",
+      ...(options?.revision === undefined ? {} : { revision: options.revision }),
+    }),
     endpoint: "GET /api/v1/documents/{id}/content",
     baseUrl,
     jwt,

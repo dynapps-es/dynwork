@@ -102,6 +102,14 @@ export const Page = Schema.Struct({
 })
 export type Page = typeof Page.Type
 
+/** A document's stored bytes: the Markdown source or the uploaded PDF a viewer draws itself. */
+export const Content = Schema.Struct({
+  bytes: Schema.Uint8Array,
+  revision: Schema.optional(Schema.String),
+  sha256: Schema.optional(Schema.String),
+})
+export type Content = typeof Content.Type
+
 export const Pdf = Schema.Struct({
   bytes: Schema.Uint8Array,
   revision: Schema.optional(Schema.String),
@@ -307,7 +315,16 @@ export const Drive = Ipc.define({
       input: Schema.Struct({ ...OnDocument, revision: Schema.optional(Schema.String) }),
       output: Outcome(Page),
     },
-    pdf: { input: Schema.Struct(OnDocument), output: Outcome(Pdf) },
+    /** A document's stored bytes, at `revision` or at its head. */
+    content: {
+      input: Schema.Struct({ ...OnDocument, revision: Schema.optional(Schema.String) }),
+      output: Outcome(Content),
+    },
+    /** The document rendered as a PDF, at `revision` or at its head: the export of the instance's own formats. */
+    pdf: {
+      input: Schema.Struct({ ...OnDocument, revision: Schema.optional(Schema.String) }),
+      output: Outcome(Pdf),
+    },
     outline: { input: Schema.Struct(OnDocument), output: Outcome(Outline) },
     revisions: { input: Schema.Struct(OnDocument), output: Outcome(Schema.Array(Revision)) },
     proposals: { input: Schema.Struct(OnDocument), output: Outcome(Schema.Array(Proposal)) },

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { isFailure } from "../../../src/drive/contract"
 import { account as active, follow, governance } from "../../../src/views/drive/store"
-import { framed } from "../../../src/views/drive/workspace"
+import { frameOf } from "../../../src/views/drive/viewer"
 import { flush } from "../../drive/wire"
 import { account, chat, file, names, setup } from "./fixture"
 
@@ -210,8 +210,8 @@ describe("writing to the Drive", () => {
 })
 
 describe("an open document", () => {
-  test("reads its details, versions, proposals, access, what DynWork may do, and a preview", async () => {
-    const { store, client, id } = await stand()
+  test("reads its details, versions, proposals, access and what DynWork may do; its viewer reads the page", async () => {
+    const { store, client, fake, id } = await stand()
     const report = id("VAT rounding report.docx")
     ok(await client.edit({ id: report, ops: [{ op: "append_markdown", markdown: "More" }] }))
     ok(await client.edit({ id: report, ops: [{ op: "append_markdown", markdown: "Idea" }], mode: "propose" }))
@@ -223,11 +223,33 @@ describe("an open document", () => {
     expect(opened.proposals?.map((proposal) => proposal.status)).toEqual(["open"])
     expect(opened.access?.access).toBe("own")
     expect(opened.cap).toMatchObject({ cap: "edit", unattended: "suggest" })
-    expect(opened.page && !isFailure(opened.page) && opened.page.csp).toContain("default-src 'none'")
+    // The viewer reads the page itself, by format and version (viewer.test.ts): the drawer does not read it again
+    expect(fake.calls.preview ?? 0).toBe(0)
     expect(store.state.doc.tab).toBe("details")
     store.closeDoc()
     expect(store.state.open).toBeUndefined()
     expect(store.state.opened).toEqual({})
+  })
+
+  test("keeps the size the listing showed, which the document by id does not carry (0.83)", async () => {
+    const { store, id } = await stand({
+      backend: (backend) => ({
+        ...backend,
+        get: async (document) => {
+          const answer = await backend.get(document)
+          if (isFailure(answer)) return answer
+          const { size, ...rest } = answer.document
+          return { ...answer, document: rest }
+        },
+      }),
+    })
+    await store.reload()
+    const checklist = id("Project start checklist.md")
+    const listed = store.doc(checklist)?.size
+    expect(listed).toBeGreaterThan(0)
+    await store.openDoc(checklist)
+    expect(store.state.opened.detail?.document.id).toBe(checklist)
+    expect(store.current()?.size).toBe(listed)
   })
 
   test("a document that is gone says not-found", async () => {
@@ -273,14 +295,16 @@ describe("Governance and the preview", () => {
   })
 
   test("the preview keeps the instance's policy, less what only a header carries", () => {
-    const page = framed({
+    const frame = frameOf({
       html: "<p>Hola</p>",
       csp: "sandbox allow-scripts; default-src 'none'; img-src data: \"x\"; frame-ancestors 'self'",
     })
+    expect(frame.sandbox).toBe("allow-scripts")
+    const page = frame.srcdoc
     expect(page).toContain(
       `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: &quot;x&quot;">`,
     )
     expect(page).toContain("<body><p>Hola</p></body>")
-    expect(framed({ html: "" })).toContain(`content="default-src 'none'"`)
+    expect(frameOf({ html: "" }).srcdoc).toContain(`content="default-src 'none'"`)
   })
 })

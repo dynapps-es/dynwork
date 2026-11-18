@@ -5,6 +5,7 @@ import {
   Access,
   AgentCap,
   Comment,
+  Content,
   Created,
   Detail,
   Edited,
@@ -243,11 +244,26 @@ export function conformance(name: string, make: () => Subject) {
       expectFailure(await backend.rendered(markdown.document.id), "unsupported")
     })
 
+    test("a document's bytes come as stored, at its head or at a revision it has", async () => {
+      const { backend } = make()
+      const created = await ok(
+        backend.upload({ name: "source.md", bytes: text("# Source\n\n- one"), mime: "text/markdown" }),
+      )
+      const source = crossing(Content, await ok(backend.content(created.document.id)))
+      expect(new TextDecoder().decode(source.bytes)).toBe("# Source\n\n- one")
+      expect(source.revision).toBe(created.revision.id)
+      expect((await ok(backend.content(created.document.id, created.revision.id))).revision).toBe(created.revision.id)
+      expectFailure(await backend.content(created.document.id, randomUUID()), "not-found")
+    })
+
     test("any document comes as a PDF", async () => {
       const { backend } = make()
       const created = await ok(backend.upload({ name: "print.md", bytes: text("# Print"), mime: "text/markdown" }))
       const pdf = crossing(Pdf, await ok(backend.pdf(created.document.id)))
       expect(new TextDecoder().decode(pdf.bytes.subarray(0, 5))).toBe("%PDF-")
+      const at = await ok(backend.pdf(created.document.id, created.revision.id))
+      expect(at.revision).toBe(created.revision.id)
+      expectFailure(await backend.pdf(created.document.id, randomUUID()), "not-found")
     })
 
     test("who has access and what DynWork may do answer for a document", async () => {
@@ -268,6 +284,7 @@ export function conformance(name: string, make: () => Subject) {
         backend.get(id),
         backend.rendered(id),
         backend.preview(id),
+        backend.content(id),
         backend.pdf(id),
         backend.outline(id),
         backend.revisions(id),

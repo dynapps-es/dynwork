@@ -21,6 +21,10 @@ export interface Browse {
   readonly sort: Sort
 }
 
+/** Whether a document is a PDF: by the instance's format, or, for an uploaded file (format `file`), by its type. */
+export const isPdf = (doc: Pick<Document, "format" | "mime">) =>
+  doc.format === "pdf" || doc.mime.split(";")[0]?.trim() === "application/pdf"
+
 /** A format the Drive knows, else undefined. */
 export const known = (format: string) => formats.find((item) => item === format)
 

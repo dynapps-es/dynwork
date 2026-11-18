@@ -22,8 +22,9 @@ export function FormatGlyph(props: { format: string; size?: "large" }) {
   return (
     <span data-slot="drive-format" data-format={format() ?? "file"} data-size={props.size}>
       <Show when={format() !== "folder"} fallback={<Icon name="folder" size="small" />}>
+        {/* Read in place: a document tab's header stays mounted while the tab shows another document. */}
         <Show when={format()} fallback={<Icon name="file-document" size="small" />}>
-          {(found) => glyphs[found() as Format]}
+          {glyphs[format() as Format]}
         </Show>
       </Show>
     </span>

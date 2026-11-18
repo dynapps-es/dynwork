@@ -1,16 +1,17 @@
-import { MenuItem, Panel, type PanelTab, type SetupContext } from "@opencode/plugin/gui"
-import { createEffect, createMemo, Show } from "solid-js"
+import { LinkHandler, MenuItem, Panel, type PanelTab, type SetupContext } from "@opencode/plugin/gui"
+import { createEffect, createMemo, createSignal, Show } from "solid-js"
 import type definition from "../../accounts/index"
 import { connection } from "../../accounts/renderer"
 import { DriveClient } from "../../drive/client"
 import { Drive } from "../../drive/contract"
-import { listKey } from "./chat"
+import { listKey, origin } from "./chat"
 import { ArtifactsPanel, DocPanel } from "./panel"
 import { drive, follow } from "./store"
 import "./drive.css"
 
 // The Drive in the window: the `dynwork.drive` Ipc for the view and the panels, and beside a chat one side panel with a
-// tab for the chat's artifacts and a tab per document opened from it, and the + menu's "Artifacts" item.
+// tab for the chat's artifacts and a tab per document, several at once (D6); the + menu's "Drive" item; and the link of
+// the Drive's composer chips, which opens the document's tab again.
 export function registerDrive(ctx: SetupContext<typeof definition>) {
   DriveClient.attach(ctx.use(Drive))
   // The active account's Governance address and user name, for Open in Governance and the edition banner, from the
@@ -23,14 +24,31 @@ export function registerDrive(ctx: SetupContext<typeof definition>) {
   })
 
   const list = createMemo((): PanelTab => ({ id: "drive", title: ctx.t("drive.panel.title"), group: "drive" }))
-  // The same tab object per document while its name and the language stay: a new one would render its label again.
-  const docs = new Map<string, { name: string; tab: PanelTab }>()
+  // The same tab object per document while its title and the language stay: a new one would render its label again.
+  const docs = new Map<string, PanelTab>()
+  // A restored tab can name a document the window has not heard of: it is read once, hidden until then, and shown as
+  // missing when the Drive no longer has it, so it can be closed.
+  const asked = new Set<string>()
+  const [gone, setGone] = createSignal<readonly string[]>([])
   const docTab = (id: string) => {
-    const name = drive.doc(id)?.name ?? id
+    const name = drive.doc(id)?.name
+    const missing = name === undefined && gone().includes(id)
+    const title = name ?? (missing ? ctx.t("drive.tab.missing") : id)
+    if (name === undefined && !missing && drive.client() && !asked.has(id)) {
+      asked.add(id)
+      void drive.learn([id]).then((failed) => {
+        const failure = failed.get(id)
+        if (!failure) return
+        // Only the Drive saying it has no such document, or none by that id, makes the tab missing; anything passing
+        // reads it again later.
+        if (["not-found", "forbidden", "invalid"].includes(failure.code)) return setGone((list) => [...list, id])
+        asked.delete(id)
+      })
+    }
     const cached = docs.get(id)
-    if (cached?.name === name) return cached.tab
-    const tab: PanelTab = { id: `drive.${id}`, title: name, group: "drive" }
-    docs.set(id, { name, tab })
+    if (cached?.title === title) return cached
+    const tab: PanelTab = { id: `drive.${id}`, title, group: "drive", hidden: name === undefined && !missing, missing }
+    docs.set(id, tab)
     return tab
   }
 
@@ -45,7 +63,7 @@ export function registerDrive(ctx: SetupContext<typeof definition>) {
         input.open.flatMap((id) => {
           if (id === "drive") return [list()]
           const doc = id.startsWith("drive.") ? id.slice("drive.".length) : undefined
-          return doc && drive.doc(doc) ? [docTab(doc)] : []
+          return doc ? [docTab(doc)] : []
         }),
       render: (props) => (
         <Show when={props.tab.id !== "drive"} fallback={<ArtifactsPanel session={props.session} />}>
@@ -60,7 +78,7 @@ export function registerDrive(ctx: SetupContext<typeof definition>) {
     (): MenuItem => ({
       menu: "session.panel",
       id: "drive",
-      title: ctx.t("drive.panel.title"),
+      title: ctx.t("drive.title"),
       icon: "file-document",
       order: 40,
       run() {
@@ -69,4 +87,12 @@ export function registerDrive(ctx: SetupContext<typeof definition>) {
       },
     }),
   )
+
+  ctx.add(LinkHandler, {
+    match: (link) => link.origin === origin && link.href.startsWith(`${listKey}.`),
+    open(link) {
+      const session = link.session ?? ctx.sessions.current()
+      if (session) ctx.layout.open(link.href, session, { tab: "select", background: link.background })
+    },
+  })
 }

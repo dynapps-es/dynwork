@@ -1192,7 +1192,9 @@
 
   &:has([data-slot="drive-sheet"]),
   &:has([data-slot="drive-deck"]),
-  &:has([data-slot="drive-frame"]) {
+  &:has([data-slot="drive-frame"]),
+  &:has([data-component="drive-pdf"]),
+  &:has([data-slot="drive-markdown"]) {
     display: flex;
     flex-direction: column;
   }
@@ -1691,6 +1693,133 @@
   flex: 1;
   flex-direction: column;
   min-height: 0;
+}
+
+/* A Markdown document, drawn by the app's own renderer on the theme's reading surface. */
+[data-slot="drive-markdown"] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 32px;
+  background: var(--v2-background-bg-base);
+  color: var(--v2-text-text-base);
+}
+
+/* The PDF viewer: the theme's chrome around pages that stay as the PDF draws them. */
+[data-component="drive-pdf"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  outline: none;
+}
+
+[data-slot="drive-pdf-bar"] {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+  background: var(--v2-background-bg-base);
+  color: var(--v2-text-text-muted);
+  font-size: 12px;
+}
+
+[data-slot="drive-pdf-pages"] {
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-slot="drive-pdf-scroll"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  /* Centered, but a page wider than the room still scrolls to its left edge. */
+  align-items: safe center;
+  gap: 16px;
+  min-height: 0;
+  padding: 24px;
+  overflow: auto;
+  /* A scrollbar that comes and goes would change the room `fit` measures, and the fit again. */
+  scrollbar-gutter: stable;
+  background: var(--v2-background-bg-layer-01);
+}
+
+[data-slot="drive-pdf-page"] {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  border-radius: 6px;
+  /* The page's own paper: a PDF has no dark version. */
+  background: white;
+  box-shadow: var(--v2-elevation-raised);
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+[data-slot="drive-pdf-texts"] {
+  position: absolute;
+  inset: 0;
+}
+
+/* pdf.js's text layer: transparent text over the canvas, there to select and copy (pdf.js's own rules, trimmed). */
+[data-slot="drive-pdf-text"] {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+
+  :is(span, br) {
+    position: absolute;
+    color: transparent;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0% 0%;
+    user-select: text;
+  }
+
+  > :not(.markedContent),
+  .markedContent span:not(.markedContent) {
+    z-index: 1;
+    --font-height: 0;
+    font-size: calc(var(--text-scale-factor) * var(--font-height));
+    --scale-x: 1;
+    --rotate: 0deg;
+    transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  }
+
+  .markedContent {
+    display: contents;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, AccentColor, transparent 50%);
+    color: transparent;
+  }
+
+  br::selection {
+    background: transparent;
+  }
+
+  .endOfContent {
+    position: absolute;
+    inset: 100% 0 0;
+    display: block;
+    user-select: none;
+    cursor: default;
+  }
 }
 
 [data-slot="drive-frame-note"] {

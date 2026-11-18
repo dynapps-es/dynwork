@@ -1,6 +1,6 @@
 import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { homedir, hostname } from "node:os"
-import { app, Notification, powerMonitor, powerSaveBlocker, safeStorage, shell } from "electron"
+import { app, Notification, powerMonitor, powerSaveBlocker, safeStorage, shell, webContents } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
 import { DriveMain } from "../drive/main"
 import { RemoteMain } from "../remote/main"
@@ -145,7 +145,9 @@ const setup: Plugin.MainSetup = (ctx) => {
   routines.check = routinesMain.check
   routines.pull = routinesMain.pull
   // The Drive: the active account's documents in Governance, read again whenever the accounts change.
-  drive.account = DriveMain.setup(ctx, accounts).account
+  drive.account = DriveMain.setup(ctx, accounts, {
+    frames: { app, contents: () => webContents.getAllWebContents() },
+  }).account
   // Another computer changed a routine: Governance's hint arrives over the relay while remote control is connected.
   // Without it the sync still reads the feed every few minutes.
   ctx.onCleanup(

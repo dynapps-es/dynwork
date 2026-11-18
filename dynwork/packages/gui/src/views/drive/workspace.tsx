@@ -4,27 +4,20 @@ import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
 import { Tabs } from "@opencode/ui/tabs"
 import { For, Match, Show, Switch } from "solid-js"
-import { isFailure, type Document, type Page } from "../../drive/contract"
-import { askAgent, sessionOf, titleOf } from "./chat"
+import type { Document } from "../../drive/contract"
+import { askAgent, openBeside, sessionOf, titleOf } from "./chat"
 import { DocMenu } from "./menus"
-import { Avatar, failureText, FormatGlyph, Level, openGovernance, Tag, useNames } from "./parts"
+import { Avatar, FormatGlyph, Level, openGovernance, Tag, useNames } from "./parts"
 import { account, drive, governance, type DocTab } from "./store"
+import { Viewer } from "./viewer"
 
 // The drawer's tabs. Comments join them with the Drive's own comments (phase 06 of the Drive plan).
 const tabs: readonly DocTab[] = ["details", "versions", "proposals", "share"]
 
-/** A document open in the Drive: its bar, the edition banner, its preview and the drawer. */
+/** A document open in the Drive: its bar, the edition banner, its viewer and the drawer. */
 export function Workspace(props: { doc: Document }) {
   const ctx = usePlugin()
   const names = useNames()
-  const failed = () => {
-    const answer = drive.state.opened.page
-    return answer && isFailure(answer) ? answer : undefined
-  }
-  const page = () => {
-    const answer = drive.state.opened.page
-    return answer && !isFailure(answer) ? answer : undefined
-  }
 
   return (
     <div data-slot="drive-workspace">
@@ -47,6 +40,14 @@ export function Workspace(props: { doc: Document }) {
           {names.ago(props.doc.updated)}
         </span>
         <span data-slot="drive-grow" />
+        <IconButton
+          type="button"
+          variant="ghost"
+          icon={<Icon name="layout-right" />}
+          aria-label={ctx.t("drive.beside")}
+          title={ctx.t("drive.beside")}
+          onClick={() => openBeside(ctx, props.doc)}
+        />
         <Button
           variant="ghost"
           icon="outline-steer"
@@ -69,16 +70,7 @@ export function Workspace(props: { doc: Document }) {
 
       <div data-slot="drive-ws-body">
         <div data-slot="drive-canvas">
-          <Switch fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
-            <Match when={failed()}>
-              {(failure) => (
-                <p data-slot="drive-note">
-                  {ctx.t("drive.preview.failed")} {failureText(ctx, failure())}
-                </p>
-              )}
-            </Match>
-            <Match when={page()}>{(shown) => <PreviewFrame page={shown()} title={props.doc.name} />}</Match>
-          </Switch>
+          <Viewer doc={props.doc} />
         </div>
         <aside data-slot="drive-drawer">
           <Tabs
@@ -170,25 +162,6 @@ function Banner() {
 /** What an agent may do, in words: `none`, `read`, `suggest`, `edit`, or the instance's own word. */
 function capText(t: (key: string) => string, cap: string) {
   return ["none", "read", "suggest", "edit"].includes(cap) ? t(`drive.cap.${cap}`) : cap
-}
-
-/**
- * The document as the Drive previews it, in a sandboxed frame: no scripts, no access to DynWork, and the network the
- * instance's policy allows. The viewers per format, with what the policy allows to run, come with the document tabs.
- */
-export function PreviewFrame(props: { page: Page; title: string }) {
-  return <iframe data-slot="drive-frame" sandbox="" title={props.title} srcdoc={framed(props.page)} />
-}
-
-/** The page with the instance's policy as a meta tag, less the directives only a response header can carry. */
-export function framed(page: Page) {
-  const policy = (page.csp ?? "default-src 'none'")
-    .split(";")
-    .map((directive) => directive.trim())
-    .filter((directive) => directive && !/^(sandbox|frame-ancestors|report-uri|report-to)\b/.test(directive))
-    .join("; ")
-  const meta = `<meta http-equiv="Content-Security-Policy" content="${policy.replace(/"/g, "&quot;")}">`
-  return `<!doctype html><html><head><meta charset="utf-8">${meta}</head><body>${page.html}</body></html>`
 }
 
 /** The conversations that made, changed or used a document, from the local index, each with what it did. */

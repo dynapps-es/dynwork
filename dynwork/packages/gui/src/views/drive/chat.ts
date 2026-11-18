@@ -9,6 +9,9 @@ import { drive } from "./store"
 export const listKey = "dynwork:drive"
 export const docKey = (id: string) => `dynwork:drive.${id}`
 
+/** The origin of the Drive's composer chips: opening one routes its link (`docKey`) back to the Drive. */
+export const origin = "dynwork-drive"
+
 type Host = Pick<Context, "tabs" | "layout" | "screen" | "sessions" | "toast" | "t">
 
 /** The chat to send a document to: the routed one, else the last chat tab. */
@@ -33,10 +36,10 @@ export function conversationOf(ctx: Pick<Context, "sessions" | "t">, session: Se
 }
 
 /**
- * Opens a document beside a chat and puts it in the composer, with a prompt when one is given. Without a chat tab open
- * it says so.
+ * Opens a document as a tab beside the chat, without attaching it, and answers that chat. Without a chat tab open it
+ * says so.
  */
-export function askAgent(ctx: Host, doc: Document, prompt?: string) {
+export function openBeside(ctx: Host, doc: Document) {
   const session = target(ctx)
   if (!session) {
     ctx.toast.show({
@@ -44,11 +47,21 @@ export function askAgent(ctx: Host, doc: Document, prompt?: string) {
       description: ctx.t("drive.chat.none.hint"),
       icon: "speech-bubble",
     })
-    return
+    return undefined
   }
-  void drive.link(session.id, doc.id, "attached")
   ctx.layout.open(docKey(doc.id), session, { tab: "select", background: true })
   ctx.tabs.focus(session.tab)
+  return session
+}
+
+/**
+ * Opens a document beside a chat and puts it in the composer, with a prompt when one is given. Without a chat tab open
+ * it says so.
+ */
+export function askAgent(ctx: Host, doc: Document, prompt?: string) {
+  const session = openBeside(ctx, doc)
+  if (!session) return
+  void drive.link(session.id, doc.id, "attached")
   // The composer is the routed session's: wait for the tab to route it.
   const started = Date.now()
   const fill = () => {
@@ -60,7 +73,8 @@ export function askAgent(ctx: Host, doc: Document, prompt?: string) {
     if (!composer) return
     composer.attach({
       type: "note",
-      origin: "dynwork-drive",
+      origin,
+      href: docKey(doc.id),
       commentID: `drive-${doc.id}-${Date.now()}`,
       label: doc.name,
       title: doc.name,

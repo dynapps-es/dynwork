@@ -110,18 +110,45 @@ in-memory Drive for the tests.
   makes a folder, or a document from a Dynapps template (`dynapps-word`, `dynapps-sheet`, `dynapps-deck`,
   `dynapps-html`, `blank-markdown`: the instance has no route that lists them, C9).
 - **A document** opens over the browser: its bar, the edition banner (DynWork counts as an agent; what it may do on the
-  document attended, and what a scheduled task could do unattended), the Drive's preview in a sandboxed frame without
-  scripts and with the instance's policy, and a drawer with Info, Versions (numbered, with their "… by DynWork"
-  message), Proposals and Share. What the Drive keeps to the person (sharing, restoring, accepting proposals, renaming,
+  document attended, and what a scheduled task could do unattended), its viewer (below), and a drawer with Info,
+  Versions (numbered, with their "… by DynWork" message), Proposals and Share. Open beside the chat puts it in a tab of
+  the last chat's side panel. What the Drive keeps to the person (sharing, restoring, accepting proposals, renaming,
   moving, trashing) opens the document in Governance while `personActions` is off; Export as PDF and Copy link work
   here.
-- **Beside a chat** (`panel.tsx`, `register.tsx`): the + menu's Artifacts opens a side panel tab with the documents the
+- **Beside a chat** (`panel.tsx`, `register.tsx`): the + menu's Drive opens the Artifacts tab, with the documents the
   chat made, changed or attached, newest first; Add from the Drive attaches one, and Upload to the Drive sends a file
-  the chat made to the Drive's root with the conversation's name and `x-context-id` (D2, D3). Each card opens the
-  document in a tab of its own with its preview. Use in a chat attaches a document to the routed chat (a composer chip
-  and its tab) and records it in the index.
+  the chat made to the Drive's root with the conversation's name and `x-context-id` (D2, D3). Each document opens in a
+  side panel tab of its own (`dynwork:drive.<id>`), several at once (D6), with its viewer and a version picker (the
+  head unless the tab picks another). Use in a chat attaches a document to the routed chat (a
+  composer chip and its tab) and records it in the index; opening the chip routes its link (`origin: dynwork-drive`)
+  back to the document's tab. A restored tab whose document the window has not read yet stays hidden until the Drive
+  answers, and shows as missing, so it can be closed, when the Drive no longer has it.
+- **The viewer** (`viewer.tsx`), the same in the workspace and in a tab, by format:
+  - HTML as designed (`/rendered`, the preview on an instance without it), in an `iframe` with `srcdoc`. The frame
+    mirrors the policy the instance served the page with (D5): its `sandbox` flags are the ones that response's
+    `sandbox` directive grants (none without one, so no scripts), and the rest of that policy goes first in the page's
+    head as a meta tag, less `frame-ancestors` and `report-*`, which only a header carries. sp-local sends `sandbox`
+    with no flags (no scripts, no network but `data:`); production sends `sandbox allow-scripts` with `https:`, so
+    animations and libraries from a CDN run as on the web. It is never more than the instance allowed, and never
+    `allow-same-origin`, `allow-top-navigation*` or `allow-popups-to-escape-sandbox`, whatever the instance sends.
+  - Markdown from its source (`/content`, at the tab's version), drawn by the app's own renderer (`ctx.ui.Markdown`),
+    as the timeline draws a message.
+  - PDF in DynWork's own viewer (`pdf-viewer.tsx` over pdf.js, `pdf.ts` for its arithmetic and options), loaded with
+    pdf.js only when a PDF opens; Vite bundles pdf.js's worker with the app. A PDF is a document of format `pdf` or of
+    type `application/pdf`: the instance keeps an uploaded PDF as a `file`, and renders only its own formats to PDF
+    (`?format=pdf`), so the viewer reads the stored bytes (`/content`). pdf.js gets them as data: no URL, no fetch, no
+    font, CMap or decoder URL, no XFA, and no PDF JavaScript (that is pdf.js's viewer scripting, not used). Pages draw
+    to canvases at the screen's pixel ratio, only those in view and one on each side, with a text layer to select and
+    copy; they stay white in a dark theme, while the toolbar (pages, zoom with fit width by default, download) and the
+    page area follow it. Keys: ←/→ or PageUp/PageDown, ⌘+/⌘−/⌘0.
+  - Word, Excel and PowerPoint as the Drive previews them (`/preview`), in the same frame as HTML under that
+    response's policy, which runs no scripts.
+  - The frame never gets DynWork: the account's JWT stays in main and only the page crosses the Ipc; without
+    `allow-same-origin` the frame's origin is opaque (no DynWork storage, cookies or DOM); the preload does not run in
+    sub-frames, so it has no Ipc, and the window's Ipc handshake only takes messages from the window itself; main adds
+    the sidecar's credential only to the top frame's requests; and the page sends no referrer.
 - **The comments layer** (`comments.tsx`, `canvas.tsx`): selection anchors, pins and cards on drawn documents, kept from
-  the demo and not mounted yet, until the Drive's comments and the viewers per format reach it.
+  the demo and not mounted yet, until the Drive's comments reach the viewer (phase 06 of the Drive plan).
 
 The menus load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does.
 

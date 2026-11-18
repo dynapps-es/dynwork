@@ -3,17 +3,18 @@ import { builtinContext } from "@opencode/plugin/gui/builtin"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
-import { createEffect, createResource, For, Match, Show, Switch } from "solid-js"
-import { isFailure, type Link } from "../../drive/contract"
+import { createEffect, createResource, For, Show } from "solid-js"
+import { createStore } from "solid-js/store"
+import { isFailure, type Link, type Revision } from "../../drive/contract"
 import { uploadFiles } from "./browser"
 import { conversationOf, docKey } from "./chat"
 import { failureText, FormatGlyph, Tag, useNames } from "./parts"
 import { drive } from "./store"
-import { PreviewFrame } from "./workspace"
+import { Viewer } from "./viewer"
 
 // The Drive beside a chat (a side panel tab, as Claude's artifacts): the documents the chat made, changed or attached,
-// newest first, from the conversation ↔ document index, and one tab per document with its preview. A document opens in
-// the Drive view for the rest.
+// newest first, from the conversation ↔ document index, and one tab per document with its viewer and a version picker.
+// A document opens in the Drive view for the rest.
 
 /** What a change's card says it did. */
 const actKey = {
@@ -124,23 +125,31 @@ export function ChangeCard(props: { link: Link; session: MountedSession }) {
   )
 }
 
-/** One document beside the chat: its header with Open in the Drive, then its preview. */
+// The version each document tab shows, by chat and document; none is the head. The tabs of a panel share one render, so
+// the choice lives here and not in it.
+const [picks, setPicks] = createStore<Record<string, string | undefined>>({})
+
+/** One document beside the chat: its header with its version and Open in the Drive, then its viewer. */
 export function DocPanel(props: { session: MountedSession; id: string }) {
   const ctx = usePlugin()
   const names = useNames()
   const doc = () => drive.doc(props.id)
-  const [page] = createResource(
-    () => drive.client() && { id: props.id },
-    (input) => drive.client()?.preview(input),
+  const key = () => `${props.session.id}:${props.id}`
+  // Read again when the document gets a new head; the source is a string so a new object for it reads nothing.
+  const [revisions] = createResource(
+    () => drive.client() && `${props.id}:${doc()?.revision ?? ""}`,
+    () => drive.client()?.revisions({ id: props.id }),
   )
-  const failed = () => {
-    const answer = page()
-    return answer && isFailure(answer) ? answer : undefined
+  const list = (): readonly Revision[] => {
+    const answer = revisions()
+    return answer && !isFailure(answer) ? answer : []
   }
-  const shown = () => {
-    const answer = page()
-    return answer && !isFailure(answer) ? answer : undefined
-  }
+  // The picked version while the Drive still lists it, else the head.
+  const shown = () => list().findIndex((revision) => revision.id === picks[key()])
+  const label = (index: number) =>
+    index <= 0
+      ? `${ctx.t("drive.rev", { rev: String(list().length) })} · ${ctx.t("drive.version.current")}`
+      : ctx.t("drive.rev", { rev: String(list().length - index) })
   const toDrive = () => {
     void drive.openDoc(props.id)
     builtinContext(ctx).layout.page("drive")
@@ -157,6 +166,18 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
                 {names.path(found().folder)} · {names.ago(found().updated)}
               </span>
             </div>
+            <Show when={list().length > 1}>
+              <ctx.ui.Menu
+                label={label(shown())}
+                trigger="button"
+                placement="bottom-end"
+                items={list().map((revision, index) => ({
+                  label: label(index),
+                  icon: index === Math.max(shown(), 0) ? "check-small" : undefined,
+                  onSelect: () => setPicks(key(), index === 0 ? undefined : revision.id),
+                }))}
+              />
+            </Show>
             <IconButton
               type="button"
               variant="ghost-muted"
@@ -167,16 +188,7 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
             />
           </div>
           <div data-slot="drive-panel-content" data-format={found().format}>
-            <Switch fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
-              <Match when={failed()}>
-                {(failure) => (
-                  <p data-slot="drive-note">
-                    {ctx.t("drive.preview.failed")} {failureText(ctx, failure())}
-                  </p>
-                )}
-              </Match>
-              <Match when={shown()}>{(answer) => <PreviewFrame page={answer()} title={found().name} />}</Match>
-            </Switch>
+            <Viewer doc={found()} revision={shown() > 0 ? picks[key()] : undefined} />
           </div>
         </div>
       )}

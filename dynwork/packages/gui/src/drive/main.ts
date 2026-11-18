@@ -4,12 +4,15 @@ import type { MainContext } from "@opencode/plugin/gui/main"
 import type { DynWorkAccounts } from "../accounts/accounts"
 import { DriveBackend } from "./backend"
 import { Drive } from "./contract"
+import { DriveFrames } from "./frames"
 import { DriveIpc } from "./ipc"
 
 export interface Options {
   /** What each account's instance has delivered; absent, nothing (`DriveCapabilities.none`). */
   capabilities?: DriveIpc.Options["capabilities"]
   timers?: DriveIpc.Timers
+  /** Electron's app and windows, to keep the viewer's HTML frame on its page (`frames.ts`); the main entry passes them. */
+  frames?: DriveFrames.Host
 }
 
 // The Drive's main side, set up by the `dynwork` built-in's main entry next to the routines: the `dynwork.drive` Ipc
@@ -36,6 +39,7 @@ export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, opti
     timers: options.timers,
   })
   ctx.onCleanup(service.dispose)
+  if (options.frames) ctx.onCleanup(DriveFrames.guard(options.frames))
   const ipc = ctx.provide(Drive, service.ipc)
   provider.changed = () => ipc.changed()
   return service

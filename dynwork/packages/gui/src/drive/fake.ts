@@ -173,10 +173,26 @@ export function make(options: Options = {}): Fake {
       if (!("document" in entry)) return entry
       return page(entry, `<p>${new TextDecoder().decode(entry.bytes)}</p>`, revision)
     }),
-    pdf: method("pdf", (id) => {
+    content: method("content", (id, revision) => {
       const entry = found(id)
       if (!("document" in entry)) return entry
-      return { bytes: new TextEncoder().encode(`%PDF-1.7 ${entry.document.name}`), revision: entry.document.revision }
+      if (revision !== undefined && !entry.revisions.some((item) => item.id === revision))
+        return fail("not-found", "No such revision.")
+      return {
+        bytes: entry.bytes,
+        revision: revision ?? entry.document.revision,
+        sha256: entry.revisions[0]?.sha256,
+      }
+    }),
+    pdf: method("pdf", (id, revision) => {
+      const entry = found(id)
+      if (!("document" in entry)) return entry
+      if (revision !== undefined && !entry.revisions.some((item) => item.id === revision))
+        return fail("not-found", "No such revision.")
+      return {
+        bytes: new TextEncoder().encode(`%PDF-1.7 ${entry.document.name}`),
+        revision: revision ?? entry.document.revision,
+      }
     }),
     outline: method("outline", (id) => {
       const entry = found(id)
