@@ -215,3 +215,226 @@ export const Whoami = Schema.Struct({
   roles: Schema.optional(Strings),
 })
 export type Whoami = typeof Whoami.Type
+
+// The Drive: wire shapes of `/api/v1/documents`, `/api/v1/document-folders` and `/api/v1/uploads` as sp-local 0.83 and
+// production answer them (`docs/06-live-checks.md` of the Drive plan). A key the instance omits and one it sends as
+// `null` mean the same, so both are accepted; fields DynWork does not read are left out.
+
+const Nullable = <S extends Schema.Top>(schema: S) => Schema.optional(Schema.NullOr(schema))
+
+export const DriveDocument = Schema.Struct({
+  id: Schema.String,
+  // null for a document at the root
+  folder_id: Nullable(Schema.String),
+  name: Schema.String,
+  format: Schema.String,
+  mime_type: Schema.String,
+  head_revision_id: Schema.String,
+  template_id: Nullable(Schema.String),
+  owner_user_id: Schema.String,
+  created_at: Schema.String,
+  updated_at: Schema.String,
+  // Only the listing carries these two
+  size_bytes: Schema.optional(Schema.Number),
+  my_access: Schema.optional(Schema.String),
+})
+export type DriveDocument = typeof DriveDocument.Type
+
+export const DriveFolder = Schema.Struct({
+  id: Schema.String,
+  parent_id: Nullable(Schema.String),
+  name: Schema.String,
+  owner_user_id: Schema.String,
+  agent_edit_policy: Schema.optional(Schema.String),
+  created_at: Schema.String,
+  updated_at: Schema.String,
+})
+export type DriveFolder = typeof DriveFolder.Type
+
+export const DriveListing = Schema.Struct({
+  folders: Schema.Array(DriveFolder),
+  documents: Schema.Array(DriveDocument),
+  // Opaque; pass it back as `cursor` for the next page
+  next_cursor: Nullable(Schema.String),
+})
+export type DriveListing = typeof DriveListing.Type
+
+export const DriveRevision = Schema.Struct({
+  id: Schema.String,
+  document_id: Schema.String,
+  parent_revision_id: Nullable(Schema.String),
+  content_sha256: Schema.String,
+  author_user_id: Schema.String,
+  // `agent` for every write DynWork makes with its JWT
+  actor_kind: Schema.String,
+  origin_kind: Schema.String,
+  message: Nullable(Schema.String),
+  created_at: Schema.String,
+})
+export type DriveRevision = typeof DriveRevision.Type
+
+export const DriveDetail = Schema.Struct({
+  document: DriveDocument,
+  head: DriveRevision,
+  my_access: Schema.String,
+  folder_path: Nullable(Schema.String),
+})
+export type DriveDetail = typeof DriveDetail.Type
+
+export const DriveCreated = Schema.Struct({ document: DriveDocument, revision: DriveRevision })
+export type DriveCreated = typeof DriveCreated.Type
+
+export const DriveRevisions = Schema.Struct({ revisions: Schema.Array(DriveRevision) })
+
+export const DriveProposal = Schema.Struct({
+  id: Schema.String,
+  document_id: Schema.String,
+  base_revision_id: Schema.String,
+  proposed_revision_id: Schema.String,
+  proposer: Schema.String,
+  actor_kind: Schema.String,
+  // `open` until a person reviews it
+  status: Schema.String,
+  message: Nullable(Schema.String),
+  reviewer: Nullable(Schema.String),
+  reviewed_at: Nullable(Schema.String),
+  note: Nullable(Schema.String),
+  landed_revision_id: Nullable(Schema.String),
+  created_at: Schema.String,
+})
+export type DriveProposal = typeof DriveProposal.Type
+
+export const DriveProposals = Schema.Struct({ proposals: Schema.Array(DriveProposal) })
+
+// `mode: land` answers 200 with the new revision (`merged_from` when the base was behind and the edit merged on the
+// head); `mode: propose` answers 201 with the proposal and the revision it points at.
+export const DriveLanded = Schema.Struct({ revision: DriveRevision, merged_from: Nullable(Schema.String) })
+export const DriveProposed = Schema.Struct({
+  proposal: DriveProposal,
+  revision: DriveRevision,
+  superseded: Schema.optional(Schema.Array(Schema.String)),
+})
+
+// The node id and the quoted text a comment is pinned to; a range anchor is not offered by 0.83 (the server keeps the node)
+export const DriveAnchor = Schema.Struct({ node: Schema.String, find: Schema.optional(Schema.String) })
+export type DriveAnchor = typeof DriveAnchor.Type
+
+// `GET /{id}/read?view=outline`: one line per node, `<node id>:<hash8>| <text>`
+export const DriveOutline = Schema.Struct({
+  revision_id: Schema.String,
+  format: Schema.String,
+  lines: Schema.Array(Schema.String),
+})
+
+export const DriveComment = Schema.Struct({
+  id: Schema.String,
+  anchor: Schema.optional(DriveAnchor),
+  author_user_id: Schema.String,
+  body: Schema.String,
+  parent_id: Nullable(Schema.String),
+  created_at: Schema.String,
+  resolved_at: Nullable(Schema.String),
+  resolved_by: Nullable(Schema.String),
+})
+export type DriveComment = typeof DriveComment.Type
+
+export const DriveComments = Schema.Struct({ comments: Schema.Array(DriveComment) })
+
+const DriveGrant = Schema.Struct({
+  grant_id: Schema.String,
+  subject_kind: Schema.String,
+  subject_value: Schema.String,
+  display_name: Nullable(Schema.String),
+  level: Schema.String,
+  granted_by: Schema.String,
+  granted_at: Schema.String,
+  folder_id: Nullable(Schema.String),
+  inherited_from: Schema.optional(Schema.Struct({ folder_id: Schema.String, name: Schema.String })),
+})
+
+// Who can see a document and at which level (the read side of sharing; granting is the person's)
+export const DriveAccess = Schema.Struct({
+  document_id: Schema.String,
+  owner: Schema.String,
+  my_access: Schema.String,
+  grants: Schema.Array(DriveGrant),
+  inherited: Schema.Array(DriveGrant),
+  agent_cap: Schema.optional(
+    Schema.Struct({ cap: Schema.String, policy_cap: Schema.String, reason: Nullable(Schema.String) }),
+  ),
+})
+export type DriveAccess = typeof DriveAccess.Type
+
+const CapSource = Schema.Struct({ kind: Schema.String, policy: Schema.optional(Schema.String) })
+const CapReading = Schema.Struct({
+  agent_cap: Schema.String,
+  policy_cap: Schema.String,
+  source: CapSource,
+  reason: Nullable(Schema.String),
+})
+
+// What an agent may do on a document or folder: `none`, `read`, `suggest` or `edit`. DynWork signs in as an attended
+// agent, so `attended.agent_cap` is the one that applies to it.
+export const DriveAgentCap = Schema.Struct({
+  target_kind: Schema.String,
+  target_id: Schema.String,
+  override: Nullable(Schema.String),
+  agent_cap: Schema.String,
+  policy_cap: Schema.String,
+  source: CapSource,
+  reason: Nullable(Schema.String),
+  attended: CapReading,
+  unattended: CapReading,
+})
+export type DriveAgentCap = typeof DriveAgentCap.Type
+
+export const DriveUpload = Schema.Struct({
+  upload_id: Schema.String,
+  name: Schema.String,
+  mime: Schema.String,
+  size: Schema.Number,
+  sha256: Schema.String,
+  part_size: Schema.Number,
+  part_count: Schema.Number,
+  // `open` until completed
+  status: Schema.String,
+  received_bytes: Schema.Number,
+  // Parts are numbered from 1
+  received_parts: Schema.Array(Schema.Number),
+  missing_parts: Schema.Array(Schema.Number),
+  blob_ref: Nullable(Schema.String),
+  expires_at: Schema.String,
+})
+export type DriveUpload = typeof DriveUpload.Type
+
+export const DriveUploadPart = Schema.Struct({
+  part_number: Schema.Number,
+  size_bytes: Schema.Number,
+  sha256: Schema.String,
+})
+
+export const DriveBlob = Schema.Struct({
+  upload_id: Schema.String,
+  blob_ref: Schema.String,
+  size_bytes: Schema.Number,
+  mime: Schema.String,
+  deduplicated: Schema.optional(Schema.Boolean),
+})
+export type DriveBlob = typeof DriveBlob.Type
+
+// The Drive's error body: the platform envelope, plus the head the instance reports on a `409`
+export const DriveErrorBody = Schema.Struct({
+  message: Schema.optional(Schema.String),
+  error_key: Schema.optional(Schema.String),
+  head_revision_id: Schema.optional(Schema.String),
+  head_content_sha256: Schema.optional(Schema.String),
+  base_revision_id: Schema.optional(Schema.String),
+  detail: Schema.optional(
+    Schema.Struct({
+      code: Schema.optional(Schema.String),
+      head_revision_id: Schema.optional(Schema.String),
+      head_content_sha256: Schema.optional(Schema.String),
+      base_revision_id: Schema.optional(Schema.String),
+    }),
+  ),
+})

@@ -369,6 +369,65 @@ device browser first, which shares its cookies with ASWebAuthenticationSession a
 Not observed: the Entra login in front of `/authorize` (no local IdP), and whether core's login honours a `redirect`
 under `/api/` after Entra the way it does for the device link.
 
+## 12. The Drive: documents and folders (`SpDrive`)
+
+Observed on the local 0.83 instance (`systemprompt-dynapps:0.83.0`) and, for reads, on production
+(`governance.ai.dyncloud.es`). The user routes under `/api/v1` accept the same JWT as the bridge routes (audiences
+`bridge` and `mcp`), as `Authorization: Bearer`; no `x-systemprompt-client` is needed. The shapes are decoded by
+`DriveDocument`, `DriveListing`, `DriveRevision` and the rest of the `Drive*` schemas in `src/schema.ts`; keys the client
+does not read are ignored.
+
+**Which agent DynWork is.** Every write the JWT makes is `actor_kind: agent`, `origin_kind: api`. The claim
+`interaction` decides the cap: the JWT minted from a PAT that came out of the one-time-code exchange (what DynWork signs
+in with) is `interactive`, an attended agent; the PAT that the harness seeds is not, an unattended one. The cap is per
+document or folder (`GET .../agent-cap`: `agent_cap` is the unattended reading, `attended.agent_cap` the one that
+applies). Under Dynapps' policy a new folder is `suggest` unattended and `edit` attended; an unattended token is
+refused every write with `403` `agent_suggest_only`.
+
+| Request                                                                                        | Answer                                                                                                                                                                                                                                                              |
+| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/v1/documents?scope=mine\|shared\|recent\|folder&folder=&query=&sort=&limit=&cursor=` | `200` `{folders, documents, next_cursor}`. `folders` is filled for `scope=folder` (the sub-folders). A document: `id`, `folder_id` (null at the root), `name`, `format`, `mime_type`, `head_revision_id`, `template_id`, `owner_user_id`, `size_bytes`, `my_access` |
+| `GET /api/v1/document-folders`                                                                 | `200` the same shape with every visible folder in `folders` (`id`, `parent_id`, `name`, `agent_edit_policy`); a `parent` parameter is ignored                                                                                                                       |
+| `POST /api/v1/document-folders` `{name, parent_id?}`                                           | `201` the folder itself, not wrapped                                                                                                                                                                                                                                |
+| `GET /api/v1/documents/{id}`                                                                   | `200` `{document, head, my_access, folder_path}`, `ETag` = the head revision (quoted), `x-document-content-sha256`                                                                                                                                                  |
+| `GET /{id}/rendered[?revision=]`                                                               | `200` the stored bytes of an HTML document as `text/html`, scripts intact, with the instance's own `Content-Security-Policy`. Other formats: `400` `unsupported_op`                                                                                                 |
+| `GET /{id}/preview[?revision=]`                                                                | `200` sanitised HTML of any format, CSP `sandbox; default-src 'none'; ...`                                                                                                                                                                                          |
+| `GET /{id}/content?format=pdf`                                                                 | `200` `application/pdf`                                                                                                                                                                                                                                             |
+| `GET /{id}/revisions`                                                                          | `200` `{revisions}` newest first: `message`, `actor_kind`, `origin_kind`, `author_user_id`. It does not say which conversation wrote a revision (`x-context-id` is stored but only the MCP `documents_history` returns it)                                          |
+| `GET /{id}/read?view=outline`                                                                  | `200` `{revision_id, format, lines}`; a node line is `<node id>:<hash8>\| <text>`                                                                                                                                                                                   |
+| `POST /{id}/edits` `{ops, base_revision?, mode?, op_id?, message?}`                            | `200` `{revision, merged_from?}` when it lands (an older `base_revision` merges onto the head), `201` `{proposal, revision, superseded}` for `mode: propose`. The `message` is the revision's; `x-context-id` is the conversation                                   |
+| `GET /{id}/proposals`, `GET /{id}/access`                                                      | `200` `{proposals}`; `{owner, my_access, grants, inherited, agent_cap}`. `GET /{id}/grants` is `403` `agent_forbidden` to an agent                                                                                                                                  |
+| `GET /{id}/comments`                                                                           | `200` `{comments}`: `id`, `anchor {node, find?}`, `author_user_id`, `body`, `parent_id`, `resolved_at`, `resolved_by`, replies in the same list                                                                                                                     |
+| `POST /{id}/comments` `{body, anchor {node, find?}}` or `{body, parent_id}`                    | `201` the comment. No anchor and no parent is `400`; a node that is not in the head is `409` `not_found`. `x-context-id` is accepted. A comment carries no `message`                                                                                                |
+| `POST /{id}/comments/{comment}/resolve`                                                        | `200` the comment with `resolved_at`/`resolved_by`; again leaves the first. 0.83 has no route to reopen (`POST .../reopen`, `.../unresolve` are `404`, `DELETE .../resolve` `405`), so the client has none                                                          |
+| `POST /api/v1/documents` multipart `file`, `name`, `folder_id?`, `message?`                    | `201` `{document, revision}`. The first revision's `message` stays null whatever is sent; `x-context-id` is recorded                                                                                                                                                |
+| `POST /api/v1/documents/import` `{blob_ref, name, folder_id?, message?}`                       | `201` `{document, revision}` from a blob already on the instance (an upload completed here, or one the agent made with the MCP `documents_upload`). Only the user who uploaded the blob can import it. `message` is not recorded                                    |
+| `POST /api/v1/uploads` `{name, mime, size, sha256}`                                            | `201` an upload: `upload_id`, `part_size` (8 MiB), `part_count`, `missing_parts`, `expires_at` (a day)                                                                                                                                                              |
+| `PUT /api/v1/uploads/{id}/parts/{n}` raw bytes                                                 | `200` `{part_number, size_bytes, sha256}`. Parts are numbered **from 1**; `0` is `400`                                                                                                                                                                              |
+| `POST /api/v1/uploads/{id}/complete` `{}`                                                      | `200` `{blob_ref, size_bytes, mime, deduplicated}` (the `blob_ref` is the content's SHA-256); parts missing is `409` `missing_parts`, a wrong declared hash `422` `checksum_mismatch`. `GET /api/v1/uploads/{id}` says what is missing                              |
+
+A file up to 8 MiB is sent as one multipart `POST /api/v1/documents`; a bigger one goes through the upload and the
+import, which is also what lets an interrupted transfer resume: `uploadStatus` reads `missing_parts` and `finishUpload`
+sends only those. A revision `message` ("... by DynWork") is recorded for edits; on creation it is recorded neither by the
+multipart route nor by the import (observed), so the first revision of a created document has none.
+
+### How Drive answers map to the client's errors
+
+On top of the table in section 9:
+
+| Answer                                                                            | Error                                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `404`                                                                             | `NotFound`, with `error_key`. The route answering `404` for a path it does not have (an instance without the document store) is the same error                                                                |
+| `403` with an `error_key` starting `agent_`                                       | `AgentRefused`. `agent_suggest_only` (the cap is `suggest`; write with `mode: propose`) has `capability: "edit"`; `agent_forbidden` (replace content, share: reserved to a person) has `capability: "person"` |
+| any other `403`                                                                   | `Forbidden`                                                                                                                                                                                                   |
+| `409`                                                                             | `Conflict`, with `error_key` and, when the body gives them (top level or under `detail`), `head_revision_id`, `head_content_sha256` and `base_revision_id`                                                    |
+| `429`, `401`, `5xx`, a body that does not decode, a response above its size limit | `RateLimited`, `Unauthorized`, `Unreachable` and `Protocol`, as in section 9                                                                                                                                  |
+
+`PUT /{id}/content` and every `set_html`/`replace_content` edit are `403` `agent_forbidden` to DynWork: the instance
+allows an agent to change content only through structured ops. The `409` body with the head is documented by the core for
+a lost write; 0.83 merges an older `base_revision` instead, so the client's `Conflict` has only been seen for a missing
+anchor node and a complete upload with parts missing.
+
 ## Not observed
 
 - Mobile sign-in: the Entra login on the authorize page (the local instance has none to offer), how long a refresh token
@@ -382,3 +441,6 @@ under `/api/` after Entra the way it does for the device link.
 - A real `429` or `5xx` from an instance; their mapping is tested against a fake only.
 - A manifest key rotation on a real instance (the local instances keep theirs; the live test pins one instance's key
   against the other's manifest instead).
+- The Drive: a `409` that carries the head revision (0.83 merges instead), a `429` from the document routes, how a
+  server without the document store answers (`404` is assumed), the size limits of a multipart import, and a second user's
+  documents (`shared` scope, access levels other than `own`).
