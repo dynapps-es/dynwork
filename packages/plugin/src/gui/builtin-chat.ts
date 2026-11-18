@@ -28,7 +28,12 @@ export interface BuiltinChatComposerProps {
   /** The models the chip offers. An empty list hides the chip. */
   readonly models: readonly BuiltinChatModel[]
   /** The chosen model, by `providerID` and `id`. */
-  readonly model?: { readonly providerID: string; readonly id: string }
+  readonly model?: {
+    /** The provider's id. */
+    readonly providerID: string
+    /** The model's id at its provider. */
+    readonly id: string
+  }
   /**
    * The user chose a model in the chip.
    *
