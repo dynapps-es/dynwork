@@ -2,7 +2,8 @@ import { GlobalRegistrator } from "@happy-dom/global-registrator"
 
 // The accounts tests run main-process code against real local servers, which needs Bun's own HTTP globals: happy-dom's
 // fetch applies browser CORS rules, its Response breaks `Bun.serve`, and Bun's fetch refuses its AbortSignal. The remote
-// tunnel tests need Bun's WebSocket, which takes request headers as Node's does in Electron's main process.
+// tunnel tests need Bun's WebSocket, which takes request headers as Node's does in Electron's main process. The Drive
+// tests upload multipart forms, whose files Bun's FormData only sends when they are its own `File`.
 const native = {
   fetch: globalThis.fetch,
   Request: globalThis.Request,
@@ -13,6 +14,7 @@ const native = {
   AbortController: globalThis.AbortController,
   AbortSignal: globalThis.AbortSignal,
   Blob: globalThis.Blob,
+  File: globalThis.File,
   FormData: globalThis.FormData,
   WebSocket: globalThis.WebSocket,
   TextEncoder: globalThis.TextEncoder,
