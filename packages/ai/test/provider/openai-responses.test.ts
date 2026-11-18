@@ -128,8 +128,10 @@ describe("OpenAI Responses route", () => {
 
       expect(prepared.body).toEqual({
         model: "gpt-4.1-mini",
-        input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "Say hello." }] }],
-        instructions: "You are concise.",
+        input: [
+          { type: "message", role: "developer", content: "You are concise." },
+          { type: "message", role: "user", content: [{ type: "input_text", text: "Say hello." }] },
+        ],
         store: false,
         include: ["reasoning.encrypted_content"],
         stream: true,
@@ -1967,9 +1969,10 @@ describe("OpenAI Responses route", () => {
         }),
       )
 
+      expect(prepared.body).not.toHaveProperty("instructions")
       expect(prepared.body).toMatchObject({
-        instructions: "You are concise. Continue from the provided history.",
         input: [
+          { type: "message", role: "developer", content: "You are concise. Continue from the provided history." },
           {
             type: "message",
             role: "user",
@@ -2229,18 +2232,18 @@ describe("OpenAI Responses route", () => {
     }),
   )
 
-  it.effect("omits the prompt cache key when compatibility disables it", () =>
+  it.effect("omits the prompt cache key when capabilities disable it", () =>
     Effect.gen(function* () {
       const prepared = yield* compileRequest(
         ai.request({
-          model: LanguageModel.update(model, { compatibility: { supportsPromptCacheKey: false } }),
+          model: LanguageModel.update(model, { capabilities: { promptCacheKey: false } }),
           prompt: "Hello",
           promptCacheKey: "request_cache",
         }),
       )
 
       expect(prepared.body).not.toHaveProperty("prompt_cache_key")
-      expect(model.compatibility?.supportsPromptCacheKey).toBeUndefined()
+      expect(model.capabilities?.promptCacheKey).toBeUndefined()
       expect(
         (yield* compileRequest(ai.request({ model, prompt: "Hello", promptCacheKey: "request_cache" }))).body,
       ).toHaveProperty("prompt_cache_key", "request_cache")
