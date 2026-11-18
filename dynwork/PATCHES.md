@@ -3,7 +3,10 @@
 Every upstream file DynWork modifies. Keep this list short: each row is a potential conflict on every upstream
 release. New files under `dynwork/` are not listed.
 
-Budget: 250 lines
+Budget: 265 lines
+
+Raised from 250 for the Chats view: main sat at exactly 250 after OpenCode v2.3.2, and the chat composer needs 11
+lines in `builtin.ts`, `host-apis.tsx` and the plugin-host fixture.
 
 `bun dynwork/script/patches.ts` fails when an upstream file differs from the tag in `dynwork/UPSTREAM` and has no row
 below, when a row lists a file that does not differ, or when the added plus removed lines of the modified upstream files
