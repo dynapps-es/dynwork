@@ -15,6 +15,7 @@ export const entries: readonly {
   label: string
   pages: readonly string[]
 }[] = [
+  { id: "chats", icon: "speech-bubble", label: "views.nav.chats", pages: ["chats"] },
   { id: "agents", icon: clock, label: "views.nav.agents", pages: ["agents", "routines"] },
   { id: "brain", icon: "brain", label: "views.nav.brain", pages: ["brain"] },
 ]

@@ -52,7 +52,7 @@ import { persistedHandle } from "../src/runtime/plugin/stores"
 import { LanguageProvider } from "../src/runtime/i18n/language"
 import { ExtensionPlugins } from "../src/runtime/plugin/extension-plugins"
 import { SessionPluginPills } from "../src/session/composer/plugin-pills"
-import { ui } from "../src/runtime/plugin/ui"
+import { builtinUi } from "../src/runtime/plugin/builtin-ui"
 
 export {
   bindPlugin,
@@ -138,7 +138,7 @@ function fakeApis(storage: (plugin: string) => Storage): HostApiFactories {
     tabs: () => ({ list: () => [], open() {}, focus() {}, move() {}, close() {} }),
     attention: () => ({ notify: async () => ({ notification: false, sound: false }) }),
     commands: () => ({ run: () => false }),
-    ui: () => ui,
+    ui: () => builtinUi,
   }
 }
 

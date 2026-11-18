@@ -2,6 +2,7 @@ import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { homedir, hostname } from "node:os"
 import { app, Notification, powerMonitor, powerSaveBlocker, safeStorage, shell } from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
+import { ChatsMain } from "../chats/main"
 import { RemoteMain } from "../remote/main"
 import { RoutinesChat } from "../routines/chat"
 import { RoutinesFarm } from "../routines/farm/backend"
@@ -25,6 +26,7 @@ const setup: Plugin.MainSetup = (ctx) => {
   }
   const engine: { current?: DynWorkSyncEngine.Engine } = {}
   const remote: { update: () => void } = { update: () => {} }
+  const chats: { update: () => void } = { update: () => {} }
   // The routines' clock looks again whenever the sync changes: it fires nothing until the provider is applied.
   // `applied` holds once a sync went through, until the account goes: a failed poll later keeps the provider applied.
   const routines: { check: () => void; pull: () => void; applied: boolean } = {
@@ -42,6 +44,7 @@ const setup: Plugin.MainSetup = (ctx) => {
       engine.current?.update()
       remote.update()
       routines.pull()
+      chats.update()
     },
     renewed: (id, session) => engine.current?.renewed(id, session),
   })
@@ -76,7 +79,11 @@ const setup: Plugin.MainSetup = (ctx) => {
   ctx.onCleanup(heartbeat.dispose)
 
   // Moving focus between two DynWork windows blurs one before it focuses the other: read it once both have run.
-  const follow = () => setImmediate(() => sync.focus(focused()))
+  const follow = () =>
+    setImmediate(() => {
+      sync.focus(focused())
+      cloud.focus(focused())
+    })
   app.on("browser-window-focus", follow)
   app.on("browser-window-blur", follow)
   ctx.onCleanup(() => {
@@ -87,6 +94,16 @@ const setup: Plugin.MainSetup = (ctx) => {
   // Remote control follows the active account: switching it moves the tunnel, signing out stops it
   const tunnel = RemoteMain.setup(ctx, accounts)
   remote.update = tunnel.update
+
+  // Cloud chats: threads stored and answered on the active instance. Another device changed one: the instance's hint
+  // arrives over the relay while remote control is connected; without it the list is read every 30 s with focus.
+  const cloud = ChatsMain.setup(ctx, { accounts, focused: focused() })
+  chats.update = cloud.update
+  ctx.onCleanup(
+    tunnel.onControl((message) => {
+      if (message.t === "chats.changed") cloud.pull()
+    }),
+  )
 
   // Routines: the registry of backends, local and remote, and the `dynwork.routines` Ipc over it. A local run that
   // finishes, fails or waits for a permission is told with a system notification, as its routine says; it shows with

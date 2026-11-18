@@ -1,0 +1,65 @@
+/* The Chats view (`./index.tsx`). Tailwind does not scan dynwork/, so it styles itself with the theme's v2 tokens, under
+   the shell's frame (`../shell.css`). The timeline and the composer are the session UI's and the app's own, styled by
+   them; this file only lays them out: the timeline scrolls, the composer stays under it. */
+
+[data-component="dynwork-view"][data-view="chats"] {
+  [data-slot="view-content"] {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  [data-slot="chats-conversation"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    isolation: isolate;
+  }
+
+  /* Reversed, so the scroll position holds to the newest message while a reply streams in. */
+  [data-slot="chats-timeline"] {
+    display: flex;
+    flex: 1;
+    flex-direction: column-reverse;
+    min-height: 0;
+    overflow-y: auto;
+    padding-block: 24px;
+  }
+
+  [data-slot="chats-empty"] {
+    margin: auto;
+    max-width: 420px;
+    text-align: center;
+    color: var(--v2-text-text-muted);
+
+    h2 {
+      margin: 0 0 8px;
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--v2-text-text-base);
+    }
+
+    p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 20px;
+    }
+  }
+
+  [data-slot="chats-failure"] {
+    margin: 0 auto 8px;
+    max-width: 840px;
+    width: 100%;
+    font-size: 13px;
+    color: var(--v2-state-fg-danger);
+  }
+
+  [data-slot="chats-composer"] {
+    position: relative;
+    z-index: 1;
+    margin-inline: auto;
+    width: 100%;
+    max-width: 840px;
+  }
+}

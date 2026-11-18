@@ -3,6 +3,7 @@ import { Dynamic } from "solid-js/web"
 
 /** The views by page id. Each loads as its own chunk the first time its page opens. */
 export const views = new Map([
+  ["chats", lazy(() => import("./chats"))],
   ["agents", lazy(() => import("./agents"))],
   ["routines", lazy(() => import("./routines"))],
   ["brain", lazy(() => import("./brain"))],

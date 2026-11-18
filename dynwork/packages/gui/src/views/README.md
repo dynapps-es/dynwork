@@ -1,7 +1,7 @@
 # DynWork views
 
-The screens DynWork adds to the desktop app's main area: Agents, over the routines Ipc, and Brain, on built-in demo
-data; and the Runs panel, beside a routine's conversation. They belong to the `dynwork` built-in (`../accounts/index.ts`); its window entry (`../accounts/renderer.ts`) registers them through
+The screens DynWork adds to the desktop app's main area: Chats, over the chats Ipc; Agents, over the routines Ipc; and
+Brain, on built-in demo data; and the Runs panel, beside a routine's conversation. They belong to the `dynwork` built-in (`../accounts/index.ts`); its window entry (`../accounts/renderer.ts`) registers them through
 `registerViews` (`./register.tsx`), on desktop only.
 
 ## How they reach the app
@@ -16,8 +16,17 @@ to open a page (`BuiltinLayout.page`):
 - `ctx.layout.page(id)` (through `builtinContext`) routes to `/page/<id>`, the way `ctx.layout.settings(page)` opens
   settings.
 
-The sidebar has two rows: Agents and Brain. The governance accounts are reached from Settings only, and no visible string
+The sidebar has three rows: Chats, Agents and Brain. The governance accounts are reached from Settings only, and no visible string
 names the platform behind them.
+
+## Chats
+
+The user's cloud chats (`./chats`), read and written through the `dynwork.chats` Ipc (`../chats`, whose `README.md` is
+the contract). The list is the shell's sub-navigation (New chat, Recent, Archived; a select in a narrow window). The
+conversation is the session UI's `SessionTimeline` in a `DataProvider` fed from the chat's own data, in a reversed
+scroller that holds the newest message in view, and the composer is the app's `builtinContext(ctx).ui.ChatComposer`
+over the chat's composer model. Nothing of OpenCode's service is read, so it renders with the service stopped. Not
+seen in a real window yet: that is phase 10 of the plan (Dynwork Dev), since Bun's tests here run Solid's server build.
 
 ## Agents
 
