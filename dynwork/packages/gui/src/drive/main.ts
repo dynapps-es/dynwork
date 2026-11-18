@@ -1,7 +1,9 @@
 export * as DriveMain from "./main"
 
+import type { OpenCodeClient } from "@opencode/client/promise"
 import type { MainContext } from "@opencode/plugin/gui/main"
 import type { DynWorkAccounts } from "../accounts/accounts"
+import { DriveAgent } from "./agent"
 import { DriveBackend } from "./backend"
 import { Drive } from "./contract"
 import { DriveFrames } from "./frames"
@@ -13,12 +15,15 @@ export interface Options {
   timers?: DriveIpc.Timers
   /** Electron's app and windows, to keep the viewer's HTML frame on its page (`frames.ts`); the main entry passes them. */
   frames?: DriveFrames.Host
+  /** DynWork's service, where the agent's `documents` tools run: its writes are followed (`DriveAgent`). Absent, none is. */
+  client?: () => OpenCodeClient | undefined
 }
 
 // The Drive's main side, set up by the `dynwork` built-in's main entry next to the routines: the `dynwork.drive` Ipc
 // over the active account's Drive in Governance, with the account's JWT, which never reaches a window. Answers
 // `account`, which main calls on every change of the accounts, and the service, for main code that writes to the
-// Drive for a conversation (the agent's files, phase 07).
+// Drive for a conversation. With the service's `client`, the agent's writes through the `documents` tools are followed:
+// they enter the conversation's index and land in its folder (`DriveAgent`).
 export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, options: Options = {}) {
   const provider = { changed: () => {} }
   const service = DriveIpc.make({
@@ -40,6 +45,7 @@ export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, opti
   })
   ctx.onCleanup(service.dispose)
   if (options.frames) ctx.onCleanup(DriveFrames.guard(options.frames))
+  if (options.client) DriveAgent.setup(ctx, { service, client: options.client, untitled: ctx.t("drive.chat.untitled") })
   const ipc = ctx.provide(Drive, service.ipc)
   provider.changed = () => ipc.changed()
   return service

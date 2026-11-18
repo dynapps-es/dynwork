@@ -8,6 +8,7 @@ import { createStore } from "solid-js/store"
 import { isFailure, type Link, type Revision } from "../../drive/contract"
 import { uploadFiles } from "./browser"
 import { conversationOf, docKey } from "./chat"
+import { latest } from "./model"
 import { failureText, FormatGlyph, Tag, useNames } from "./parts"
 import { drive } from "./store"
 import { Viewer } from "./viewer"
@@ -29,7 +30,7 @@ const actKey = {
 export function ArtifactsPanel(props: { session: MountedSession }) {
   const ctx = usePlugin()
   const names = useNames()
-  const links = () => drive.linksOf(props.session.id)
+  const links = () => latest(drive.linksOf(props.session.id))
   let input: HTMLInputElement | undefined
   // The index names documents no listing may hold yet.
   createEffect(() => void drive.learn(links().map((link) => link.document)))

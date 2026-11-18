@@ -23,6 +23,8 @@ export interface Subject {
   readonly backend: Backend
   /** Caps agents at `suggest` where the documents are, or lifts the cap. */
   suggestOnly(on: boolean): void
+  /** Holds bytes where the instance holds what the agent's `documents_upload` sent, and answers the `blob_ref`. */
+  stage(bytes: Uint8Array, mime: string): string
 }
 
 const text = (value: string) => new TextEncoder().encode(value)
@@ -78,6 +80,20 @@ export function conformance(name: string, make: () => Subject) {
       expect((await ok(backend.get(created.document.id))).document.folder).toBe(child.id)
     })
 
+    test("folders lists the whole tree flat, and children only what is directly under a folder, or the roots", async () => {
+      const { backend } = make()
+      const parent = await ok(backend.createFolder({ name: `Tree ${randomUUID()}` }))
+      const child = await ok(backend.createFolder({ name: "Child", parent: parent.id }))
+      const grandchild = await ok(backend.createFolder({ name: "Grandchild", parent: child.id }))
+      const all = await ok(backend.folders())
+      expect(all.map((folder) => folder.id)).toEqual(expect.arrayContaining([parent.id, child.id, grandchild.id]))
+      expect((await ok(backend.children())).map((folder) => folder.id)).toContain(parent.id)
+      expect((await ok(backend.children())).map((folder) => folder.id)).not.toContain(child.id)
+      expect((await ok(backend.children(parent.id))).map((folder) => folder.id)).toEqual([child.id])
+      expect((await ok(backend.children(child.id))).map((folder) => folder.parent)).toEqual([child.id])
+      expectFailure(await backend.children(randomUUID()), "not-found")
+    })
+
     test("a template makes a document in the folder, with an unnamed first revision", async () => {
       const { backend } = make()
       const parent = await ok(backend.createFolder({ name: `Templates ${randomUUID()}` }))
@@ -89,6 +105,32 @@ export function conformance(name: string, make: () => Subject) {
       expect(created.revision.message).toBeUndefined()
       const listed = await ok(backend.list({ scope: "folder", folder: parent.id }))
       expect(listed.documents.map((document) => document.id)).toEqual([created.document.id])
+    })
+
+    test("a staged blob is imported into the folder as a document that keeps its bytes", async () => {
+      const { backend, stage } = make()
+      const parent = await ok(backend.createFolder({ name: `Blobs ${randomUUID()}` }))
+      const page = text(`<h1>${randomUUID()}</h1><script>document.title = "x"</script>`)
+      const created = crossing(
+        Created,
+        await ok(
+          backend.importBlob({
+            blob: stage(page, "text/html"),
+            name: "page.html",
+            folder: parent.id,
+            message: "Q3 report by DynWork",
+            contextId: randomUUID(),
+          }),
+        ),
+      )
+      expect(created.document).toMatchObject({ name: "page.html", format: "html", folder: parent.id })
+      const stored = await ok(backend.content(created.document.id))
+      expect(new TextDecoder().decode(stored.bytes)).toContain("<script>")
+    })
+
+    test("a blob the instance does not hold is not imported", async () => {
+      const { backend } = make()
+      expectFailure(await backend.importBlob({ blob: "0".repeat(64), name: "none.html" }), "invalid")
     })
 
     test("a listing pages with its cursor until there is no next page", async () => {

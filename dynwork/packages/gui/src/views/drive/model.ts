@@ -88,6 +88,34 @@ export function byConversation(links: readonly Link[]) {
   })
 }
 
+/** One card of a chat's artifacts per document, with its latest act: a document edited twenty times is one card. */
+export function latest(links: readonly Link[]) {
+  const newest = links.toSorted((a, b) => b.at - a.at)
+  return newest.filter((link, index) => newest.findIndex((other) => other.document === link.document) === index)
+}
+
+/**
+ * The documents a chat made or changed that it has not been seen to before, newest last: `seen` holds what the window
+ * already knew (by conversation and document) and is brought up to date. An attachment or a read opens nothing: the
+ * user did that, or it changed nothing.
+ */
+export function arrivals(links: readonly Link[], seen: Set<string>) {
+  const fresh = links
+    .toSorted((a, b) => a.at - b.at)
+    .filter((link) => !seen.has(`${link.conversation}:${link.document}`))
+  links.forEach((link) => seen.add(`${link.conversation}:${link.document}`))
+  return fresh.filter((link) => link.act === "created" || link.act === "edited" || link.act === "proposed")
+}
+
+/**
+ * How a document the agent made or changed lands in the side panel's strip: a new one is selected and stays; a change to
+ * one that has no tab opens as the strip's preview tab, which the next such change replaces, so an agent editing many
+ * documents leaves one tab and not one each.
+ */
+export function landing(act: Link["act"]) {
+  return act === "created" ? ("select" as const) : ("preview" as const)
+}
+
 /** The name split around a search match, for highlighting. */
 export function highlight(name: string, query: string) {
   const q = query.trim().toLowerCase()

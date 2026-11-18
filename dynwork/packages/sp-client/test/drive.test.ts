@@ -75,15 +75,16 @@ describe("listing", () => {
     expect(sent("/api/v1/documents", "GET").at(-1)?.query).toBe("?scope=mine&query=REPORT")
   })
 
-  test("folders answers every folder, flat", async () => {
+  test("folders answers the roots, and with a parent the folders directly under it, as 0.83 does", async () => {
     const parent = await folder("Projects")
     const child = await folder("Q3", parent.id)
-    const all = await run(SpDrive.folders(fake.url, state.jwt))
-    expect(all.map((entry) => [entry.name, entry.parent_id ?? null])).toEqual([
-      ["Projects", null],
-      ["Q3", parent.id],
-    ])
-    expect(child.parent_id).toBe(parent.id)
+    await folder("Notes", child.id)
+    const roots = await run(SpDrive.folders(fake.url, state.jwt))
+    expect(roots.map((entry) => [entry.name, entry.parent_id ?? null])).toEqual([["Projects", null]])
+    const under = await run(SpDrive.folders(fake.url, state.jwt, parent.id))
+    expect(under.map((entry) => [entry.name, entry.parent_id])).toEqual([["Q3", parent.id]])
+    expect(sent("/api/v1/document-folders", "GET").at(-1)?.query).toBe(`?folder=${parent.id}`)
+    expect((await run(SpDrive.folders(fake.url, state.jwt, child.id))).map((entry) => entry.name)).toEqual(["Notes"])
   })
 })
 

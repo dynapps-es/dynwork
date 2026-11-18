@@ -147,6 +147,7 @@ const setup: Plugin.MainSetup = (ctx) => {
   // The Drive: the active account's documents in Governance, read again whenever the accounts change.
   drive.account = DriveMain.setup(ctx, accounts, {
     frames: { app, contents: () => webContents.getAllWebContents() },
+    client: routinesMain.client,
   }).account
   // Another computer changed a routine: Governance's hint arrives over the relay while remote control is connected.
   // Without it the sync still reads the feed every few minutes.

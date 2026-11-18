@@ -17,6 +17,8 @@ export interface Fake extends Backend {
   down(failure: Failure | undefined): void
   /** Caps agents at `suggest`: a write that does not propose answers `suggest`. */
   suggestOnly(on: boolean): void
+  /** Holds bytes as the instance holds what the agent's `documents_upload` sent, and answers the `blob_ref` to import. */
+  stage(bytes: Uint8Array, mime: string): string
   /** How many calls reached the backend, by method. */
   readonly calls: Readonly<Record<string, number>>
 }
@@ -43,6 +45,7 @@ export function make(options: Options = {}): Fake {
   const entries = new Map<string, Entry>()
   const switches: { down?: Failure; suggestOnly: boolean } = { suggestOnly: false }
   const calls: Record<string, number> = {}
+  const blobs = new Map<string, { bytes: Uint8Array; mime: string }>()
 
   const revise = (entry: Entry, bytes: Uint8Array, attribution: { message?: string; contextId?: string }) => {
     const revision: Revision = {
@@ -141,6 +144,8 @@ export function make(options: Options = {}): Fake {
         })
         .filter((document) => text === undefined || document.name.toLowerCase().includes(text))
         .toSorted((a, b) => (query.sort === "name" ? a.name.localeCompare(b.name) : b.updated - a.updated))
+      if (scope === "folder" && query.folder !== undefined && !folders.has(query.folder))
+        return fail("not-found", "No such folder.")
       const start = Number(query.cursor ?? 0)
       const end = start + (query.limit ?? 50)
       return {
@@ -150,6 +155,10 @@ export function make(options: Options = {}): Fake {
       }
     }),
     folders: method("folders", () => [...folders.values()]),
+    children: method("children", (parent?: string) => {
+      if (parent !== undefined && !folders.has(parent)) return fail("not-found", "No such folder.")
+      return [...folders.values()].filter((folder) => folder.parent === parent)
+    }),
     get: method("get", (id) => {
       const entry = found(id)
       if (!("document" in entry)) return entry
@@ -244,6 +253,19 @@ export function make(options: Options = {}): Fake {
       if (blocked) return blocked
       const mime = input.mime ?? "application/octet-stream"
       return add({ ...input, mime, format: formatOf(input.name, mime) })
+    }),
+    importBlob: method("importBlob", (input) => {
+      if (input.folder !== undefined && !folders.has(input.folder)) return fail("not-found", "No such folder.")
+      const blocked = writable()
+      if (blocked) return blocked
+      const blob = blobs.get(input.blob)
+      if (!blob) return fail("invalid", "No such upload.")
+      // The instance keeps one document of a name in a folder.
+      const taken = [...entries.values()].some(
+        (entry) => entry.document.name === input.name && entry.document.folder === input.folder,
+      )
+      if (taken) return fail("conflict", "A document of that name is already there.")
+      return add({ ...input, ...blob, format: formatOf(input.name, blob.mime) })
     }),
     create: method("create", (input) => {
       if (input.folder !== undefined && !folders.has(input.folder)) return fail("not-found", "No such folder.")
@@ -347,6 +369,11 @@ export function make(options: Options = {}): Fake {
     },
     suggestOnly: (on) => {
       switches.suggestOnly = on
+    },
+    stage: (bytes, mime) => {
+      const ref = createHash("sha256").update(bytes).digest("hex")
+      blobs.set(ref, { bytes, mime })
+      return ref
     },
     calls,
   }

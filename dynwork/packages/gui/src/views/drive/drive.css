@@ -1567,3 +1567,29 @@
     cursor: var(--drive-comment-cursor);
   }
 }
+
+/* A document's tab in the side panel (`tab-label.tsx`): its glyph, and its name cut with an ellipsis. The app's strip lets
+   every tab shrink to 72px before it scrolls, which leaves a name unreadable: a document's tab keeps room for a few
+   letters, and the strip scrolls sooner. The extra selector parts only win over the app's rule for the tabs of the strip. */
+:root
+  body
+  #review-panel
+  [data-component="tabs"][data-variant="normal"][data-orientation="horizontal"]
+  [data-slot="tabs-list"][data-pane-strip]
+  > [data-pane-tab^="dynwork:drive"] {
+  min-width: 132px;
+}
+
+[data-slot="drive-tab"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+[data-slot="drive-tab-name"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

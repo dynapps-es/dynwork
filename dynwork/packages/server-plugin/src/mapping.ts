@@ -5,6 +5,7 @@ import { Option, Schema } from "effect"
 import { DynWorkBundles } from "./bundles"
 import { DynWorkConfig } from "./config"
 import type { DynWorkSync } from "./contract"
+import { DynWorkDocuments } from "./documents"
 import { DynWorkInstructions } from "./instructions"
 import { DynWorkSkills } from "./skills"
 
@@ -45,6 +46,14 @@ export function map(input: DynWorkSync.Apply): Mapped {
   const rules = DynWorkInstructions.select(manifest.rules)
   const skills = unique(manifest.skills).filter((skill) => applies(skill.hosts) && skill.instructions?.trim())
   const owned = DynWorkBundles.project(manifest, input.files ?? [])
+  // Two servers that share a slug keep the last one, like the bridge's table insert
+  const mcp = [
+    ...new Map(
+      unique(manifest.managed_mcp_servers).flatMap((server) =>
+        Option.toArray(remote(server, input)).map((config) => [serverName(server.name), config] as const),
+      ),
+    ),
+  ]
   const themes = owned.files.flatMap((file) => file.path.match(/^themes\/(.+)\.json$/)?.[1] ?? [])
   return {
     skills: skills.flatMap((skill) =>
@@ -61,16 +70,10 @@ export function map(input: DynWorkSync.Apply): Mapped {
     skillFiles: DynWorkSkills.project(manifest, skills),
     owned,
     settings: DynWorkConfig.settings(manifest, themes),
-    // Two servers that share a slug keep the last one, like the bridge's table insert
-    mcp: [
-      ...new Map(
-        unique(manifest.managed_mcp_servers).flatMap((server) =>
-          Option.toArray(remote(server, input)).map((config) => [serverName(server.name), config] as const),
-        ),
-      ),
-    ],
+    mcp,
     rules: rules.length,
-    instructions: DynWorkInstructions.block(rules),
+    // DynWork's own rules for the `documents` server go after the instance's, which stay as the bridge writes them.
+    instructions: DynWorkInstructions.block([...rules, ...DynWorkDocuments.rules(mcp.map(([name]) => name))]),
     defaults: { model: defaultModel(manifest) },
   }
 }

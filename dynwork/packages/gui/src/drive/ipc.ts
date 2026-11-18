@@ -21,12 +21,17 @@ export interface Timers {
 
 /**
  * What the service keeps on this computer, per account: the `x-context-id` it gave each conversation (a UUID v4, by
- * session id) and the conversation ↔ document index.
+ * session id), the conversation ↔ document index and the folder each conversation's files go to (by session id).
  */
 export const Saved = Schema.Struct({
   accounts: Schema.Record(
     Schema.String,
-    Schema.Struct({ contexts: Schema.Record(Schema.String, Schema.String), links: Schema.Array(Link) }),
+    Schema.Struct({
+      contexts: Schema.Record(Schema.String, Schema.String),
+      links: Schema.Array(Link),
+      // Absent in what an earlier version saved.
+      folders: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+    }),
   ),
 })
 export type Saved = typeof Saved.Type
@@ -172,14 +177,13 @@ export function make<A extends Account>(options: Options<A>) {
 
   function record(account: string, link: Omit<Link, "at" | "via"> & { via: "rest" | "mcp" }) {
     if (!DriveCapabilities.indexed(capabilities(), link.via)) return
-    const same = (entry: Link) =>
-      entry.conversation === link.conversation &&
-      entry.document === link.document &&
-      entry.act === link.act &&
-      entry.revision === link.revision
+    const sameAct = (entry: Link) =>
+      entry.conversation === link.conversation && entry.document === link.document && entry.act === link.act
     options.store.update((draft) => {
       draft.accounts[account] ??= { contexts: {}, links: [] }
-      if (draft.accounts[account].links.some(same)) return
+      if (draft.accounts[account].links.some((entry) => sameAct(entry) && entry.revision === link.revision)) return
+      // A document an agent edits twenty times is one entry, at its latest revision.
+      draft.accounts[account].links = draft.accounts[account].links.filter((entry) => !sameAct(entry))
       draft.accounts[account].links.push({ ...link, at: now() })
     })
     options.changed()
@@ -324,6 +328,27 @@ export function make<A extends Account>(options: Options<A>) {
 
   return {
     ipc,
+    /**
+     * For main code that works for a conversation (`DriveAgent`): `call` on the active account's backend, answering as
+     * the Ipc's methods do when there is none or it fails. `changing` also has the snapshot catch up with a write.
+     */
+    using: on,
+    changing,
+    /** Enters what a conversation did into the index, where the Drive cannot answer it (`DriveCapabilities.indexed`). */
+    record,
+    /** The Drive's folder a conversation's files go to, once made (by session id). */
+    folder: {
+      get: (account: string, conversation: string) => options.store.value.accounts[account]?.folders?.[conversation],
+      all: (account: string) => options.store.value.accounts[account]?.folders ?? {},
+      set: (account: string, conversation: string, folder: string) =>
+        options.store.update((draft) => {
+          draft.accounts[account] ??= { contexts: {}, links: [] }
+          draft.accounts[account].folders ??= {}
+          draft.accounts[account].folders[conversation] = folder
+        }),
+    },
+    /** The author of a write, as the service would sign it (`DriveCapabilities.attribution`). */
+    author,
     /** Main calls it on every change of the accounts: a new active account replaces the snapshot. */
     account: () => {
       if (follow()) void load()

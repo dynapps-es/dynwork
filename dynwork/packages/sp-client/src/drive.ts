@@ -78,11 +78,16 @@ export const list = Effect.fn("SpDrive.list")(function* (baseUrl: string, jwt: s
 export const search = (baseUrl: string, jwt: string, query: string, options?: Omit<ListOptions, "query">) =>
   list(baseUrl, jwt, { ...options, query })
 
-/** Every folder the user can see, flat; `parent_id` builds the tree. */
-export const folders = Effect.fn("SpDrive.folders")(function* (baseUrl: string, jwt: string) {
+/**
+ * The folders directly under `parent`, or the roots of the user's tree without one. The instance lists no deeper (0.83:
+ * `GET /document-folders` answers the roots only, and `?folder=<id>` the folders of that one), so a whole tree takes one
+ * read per folder. `parent_id` says where each one sits.
+ */
+export const folders = Effect.fn("SpDrive.folders")(function* (baseUrl: string, jwt: string, parent?: string) {
   const listing = yield* json(DriveListing, {
     method: "GET",
     path: "/api/v1/document-folders",
+    ...(parent === undefined ? {} : { query: new URLSearchParams({ folder: parent }) }),
     endpoint: "GET /api/v1/document-folders",
     baseUrl,
     jwt,

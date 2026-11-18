@@ -17,7 +17,8 @@
     "./client": "./src/client.ts",
     "./mapping": "./src/mapping.ts",
     "./shell": "./src/shell.ts",
-    "./routines": "./src/routines.ts"
+    "./routines": "./src/routines.ts",
+    "./documents": "./src/documents.ts"
   },
   "dependencies": {
     "@opencode/plugin": "workspace:*",

@@ -17,6 +17,7 @@ window                                main process
 | `capabilities.ts` | The switches for what the instance has not delivered yet, and every decision they change, as pure functions                     |
 | `ipc.ts`          | The service: the active account, its snapshot and polling, attribution, the conversation index, failures as data                |
 | `fake.ts`         | An in-memory Drive that behaves as 0.83 where DynWork can tell: `DriveFake.make(options)`                                       |
+| `agent.ts`        | What the agent does with the `documents` MCP tools: its folder, its signature, its index, its uploaded pages (phase 07)         |
 | `main.ts`         | The main-process setup over the accounts, from `accounts/main.ts`                                                               |
 | `client.ts`       | The window's live Ipc client, handed over by the window entry for the views to read                                             |
 
@@ -58,8 +59,48 @@ What the instance keeps to a person (sharing, accepting proposals, restoring, de
 
 What a conversation did to which documents (`created`, `edited`, `proposed`, `attached`, `read`), kept per account on
 this computer because the Drive cannot answer it yet. The service records a conversation's own uploads and edits;
-`link` records what the agent wrote through the `documents` MCP (phase 07) or a document attached to a chat.
-`documentsOf(conversation)` answers it newest first.
+`DriveAgent` records what the agent wrote through the `documents` MCP, and `link` a document attached to a chat. A
+document a conversation edits again is still one entry per act, at its latest revision. Reads are not recorded: they
+change nothing. `documentsOf(conversation)` answers it newest first.
+
+## The agent's documents (phase 07, D4, D8)
+
+The agent's tools are the instance's own, the `documents` MCP server that the server plugin adds from the manifest
+(`@dynwork/server-plugin/mapping`): DynWork has no tools of its own for documents. What DynWork adds is around them.
+
+```
+OpenCode service                                       main process
+  documents_documents_create ─ tool hooks ─ ask ─────► DriveAgent.ask   ─► folder + message
+                                           └ touch ──► DriveAgent.touched ─► index, import of a page
+```
+
+- **Seeing the calls.** The plugin hooks `execute.before` and `execute.after` for the server's five writes (`create`,
+  `edit`, `upload`, `update`, `copy`). Calls a Code Mode program makes pass the same hooks, so `execute` wrapping them
+  changes nothing. It publishes `ask` (before a `create` or `edit`) and `touch` (after any write) on the plugin's RPC
+  `dynwork.documents`; main follows them like it follows the scheduled-task tools'.
+- **The folder.** Before a `documents_create` that names no `folder_id`, main answers with the conversation's folder,
+  `Artifacts/<project>/<conversation>` (D8): the project is the session's directory name, the conversation its title (or
+  `Untitled conversation`). Main makes the folders by REST on first use, keeps the folder's id per session
+  (`DriveIpc.Saved.folders`), makes it again if the user deleted it, and tells apart two conversations with the same
+  title by adding the end of the session id. A folder the agent chose stays. Calls run together make the folders once.
+- **The signature.** The same answer carries the revision message: "`<conversation>` by DynWork", after the agent's own
+  message when it wrote one (D2). The MCP calls carry no `x-context-id` (one header per server, not per call), so the
+  index is how DynWork knows which conversation wrote what (G06).
+- **The index and the tab.** Each completed write enters the conversation's index (`created` for `create` and `copy`,
+  `proposed` when the answer has a `proposal_id` or the call asked to propose, `edited` otherwise). The window opens the
+  document as a tab of the chat's side panel, once per document and chat, only for what arrives after the window first
+  read the account's index (`views/drive/register.tsx`, `arrivals`).
+- **A page with scripts (C7, D14).** `documents_upload` of `text/html` is imported by DynWork from its `blob_ref`
+  (`Backend.importBlob`) into the conversation's folder, which keeps the `<script>`; `documents_create` and `set_html`
+  cannot. A name the folder already holds becomes `name (2).html`. Other uploads (an image for a Word file) are left
+  alone. The agent learns this from a rule the plugin adds to the instance's own when the `documents` server is among
+  its MCP servers (`DynWorkDocuments.rules`).
+- **Switching a capability on.** `mcpFolders` makes `DriveAgent` leave the folder to the agent (no `ask` folder, no
+  import of what it uploaded, unless it is HTML without `rawHtmlByMcp`); `conversationLabel` takes the message away;
+  `contextByMcp` and `docsByContext` take the index's entry away (`DriveCapabilities.indexed`). The plugin's rule names
+  `folder_id` and the upload of pages: it needs rewording when either of the first two goes on.
+- **When it is not there.** Main closed or signed out: the plugin's ask times out after 10 seconds and the call runs as
+  the agent wrote it, at the Drive's root; the touch is lost, and the document is not in the index.
 
 ## Capabilities
 

@@ -3,6 +3,7 @@ export * as DriveBackend from "./backend"
 import { Effect } from "effect"
 import { SpClient, SpDrive } from "@dynwork/sp-client"
 import { DynWorkAccounts } from "../accounts/accounts"
+import { isFailure } from "./contract"
 import type {
   Access,
   AgentCap,
@@ -24,6 +25,9 @@ import type {
   Revision,
 } from "./contract"
 
+/** How many folders `folders()` reads before it stops going down: a bound on one account's reads, not a limit of the Drive. */
+const maxFolders = 1000
+
 /** Where a write is attributed: the revision message and the conversation's `x-context-id`. */
 export type Attribution = { readonly message?: string; readonly contextId?: string }
 
@@ -35,7 +39,10 @@ export type Attribution = { readonly message?: string; readonly contextId?: stri
  */
 export interface Backend {
   list(query: Query): Promise<Listing | Failure>
+  /** Every folder the user can see, flat: `parent` says where each sits. Read from the roots down (see `children`). */
   folders(): Promise<readonly Folder[] | Failure>
+  /** The folders directly under `parent`, or the roots. One read: the instance lists a folder's own, not its whole tree. */
+  children(parent?: string): Promise<readonly Folder[] | Failure>
   get(id: string): Promise<Detail | Failure>
   /** An HTML document as designed, scripts included where the instance allows them. */
   rendered(id: string, revision?: string): Promise<Page | Failure>
@@ -55,6 +62,12 @@ export interface Backend {
   upload(
     input: Attribution & { name: string; bytes: Uint8Array; mime?: string; folder?: string },
   ): Promise<Created | Failure>
+  /**
+   * A document from a blob the instance already holds: the `blob_ref` the agent's `documents_upload` answered. The blob
+   * keeps its scripts, which no other write of an HTML document does. Only the user who uploaded it may import it, and
+   * a name taken in the folder answers `conflict`.
+   */
+  importBlob(input: Attribution & { blob: string; name: string; folder?: string }): Promise<Created | Failure>
   /** A document from one of the instance's templates; the instance keeps no message on it (0.83). */
   create(
     input: Pick<Attribution, "contextId"> & { template: string; name: string; folder?: string },
@@ -137,6 +150,26 @@ export function remote(options: Remote): Backend {
     revision: wire.revision,
     sha256: wire.sha256,
   })
+  const children = (parent?: string) =>
+    call(
+      (jwt) => SpDrive.folders(url, jwt, parent),
+      (list) => list.map(folder),
+    )
+  // 0.83 answers the roots only, so the tree is read a level at a time: one read per folder, a level in parallel.
+  const below = async (
+    level: readonly Folder[],
+    tree: readonly Folder[] = [],
+  ): Promise<readonly Folder[] | Failure> => {
+    const all = [...tree, ...level]
+    if (level.length === 0 || all.length >= maxFolders) return all
+    const next = await Promise.all(level.map((parent) => children(parent.id)))
+    const failed = next.find(isFailure)
+    if (failed) return failed
+    return below(
+      next.flatMap((own) => (isFailure(own) ? [] : own)),
+      all,
+    )
+  }
   return {
     list: (query) =>
       call(
@@ -147,11 +180,11 @@ export function remote(options: Remote): Backend {
           next: listing.next_cursor ?? undefined,
         }),
       ),
-    folders: () =>
-      call(
-        (jwt) => SpDrive.folders(url, jwt),
-        (folders) => folders.map(folder),
-      ),
+    children,
+    folders: async () => {
+      const roots = await children()
+      return isFailure(roots) ? roots : below(roots)
+    },
     get: (id) =>
       call(
         (jwt) => SpDrive.get(url, jwt, id),
@@ -228,6 +261,18 @@ export function remote(options: Remote): Backend {
             name: input.name,
             bytes: input.bytes,
             mime: input.mime,
+            folderId: input.folder,
+            message: input.message,
+            contextId: input.contextId,
+          }),
+        (created) => ({ document: document(created.document), revision: revision(created.revision) }),
+      ),
+    importBlob: (input) =>
+      call(
+        (jwt) =>
+          SpDrive.importBlob(url, jwt, {
+            blobRef: input.blob,
+            name: input.name,
             folderId: input.folder,
             message: input.message,
             contextId: input.contextId,

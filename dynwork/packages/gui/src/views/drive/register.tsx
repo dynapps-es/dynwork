@@ -1,10 +1,12 @@
 import { LinkHandler, MenuItem, Panel, type PanelTab, type SetupContext } from "@opencode/plugin/gui"
-import { createEffect, createMemo, createSignal, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, Show, untrack } from "solid-js"
 import type definition from "../../accounts/index"
 import { connection } from "../../accounts/renderer"
 import { DriveClient } from "../../drive/client"
 import { Drive } from "../../drive/contract"
-import { listKey, origin } from "./chat"
+import { docKey, listKey, origin, sessionOf } from "./chat"
+import { arrivals, landing } from "./model"
+import { DocTabLabel, ListTabLabel } from "./tab-label"
 import { ArtifactsPanel, DocPanel } from "./panel"
 import { drive, follow } from "./store"
 import "./drive.css"
@@ -23,7 +25,35 @@ export function registerDrive(ctx: SetupContext<typeof definition>) {
     follow(active && { url: active.url, user: active.user ?? active.label })
   })
 
-  const list = createMemo((): PanelTab => ({ id: "drive", title: ctx.t("drive.panel.title"), group: "drive" }))
+  // A document the agent made or changed opens beside its chat, once per document and chat. What the account's index
+  // already held when the window first read it (`seeded`) opens nothing.
+  const seen = new Set<string>()
+  const seeded = { account: undefined as string | undefined }
+  createEffect(() => {
+    const state = drive.remote()
+    if (state?.status !== "ready") return
+    const fresh = arrivals(state.links, seen)
+    if (seeded.account !== state.account) {
+      seeded.account = state.account
+      return
+    }
+    untrack(() =>
+      fresh.forEach((link) => {
+        const session = sessionOf(ctx, link.conversation)
+        if (!session || ctx.layout.state(docKey(link.document), session) !== "closed") return
+        ctx.layout.open(docKey(link.document), session, { tab: landing(link.act), background: true })
+      }),
+    )
+  })
+
+  const list = createMemo(
+    (): PanelTab => ({
+      id: "drive",
+      title: ctx.t("drive.panel.title"),
+      group: "drive",
+      label: (state) => <ListTabLabel title={ctx.t("drive.panel.title")} active={state.active} />,
+    }),
+  )
   // The same tab object per document while its title and the language stay: a new one would render its label again.
   const docs = new Map<string, PanelTab>()
   // A restored tab can name a document the window has not heard of: it is read once, hidden until then, and shown as
@@ -47,7 +77,14 @@ export function registerDrive(ctx: SetupContext<typeof definition>) {
     }
     const cached = docs.get(id)
     if (cached?.title === title) return cached
-    const tab: PanelTab = { id: `drive.${id}`, title, group: "drive", hidden: name === undefined && !missing, missing }
+    const tab: PanelTab = {
+      id: `drive.${id}`,
+      title,
+      group: "drive",
+      hidden: name === undefined && !missing,
+      missing,
+      label: (state) => <DocTabLabel id={id} title={title} active={state.active} />,
+    }
     docs.set(id, tab)
     return tab
   }

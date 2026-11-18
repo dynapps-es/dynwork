@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { DynWorkAccounts } from "../../src/accounts/accounts"
 import { DriveBackend } from "../../src/drive/backend"
 import { DriveFake } from "../../src/drive/fake"
@@ -25,13 +25,19 @@ function issued() {
 
 conformance("fake", () => {
   const backend = DriveFake.make({ user })
-  return { backend, suggestOnly: backend.suggestOnly }
+  return { backend, suggestOnly: backend.suggestOnly, stage: backend.stage }
 })
 
 conformance("Governance, over sp-client", () => ({
   backend: remote(),
   suggestOnly: (on) => {
     instance.state.drive.suggestOnly = on
+  },
+  // The agent's `documents_upload` leaves its bytes where the instance's resumable uploads do.
+  stage: (bytes, mime) => {
+    const ref = createHash("sha256").update(bytes).digest("hex")
+    instance.state.drive.blobs.set(ref, { bytes, mime })
+    return ref
   },
 }))
 

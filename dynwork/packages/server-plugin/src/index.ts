@@ -3,6 +3,7 @@ import { Effect, Exit, Schema, Stream } from "effect"
 import { DynWorkBundles } from "./bundles"
 import { DynWorkConfig } from "./config"
 import { DynWorkSync } from "./contract"
+import { DynWorkDocuments } from "./documents"
 import { DynWorkGateway } from "./gateway"
 import { DynWorkInstructions } from "./instructions"
 import { DynWorkMapping } from "./mapping"
@@ -75,6 +76,22 @@ export const RoutinesDefinition = Rpc.define({
   events: {
     request: { schema: Schema.toStandardSchemaV1(DynWorkRoutines.Request) },
     withdraw: { schema: Schema.toStandardSchemaV1(DynWorkRoutines.Withdrawn) },
+  },
+})
+
+// What the agent does with the `documents` MCP server (`./documents`): main adds a write's folder and message, and hears
+// what each write touched.
+export const DocumentsDefinition = Rpc.define({
+  id: DynWorkDocuments.id,
+  methods: {
+    answer: {
+      input: Schema.toStandardSchemaV1(DynWorkDocuments.Answer),
+      output: Schema.toStandardSchemaV1(DynWorkDocuments.Accepted),
+    },
+  },
+  events: {
+    ask: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Ask) },
+    touch: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Touch) },
   },
 })
 
@@ -576,6 +593,27 @@ export default Plugin.define({
       ),
       Effect.forkScoped({ startImmediately: true }),
     )
+
+    // The `documents` server's writes: before one, main adds the conversation's folder and message; after one, it hears
+    // what the call touched. Code Mode programs' calls pass the same hooks. Any other tool is left alone.
+    const documentsRpc = yield* ctx.rpc
+      .register(DocumentsDefinition, { answer: (input) => Effect.sync(() => DynWorkDocuments.answer(input)) })
+      .pipe(Effect.orDie)
+    yield* ctx.tool.hook("execute.before", (event) =>
+      Effect.gen(function* () {
+        const write = DynWorkDocuments.verb(event.tool)
+        if (write !== "create" && write !== "edit") return
+        const answered = yield* DynWorkDocuments.ask(
+          { ask: (ask) => documentsRpc.events.emit("ask", ask).pipe(Effect.ignore) },
+          { id: event.id, session: event.sessionID, verb: write },
+        )
+        if (answered) event.input = DynWorkDocuments.apply(write, event.input, answered)
+      }),
+    )
+    yield* ctx.tool.hook("execute.after", (event) => {
+      const touched = DynWorkDocuments.touch(event)
+      return touched ? documentsRpc.events.emit("touch", touched).pipe(Effect.ignore) : Effect.void
+    })
 
     // The scheduled-task tools (routines in code): they ask main, which holds the routines, and wait for its answer (`./routines`).
     const routinesRpc = yield* ctx.rpc

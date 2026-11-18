@@ -100,6 +100,9 @@ test("the plugin registers the hooks, transforms and RPC it documents", async ()
     "session.hook(http.request)@systemprompt",
     "session.hook(http.response)@systemprompt",
     "event.subscribe(session.step.ended,session.step.failed)",
+    "rpc.register(dynwork.documents)",
+    "tool.hook(execute.before)",
+    "tool.hook(execute.after)",
     "rpc.register(dynwork.routines-chat)",
     "tool.transform",
   ])

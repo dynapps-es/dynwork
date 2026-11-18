@@ -376,8 +376,16 @@ export function startFake() {
         next_cursor: next < matching.length ? Buffer.from(String(next)).toString("base64url") : null,
       })
     }
-    if (route === "GET /api/v1/document-folders")
-      return Response.json({ folders: [...drive.folders.values()], documents: [], next_cursor: null })
+    // As 0.83 answers: the roots, or with `?folder=<id>` the folders of that one; never the whole tree.
+    if (route === "GET /api/v1/document-folders") {
+      const parent = url.searchParams.get("folder")
+      if (parent !== null && !drive.folders.has(parent)) return notFound(`folder ${parent}`)
+      return Response.json({
+        folders: [...drive.folders.values()].filter((entry) => entry.parent_id === parent),
+        documents: [],
+        next_cursor: null,
+      })
+    }
     if (route === "POST /api/v1/document-folders") {
       const input = json()
       const folder = {
