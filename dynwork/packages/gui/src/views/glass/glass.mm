@@ -26,7 +26,6 @@ int napi_set_named_property(napi_env, napi_value, const char*, napi_value);
 @interface DynWorkSidebarGlass : NSObject
 @property(strong) NSView* backing;
 @property(strong) NSSplitViewController* split;
-@property(strong) id resize;
 @end
 
 @implementation DynWorkSidebarGlass
@@ -82,32 +81,21 @@ static napi_value attach(napi_env env, napi_callback_info info) {
   holder.backing.layer.backgroundColor = color;
   holder.backing.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 
+  // The sidebar is the split view's only item, so it spans the whole window and the chrome around the panels shows the
+  // same glass as the sidebar, in every layout. Its thickness is set once, here, with no upper bound: the split view
+  // follows the window through its autoresizing mask. Changing a split item's thickness while the window resizes
+  // invalidates the window's constraints from inside its layout pass, and macOS 26 raises an exception for that loop
+  // (`-[NSWindow _postWindowNeedsUpdateConstraints]`) and quits the app.
   NSViewController* side = [NSViewController new];
   side.view = [[NSView alloc] initWithFrame:content.bounds];
-  NSViewController* rest = [NSViewController new];
-  rest.view = [[NSView alloc] initWithFrame:NSZeroRect];
   NSSplitViewItem* sidebar = [NSSplitViewItem sidebarWithViewController:side];
+  sidebar.minimumThickness = 0;
+  sidebar.maximumThickness = NSSplitViewItemUnspecifiedDimension;
+  sidebar.canCollapse = NO;
   holder.split = [NSSplitViewController new];
   [holder.split addSplitViewItem:sidebar];
-  [holder.split addSplitViewItem:[NSSplitViewItem splitViewItemWithViewController:rest]];
   holder.split.view.frame = content.bounds;
   holder.split.view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-
-  // The sidebar spans the whole window, so the chrome around the panels shows the same glass as the sidebar, in every
-  // layout. It follows the window's width.
-  void (^fill)(void) = ^{
-    CGFloat width = content.bounds.size.width;
-    sidebar.minimumThickness = width;
-    sidebar.maximumThickness = width;
-  };
-  fill();
-  content.postsFrameChangedNotifications = YES;
-  holder.resize = [NSNotificationCenter.defaultCenter addObserverForName:NSViewFrameDidChangeNotification
-                                                                  object:content
-                                                                   queue:nil
-                                                              usingBlock:^(NSNotification*) {
-                                                                fill();
-                                                              }];
 
   [content addSubview:holder.split.view positioned:NSWindowBelow relativeTo:nil];
   [content addSubview:holder.backing positioned:NSWindowBelow relativeTo:nil];
@@ -123,7 +111,6 @@ static napi_value detach(napi_env env, napi_callback_info info) {
   NSWindow* window = windowOf(env, argv[0]);
   DynWorkSidebarGlass* holder = objc_getAssociatedObject(window, &holderKey);
   if (!holder) return undefined(env);
-  [NSNotificationCenter.defaultCenter removeObserver:holder.resize];
   [holder.split.view removeFromSuperview];
   [holder.backing removeFromSuperview];
   objc_setAssociatedObject(window, &holderKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
