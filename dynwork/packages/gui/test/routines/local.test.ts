@@ -97,6 +97,8 @@ describe("the local backend", () => {
     expect(anchor?.parentID).toBeUndefined()
     const anchorID = [...service.sessions.values()].find((session) => !session.parentID)?.id
     if (!anchorID) throw new Error("no anchor")
+    // A run's id says it is an automation run's child, so it does not report to the anchor or wake it.
+    created.slice(1).forEach((request) => expect(String(request.body?.id)).toStartWith("ses_aut_"))
     created.slice(1).forEach((request) =>
       expect(request.body).toMatchObject({
         parentID: anchorID,

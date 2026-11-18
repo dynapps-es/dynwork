@@ -821,8 +821,12 @@ export function make(options: Options): Local {
     // Every run carries its own permissions and metadata, or it would inherit the anchor's (docs/04-ui.md §A.3.1).
     // `conversation: true` has the app treat the child as a conversation of its own, with the standard composer,
     // rather than as a subagent's read-only session (DynWork's patch in `packages/app/src/session/subagent.ts`).
+    // The id carries the prefix of an automation run's child (`Automation.isRunSession`), which finishes quietly: any
+    // other child reports its result to its parent and wakes it each time it goes idle, so every run would have the
+    // anchor answer it (server-plugin/test/runs-live.test.ts).
     const child = await call(() =>
       client.session.create({
+        id: `ses_aut_dynwork_${crypto.randomUUID().replaceAll("-", "")}`,
         parentID: parent,
         title,
         ...(definition.agent ? { agent: definition.agent } : {}),
