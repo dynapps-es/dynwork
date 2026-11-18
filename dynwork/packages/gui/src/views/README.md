@@ -16,7 +16,7 @@ to open a page (`BuiltinLayout.page`):
 - `ctx.layout.page(id)` (through `builtinContext`) routes to `/page/<id>`, the way `ctx.layout.settings(page)` opens
   settings.
 
-The sidebar has two rows: Agents and Brain. The governance accounts are reached from Settings only, and no visible string
+The sidebar has three rows: Scheduled (the Agents view), Drive and Brain. The governance accounts are reached from Settings only, and no visible string
 names the platform behind them.
 
 ## Agents
@@ -93,6 +93,33 @@ desktop's router follows a same-origin link in place, and its route machine open
 so a run opens under its routine's anchor with the breadcrumb "Routine › Run". History and Activity rows are such links,
 and Open conversation goes to the newest run, or to the anchor before any run (`routineHref`). Remote runs still open in
 the viewer.
+
+## Drive
+
+The governance Drive inside Dynwork, as Claude's artifacts (`./drive`), on built-in demo data in memory: nothing is read
+from or sent to a server yet. It shows what the plan `2026-11-dynwork-drive` builds, so the real client replaces
+`demo.ts` and `store.ts` and keeps the screens.
+
+- **The view** (`/page/drive`): Home, Recent, Mine, Shared with me and From my chats; type filters, search in names and
+  content, list or grid, folders with their path and class, the selected document's preview, Upload (files picked or
+  dropped land after a moment) and New from a Dynapps template.
+- **A document** opens over the browser: its bar, the edition banner (Dynwork counts as an agent; the More menu
+  previews v2, editing as yourself), the outline, the canvas and a drawer with Info, Comments, Versions, Proposals and
+  Share. Word and Markdown draw as paper HTML, as the store renders them; a spreadsheet, a presentation, an HTML page
+  in a sandboxed iframe with a CSP that allows no network, and an uploaded PDF draw by format (`canvas.tsx`).
+- **Comments on a part** (`comments.tsx`): select text, cells or a range, or turn on comment mode (C) and click a
+  paragraph, a slide's box, an element of the HTML page or a point of the PDF. The comment opens in a card beside what it
+  points at; pins, highlights and the cells' corner marks open their thread. An anchor that needs the store to change
+  (a cell range, a PDF point) says P10. `@Agent` or Send to the agent makes the demo agent answer there, edit the
+  document (a new revision) and show the change in the chats that have it.
+- **Beside a chat** (`panel.tsx`, `register.tsx`): the + menu's Artifacts opens a side panel tab with the chat's
+  artifacts as cards (Load the sample conversation fills an empty chat), and each card opens the document in a tab of
+  its own with its versions. A highlight in the panel opens the document in the Drive on its thread. Use in a chat
+  attaches a document to the routed chat (a composer chip and its tab), and the sample's pending overwrite takes the
+  composer's place as OpenCode's permission dock.
+
+The menus load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does. The demo documents are English; the
+interface follows the window's language.
 
 ## Runs
 

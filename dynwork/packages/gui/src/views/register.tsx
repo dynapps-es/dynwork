@@ -4,6 +4,7 @@ import { createEffect, createMemo, onCleanup } from "solid-js"
 import type definition from "../accounts/index"
 import { RoutinesClient } from "../routines/client"
 import { SidebarBrand } from "./brand"
+import { registerDrive } from "./drive/register"
 import { ViewsNav } from "./nav"
 import { ViewRoute } from "./route"
 import { panelKey, routineOf } from "./runs/model"
@@ -17,12 +18,13 @@ import "./titlebar.css"
 import "./vibrancy.css"
 
 /** The DynWork views: their rows in the sidebar (and the narrow window's tabs drawer), their pages, the brand at the
- * sidebar's foot, the Runs panel on a routine's conversation, and the macOS sidebar material. */
+ * sidebar's foot, the Runs panel on a routine's conversation, the Drive beside a chat, and the macOS sidebar material. */
 export function registerViews(ctx: SetupContext<typeof definition>) {
   ctx.add(BuiltinSlot, { at: "sidebar.nav", render: (input) => <ViewsNav place={input.place} /> })
   ctx.add(BuiltinSlot, { at: "page", render: (input) => <ViewRoute id={input.id} /> })
   ctx.add(BuiltinSlot, { at: "sidebar.footer", render: () => <SidebarBrand /> })
   registerRuns(ctx)
+  registerDrive(ctx)
   // The macOS window shows the native sidebar material through the shell's chrome (`./vibrancy.css`).
   if (ctx.desktop?.os !== "macos") return
   document.documentElement.dataset.vibrancy = ""

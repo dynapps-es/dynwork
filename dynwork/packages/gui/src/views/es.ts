@@ -1,12 +1,14 @@
 import routines from "../routines/i18n/es"
 import agents from "./agents/es"
 import brain from "./brain/es"
+import drive from "./drive/es"
 import type en from "./en"
 import runs from "./runs/es"
 
 // The views' strings in Spanish (`./en`), merged into the `dynwork` built-in's `es` table.
 export default {
   "views.nav.agents": "Programadas",
+  "views.nav.drive": "Drive",
   "views.nav.brain": "Brain",
   "views.device.macos": "Este Mac",
   "views.device.macos.inline": "este Mac",
@@ -23,6 +25,7 @@ export default {
   "views.subnav": "Secciones",
   ...agents,
   ...brain,
+  ...drive,
   ...runs,
   ...routines,
 } satisfies Record<keyof typeof en, string>
