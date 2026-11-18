@@ -171,8 +171,9 @@ const aka = (words?: { es: string; fr: string; nl: string }) =>
     : "; FR tâche planifiée; NL geplande taak)")
 
 // What every scheduled-task tool says once, in the list's description: the agent reads every tool's description anyway.
-// What they are not for names the tools a request could reach instead: OpenCode's session `schedule_*` tools (flag
-// `schedules`), its `todowrite`, and the agent-farm connector, which runs farm tasks now.
+// What they are not for names the tools a request could reach instead: OpenCode's project `automation_*` tools (flag
+// `automations`, formerly `schedule_*` and `schedules`), its `todowrite`, and the agent-farm connector, which runs farm
+// tasks now.
 const rules =
   'Words people use: scheduled task, routine, recurring or repeating task, automation, cron-like job, "every morning", ' +
   '"every Monday", "daily at 8"; ES tarea programada, rutina, automatización, "todos los días", "cada lunes"; FR ' +
@@ -180,9 +181,9 @@ const rules =
   'A task runs on this computer ("this Mac", where \'local\') or on Cloud, formerly the Agent Farm or "the farm" ' +
   "(where 'farm'). These are direct tools, not in Code Mode's search. Anything recurring, or meant to show in Tasks, is a " +
   "scheduled task: never a shell crontab, a launchd job, a reminder app, todowrite (this conversation's to-do list) or " +
-  "OpenCode's schedule_* tools, which only wake this same conversation later (use those just for a one-off follow-up " +
-  "here, such as \"check again in 10 minutes\"). To schedule on the farm use create_scheduled_task with where 'farm', " +
-  "never the agent-farm connector's tools; that connector only runs a farm task once, now. " +
+  "OpenCode's automation_* tools, which only prompt a conversation of this project later (use those just for a one-off " +
+  "follow-up here, such as \"check again in 10 minutes\"). To schedule on the farm use create_scheduled_task with " +
+  "where 'farm', never the agent-farm connector's tools; that connector only runs a farm task once, now. " +
   "Scheduled tasks are managed only with the *_scheduled_task(s) tools: never edit Dynwork's files or its database, and " +
   "never call its or OpenCode's APIs or CLI to change one. Before creating a task, call list_scheduled_tasks; if one " +
   "already does the same thing, propose update_scheduled_task instead of a new one, and to rename a task use " +
