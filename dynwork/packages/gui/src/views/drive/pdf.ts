@@ -52,16 +52,39 @@ export function clampPage(page: number, count: number) {
 }
 
 /**
- * How pdf.js opens a PDF here: from its bytes, with nothing fetched. No URL, no worker fetch, and no font, CMap or
- * decoder URL, so the PDF reaches no network; XFA forms are off. pdf.js's core API runs no PDF JavaScript (that is the
- * viewer's scripting sandbox, not used here), and pdf.js 6 no longer compiles fonts with `eval`.
+ * How pdf.js opens a PDF here: from its bytes, with nothing fetched from the network. No URL and no worker fetch; the
+ * standard fonts a PDF names without embedding them (the Drive's own `?format=pdf` renditions do) come from `fonts`,
+ * files bundled with the app and served from its own origin, and no CMap or decoder is loaded. XFA forms are off.
+ * pdf.js's core API runs no PDF JavaScript (that is the viewer's scripting sandbox, not used here), and pdf.js 6 no
+ * longer compiles fonts with `eval`.
  */
-export function pdfSource(bytes: Uint8Array): DocumentInitParameters {
+export function pdfSource(bytes: Uint8Array, fonts?: Readonly<Record<string, string>>): DocumentInitParameters {
   return {
     // pdf.js takes the buffer over to its worker: a copy keeps the caller's bytes usable.
     data: bytes.slice(),
     useWorkerFetch: false,
     enableXfa: false,
     stopAtErrors: false,
+    // pdf.js asks its data factory for `<standardFontDataUrl><file>`; the factory answers from `fonts` by file name. The
+    // bundled fonts rather than the system's, so a PDF looks the same on every computer (Linux has no Helvetica).
+    ...(fonts && {
+      standardFontDataUrl: "standard-fonts/",
+      BinaryDataFactory: standardFonts(fonts),
+      useSystemFonts: false,
+    }),
+  }
+}
+
+/**
+ * pdf.js's data factory over the standard fonts' URLs by file name: it reads a font the map names and refuses anything
+ * else, CMaps and decoders included.
+ */
+export function standardFonts(fonts: Readonly<Record<string, string>>) {
+  return class {
+    async fetch(input: { kind: string; filename: string }) {
+      const url = input.kind === "standardFontDataUrl" ? fonts[input.filename] : undefined
+      if (url === undefined) throw new Error(`No ${input.kind} data for ${input.filename}.`)
+      return new Uint8Array(await (await fetch(url)).arrayBuffer())
+    }
   }
 }

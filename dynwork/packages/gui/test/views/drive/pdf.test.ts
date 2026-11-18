@@ -5,6 +5,7 @@ import {
   pagesNear,
   pdfSource,
   scaleOf,
+  standardFonts,
   zoomIn,
   zoomLevels,
   zoomOut,
@@ -103,11 +104,41 @@ describe("pdf.js over a PDF's bytes", () => {
     expect(source.data).toEqual(bytes)
   })
 
+  test("standard fonts come from the bundled files by name, and nothing else is read", async () => {
+    const Fonts = standardFonts({ "FoxitSerif.pfb": "data:application/octet-stream;base64,AAEC" })
+    const fonts = new Fonts()
+    expect([...(await fonts.fetch({ kind: "standardFontDataUrl", filename: "FoxitSerif.pfb" }))]).toEqual([0, 1, 2])
+    await expect(fonts.fetch({ kind: "standardFontDataUrl", filename: "Other.pfb" })).rejects.toThrow(
+      "No standardFontDataUrl",
+    )
+    await expect(fonts.fetch({ kind: "cMapUrl", filename: "FoxitSerif.pfb" })).rejects.toThrow("No cMapUrl")
+    await expect(fonts.fetch({ kind: "wasmUrl", filename: "openjpeg.wasm" })).rejects.toThrow("No wasmUrl")
+    const source = pdfSource(tinyPdf(["One"]), { "FoxitSerif.pfb": "data:," })
+    expect(source.standardFontDataUrl).toEndWith("/")
+    expect(source.BinaryDataFactory).toBeDefined()
+    expect(source.useSystemFonts).toBe(false)
+    expect([source.cMapUrl, source.wasmUrl, source.url]).toEqual([undefined, undefined, undefined])
+    expect(pdfSource(tinyPdf(["One"])).BinaryDataFactory).toBeUndefined()
+  })
+
   // Canvas drawing cannot run here: happy-dom's canvas has no 2D context, so the pages' pixels are checked in the app.
   test("a real PDF opens with those options: its pages, their size and their text", async () => {
     const { getDocument, GlobalWorkerOptions } = await import("pdfjs-dist")
     GlobalWorkerOptions.workerSrc = import.meta.resolve("pdfjs-dist/build/pdf.worker.mjs")
-    const task = getDocument(pdfSource(tinyPdf(["Hello one", "Hello two"])))
+    // The standard fonts as the app bundles them, here straight from the package; the PDF names Helvetica unembedded
+    const folder = new URL("../../../node_modules/pdfjs-dist/standard_fonts/", import.meta.url)
+    const asked: string[] = []
+    const fonts = new Proxy(
+      {},
+      {
+        get: (_, name) => {
+          if (typeof name !== "string") return undefined
+          asked.push(name)
+          return new URL(name, folder).href
+        },
+      },
+    )
+    const task = getDocument(pdfSource(tinyPdf(["Hello one", "Hello two"]), fonts))
     const doc = await task.promise
     const page = await doc.getPage(2)
     const viewport = page.getViewport({ scale: 1.5 })
@@ -115,6 +146,8 @@ describe("pdf.js over a PDF's bytes", () => {
     expect(doc.numPages).toBe(2)
     expect([viewport.width, viewport.height]).toEqual([300, 150])
     expect(text.items.flatMap((item) => ("str" in item ? [item.str] : []))).toEqual(["Hello two"])
+    // Helvetica's stand-in, read from the bundled fonts
+    expect(asked).toContain("LiberationSans-Regular.ttf")
     await task.destroy()
   })
 })

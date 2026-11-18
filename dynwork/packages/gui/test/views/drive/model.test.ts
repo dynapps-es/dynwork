@@ -72,6 +72,19 @@ describe("what the browser lists", () => {
     expect(visibleDocs(docs, browse({ query: "a" }))).toHaveLength(4)
   })
 
+  test("PDF lists an uploaded PDF, which the instance keeps as a `file` of type application/pdf", () => {
+    const mixed = [
+      ...docs,
+      doc("scan.pdf", { format: "file", mime: "application/pdf" }),
+      doc("print.pdf", { format: "pdf", mime: "application/pdf" }),
+      doc("data.bin", { format: "file", mime: "application/octet-stream" }),
+    ]
+    expect(names(visibleDocs(mixed, browse({ scope: "mine", type: "pdf", sort: "name" })))).toEqual([
+      "print.pdf",
+      "scan.pdf",
+    ])
+  })
+
   test("the type filter and the three orders apply on top", () => {
     expect(names(visibleDocs(docs, browse({ scope: "mine", type: "xlsx" })))).toEqual(["analysis.xlsx"])
     expect(names(visibleDocs(docs, browse({ scope: "mine", sort: "name" })))).toEqual([

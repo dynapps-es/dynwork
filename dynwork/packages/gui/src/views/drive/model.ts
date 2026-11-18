@@ -39,10 +39,16 @@ export function visibleDocs(documents: readonly Document[], browse: Browse) {
     type: (a: Document, b: Document) => a.format.localeCompare(b.format) || b.updated - a.updated,
   }[browse.sort]
   const root = browse.scope === "home" && browse.folder === undefined && !browse.query.trim()
-  return documents
-    .filter((document) => !root || document.folder === undefined)
-    .filter((document) => browse.type === "all" || document.format === browse.type)
-    .toSorted(order)
+  return (
+    documents
+      .filter((document) => !root || document.folder === undefined)
+      // An uploaded PDF is a `file` to the instance: PDF goes by type too.
+      .filter(
+        (document) =>
+          browse.type === "all" || document.format === browse.type || (browse.type === "pdf" && isPdf(document)),
+      )
+      .toSorted(order)
+  )
 }
 
 /**

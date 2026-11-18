@@ -13,6 +13,17 @@ import { exportPdf } from "./row-menu"
 
 type Size = { readonly width: number; readonly height: number }
 
+// pdf.js's standard fonts, bundled by Vite and served from the app's own origin, by file name.
+const fonts = Object.fromEntries(
+  Object.entries(
+    import.meta.glob<string>("../../../node_modules/pdfjs-dist/standard_fonts/*.{pfb,ttf}", {
+      query: "?url",
+      import: "default",
+      eager: true,
+    }),
+  ).map(([path, url]) => [path.slice(path.lastIndexOf("/") + 1), url]),
+)
+
 // The room around the pages, in CSS pixels, which `fit` leaves free.
 const gutter = 48
 
@@ -293,7 +304,7 @@ async function open(bytes: Uint8Array) {
   // Vite bundles the worker with the app and serves it from the app's own origin; nothing comes from a CDN.
   const { default: worker } = await import("pdfjs-dist/build/pdf.worker.min.mjs?url")
   GlobalWorkerOptions.workerSrc = worker
-  const task = getDocument(pdfSource(bytes))
+  const task = getDocument(pdfSource(bytes, fonts))
   const doc = await task.promise
   const sizes = await Promise.all(
     Array.from({ length: doc.numPages }, (_, index) =>
