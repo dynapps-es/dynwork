@@ -1,11 +1,13 @@
 import routines from "../routines/i18n/nl"
 import agents from "./agents/nl"
 import brain from "./brain/nl"
+import chats from "./chats/nl"
 import type en from "./en"
 import runs from "./runs/nl"
 
 // The views' strings in Dutch (`./en`), merged into the `dynwork` built-in's `nl` table.
 export default {
+  "views.nav.chats": "Chats",
   "views.nav.agents": "Gepland",
   "views.nav.brain": "Brain",
   "views.device.macos": "Deze Mac",
@@ -24,6 +26,7 @@ export default {
   "views.subnav": "Onderdelen",
   ...agents,
   ...brain,
+  ...chats,
   ...runs,
   ...routines,
 } satisfies Record<keyof typeof en, string>
