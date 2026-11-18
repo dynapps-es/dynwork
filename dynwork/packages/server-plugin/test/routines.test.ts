@@ -147,7 +147,7 @@ test("the guidance says where a task runs, what the tools are not for, and how t
   // What else a request could reach.
   expect(rules).toContain("never a shell crontab")
   expect(rules).toContain("todowrite")
-  expect(rules).toContain("OpenCode's schedule_* tools, which only wake this same conversation later")
+  expect(rules).toContain("OpenCode's automation_* tools, which only prompt a conversation of this project later")
   expect(rules).toContain("never the agent-farm connector's tools")
   expect(rules).toContain("not in Code Mode's search")
   // Managed only through the tools, and changed rather than duplicated.

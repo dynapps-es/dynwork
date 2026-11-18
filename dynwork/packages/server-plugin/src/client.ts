@@ -27,8 +27,13 @@ export class Failed extends Error {
 /** How long one call may take: `apply` waits until every Location has rebuilt its content. */
 export const timeout = 30_000
 
+/** How long a call waits for the plugin to load in a Location that has not activated it yet. */
+export const loading = 15_000
+
 export function make(endpoint: () => Endpoint | undefined) {
-  const call = async (method: string, input: unknown) => {
+  // The service never waits for plugins: the first call into a cold Location starts loading them and answers
+  // `rpc.unavailable`, so the caller waits on its side. Nothing ran, so the same call is sent again.
+  const call = async (method: string, input: unknown, deadline = Date.now() + loading): Promise<unknown> => {
     const server = endpoint()
     if (!server) throw new Failed(method, 0)
     const response = await fetch(`${server.url.replace(/\/+$/, "")}/api/rpc/${DynWorkSync.id}/${method}`, {
@@ -40,7 +45,12 @@ export function make(endpoint: () => Endpoint | undefined) {
     }).catch(() => undefined)
     if (!response) throw new Failed(method, 0)
     const body: unknown = await response.json().catch(() => undefined)
-    if (!response.ok) throw new Failed(method, response.status, errorType(body))
+    const type = response.ok ? undefined : errorType(body)
+    if (type === "rpc.unavailable" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      return call(method, input, deadline)
+    }
+    if (!response.ok) throw new Failed(method, response.status, type)
     return outputOf(body)
   }
   return {

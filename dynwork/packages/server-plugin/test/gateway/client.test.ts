@@ -44,6 +44,21 @@ test("token posts the renewed JWT and reads whether the plugin took it", async (
   })
 })
 
+test("a call into a Location still loading the plugin is sent again until it loads, and other errors are not", async () => {
+  const unavailable = () => Response.json({ _tag: "RpcError", type: "rpc.unavailable" }, { status: 400 })
+  answers.push(unavailable, unavailable)
+  requests.length = 0
+  expect(await client.token({ instance, jwt: "a.b.c", expiresAt: 5 })).toBe(true)
+  expect(requests.map((request) => request.path)).toEqual(Array(3).fill("/api/rpc/dynwork.sync/token"))
+  answers.push(() => Response.json({ _tag: "RpcError", type: "rpc.invalid_input" }, { status: 400 }))
+  requests.length = 0
+  expect(await client.token({ instance, jwt: "a.b.c", expiresAt: 5 }).catch((error: unknown) => error)).toMatchObject({
+    status: 400,
+    type: "rpc.invalid_input",
+  })
+  expect(requests).toHaveLength(1)
+})
+
 test("listen hands over the three events, split across chunks, and skips everything else", async () => {
   const frames = [
     `data: ${JSON.stringify({ type: "server.connected", data: {} })}\n\n`,
