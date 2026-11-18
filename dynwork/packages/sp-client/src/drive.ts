@@ -287,7 +287,7 @@ export const importFile = Effect.fn("SpDrive.importFile")(function* (baseUrl: st
     })
   }
   const form = new FormData()
-  form.set("file", new File([input.bytes], input.name, { type: mime }))
+  form.set("file", new File([input.bytes.slice()], input.name, { type: mime }))
   form.set("name", input.name)
   if (input.folderId !== undefined) form.set("folder_id", input.folderId)
   if (input.message !== undefined) form.set("message", input.message)
@@ -613,7 +613,7 @@ const send = Effect.fnUntraced(function* (request: Request) {
         body:
           request.form ??
           (request.body === undefined || request.body instanceof Uint8Array
-            ? request.body
+            ? request.body?.slice()
             : JSON.stringify(request.body)),
         // A redirect is never followed: it could carry the credential to another origin
         redirect: "manual",
