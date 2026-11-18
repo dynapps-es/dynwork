@@ -2,15 +2,11 @@ import { describe, expect, test } from "bun:test"
 import type { Document, Folder, Link } from "../../../src/drive/contract"
 import {
   ago,
-  anchorCell,
   byConversation,
-  cellsIn,
   highlight,
   known,
   mimeOf,
-  needsStoreChange,
   pathOf,
-  rangeOf,
   size,
   visibleDocs,
   visibleFolders,
@@ -188,22 +184,5 @@ describe("names, sizes and times", () => {
     expect(ago(0, "en", "now")).toBe("now")
     expect(ago(5, "en", "now")).toBe("5 minutes ago")
     expect(ago(1440, "es", "ahora")).toBe("ayer")
-  })
-})
-
-describe("cells and anchors", () => {
-  test("a range covers its cells whichever corner comes first", () => {
-    expect(cellsIn("B2:C3")).toEqual(["B2", "B3", "C2", "C3"])
-    expect(cellsIn("C3:B2")).toEqual(["B2", "B3", "C2", "C3"])
-    expect(cellsIn(undefined)).toEqual([])
-    expect(rangeOf("C6", "C3")).toBe("C3:C6")
-    expect(rangeOf("F7", "F7")).toBeUndefined()
-  })
-
-  test("only a cell range and a PDF point need the Drive to change (P10)", () => {
-    expect(needsStoreChange({ kind: "range", sheet: 0, from: "D2", to: "E9" })).toBe(true)
-    expect(needsStoreChange({ kind: "page", page: 0, x: 10, y: 10 })).toBe(true)
-    expect(needsStoreChange({ kind: "cell", sheet: 0, cell: "F7" })).toBe(false)
-    expect(anchorCell({ kind: "range", sheet: 0, from: "D2", to: "E9" })).toBe("D2")
   })
 })

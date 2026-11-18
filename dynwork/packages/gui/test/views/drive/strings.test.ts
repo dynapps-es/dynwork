@@ -18,7 +18,7 @@ describe("the Drive's strings", () => {
       ...typeFilters.map((type) => `drive.type.${type}`),
       ...sorts.map((sort) => `drive.sort.${sort}`),
       ...formats.map((format) => `drive.format.${format}`),
-      ...["details", "versions", "proposals", "share"].map((tab) => `drive.tab.${tab}`),
+      ...["details", "comments", "versions", "proposals", "share"].map((tab) => `drive.tab.${tab}`),
       ...["own", "share", "edit", "comment", "view"].map((level) => `drive.level.${level}`),
       ...["open", "accepted", "rejected"].map((status) => `drive.proposals.${status}`),
     ]
@@ -37,6 +37,17 @@ describe("the Drive's strings", () => {
         .map(([key]) => `${locale} ${key}`),
     )
     expect(drift).toEqual([])
+  })
+
+  test("every string the comments view names is in every language", async () => {
+    const source = await Bun.file(new URL("../../../src/views/drive/comments.tsx", import.meta.url)).text()
+    const keys = [...new Set([...source.matchAll(/"(drive\.[\w.]+)"/g)].map((match) => match[1]))]
+    expect(keys.length).toBeGreaterThan(20)
+    expect(
+      Object.entries(locales).flatMap(([locale, table]) =>
+        keys.filter((key) => !table[key]).map((key) => `${locale} ${key}`),
+      ),
+    ).toEqual([])
   })
 
   // The platform and the other products behind Governance are never named on screen.

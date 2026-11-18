@@ -477,12 +477,17 @@ export function startFake() {
         })
       }
       if (route.startsWith("GET") && rest === "read") {
-        if (url.searchParams.get("view") !== "outline") return refuse(400, "invalid_params", "unknown view")
-        // The node ids are those a comment anchors to; `n1` is the first line, the one the fake accepts
+        const view = url.searchParams.get("view")
+        if (view !== "outline" && view !== "text") return refuse(400, "invalid_params", "unknown view")
+        // The node ids are those a comment anchors to; `n1` is the first line, the one the fake accepts. The outline
+        // leaves paragraphs behind a gap; the text lists every node, the blank ones too.
         return Response.json({
           revision_id: entry.head_revision_id,
           format: entry.format,
-          lines: ["n1:3639efcd| # Hola", "gap 2 nodes", ...(text.length > 0 ? ["n2:9a8b7c6d| second"] : [])],
+          lines:
+            view === "text"
+              ? ["n1:3639efcd| # Hola", "n2:e3b0c442| ", "n3:9a8b7c6d| second"]
+              : ["n1:3639efcd| # Hola", "gap 2 nodes", ...(text.length > 0 ? ["n2:9a8b7c6d| second"] : [])],
         })
       }
       if (route.startsWith("GET") && rest === "revisions") return Response.json({ revisions: entry.revisions })

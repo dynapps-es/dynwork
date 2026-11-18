@@ -3,21 +3,30 @@ import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
 import { Tabs } from "@opencode/ui/tabs"
-import { For, Match, Show, Switch } from "solid-js"
+import { createEffect, For, Match, on, Show, Switch } from "solid-js"
 import type { Document } from "../../drive/contract"
 import { askAgent, openBeside, sessionOf, titleOf } from "./chat"
+import { CommentMarks, CommentsTab } from "./comments"
 import { DocMenu } from "./menus"
 import { Avatar, FormatGlyph, Level, openGovernance, Tag, useNames } from "./parts"
 import { account, drive, governance, type DocTab } from "./store"
 import { Viewer } from "./viewer"
 
-// The drawer's tabs. Comments join them with the Drive's own comments (phase 06 of the Drive plan).
-const tabs: readonly DocTab[] = ["details", "versions", "proposals", "share"]
+// The drawer's tabs.
+const tabs: readonly DocTab[] = ["details", "comments", "versions", "proposals", "share"]
 
 /** A document open in the Drive: its bar, the edition banner, its viewer and the drawer. */
 export function Workspace(props: { doc: Document }) {
   const ctx = usePlugin()
   const names = useNames()
+  // A new head has other nodes, and maybe other comments: read them again.
+  createEffect(
+    on(
+      () => props.doc.revision,
+      () => void drive.discuss(props.doc.id),
+      { defer: true },
+    ),
+  )
 
   return (
     <div data-slot="drive-workspace">
@@ -71,6 +80,9 @@ export function Workspace(props: { doc: Document }) {
       <div data-slot="drive-ws-body">
         <div data-slot="drive-canvas">
           <Viewer doc={props.doc} />
+          <Show when={props.doc.format === "markdown"}>
+            <CommentMarks doc={props.doc} />
+          </Show>
         </div>
         <aside data-slot="drive-drawer">
           <Tabs
@@ -82,8 +94,8 @@ export function Workspace(props: { doc: Document }) {
                 {(tab) => (
                   <Tabs.Trigger value={tab}>
                     {ctx.t(`drive.tab.${tab}`)}
-                    <Show when={count(tab)}>
-                      <span data-slot="drive-count">{count(tab)}</span>
+                    <Show when={count(tab, props.doc)}>
+                      <span data-slot="drive-count">{count(tab, props.doc)}</span>
                     </Show>
                   </Tabs.Trigger>
                 )}
@@ -92,6 +104,9 @@ export function Workspace(props: { doc: Document }) {
           </Tabs>
           <div data-slot="drive-drawer-body">
             <Switch>
+              <Match when={drive.state.doc.tab === "comments"}>
+                <CommentsTab doc={props.doc} />
+              </Match>
               <Match when={drive.state.doc.tab === "versions"}>
                 <Versions doc={props.doc} />
               </Match>
@@ -112,7 +127,8 @@ export function Workspace(props: { doc: Document }) {
   )
 }
 
-function count(tab: DocTab) {
+function count(tab: DocTab, doc: Document) {
+  if (tab === "comments") return drive.threadsOf(doc.id).filter((thread) => thread.open).length
   if (tab === "versions") return drive.state.opened.revisions?.length ?? 0
   if (tab === "proposals") return (drive.state.opened.proposals ?? []).filter((item) => item.status === "open").length
   return 0

@@ -154,6 +154,17 @@ describe("reading", () => {
     expect(sent(`/api/v1/documents/${created.id}/read`)[0]?.query).toBe("?view=outline")
   })
 
+  test("the text view lists every node, blank ones included, where the outline leaves paragraphs out", async () => {
+    const created = await upload("b.html", html)
+    const nodes = await run(SpDrive.outline(fake.url, state.jwt, created.id, "text"))
+    expect(nodes.nodes).toEqual([
+      { id: "n1", hash: "3639efcd", text: "# Hola" },
+      { id: "n2", hash: "e3b0c442", text: "" },
+      { id: "n3", hash: "9a8b7c6d", text: "second" },
+    ])
+    expect(sent(`/api/v1/documents/${created.id}/read`).at(-1)?.query).toBe("?view=text")
+  })
+
   test("content gives the stored bytes, at the head or at an earlier revision", async () => {
     const created = await upload("notes.md", "# Notes")
     const head = await run(SpDrive.content(fake.url, state.jwt, created.id))

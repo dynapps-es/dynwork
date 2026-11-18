@@ -2,7 +2,7 @@ import { usePlugin, type Context } from "@opencode/plugin/gui"
 import { Icon } from "@opencode/ui/icon"
 import { For, Show, type JSX } from "solid-js"
 import type { Document, Failure } from "../../drive/contract"
-import { ago, known, me, needsStoreChange, pathOf, size, stem, type Format, type Message, type Thread } from "./model"
+import { ago, known, pathOf, size, stem, type Format, type Message } from "./model"
 import { drive, governance } from "./store"
 
 // Small pieces every Drive screen shares: the format glyph, avatars, tags, thumbnails, times and a thread's lines.
@@ -124,10 +124,13 @@ export function Thumb(props: { doc?: Pick<Document, "name" | "format"> }) {
   )
 }
 
-/** One message of a thread: who, when, how it was written, and the text with `@Agent` marked. */
+/** One message of a thread: who, when, and the text with `@Agent` marked. */
 export function MessageLine(props: { message: Message }) {
   const ctx = usePlugin()
-  const name = () => (props.message.by === me ? ctx.t("drive.you") : props.message.by)
+  const names = useNames()
+  // The Drive names an author by an id only: the grants of the documents opened name some, and the rest are "Someone".
+  const name = () =>
+    props.message.mine ? ctx.t("drive.you") : (drive.nameOf(props.message.author) ?? ctx.t("drive.comment.other"))
   const parts = () => props.message.text.split(/(@\p{L}+)/u)
   return (
     <div data-slot="drive-message">
@@ -135,10 +138,7 @@ export function MessageLine(props: { message: Message }) {
       <div data-slot="drive-message-body">
         <div data-slot="drive-message-who">
           <b>{name()}</b>
-          <span>{ago(props.message.age, ctx.locale.locale(), ctx.t("drive.now"))}</span>
-          <Show when={props.message.dynwork}>
-            <span data-slot="drive-via">{ctx.t("drive.comment.dynwork")}</span>
-          </Show>
+          <span>{names.ago(props.message.created)}</span>
         </div>
         <div data-slot="drive-message-text">
           <For each={parts()}>
@@ -150,44 +150,12 @@ export function MessageLine(props: { message: Message }) {
   )
 }
 
-const anchorIcons = {
-  text: "outline-quote",
-  block: "outline-text",
-  cell: "dot-grid",
-  range: "dot-grid",
-  shape: "outline-photo",
-  element: "select-element",
-  page: "file-document",
-} as const
-
-/** What a thread points at, as a line: "Cell F7 · Sheet 1", "Slide 3 · “…”". */
-export function AnchorLine(props: { thread: Pick<Thread, "anchor" | "quote"> }) {
-  const ctx = usePlugin()
-  const label = () => {
-    const anchor = props.thread.anchor
-    const quote = props.thread.quote
-    if (anchor.kind === "cell")
-      return ctx.t("drive.anchor.cell", { cell: anchor.cell, sheet: String(anchor.sheet + 1) })
-    if (anchor.kind === "range")
-      return ctx.t("drive.anchor.range", { range: `${anchor.from}:${anchor.to}`, sheet: String(anchor.sheet + 1) })
-    if (anchor.kind === "shape") return ctx.t("drive.anchor.shape", { slide: String(anchor.slide + 1), quote })
-    if (anchor.kind === "element") return ctx.t("drive.anchor.element", { quote })
-    if (anchor.kind === "page")
-      return quote
-        ? ctx.t("drive.anchor.pageQuote", { page: String(anchor.page + 1), quote })
-        : ctx.t("drive.anchor.page", { page: String(anchor.page + 1) })
-    if (anchor.kind === "block") return ctx.t("drive.anchor.block", { quote })
-    return `“${quote}”`
-  }
+/** What a thread or a new comment points at, as a line: the quote, the node's text, a cell range or a PDF page. */
+export function AnchorLine(props: { text: string; icon: "outline-quote" | "dot-grid" | "file-document" }) {
   return (
     <span data-slot="drive-anchor">
-      <Icon name={anchorIcons[props.thread.anchor.kind]} size="small" />
-      <span data-slot="drive-anchor-label">{label()}</span>
-      <Show when={needsStoreChange(props.thread.anchor)}>
-        <span data-slot="drive-decision" title={ctx.t("drive.anchor.p10")}>
-          P10
-        </span>
-      </Show>
+      <Icon name={props.icon} size="small" />
+      <span data-slot="drive-anchor-label">{props.text}</span>
     </span>
   )
 }

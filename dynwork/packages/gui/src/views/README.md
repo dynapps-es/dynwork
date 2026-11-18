@@ -147,8 +147,14 @@ in-memory Drive for the tests.
     `allow-same-origin` the frame's origin is opaque (no DynWork storage, cookies or DOM); the preload does not run in
     sub-frames, so it has no Ipc, and the window's Ipc handshake only takes messages from the window itself; main adds
     the sidecar's credential only to the top frame's requests; and the page sends no referrer.
-- **The comments layer** (`comments.tsx`, `canvas.tsx`): selection anchors, pins and cards on drawn documents, kept from
-  the demo and not mounted yet, until the Drive's comments reach the viewer (phase 06 of the Drive plan).
+- **Comments** (`comments.tsx`, the pure reads in `model.ts`): the Comments tab of the drawer lists the threads (open and
+  resolved), takes replies and resolves; there is no reopen, 0.83 has no route for it (G12). The instance anchors a
+  comment to a node and a quote inside it, read from the `text` view (every node, blank ones too). A Markdown document is
+  drawn by the app, so `CommentMarks` matches its blocks to the nodes by their text, marks the commented ones and offers
+  Comment on a selection. A page in a frame (HTML, Word, Excel, PowerPoint) has an opaque origin the app cannot read, so
+  the tab lists its nodes to pick from. A quote is only sent when it is in the node's own text (Markdown syntax
+  included); otherwise the comment anchors to the node. A cell range and a PDF point are offered only with
+  `rangeComments` and `pdfComments`.
 
 The menus load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does.
 

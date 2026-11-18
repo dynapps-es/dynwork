@@ -194,6 +194,8 @@ export function conformance(name: string, make: () => Subject) {
         ),
       )
       expect(first.anchor).toEqual({ node: node.id, find: "Hola" })
+      // The user's own comment, whichever way DynWork signs it
+      expect(first.mine).toBe(true)
       expect(first.resolved).toBeUndefined()
       const reply = await ok(backend.reply(created.document.id, { body: "Because.", parent: first.id }))
       expect(reply.parent).toBe(first.id)

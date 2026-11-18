@@ -213,14 +213,20 @@ export const pdf = Effect.fn("SpDrive.pdf")(function* (
 })
 
 /**
- * The nodes of a document at its head (`GET /{id}/read?view=outline`): the ids a comment is anchored to, and the text
- * of each. A line that is not a node (a gap marker, say) is left out.
+ * The nodes of a document at its head (`GET /{id}/read`): the ids a comment is anchored to, and the text of each. A line
+ * that is not a node (a gap marker, say) is left out. The `outline` view keeps the headings and list items and gaps
+ * over the rest; `text` lists every node in reading order, which is what a comment on a paragraph or a cell needs.
  */
-export const outline = Effect.fn("SpDrive.outline")(function* (baseUrl: string, jwt: string, id: string) {
+export const outline = Effect.fn("SpDrive.outline")(function* (
+  baseUrl: string,
+  jwt: string,
+  id: string,
+  view: "outline" | "text" = "outline",
+) {
   const answer = yield* json(DriveOutline, {
     method: "GET",
     path: `${documents}/${encodeURIComponent(id)}/read`,
-    query: new URLSearchParams({ view: "outline" }),
+    query: new URLSearchParams({ view }),
     endpoint: "GET /api/v1/documents/{id}/read",
     baseUrl,
     jwt,

@@ -286,9 +286,18 @@ export function make(options: Options = {}): Fake {
       if (!("document" in entry)) return entry
       if (input.anchor.kind !== "node") return fail("unsupported", "This kind of comment is not available yet.")
       const anchor = { node: input.anchor.node, find: input.anchor.find }
-      if (!nodes(entry).some((node) => node.id === anchor.node))
+      const target = nodes(entry).find((node) => node.id === anchor.node)
+      // The instance checks a quote against the node's own text, markers and all
+      if (!target || (anchor.find !== undefined && !target.text.includes(anchor.find)))
         return fail("conflict", "The commented text is gone.", entry.document.revision)
-      const comment: Comment = { id: randomUUID(), anchor, author: user, body: input.body, created: now() }
+      const comment: Comment = {
+        id: randomUUID(),
+        anchor,
+        author: user,
+        mine: true,
+        body: input.body,
+        created: now(),
+      }
       entry.comments.push(comment)
       return comment
     }),
@@ -301,6 +310,7 @@ export function make(options: Options = {}): Fake {
         id: randomUUID(),
         anchor: parent.anchor,
         author: user,
+        mine: true,
         body: input.body,
         parent: parent.id,
         created: now(),

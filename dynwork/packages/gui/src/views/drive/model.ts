@@ -1,4 +1,5 @@
-import type { Document, Folder, Link } from "../../drive/contract"
+import { DriveCapabilities } from "../../drive/capabilities"
+import type { Comment, Document, Folder, Link, Outline } from "../../drive/contract"
 
 // Pure reads of the Drive's data, as the `dynwork.drive` Ipc answers it: what the browser lists, folder paths, the
 // conversations' documents, sizes and times; and the anchors the comments layer draws.
@@ -137,73 +138,141 @@ export function size(bytes: number, locale: string) {
   }).format(bytes / 1024 ** index)
 }
 
-// The comments layer (`comments.tsx`, `canvas.tsx`) draws threads on a document; the Drive's own comments reach it in
-// phase 06 of the Drive plan. Until then these are its shapes, and no thread exists.
+// Comments. The instance anchors a comment to a node of the document (a paragraph, a table cell, a slide's box) and an
+// optional quote inside it; the Comments tab and the Markdown marks (`comments.tsx`) read them through these.
 
-/**
- * What a comment points at. The Drive anchors to a node (a paragraph, a cell, a shape's paragraph) and an optional
- * quote inside it; `range` and `page` have no node yet and need a change in the Drive (P10).
- */
-export type Anchor =
-  | { readonly kind: "text" }
-  | { readonly kind: "block" }
-  | { readonly kind: "cell"; readonly sheet: number; readonly cell: string }
-  | { readonly kind: "range"; readonly sheet: number; readonly from: string; readonly to: string }
-  | { readonly kind: "shape"; readonly slide: number; readonly node: string }
-  | { readonly kind: "element"; readonly find: string }
-  | { readonly kind: "page"; readonly page: number; readonly x: number; readonly y: number }
+export type Node = Outline["nodes"][number]
 
 export interface Message {
-  /** `me`, or another author's id. */
-  readonly by: string
+  readonly id: string
+  /** The author's user id, which `DriveStore.nameOf` may name. */
+  readonly author: string
+  /** Written by the signed-in user: DynWork signs it as an agent until people sign in as themselves (P1). */
+  readonly mine: boolean
   readonly text: string
-  readonly age: number
-  /** Written from DynWork, which the Drive counts as an agent until people sign in as themselves (P1). */
-  readonly dynwork?: boolean
+  /** Epoch milliseconds. */
+  readonly created: number
 }
 
+/** A comment and its replies, by the node and the quote it points at. */
 export interface Thread {
+  /** The first comment's id. */
   readonly id: string
-  readonly quote: string
-  readonly anchor: Anchor
+  readonly node: string
+  readonly quote: string | undefined
   readonly open: boolean
   readonly messages: readonly Message[]
 }
 
-/** The author of what the user writes in the comments layer. */
-export const me = "me"
-
-const column = (cell: string) => cell.charCodeAt(0)
-const row = (cell: string) => Number(cell.slice(1))
-
-/** The cells an "A1:B2" range covers, by column then row; none for no range. */
-export function cellsIn(range: string | undefined) {
-  if (!range) return []
-  const [a, b] = range.split(":")
-  const c0 = Math.min(column(a), column(b))
-  const c1 = Math.max(column(a), column(b))
-  const r0 = Math.min(row(a), row(b))
-  const r1 = Math.max(row(a), row(b))
-  return Array.from({ length: c1 - c0 + 1 }, (_, i) =>
-    Array.from({ length: r1 - r0 + 1 }, (_, j) => String.fromCharCode(c0 + i) + (r0 + j)),
-  ).flat()
+/**
+ * The threads of a document's comments, newest first, each with its messages oldest first. A reply of a reply belongs to
+ * the same thread; a thread is open until its first comment is resolved.
+ */
+export function threadsOf(comments: readonly Comment[]): Thread[] {
+  const byId = new Map(comments.map((comment) => [comment.id, comment]))
+  const rootOf = (comment: Comment): Comment => {
+    const parent = comment.parent === undefined ? undefined : byId.get(comment.parent)
+    return parent ? rootOf(parent) : comment
+  }
+  const message = (comment: Comment): Message => ({
+    id: comment.id,
+    author: comment.author,
+    mine: comment.mine,
+    text: comment.body,
+    created: comment.created,
+  })
+  return comments
+    .filter((comment) => comment.parent === undefined || !byId.has(comment.parent))
+    .toSorted((a, b) => b.created - a.created)
+    .flatMap((root) => {
+      if (!root.anchor) return []
+      return {
+        id: root.id,
+        node: root.anchor.node,
+        quote: root.anchor.find,
+        open: root.resolved === undefined,
+        messages: comments
+          .filter((comment) => comment.id === root.id || rootOf(comment).id === root.id)
+          .toSorted((a, b) => a.created - b.created)
+          .map(message),
+      }
+    })
 }
 
-/** The range two corner cells make, top-left first; undefined when they are the same cell. */
-export function rangeOf(a: string, b: string) {
-  if (a === b) return undefined
-  const cells = cellsIn(`${a}:${b}`)
-  return `${cells[0]}:${cells[cells.length - 1]}`
+// A node's text is the instance's own reading of it: Markdown source for a Markdown document, plain text for the
+// rest, with a marker for what the block is. A reader sees neither, so the two are compared without them.
+
+/** A node's text as a reader sees it: the block marker and the inline Markdown syntax out, spaces collapsed. */
+export function plain(source: string) {
+  return source
+    .replace(/^\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)]\s+|>\s*|\|\s*)/, "")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/[*_`~|\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
 }
 
-/** The Drive anchors to a node and a quote inside it; a cell range and a point on a PDF have no node yet. */
-export function needsStoreChange(anchor: Anchor) {
-  return anchor.kind === "range" || anchor.kind === "page"
+/** What two renderings of the same text share: its letters and digits, whatever the markup, case or spacing. */
+const keyOf = (text: string) =>
+  text
+    .normalize("NFC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "")
+
+/**
+ * The node each block of a rendered document is, by the text they share, walking both in reading order: a block with no
+ * node (a caption, a rule, what a script drew) stays unmatched and does not move the nodes on, and a node with no block
+ * (a blank line, a table's separator row, a slide's heading) is skipped.
+ */
+export function matchNodes(nodes: readonly Node[], blocks: readonly string[]): (Node | undefined)[] {
+  const keys = nodes.map((node) => keyOf(plain(node.text)))
+  let from = 0
+  return blocks.map((block) => {
+    const key = keyOf(block)
+    if (!key) return undefined
+    const at = keys.indexOf(key, from)
+    if (at < 0) return undefined
+    from = at + 1
+    return nodes[at]
+  })
 }
 
-/** The cell an anchor starts at, for a spreadsheet's markers. */
-export function anchorCell(anchor: Anchor) {
-  if (anchor.kind === "cell") return anchor.cell
-  if (anchor.kind === "range") return anchor.from
-  return undefined
+/**
+ * The quote to anchor at inside a node, from the text a person selected: the instance finds it in the node's own text,
+ * markup included, and refuses the whole comment when it is not there, so a selection that crosses Markdown syntax
+ * anchors to the node alone.
+ */
+export function quoteIn(node: Pick<Node, "text">, selected: string) {
+  const quote = selected.replace(/\s+/g, " ").trim().slice(0, 90)
+  return quote && node.text.includes(quote) ? quote : undefined
+}
+
+/** A node's text for a list or a line: what a reader sees of it, in a few words. */
+export function nodeLabel(node: Pick<Node, "text">, size = 90) {
+  const text = plain(node.text.replace(/\t/g, " · "))
+  return text.length > size ? `${text.slice(0, size - 1)}…` : text
+}
+
+/** The nodes worth offering to comment on: the ones with something a reader sees, matching a search. */
+export function pickable(nodes: readonly Node[], query: string) {
+  const q = query.trim().toLowerCase()
+  return nodes.filter((node) => {
+    const text = plain(node.text)
+    return text && (!q || text.toLowerCase().includes(q))
+  })
+}
+
+/**
+ * How a document takes a comment, by its format and the instance's capabilities (D11): at a node, always, but a PDF has
+ * no nodes; at a cell range, once `rangeComments` is on; at a point of a PDF page, once `pdfComments` is on.
+ */
+export function anchorsOf(doc: Pick<Document, "format" | "mime">, capabilities: DriveCapabilities.Capabilities) {
+  const pdf = isPdf(doc)
+  return {
+    node: !pdf,
+    range:
+      doc.format === "xlsx" &&
+      DriveCapabilities.anchorable(capabilities, { kind: "range", sheet: 0, from: "A1", to: "A1" }),
+    page: pdf && DriveCapabilities.anchorable(capabilities, { kind: "page", page: 1, x: 0, y: 0 }),
+  }
 }

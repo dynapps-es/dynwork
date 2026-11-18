@@ -6,6 +6,8 @@ import {
   type Access,
   type Act,
   type AgentCap,
+  type Anchor,
+  type Comment,
   type Conversation,
   type Detail,
   type Document,
@@ -16,24 +18,18 @@ import {
   type Revision,
 } from "../../drive/contract"
 import {
-  me,
   mimeOf,
   sorts,
+  threadsOf,
   visibleDocs,
   visibleFolders,
-  type Anchor,
+  type Node,
   type Scope,
   type Sort,
-  type Thread,
   type TypeFilter,
 } from "./model"
 
 export type DocTab = "details" | "comments" | "versions" | "proposals" | "share"
-
-/** The floating card in a document: a thread's, or the composer of a new comment on an anchor. */
-export type Card =
-  | { readonly kind: "thread"; readonly id: string }
-  | { readonly kind: "new"; readonly anchor: Anchor; readonly quote: string }
 
 /** What the open document's drawer reads, each part as the Drive answers it; `failure` when the document is not there. */
 export interface Opened {
@@ -54,16 +50,24 @@ export interface Upload {
 
 const blankDoc = {
   tab: "details" as DocTab,
+  /** The thread the Comments tab has open, by its first comment's id. */
   thread: undefined as string | undefined,
-  sheet: 0,
-  slide: 0,
-  cell: "A1",
-  range: undefined as string | undefined,
   filter: "open" as "open" | "resolved",
-  source: false,
+  /** Where the comment being written points, before it is sent. */
+  compose: undefined as Anchor | undefined,
+  /** The user asked for a new comment and has not picked where it points yet. */
+  choosing: false,
+  /** The thread whose reply box is open: one at a time. */
+  replying: undefined as string | undefined,
+  /** Comment mode (C): a click on a block of a Markdown document opens a comment there. */
   commenting: false,
-  card: undefined as Card | undefined,
-  agentCells: false,
+}
+
+/** A document's comments as the Drive answered them, with the nodes they anchor to. */
+interface Discussion {
+  comments: Comment[]
+  nodes: Node[]
+  status: "loading" | "ready" | "failed"
 }
 
 // One listing page; the browser asks for the next one on demand.
@@ -101,13 +105,13 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     open: undefined as string | undefined,
     opened: {} as Opened,
     doc: { ...blankDoc },
-    /** The comments layer's threads by document: none until the Drive's comments reach it (phase 06). */
-    threads: {} as Record<string, Thread[]>,
-    /** A paper document's HTML once a comment marked it. */
-    paper: {} as Record<string, string>,
+    /** The comments and the nodes of the documents opened in this window, by document. */
+    discussion: {} as Record<string, Discussion>,
+    /** The names of the people the window has seen, by user id: the grants of the documents it opened. */
+    people: {} as Record<string, string>,
   })
-  // The newest listing and the newest open document asked for, so a late answer for an older one is dropped.
-  const asked = { listing: 0, open: 0 }
+  // The newest listing, open document and comments read asked for, so a late answer for an older one is dropped.
+  const asked = { listing: 0, open: 0, discussion: new Map<string, number>() }
 
   const remote = () => options.client()?.state()
   const folders = () => remote()?.folders ?? []
@@ -197,11 +201,17 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     current: () => doc(state.open),
     /** What one conversation did, newest first. */
     linksOf: (conversation: string) => links().filter((link) => link.conversation === conversation),
-    threadsOf: (id: string) => state.threads[id] ?? [],
+    /** A document's comment threads, newest first. */
+    threadsOf: (id: string) => threadsOf(state.discussion[id]?.comments ?? []),
     thread: (id: string) =>
-      Object.values(state.threads)
-        .flat()
-        .find((item) => item.id === id),
+      threadsOf(state.discussion[state.open ?? ""]?.comments ?? []).find((item) => item.id === id),
+    /**
+     * A person's name by user id, from the grants of the documents the window opened: the instance has no route that
+     * names an author for a bearer, so someone who was never granted anything is unnamed.
+     */
+    nameOf: (user: string) => state.people[user],
+    /** The nodes of a document as last read, in reading order. */
+    nodesOf: (id: string) => state.discussion[id]?.nodes ?? [],
 
     // The browser.
     reload,
@@ -324,8 +334,13 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
           ),
         client.revisions({ id }).then((answer) => keep(isFailure(answer) ? {} : { revisions: answer })),
         client.proposals({ id }).then((answer) => keep(isFailure(answer) ? {} : { proposals: answer })),
-        client.access({ id }).then((answer) => keep(isFailure(answer) ? {} : { access: answer })),
+        client.access({ id }).then((answer) => {
+          if (isFailure(answer)) return keep({})
+          learnNames(answer)
+          keep({ access: answer })
+        }),
         client.agentCap({ kind: "document", id }).then((answer) => keep(isFailure(answer) ? {} : { cap: answer })),
+        discuss(id),
       ])
     },
     closeDoc() {
@@ -335,92 +350,104 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     },
     setTab(tab: DocTab) {
       setState("doc", "tab", tab)
+      // Others comment meanwhile: the tab reads them again each time it is opened.
+      if (tab === "comments" && state.open) void discuss(state.open)
     },
 
-    // The comments layer's state (`comments.tsx`, `canvas.tsx`): where the user is in the document and what they point at.
+    // Comments.
+    discuss,
     setFilter(filter: "open" | "resolved") {
       setState("doc", "filter", filter)
     },
-    setSheet(sheet: number) {
-      setState("doc", { sheet, range: undefined, card: undefined })
+    /** Opens the Comments tab to write a comment: at `anchor`, or, without one, to pick where. */
+    startComment(anchor?: Anchor) {
+      setState("doc", { tab: "comments", thread: undefined, compose: anchor, choosing: anchor === undefined })
     },
-    setSlide(slide: number) {
-      setState("doc", { slide, card: undefined })
-    },
-    /** The selected cell and, when two corners differ, the range between them. */
-    setCells(cell: string, range: string | undefined) {
-      setState("doc", { cell, range })
-    },
-    toggleSource() {
-      setState("doc", "source", (source) => !source)
-    },
-    toggleAgentCells() {
-      setState("doc", "agentCells", (shown) => !shown)
+    cancelComment() {
+      setState("doc", { compose: undefined, choosing: false })
     },
     setCommenting(on: boolean) {
-      setState("doc", { commenting: on, card: undefined })
+      setState("doc", "commenting", on)
     },
-    setCard(card: Card | undefined) {
-      setState("doc", "card", card)
+    /** Opens the reply box of a thread, and closes the one that was open. */
+    startReply(thread: string) {
+      setState("doc", "replying", thread)
     },
-    /** Shows where a thread lives (its sheet, slide or cell), selects it in the drawer and opens its card. */
+    cancelReply() {
+      setState("doc", "replying", undefined)
+    },
+    /** Opens a thread in the Comments tab, in the filter it belongs to. */
     focusThread(id: string) {
-      const item = store.thread(id)
-      if (!item) return
-      const anchor = item.anchor
+      const open = store.thread(id)?.open !== false
       setState("doc", {
-        thread: id,
         tab: "comments",
-        filter: item.open ? "open" : "resolved",
-        card: { kind: "thread", id },
-        ...(anchor.kind === "cell" || anchor.kind === "range"
-          ? { sheet: anchor.sheet, cell: anchor.kind === "cell" ? anchor.cell : anchor.from, range: undefined }
-          : {}),
-        ...(anchor.kind === "shape" ? { slide: anchor.slide } : {}),
+        thread: id,
+        filter: open ? "open" : "resolved",
+        compose: undefined,
+        choosing: false,
       })
     },
-    setPaper(id: string, html: string) {
-      setState("paper", id, html)
-    },
-    /** A new thread on the open document, kept in this window until comments reach the Drive (phase 06). */
-    comment(anchor: Anchor, quote: string, text: string) {
-      const id = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
-      const key = state.open
-      if (!key) return id
-      const created: Thread = {
-        id,
-        quote,
-        anchor,
-        open: true,
-        messages: [{ by: me, text, age: 0, dynwork: !store.person() }],
+    /** A new thread on a document, at `anchor`, from a conversation when it comes from one. */
+    async comment(id: string, anchor: Anchor, body: string, conversation?: Conversation) {
+      const client = options.client()
+      if (!client) return disconnected
+      const created = await client.comment({ id, body, anchor, conversation })
+      if (isFailure(created)) {
+        // The node moved on: the nodes the window holds are old.
+        if (created.code === "conflict") void discuss(id)
+        return created
       }
-      setState("threads", key, (list) => [created, ...(list ?? [])])
-      return id
+      setState("doc", { compose: undefined, choosing: false })
+      await discuss(id)
+      store.focusThread(created.id)
+      return created
     },
-    reply(id: string, text: string) {
-      editThread(id, (item) => ({
-        messages: [...item.messages, { by: me, text, age: 0, dynwork: !store.person() }],
-      }))
+    async reply(id: string, thread: string, body: string, conversation?: Conversation) {
+      const client = options.client()
+      if (!client) return disconnected
+      const created = await client.reply({ id, parent: thread, body, conversation })
+      if (isFailure(created)) return created
+      if (state.doc.replying === thread) setState("doc", "replying", undefined)
+      await discuss(id)
+      return created
     },
-    resolve(id: string) {
-      editThread(id, () => ({ open: false }))
-      if (state.doc.card?.kind === "thread" && state.doc.card.id === id) setState("doc", "card", undefined)
-    },
-    reopen(id: string) {
-      editThread(id, () => ({ open: true }))
-      setState("doc", "filter", "open")
+    /** Resolves a thread. There is no reopen: 0.83 has no route for it (G12). */
+    async resolve(id: string, thread: string) {
+      const client = options.client()
+      if (!client) return disconnected
+      const resolved = await client.resolve({ id, comment: thread })
+      if (isFailure(resolved)) return resolved
+      await discuss(id)
+      if (state.doc.thread === thread) setState("doc", "thread", undefined)
+      return resolved
     },
   }
 
-  function editThread(id: string, change: (thread: Thread) => Partial<Thread>) {
-    const key = Object.keys(state.threads).find((doc) => store.threadsOf(doc).some((item) => item.id === id))
-    if (key)
-      setState(
-        "threads",
-        key,
-        (item) => item.id === id,
-        (item) => ({ ...item, ...change(item) }),
-      )
+  // The people a document is granted to, by user id, for naming the authors of comments.
+  function learnNames(access: Access) {
+    access.grants
+      .concat(access.inherited)
+      .filter((grant) => grant.subject === "user" && grant.name)
+      .forEach((grant) => setState("people", grant.value, grant.name ?? ""))
+  }
+
+  // A document's comments and nodes, read together; a late answer for an older read is dropped, and one that fails
+  // keeps what the window had and says so.
+  async function discuss(id: string) {
+    const client = options.client()
+    if (!client) return
+    const read = (asked.discussion.get(id) ?? 0) + 1
+    asked.discussion.set(id, read)
+    if (!state.discussion[id]) setState("discussion", id, { comments: [], nodes: [], status: "loading" })
+    const [comments, outline] = await Promise.all([client.comments({ id }), client.outline({ id })])
+    if (read !== asked.discussion.get(id)) return
+    if (isFailure(comments)) return setState("discussion", id, "status", "failed")
+    setState("discussion", id, {
+      comments: [...comments],
+      // A document without nodes (a PDF the Drive keeps whole) still has its comments.
+      nodes: isFailure(outline) ? [] : [...outline.nodes],
+      status: "ready",
+    })
   }
 
   return store

@@ -120,6 +120,17 @@ export function remote(options: Remote): Backend {
     created: Date.parse(wire.created_at),
     updated: Date.parse(wire.updated_at),
   })
+  const comment = (wire: SpDriveComment): Comment => ({
+    id: wire.id,
+    anchor: wire.anchor,
+    author: wire.author_user_id,
+    mine: mine(wire.author_user_id),
+    body: wire.body,
+    parent: wire.parent_id ?? undefined,
+    created: Date.parse(wire.created_at),
+    resolved: wire.resolved_at ? Date.parse(wire.resolved_at) : undefined,
+    resolver: wire.resolved_by ?? undefined,
+  })
   const page = (wire: SpDrive.Page): Page => ({
     html: wire.html,
     csp: wire.csp,
@@ -167,9 +178,10 @@ export function remote(options: Remote): Backend {
           sha256: answer.sha256 ?? undefined,
         }),
       ),
+    // The text view: the outline one leaves paragraphs and cells behind a gap, and a comment may anchor to any node.
     outline: (id) =>
       call(
-        (jwt) => SpDrive.outline(url, jwt, id),
+        (jwt) => SpDrive.outline(url, jwt, id, "text"),
         (outline) => outline,
       ),
     revisions: (id) =>
@@ -303,19 +315,6 @@ function proposal(wire: SpDriveProposal): Proposal {
     note: wire.note ?? undefined,
     landed: wire.landed_revision_id ?? undefined,
     created: Date.parse(wire.created_at),
-  }
-}
-
-function comment(wire: SpDriveComment): Comment {
-  return {
-    id: wire.id,
-    anchor: wire.anchor,
-    author: wire.author_user_id,
-    body: wire.body,
-    parent: wire.parent_id ?? undefined,
-    created: Date.parse(wire.created_at),
-    resolved: wire.resolved_at ? Date.parse(wire.resolved_at) : undefined,
-    resolver: wire.resolved_by ?? undefined,
   }
 }
 

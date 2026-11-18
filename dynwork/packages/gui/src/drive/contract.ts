@@ -117,7 +117,10 @@ export const Pdf = Schema.Struct({
 })
 export type Pdf = typeof Pdf.Type
 
-/** The nodes a comment anchors to, with their text, at `revision`. */
+/**
+ * Every node a comment anchors to, in reading order, with its text as the instance reads it (`# ` before a heading,
+ * `- ` before a list item, `| ` before a table cell) at `revision`. A blank line is a node with no text.
+ */
 export const Outline = Schema.Struct({
   revision: Schema.String,
   format: Schema.String,
@@ -165,6 +168,8 @@ export const Comment = Schema.Struct({
   /** A reply carries its thread's anchor. */
   anchor: Schema.optional(Schema.Struct({ node: Schema.String, find: Schema.optional(Schema.String) })),
   author: Schema.String,
+  /** The author is the signed-in user (a write DynWork makes is the user's, signed as an agent). */
+  mine: Schema.Boolean,
   body: Schema.String,
   /** The comment a reply answers. */
   parent: Schema.optional(Schema.String),
