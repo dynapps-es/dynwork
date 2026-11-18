@@ -2,7 +2,7 @@ import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { createEffect, For, onCleanup, Show } from "solid-js"
-import type { Doc } from "./demo"
+import type { Document } from "../../drive/contract"
 import { anchorCell, cellsIn, rangeOf, stem } from "./model"
 import { drive } from "./store"
 
@@ -15,13 +15,8 @@ const escape = (text: string) =>
 /** A commented quote in paper HTML: the comments layer finds it by `data-t`. */
 const mark = (id: string, text: string) => `<span data-mark data-t="${id}">${text}</span>`
 
-function report(t: (key: string) => string) {
-  const proposal = drive.state.proposals.d1?.[0]
-  const fix =
-    proposal?.state === "open"
-      ? `We propose to <del data-slot="drive-del">${proposal.before}</del> <ins data-slot="drive-ins">${proposal.after}</ins>, which is what the rules require for the invoice total.`
-      : `We propose to ${proposal?.state === "accepted" ? proposal.after : proposal?.before}, which is what the rules require for the invoice total.`
-  const added = drive.state.added.d1
+function report() {
+  const fix = "We propose to round per tax on the total, which is what the rules require for the invoice total."
   return `<h1 id="o-1">Report: VAT rounding on credit notes</h1>
 <p data-lead>Acme Retail · odoo-modules · prepared by the Dynwork agent for David Gómez</p>
 <h2 id="o-2">Summary</h2>
@@ -35,7 +30,7 @@ function report(t: (key: string) => string) {
 <h2 id="o-4">Proposed fix</h2>
 <p>${fix}</p>
 <h2 id="o-5">Impact</h2>
-<p>It affects customer invoices and vendor bills. Last quarter there were ${mark("t2", "about 140 credit notes a month")}; the change does not rewrite posted entries.${added ? ` <ins data-slot="drive-ins">${escape(t(added))}</ins>` : ""}</p>
+<p>It affects customer invoices and vendor bills. Last quarter there were ${mark("t2", "about 140 credit notes a month")}; the change does not rewrite posted entries.</p>
 <h2 id="o-6">${mark("t3", "Next steps")}</h2>
 <ul><li>Change the rounding method on a staging copy.</li><li>Repeat the 3 invoices in the table and compare.</li><li>Acme's head of accounting signs it off.</li></ul>`
 }
@@ -59,7 +54,7 @@ export const notesSource = `# Kickoff meeting notes — Acme Retail
 - [ ] Dynapps: staging environment (22-11)
 - [x] Proposal revised with a training phase`
 
-function generic(doc: Doc, path: string) {
+function generic(doc: Document, path: string) {
   const title = escape(stem(doc.name))
   return `<h1 id="o-1">${title}</h1><p data-lead>${escape(path)}</p>
 <h2 id="o-2">Purpose</h2><p>Sample document with the content of <b>${title}</b>. The real view draws the document with its format's viewer.</p>
@@ -69,12 +64,12 @@ function generic(doc: Doc, path: string) {
 }
 
 /** A paper document's HTML: what a comment marked, else its sample content. */
-export function paperHtml(doc: Doc, path: string, t: (key: string) => string) {
-  return drive.state.paper[doc.id] ?? (doc.id === "d1" ? report(t) : doc.id === "d6" ? notes : generic(doc, path))
+export function paperHtml(doc: Document, path: string) {
+  return drive.state.paper[doc.id] ?? (doc.id === "d1" ? report() : doc.id === "d6" ? notes : generic(doc, path))
 }
 
 /** The outline of a paper document: its headings, as the rail lists them. */
-export function outline(doc: Doc) {
+export function outline(doc: Document) {
   if (doc.id === "d1") return ["Report: VAT rounding", "Summary", "Cause", "Proposed fix", "Impact", "Next steps"]
   if (doc.id === "d6") return ["Kickoff meeting notes", "Agreements", "Tasks"]
   return [stem(doc.name), "Purpose", "Content", "Appendices"]
@@ -85,7 +80,7 @@ const clause =
 const order = "Each order states its scope, dates and price, and is invoiced as set out in appendix II. "
 
 /** The pages of an uploaded PDF, which the store keeps whole: no nodes, so comments hang on a page. */
-export function pdfHtml(doc: Doc) {
+export function pdfHtml(doc: Document) {
   return (
     drive.state.paper[doc.id] ??
     [stem(doc.name), "Clause 4 · Confidentiality"]
@@ -133,14 +128,14 @@ const formulas: Record<string, string> = {
 }
 
 /** The sheet names of a spreadsheet. */
-export const sheetsOf = (doc: Doc) => (doc.id === "d2" ? ["drive.sheet.0", "drive.sheet.1"] : [stem(doc.name)])
+export const sheetsOf = (doc: Document) => (doc.id === "d2" ? ["drive.sheet.0", "drive.sheet.1"] : [stem(doc.name)])
 
 /**
  * A spreadsheet: the formula bar, the grid and the sheet tabs. A click selects a cell, a drag or Shift+click a range;
  * `onPick` hears the selection when the button is released (or on a right click), for the comments layer.
  */
 export function Sheet(props: {
-  doc: Doc
+  doc: Document
   compact?: boolean
   onPick?: (input: { range: string | undefined; rect: DOMRect; context: boolean }) => void
   onHover?: (cell: string | undefined, rect: DOMRect | undefined) => void
@@ -332,7 +327,7 @@ const proposalSlides: readonly Slide[] = [
 ]
 
 /** A presentation's slides: the proposal deck, or three generic slides titled after the document. */
-export const slidesOf = (doc: Doc) =>
+export const slidesOf = (doc: Document) =>
   doc.id === "d4"
     ? proposalSlides
     : proposalSlides.slice(0, 3).map((slide, index) => (index === 0 ? { ...slide, title: stem(doc.name) } : slide))
@@ -378,7 +373,7 @@ export function SlideView(props: { slide: Slide; index: number }) {
 }
 
 /** A presentation: the filmstrip with each slide's comment count, and the selected slide on the stage. */
-export function Deck(props: { doc: Doc; compact?: boolean }) {
+export function Deck(props: { doc: Document; compact?: boolean }) {
   const slides = () => slidesOf(props.doc)
   const count = (index: number) =>
     drive
@@ -472,7 +467,7 @@ export type FrameMessage =
  * their boxes, and in comment mode with the element clicked.
  */
 export function HtmlFrame(props: {
-  doc: Doc
+  doc: Document
   commenting?: boolean
   anchors?: () => readonly { id: string; find: string; on: boolean }[]
   onMessage?: (message: FrameMessage, frame: HTMLIFrameElement) => void

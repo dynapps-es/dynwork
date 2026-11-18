@@ -332,6 +332,16 @@ export const Drive = Ipc.define({
       }),
       output: Outcome(Created),
     },
+    /** Creates a document from one of the instance's templates (`dynapps-word`, ...), which no route lists (C9). */
+    create: {
+      input: Schema.Struct({
+        template: Schema.String,
+        name: Schema.String,
+        folder: Schema.optional(Schema.String),
+        ...From,
+      }),
+      output: Outcome(Created),
+    },
     edit: {
       input: Schema.Struct({
         ...OnDocument,

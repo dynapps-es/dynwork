@@ -1,9 +1,9 @@
 import type { Context, SessionRef } from "@opencode/plugin/gui"
-import type { Doc } from "./demo"
+import type { Document } from "../../drive/contract"
 import { drive } from "./store"
 
 // From the Drive to a chat: the last open chat tab gets the document in its side panel and as a chip in its composer,
-// as the composer's own "+" would attach it. A demo stand-in for the real link, which the agent's tools write.
+// as the composer's own "+" would attach it, and the conversation ↔ document index records the attachment.
 
 /** The side panel's host keys: the chat's list of artifacts, and one tab per document. */
 export const listKey = "dynwork:drive"
@@ -16,11 +16,27 @@ function target(ctx: Host): SessionRef | undefined {
   return ctx.sessions.current() ?? ctx.tabs.list().findLast((tab) => tab.session)?.session
 }
 
+/** An open chat by its session id, for a conversation the index names. */
+export function sessionOf(ctx: Pick<Context, "sessions">, conversation: string) {
+  return ctx.sessions.list().find((session) => session.id === conversation)
+}
+
+/** A conversation's title as its chat shows it, while its tab is open; else undefined. */
+export function titleOf(ctx: Pick<Context, "sessions">, conversation: string) {
+  const session = sessionOf(ctx, conversation)
+  return session?.server.data.session.get(session.id)?.title || undefined
+}
+
+/** A chat as the Drive names its writes: its session id and its title (D2). */
+export function conversationOf(ctx: Pick<Context, "sessions" | "t">, session: SessionRef) {
+  return { id: session.id, name: titleOf(ctx, session.id) ?? ctx.t("drive.chat.untitled") }
+}
+
 /**
  * Opens a document beside a chat and puts it in the composer, with a prompt when one is given. Without a chat tab open
- * it says so: the demo does not start sessions.
+ * it says so.
  */
-export function askAgent(ctx: Host, doc: Doc, prompt?: string) {
+export function askAgent(ctx: Host, doc: Document, prompt?: string) {
   const session = target(ctx)
   if (!session) {
     ctx.toast.show({
@@ -30,7 +46,7 @@ export function askAgent(ctx: Host, doc: Doc, prompt?: string) {
     })
     return
   }
-  drive.attach(session.key, doc.id)
+  void drive.link(session.id, doc.id, "attached")
   ctx.layout.open(docKey(doc.id), session, { tab: "select", background: true })
   ctx.tabs.focus(session.tab)
   // The composer is the routed session's: wait for the tab to route it.

@@ -1,42 +1,61 @@
-import { createRoot } from "solid-js"
-import { createStore } from "solid-js/store"
+import { createRoot, createSignal } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
+import { DriveClient } from "../../drive/client"
 import {
-  docs,
-  folders,
+  isFailure,
+  type Access,
+  type Act,
+  type AgentCap,
+  type Conversation,
+  type Detail,
+  type Document,
+  type Failure,
+  type Listing,
+  type Page,
+  type Proposal,
+  type Query,
+  type Revision,
+} from "../../drive/contract"
+import {
   me,
-  proposals,
-  sampleChanges,
-  shares,
-  threads,
-  versions,
+  mimeOf,
+  sorts,
+  visibleDocs,
+  visibleFolders,
   type Anchor,
-  type Change,
-  type Doc,
-  type Folder,
-  type Format,
-  type Message,
+  type Scope,
+  type Sort,
   type Thread,
-} from "./demo"
-import { sorts, type Scope, type Sort, type TypeFilter } from "./model"
+  type TypeFilter,
+} from "./model"
 
 export type DocTab = "details" | "comments" | "versions" | "proposals" | "share"
-/** How Dynwork edits: as an agent (the first release) or as the person (later). */
-export type Mode = "mvp" | "v2"
 
 /** The floating card in a document: a thread's, or the composer of a new comment on an anchor. */
 export type Card =
   | { readonly kind: "thread"; readonly id: string }
   | { readonly kind: "new"; readonly anchor: Anchor; readonly quote: string }
 
-/** What one chat shows in its side panel: the changes its agent made, the version picked per document, the dock. */
-export interface ChatState {
-  readonly changes: readonly Change[]
-  readonly version: Record<string, number>
-  readonly dock: boolean
+/** What the open document's drawer reads, each part as the Drive answers it; `failure` when the document is not there. */
+export interface Opened {
+  detail?: Detail
+  revisions?: readonly Revision[]
+  proposals?: readonly Proposal[]
+  access?: Access
+  cap?: AgentCap
+  page?: Page | Failure
+  failure?: Failure
+}
+
+/** A file to upload: what a file input or a drop gives, read into bytes. */
+export interface Upload {
+  readonly name: string
+  readonly bytes: Uint8Array
+  readonly mime?: string
 }
 
 const blankDoc = {
-  tab: "comments" as DocTab,
+  tab: "details" as DocTab,
   thread: undefined as string | undefined,
   sheet: 0,
   slide: 0,
@@ -49,23 +68,20 @@ const blankDoc = {
   agentCells: false,
 }
 
+// One listing page; the browser asks for the next one on demand.
+const PAGE = 100
+
 /**
- * The Drive's demo state, one for the window: the browser, the open document and each chat's side panel read and
- * change the same documents, so a comment made in the view shows in the panel. Nothing leaves memory.
+ * The Drive as the window shows it, over the `dynwork.drive` Ipc (`client`): the browser's choices and what the Drive
+ * answered for them, the open document's drawer, and the comments layer's state. Every read and write goes through
+ * the Ipc; nothing the user does stays only here.
+ * - Recent is the service's snapshot, polled in main; Home, Mine, Shared and a search are read when chosen.
+ * - From my chats is the conversation ↔ document index the service keeps; a document it names that no listing
+ *   holds is read by id.
+ * - A read that answers after the user moved on is dropped.
  */
-function createDriveStore() {
+export function createDriveStore(options: { client: () => DriveClient.Client | undefined }) {
   const [state, setState] = createStore({
-    docs: docs.map((doc) => ({ ...doc })) as Doc[],
-    folders: folders.map((folder) => ({ ...folder })) as Folder[],
-    threads: structuredClone(threads) as Record<string, Thread[]>,
-    proposals: structuredClone(proposals),
-    versions: structuredClone(versions),
-    shares: structuredClone(shares),
-    /** A paper document's HTML once a comment marked it. */
-    paper: {} as Record<string, string>,
-    /** Text the agent added to a document in answer to a comment. */
-    added: {} as Record<string, string>,
-    mode: "mvp" as Mode,
     browse: {
       scope: "home" as Scope,
       folder: undefined as string | undefined,
@@ -73,62 +89,132 @@ function createDriveStore() {
       type: "all" as TypeFilter,
       sort: "updated" as Sort,
       view: "list" as "list" | "grid",
-      selected: "d1" as string | undefined,
+      selected: undefined as string | undefined,
     },
+    listing: {
+      documents: [] as Document[],
+      next: undefined as string | undefined,
+      status: "idle" as "idle" | "loading" | "ready" | "failed",
+      failure: undefined as Failure | undefined,
+    },
+    /** Documents read by id: the conversations' that no listing holds, and the open one. */
+    known: {} as Record<string, Document>,
     /** The document open in the view, over the browser. */
     open: undefined as string | undefined,
+    opened: {} as Opened,
     doc: { ...blankDoc },
-    /** The thread the agent is answering. */
-    typing: undefined as string | undefined,
-    chats: {} as Record<string, ChatState>,
+    /** The comments layer's threads by document: none until the Drive's comments reach it (phase 06). */
+    threads: {} as Record<string, Thread[]>,
+    /** A paper document's HTML once a comment marked it. */
+    paper: {} as Record<string, string>,
   })
+  // The newest listing and the newest open document asked for, so a late answer for an older one is dropped.
+  const asked = { listing: 0, open: 0 }
 
-  const doc = (id: string | undefined) => state.docs.find((item) => item.id === id)
-  const folder = (id: string | undefined) => state.folders.find((item) => item.id === id)
-  const threadsOf = (id: string) => state.threads[id] ?? []
-  const thread = (id: string) =>
-    Object.values(state.threads)
-      .flat()
-      .find((item) => item.id === id)
-  const docOfThread = (id: string) => Object.keys(state.threads).find((key) => threadsOf(key).some((t) => t.id === id))
-  const update = (id: string, change: (doc: Doc) => Partial<Doc>) =>
-    setState(
-      "docs",
-      (item) => item.id === id,
-      (item) => ({ ...item, ...change(item) }),
+  const remote = () => options.client()?.state()
+  const folders = () => remote()?.folders ?? []
+  const folder = (id: string | undefined) => folders().find((item) => item.id === id)
+  const links = () => remote()?.links ?? []
+  const capabilities = () => remote()?.capabilities
+
+  // Every document the window has heard of, the freshest answer last.
+  const doc = (id: string | undefined): Document | undefined => {
+    if (id === undefined) return undefined
+    const opened = state.opened.detail?.document
+    if (opened?.id === id) return opened
+    return (
+      state.listing.documents.find((item) => item.id === id) ??
+      remote()?.documents.find((item) => item.id === id) ??
+      state.known[id]
     )
-  const editThread = (id: string, change: (thread: Thread) => Partial<Thread>) => {
-    const key = docOfThread(id)
-    if (key)
-      setState(
-        "threads",
-        key,
-        (item) => item.id === id,
-        (item) => ({ ...item, ...change(item) }),
-      )
   }
-  const nextID = (prefix: string) => `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+
+  // What the browser lists before its filters: the snapshot, the conversations' documents, or the listing read.
+  const documents = () => {
+    const browse = state.browse
+    if (!browse.query.trim() && browse.scope === "recent") return remote()?.documents ?? []
+    if (!browse.query.trim() && browse.scope === "chats")
+      return [...new Set(links().map((link) => link.document))].flatMap((id) => doc(id) ?? [])
+    return state.listing.documents
+  }
+
+  async function reload() {
+    const read = ++asked.listing
+    const client = options.client()
+    const queries = queriesOf(state.browse)
+    if (!client || queries.length === 0) {
+      setState("listing", { documents: [], next: undefined, status: client ? "ready" : "idle", failure: undefined })
+      if (client && state.browse.scope === "chats") await learn(links().map((link) => link.document))
+      return
+    }
+    setState("listing", { status: "loading", failure: undefined })
+    const answers = await Promise.all(queries.map((query) => client.list(query)))
+    if (read !== asked.listing) return
+    const failure = answers.find(isFailure)
+    if (failure) return setState("listing", { documents: [], next: undefined, status: "failed", failure })
+    const pages = answers.filter((answer): answer is Listing => !isFailure(answer))
+    setState("listing", {
+      documents: unique(pages.flatMap((page) => page.documents)),
+      // A search reads two scopes at once: their pages do not continue together.
+      next: pages.length === 1 ? pages[0].next : undefined,
+      status: "ready",
+      failure: undefined,
+    })
+  }
+
+  // Reads by id the documents no listing holds, for From my chats.
+  async function learn(ids: readonly string[]) {
+    const client = options.client()
+    const missing = [...new Set(ids)].filter((id) => !doc(id))
+    if (!client || missing.length === 0) return
+    const details = await Promise.all(missing.map((id) => client.get({ id })))
+    details.forEach((detail) => {
+      if (!isFailure(detail)) setState("known", detail.document.id, detail.document)
+    })
+  }
 
   const store = {
     state,
-    doc,
+    /** The live Ipc client, while the window entry is connected. */
+    client: options.client,
+    remote,
+    folders,
     folder,
-    threadsOf,
-    thread,
+    doc,
+    links,
+    /** The Drive's status for the view: `none` until the Ipc connects. */
+    status: () => remote()?.status ?? "none",
+    /** What DynWork may do as the person (P1); off, it acts as an agent and the person's actions go to Governance. */
+    person: () => capabilities()?.personActions === true,
+    /** The documents and folders the browser shows. */
+    shown: () => visibleDocs(documents(), state.browse),
+    shownFolders: () => visibleFolders(folders(), state.browse),
+    /** The open document. */
     current: () => doc(state.open),
-    setMode(mode: Mode) {
-      setState("mode", mode)
-    },
+    /** What one conversation did, newest first. */
+    linksOf: (conversation: string) => links().filter((link) => link.conversation === conversation),
+    threadsOf: (id: string) => state.threads[id] ?? [],
+    thread: (id: string) =>
+      Object.values(state.threads)
+        .flat()
+        .find((item) => item.id === id),
 
     // The browser.
+    reload,
+    learn,
     setScope(scope: Scope) {
       setState("browse", { scope, folder: undefined })
+      return reload()
     },
     goFolder(id: string | undefined) {
       setState("browse", { scope: "home", folder: id, query: "" })
+      return reload()
     },
     setQuery(query: string) {
+      const searched = state.browse.query.trim()
       setState("browse", "query", query)
+      if (query.trim() !== searched) return reload()
+      return Promise.resolve()
     },
     setType(type: TypeFilter) {
       setState("browse", "type", type)
@@ -142,78 +228,103 @@ function createDriveStore() {
     select(id: string | undefined) {
       setState("browse", "selected", id)
     },
-    /** A file lands in the open folder after a moment, as a resumable upload would. */
-    upload(name: string, format: Format) {
-      const target = folder(state.browse.folder)
-      const created: Doc = {
-        id: nextID("u"),
-        name,
-        format,
-        folder: target?.id,
-        owner: me,
-        cls: target?.cls ?? "internal",
-        age: 0,
-        rev: 1,
-        size: "320 KB",
-        editing: [],
-        agent: false,
-        access: "own",
-        chats: [],
-        text: name.toLowerCase(),
-      }
-      setState("docs", (list) => [created, ...list])
-      setState("browse", "selected", created.id)
+    /** The listing's next page, appended. */
+    async more() {
+      const client = options.client()
+      const cursor = state.listing.next
+      const query = queriesOf(state.browse)[0]
+      if (!client || cursor === undefined || !query) return
+      const read = asked.listing
+      const page = await client.list({ ...query, cursor })
+      if (read !== asked.listing) return
+      if (isFailure(page)) return setState("listing", { status: "failed", failure: page })
+      setState("listing", {
+        documents: unique([...state.listing.documents, ...page.documents]),
+        next: page.next,
+      })
+    },
+
+    // Writes. Each answers what the Drive did, or why not, and the browser reads its listing again.
+    /** The folder a new document or folder lands in: the one open at Home, else the root. */
+    target: () => (state.browse.scope === "home" ? state.browse.folder : undefined),
+    /**
+     * Creates a document from a file in the open folder, or, for a file a conversation made, at the root with that
+     * conversation's attribution and `x-context-id` (D2, D3).
+     */
+    async upload(file: Upload, conversation?: Conversation) {
+      const client = options.client()
+      if (!client) return disconnected
+      const created = await client.upload({
+        name: file.name,
+        bytes: file.bytes,
+        mime: file.mime || mimeOf(file.name),
+        folder: conversation ? undefined : store.target(),
+        conversation,
+      })
+      if (!isFailure(created)) setState("browse", "selected", created.document.id)
+      await reload()
       return created
     },
-    /** A new document or folder in the open folder, from a template. */
-    create(kind: Format | "folder", name: string) {
-      const target = folder(state.browse.folder)
-      const cls = target?.cls ?? "internal"
-      if (kind === "folder") {
-        setState("folders", (list) => [...list, { id: nextID("f"), name, parent: target?.id, cls, owner: me, age: 0 }])
-        return undefined
-      }
-      const created: Doc = {
-        id: nextID("n"),
-        name: `${name}.${{ docx: "docx", xlsx: "xlsx", pptx: "pptx", html: "html", markdown: "md", pdf: "pdf" }[kind]}`,
-        format: kind,
-        folder: target?.id,
-        owner: me,
-        cls,
-        age: 0,
-        rev: 1,
-        size: "12 KB",
-        editing: [],
-        agent: false,
-        access: "own",
-        chats: [],
-        text: name.toLowerCase(),
-      }
-      setState("docs", (list) => [created, ...list])
-      return created.id
+    /** A document from one of the instance's templates in the open folder, or for a conversation at the root. */
+    async create(template: string, name: string, conversation?: Conversation) {
+      const client = options.client()
+      if (!client) return disconnected
+      const created = await client.create({
+        template,
+        name,
+        folder: conversation ? undefined : store.target(),
+        conversation,
+      })
+      if (!isFailure(created)) setState("browse", "selected", created.document.id)
+      await reload()
+      return created
+    },
+    async createFolder(name: string) {
+      const client = options.client()
+      if (!client) return disconnected
+      const created = await client.createFolder({ name, parent: store.target() })
+      await reload()
+      return created
+    },
+    /** Records that a conversation used a document: the composer's attachment, the panel's Add from the Drive. */
+    async link(conversation: string, document: string, act: Act) {
+      const client = options.client()
+      if (!client) return disconnected
+      return client.link({ conversation, document, act, via: "rest" })
     },
 
     // The open document.
-    openDoc(id: string, tab?: DocTab) {
-      const target = doc(id)
-      if (!target) return
-      const first = threadsOf(id).find((item) => item.open)
+    /** Opens a document over the browser and reads its drawer: details, versions, proposals, access and the agent's cap. */
+    async openDoc(id: string, tab?: DocTab) {
+      const read = ++asked.open
       setState("open", id)
       setState("browse", "selected", id)
-      setState("doc", {
-        ...blankDoc,
-        tab: tab ?? (first ? "comments" : "details"),
-        thread: first?.id,
-        slide: id === "d4" ? 2 : 0,
-        cell: id === "d2" ? "F7" : "A1",
-      })
+      setState("opened", reconcile({}))
+      setState("doc", { ...blankDoc, tab: tab ?? "details" })
+      const client = options.client()
+      if (!client) return setState("opened", { failure: disconnected })
+      const keep = (part: Opened) => {
+        if (read === asked.open) setState("opened", part)
+      }
+      await Promise.all([
+        client.get({ id }).then((detail) => keep(isFailure(detail) ? { failure: detail } : { detail })),
+        client.revisions({ id }).then((answer) => keep(isFailure(answer) ? {} : { revisions: answer })),
+        client.proposals({ id }).then((answer) => keep(isFailure(answer) ? {} : { proposals: answer })),
+        client.access({ id }).then((answer) => keep(isFailure(answer) ? {} : { access: answer })),
+        client.agentCap({ kind: "document", id }).then((answer) => keep(isFailure(answer) ? {} : { cap: answer })),
+        client.preview({ id }).then((page) => keep({ page })),
+      ])
     },
     closeDoc() {
+      asked.open++
       setState("open", undefined)
+      setState("opened", reconcile({}))
     },
     setTab(tab: DocTab) {
       setState("doc", "tab", tab)
     },
+
+    // The comments layer's state (`comments.tsx`, `canvas.tsx`): where the user is in the document and what they point at.
     setFilter(filter: "open" | "resolved") {
       setState("doc", "filter", filter)
     },
@@ -241,7 +352,7 @@ function createDriveStore() {
     },
     /** Shows where a thread lives (its sheet, slide or cell), selects it in the drawer and opens its card. */
     focusThread(id: string) {
-      const item = thread(id)
+      const item = store.thread(id)
       if (!item) return
       const anchor = item.anchor
       setState("doc", {
@@ -258,9 +369,9 @@ function createDriveStore() {
     setPaper(id: string, html: string) {
       setState("paper", id, html)
     },
-    /** A new thread on the open document; returns its id. */
+    /** A new thread on the open document, kept in this window until comments reach the Drive (phase 06). */
     comment(anchor: Anchor, quote: string, text: string) {
-      const id = nextID("t")
+      const id = `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
       const key = state.open
       if (!key) return id
       const created: Thread = {
@@ -268,14 +379,15 @@ function createDriveStore() {
         quote,
         anchor,
         open: true,
-        messages: [{ by: me, text, age: 0, dynwork: state.mode === "mvp" }],
+        messages: [{ by: me, text, age: 0, dynwork: !store.person() }],
       }
       setState("threads", key, (list) => [created, ...(list ?? [])])
       return id
     },
     reply(id: string, text: string) {
-      const message: Message = { by: me, text, age: 0, dynwork: state.mode === "mvp" }
-      editThread(id, (item) => ({ messages: [...item.messages, message] }))
+      editThread(id, (item) => ({
+        messages: [...item.messages, { by: me, text, age: 0, dynwork: !store.person() }],
+      }))
     },
     resolve(id: string) {
       editThread(id, () => ({ open: false }))
@@ -285,99 +397,65 @@ function createDriveStore() {
       editThread(id, () => ({ open: true }))
       setState("doc", "filter", "open")
     },
-    /**
-     * The agent picks up a thread that mentions it: after a moment it answers there, edits the document when its
-     * class lets it (a new revision), and the change shows in every chat that has the document in its panel.
-     */
-    answer(id: string, text: string | undefined, done: (doc: Doc) => void) {
-      const key = docOfThread(id)
-      const target = doc(key)
-      if (!key || !target) return
-      setState("typing", id)
-      setTimeout(() => {
-        setState("typing", undefined)
-        const editable = target.format !== "pdf" && (target.cls === "agent-workspace" || target.cls === "internal")
-        const rev = editable ? target.rev + 1 : target.rev
-        const via = target.chats[0]?.chat ?? "c1"
-        if (editable) update(key, () => ({ rev, age: 0 }))
-        const said =
-          text ??
-          (target.format === "pdf" ? "drive.agent.pdf" : editable ? "drive.agent.edited" : "drive.agent.proposed")
-        editThread(id, (item) => ({ messages: [...item.messages, { by: "AI", text: said, age: 0, via }] }))
-        if (key === "d1" && id === "t2") setState("added", "d1", "drive.agent.added")
-        if (editable)
-          setState("versions", key, (list) => [
-            { rev, by: "AI", via, what: "drive.agent.version", age: 0 },
-            ...(list ?? []),
-          ])
-        if (editable)
-          Object.entries(state.chats)
-            .filter(([, chat]) => chat.changes.some((change) => change.doc === key))
-            .forEach(([chat, value]) =>
-              setState("chats", chat, {
-                ...value,
-                changes: [...value.changes, { doc: key, act: "edited", rev, from: rev - 1 }],
-              }),
-            )
-        done(target)
-      }, 1600)
-    },
-    /** People accept or reject a proposal; Dynwork as an agent cannot. */
-    decide(id: string, accept: boolean) {
-      const key = state.open
-      if (!key) return
-      setState("proposals", key, (list) =>
-        (list ?? []).map((item) => (item.id === id ? { ...item, state: accept ? "accepted" : "rejected" } : item)),
-      )
-    },
-
-    // The side panel of each chat, by session key.
-    chat(key: string): ChatState {
-      return state.chats[key] ?? { changes: [], version: {}, dock: false }
-    },
-    /** Loads the sample conversation's documents into a chat, with the agent's pending overwrite. */
-    loadSample(key: string) {
-      setState("chats", key, { changes: [...sampleChanges], version: {}, dock: true })
-    },
-    /** Attaches a document to a chat, as the composer's + from the Drive does. */
-    attach(key: string, id: string) {
-      const target = doc(id)
-      if (!target) return
-      const chat = store.chat(key)
-      if (chat.changes.some((change) => change.doc === id)) return
-      setState("chats", key, { ...chat, changes: [...chat.changes, { doc: id, act: "attached", rev: target.rev }] })
-    },
-    setVersion(key: string, id: string, rev: number | undefined) {
-      const chat = store.chat(key)
-      const version = { ...chat.version }
-      if (rev === undefined) delete version[id]
-      else version[id] = rev
-      setState("chats", key, { ...chat, version })
-    },
-    /** The agent's pending overwrite of the spreadsheet: allowed, it writes a new revision; denied, nothing changes. */
-    settleDock(key: string, allow: boolean) {
-      const chat = store.chat(key)
-      setState("chats", key, { ...chat, dock: false })
-      if (!allow) return
-      const target = doc("d2")
-      if (!target) return
-      const rev = target.rev + 1
-      update("d2", () => ({ rev, age: 0 }))
-      setState("versions", "d2", (list) => [
-        { rev, by: "AI", via: "c1", what: "drive.dock.version", age: 0 },
-        ...(list ?? []),
-      ])
-      setState("chats", key, {
-        ...chat,
-        dock: false,
-        changes: [...chat.changes, { doc: "d2", act: "edited", rev, from: rev - 1 }],
-      })
-    },
   }
+
+  function editThread(id: string, change: (thread: Thread) => Partial<Thread>) {
+    const key = Object.keys(state.threads).find((doc) => store.threadsOf(doc).some((item) => item.id === id))
+    if (key)
+      setState(
+        "threads",
+        key,
+        (item) => item.id === id,
+        (item) => ({ ...item, ...change(item) }),
+      )
+  }
+
   return store
 }
 
 export type DriveStore = ReturnType<typeof createDriveStore>
 
-/** The window's one Drive store. */
-export const drive = createRoot(() => createDriveStore())
+/** Without a connection to main, the store answers as the service does without an account. */
+const disconnected: Failure = { code: "signed-out", message: "The Drive is not connected.", retryable: false }
+
+/** What the browser asks the Drive for; none when the snapshot or the index already holds it. */
+export function queriesOf(browse: { scope: Scope; folder: string | undefined; query: string }): Query[] {
+  const query = browse.query.trim()
+  if (query)
+    return [
+      { scope: "mine", query, limit: PAGE },
+      { scope: "shared", query, limit: PAGE },
+    ]
+  if (browse.scope === "home" && browse.folder !== undefined)
+    return [{ scope: "folder", folder: browse.folder, limit: PAGE }]
+  if (browse.scope === "home" || browse.scope === "mine") return [{ scope: "mine", limit: PAGE }]
+  if (browse.scope === "shared") return [{ scope: "shared", limit: PAGE }]
+  return []
+}
+
+const unique = (documents: readonly Document[]) => [...new Map(documents.map((item) => [item.id, item])).values()]
+
+// The active account as the window entry follows it (`./register.tsx`): Governance's address and the user's name,
+// which the Drive's state does not carry.
+const [active, setActive] = createSignal<{ url: string; user?: string }>()
+
+/** The active account's Governance address and user; undefined without one. */
+export const account = active
+export const follow = setActive
+
+/** A document's page in Governance's Drive, or the Drive itself; undefined without an active account. */
+export function governance(id?: string) {
+  const url = active()?.url.replace(/\/+$/, "")
+  if (!url) return undefined
+  return id === undefined ? `${url}/drive` : `${url}/drive/${encodeURIComponent(id)}`
+}
+
+/** The window's one Drive store, over the window entry's live connection (`DriveClient.attach`). */
+export const drive = createRoot(() =>
+  createDriveStore({
+    client: () => {
+      const live = DriveClient.connection()
+      return live?.status === "active" ? live.value : undefined
+    },
+  }),
+)

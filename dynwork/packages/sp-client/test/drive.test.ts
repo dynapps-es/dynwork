@@ -197,6 +197,28 @@ describe("importing", () => {
     expect(sent("/api/v1/uploads")).toHaveLength(0)
   })
 
+  test("a template makes a document in the folder, with the conversation and no message", async () => {
+    const parent = await folder("Reports")
+    const context = crypto.randomUUID()
+    const created = await run(
+      SpDrive.create(fake.url, state.jwt, {
+        templateId: "dynapps-word",
+        name: "Q3 report",
+        folderId: parent.id,
+        contextId: context,
+      }),
+    )
+    expect(created.document).toMatchObject({ name: "Q3 report", template_id: "dynapps-word", folder_id: parent.id })
+    const request = sent("/api/v1/documents", "POST").at(-1)
+    expect(request?.headers["content-type"]).toBe("application/json")
+    expect(request?.headers["x-context-id"]).toBe(context)
+    expect(JSON.parse(request?.body ?? "{}")).toEqual({
+      template_id: "dynapps-word",
+      name: "Q3 report",
+      folder_id: parent.id,
+    })
+  })
+
   test("a file past the inline limit goes up in parts and is imported by its blob", async () => {
     fake.state.drive.partSize = 4 * 1024 * 1024
     const bytes = new Uint8Array(SpDrive.inlineLimit + 1).fill(7)

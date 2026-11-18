@@ -96,30 +96,34 @@ the viewer.
 
 ## Drive
 
-The governance Drive inside Dynwork, as Claude's artifacts (`./drive`), on built-in demo data in memory: nothing is read
-from or sent to a server yet. It shows what the plan `2026-11-dynwork-drive` builds, so the real client replaces
-`demo.ts` and `store.ts` and keeps the screens.
+The account's Drive in Governance inside DynWork (`./drive`), over the `dynwork.drive` Ipc (`../drive`): the window
+reads and writes through main, where the account's credential stays. `store.ts` holds what the view shows over the live
+client (`DriveClient.attach`, from `register.tsx`); `test/views/drive/fixture.ts` stands it over the real service and an
+in-memory Drive for the tests.
 
-- **The view** (`/page/drive`): Home, Recent, Mine, Shared with me and From my chats; type filters, search in names and
-  content, list or grid, folders with their path and class, the selected document's preview, Upload (files picked or
-  dropped land after a moment) and New from a Dynapps template.
-- **A document** opens over the browser: its bar, the edition banner (Dynwork counts as an agent; the More menu
-  previews v2, editing as yourself), the outline, the canvas and a drawer with Info, Comments, Versions, Proposals and
-  Share. Word and Markdown draw as paper HTML, as the store renders them; a spreadsheet, a presentation, an HTML page
-  in a sandboxed iframe with a CSP that allows no network, and an uploaded PDF draw by format (`canvas.tsx`).
-- **Comments on a part** (`comments.tsx`): select text, cells or a range, or turn on comment mode (C) and click a
-  paragraph, a slide's box, an element of the HTML page or a point of the PDF. The comment opens in a card beside what it
-  points at; pins, highlights and the cells' corner marks open their thread. An anchor that needs the store to change
-  (a cell range, a PDF point) says P10. `@Agent` or Send to the agent makes the demo agent answer there, edit the
-  document (a new revision) and show the change in the chats that have it.
-- **Beside a chat** (`panel.tsx`, `register.tsx`): the + menu's Artifacts opens a side panel tab with the chat's
-  artifacts as cards (Load the sample conversation fills an empty chat), and each card opens the document in a tab of
-  its own with its versions. A highlight in the panel opens the document in the Drive on its thread. Use in a chat
-  attaches a document to the routed chat (a composer chip and its tab), and the sample's pending overwrite takes the
-  composer's place as OpenCode's permission dock.
+- **The view** (`/page/drive`): Home (the root's folders and loose files, then a folder's), Recent (the service's
+  snapshot, read every 5 minutes, every 20 s while the view is open), Mine, Shared with me and From my chats (the
+  conversation ↔ document index this computer keeps); type filters, a search by name in the user's and the shared
+  documents, list or grid, Show more for a long listing, and the selected document's facts. A banner says when there is
+  no account, Governance refused the session or does not answer, or a listing failed.
+- **Upload** (picked or dropped files) creates documents in the open folder, signed "<user> by DynWork" (D2). **New**
+  makes a folder, or a document from a Dynapps template (`dynapps-word`, `dynapps-sheet`, `dynapps-deck`,
+  `dynapps-html`, `blank-markdown`: the instance has no route that lists them, C9).
+- **A document** opens over the browser: its bar, the edition banner (DynWork counts as an agent; what it may do on the
+  document attended, and what a scheduled task could do unattended), the Drive's preview in a sandboxed frame without
+  scripts and with the instance's policy, and a drawer with Info, Versions (numbered, with their "… by DynWork"
+  message), Proposals and Share. What the Drive keeps to the person (sharing, restoring, accepting proposals, renaming,
+  moving, trashing) opens the document in Governance while `personActions` is off; Export as PDF and Copy link work
+  here.
+- **Beside a chat** (`panel.tsx`, `register.tsx`): the + menu's Artifacts opens a side panel tab with the documents the
+  chat made, changed or attached, newest first; Add from the Drive attaches one, and Upload to the Drive sends a file
+  the chat made to the Drive's root with the conversation's name and `x-context-id` (D2, D3). Each card opens the
+  document in a tab of its own with its preview. Use in a chat attaches a document to the routed chat (a composer chip
+  and its tab) and records it in the index.
+- **The comments layer** (`comments.tsx`, `canvas.tsx`): selection anchors, pins and cards on drawn documents, kept from
+  the demo and not mounted yet, until the Drive's comments and the viewers per format reach it.
 
-The menus load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does. The demo documents are English; the
-interface follows the window's language.
+The menus load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does.
 
 ## Runs
 

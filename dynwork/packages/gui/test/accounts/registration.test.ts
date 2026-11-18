@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { runsOn } from "@opencode/plugin/gui/host"
 import { createRoot } from "solid-js"
 import { Accounts } from "../../src/accounts/contract"
+import { DriveClient } from "../../src/drive/client"
+import { Drive } from "../../src/drive/contract"
 import { Remote } from "../../src/remote/contract"
 import { RoutinesClient } from "../../src/routines/client"
 import { Chat, Routines } from "../../src/routines/contract"
@@ -67,13 +69,15 @@ describe("dynwork built-in", () => {
       renderer(ctx as unknown as Parameters<typeof renderer>[0])
       return dispose
     })
-    // Remote control, the routines and their chat cards ride on the same built-in
-    expect(used).toEqual([Accounts, Remote, Routines, Chat])
+    // The Drive, remote control, the routines and their chat cards ride on the same built-in
+    expect(used).toEqual([Accounts, Drive, Remote, Routines, Chat])
     expect(connection()).toEqual({ status: "pending" })
+    expect(DriveClient.connection()).toEqual({ status: "pending" })
     expect(RoutinesClient.connection()).toEqual({ status: "pending" })
     expect(RoutinesClient.chatConnection()).toEqual({ status: "pending" })
     dispose()
     expect(connection()).toBeUndefined()
+    expect(DriveClient.connection()).toBeUndefined()
     expect(RoutinesClient.connection()).toBeUndefined()
     expect(RoutinesClient.chatConnection()).toBeUndefined()
   })
@@ -89,6 +93,7 @@ describe("dynwork built-in", () => {
     })
     expect(used).toEqual([])
     expect(connection()).toBeUndefined()
+    expect(DriveClient.connection()).toBeUndefined()
     expect(RoutinesClient.connection()).toBeUndefined()
     expect(RoutinesClient.chatConnection()).toBeUndefined()
   })

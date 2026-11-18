@@ -308,6 +308,39 @@ export const importFile = Effect.fn("SpDrive.importFile")(function* (baseUrl: st
 })
 
 /**
+ * Creates a document from one of the instance's templates (`dynapps-word`, `blank-markdown`, ...). The instance has no
+ * route that lists them. 0.83 ignores a `message` here (the first revision stays unnamed), so none is sent.
+ */
+export const create = Effect.fn("SpDrive.create")(function* (
+  baseUrl: string,
+  jwt: string,
+  input: Pick<Attribution, "contextId"> & {
+    readonly templateId: string
+    readonly name: string
+    readonly folderId?: string
+  },
+) {
+  return yield* json(
+    DriveCreated,
+    {
+      method: "POST",
+      path: documents,
+      endpoint: "POST /api/v1/documents",
+      baseUrl,
+      jwt,
+      body: {
+        template_id: input.templateId,
+        name: input.name,
+        ...(input.folderId === undefined ? {} : { folder_id: input.folderId }),
+      },
+      headers: context(input.contextId),
+      limit: 1024 * 1024,
+    },
+    [201],
+  )
+})
+
+/**
  * Creates a document from a blob the instance already holds: the `blob_ref` of an upload completed here, or one the
  * agent produced with the `documents_upload` tool. Only the user who uploaded a blob can import it.
  */

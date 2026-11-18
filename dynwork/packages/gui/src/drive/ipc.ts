@@ -232,6 +232,25 @@ export function make<A extends Account>(options: Options<A>) {
           })
         return created
       }),
+    // The instance keeps no message on a document it makes from a template (C4): only the conversation's context.
+    create: (input) =>
+      changing(async (backend, account) => {
+        const created = await backend.create({
+          template: input.template,
+          name: input.name,
+          folder: input.folder,
+          contextId: author(account, input.conversation).contextId,
+        })
+        if (!isFailure(created) && input.conversation)
+          record(account.id, {
+            conversation: input.conversation.id,
+            document: created.document.id,
+            act: "created",
+            revision: created.revision.id,
+            via: "rest",
+          })
+        return created
+      }),
     edit: (input) =>
       changing(async (backend, account) => {
         const edited = await backend.edit(input.id, {

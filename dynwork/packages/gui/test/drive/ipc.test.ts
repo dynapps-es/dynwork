@@ -266,6 +266,20 @@ describe("attribution", () => {
     ])
   })
 
+  test("a document made from a template carries the conversation's context and enters the index", async () => {
+    const made: unknown[] = []
+    const { client, service } = stand({
+      backend: (fake) => ({ ...fake, create: (input) => (made.push(input), fake.create(input)) }),
+    })
+    const created = await ok(client.create({ template: "dynapps-word", name: "Q3", conversation: chat }))
+    expect(made).toEqual([
+      { template: "dynapps-word", name: "Q3", folder: undefined, contextId: service.context(chat.id) },
+    ])
+    expect(client.state().documents.map((document) => document.id)).toEqual([created.document.id])
+    expect(client.state().links.map((link) => [link.document, link.act])).toEqual([[created.document.id, "created"]])
+    expectFailure(await client.create({ template: "nope", name: "x" }), "invalid")
+  })
+
   test("conversationLabel on: a conversation's write carries only its context", async () => {
     const { client, seen, service } = stand({ capabilities: { conversationLabel: true } })
     await ok(client.upload({ name: "c.md", bytes: text("x"), mime: "text/markdown", conversation: chat }))

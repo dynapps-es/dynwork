@@ -4,10 +4,10 @@ import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
 import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { Deck, HtmlFrame, paperHtml, pdfHtml, Sheet, notesSource, type FrameMessage } from "./canvas"
-import { me, people, type Anchor, type Doc, type Thread } from "./demo"
 import { askAgent } from "./chat"
 import { AnchorLine, Avatar, MessageLine, useNames } from "./parts"
-import { anchorCell } from "./model"
+import type { Document } from "../../drive/contract"
+import { anchorCell, me, type Anchor, type Thread } from "./model"
 import { drive } from "./store"
 
 // Comments on a part of a document, as Claude's artifacts do: select text, cells or a range, or turn on comment mode
@@ -38,7 +38,7 @@ interface Picked {
 // The DOM a new comment marks once it is saved: the selected text, or the clicked block.
 let pending: { range?: Range; element?: HTMLElement } = {}
 
-const paper = (doc: Doc) => doc.format === "docx" || doc.format === "markdown"
+const paper = (doc: Document) => doc.format === "docx" || doc.format === "markdown"
 const clean = (text: string, size: number) => text.replace(/\s+/g, " ").trim().slice(0, size)
 /** The box of an element's text, narrower than the element when it is a full-width block such as a bullet. */
 const textBox = (element: Element) => {
@@ -48,7 +48,7 @@ const textBox = (element: Element) => {
 }
 
 /** The document on the workspace's canvas, with its comments: marks, pins, the card, the selection's toolbar. */
-export function CommentCanvas(props: { doc: Doc }) {
+export function CommentCanvas(props: { doc: Document }) {
   const ctx = usePlugin()
   const names = useNames()
   let box!: HTMLDivElement
@@ -160,8 +160,6 @@ export function CommentCanvas(props: { doc: Doc }) {
     drive.state.doc.thread
     drive.state.doc.slide
     drive.state.paper[props.doc.id]
-    drive.state.added[props.doc.id]
-    drive.state.proposals[props.doc.id]?.[0]?.state
     frameRects()
     requestAnimationFrame(measure)
   })
@@ -236,18 +234,7 @@ export function CommentCanvas(props: { doc: Doc }) {
     pending = {}
     setGhost(undefined)
     drive.focusThread(id)
-    if (/@agent/i.test(text)) answer(id)
   }
-
-  const answer = (id: string, text?: string) =>
-    drive.answer(id, text, (target) =>
-      ctx.toast.show({
-        title: ctx.t("drive.agent.answered"),
-        description: target.name,
-        icon: "comment",
-        variant: "success",
-      }),
-    )
 
   // Text selection on paper and PDF pages: the toolbar, or straight to the composer in comment mode.
   const selected = (event: MouseEvent) =>
@@ -425,9 +412,9 @@ export function CommentCanvas(props: { doc: Doc }) {
         >
           <div
             data-slot="drive-paper"
-            contentEditable={drive.state.mode === "v2" && canEdit() ? true : undefined}
+            contentEditable={drive.person() && canEdit() ? true : undefined}
             spellcheck={false}
-            innerHTML={paperHtml(props.doc, names.path(props.doc.folder), ctx.t)}
+            innerHTML={paperHtml(props.doc, names.path(props.doc.folder))}
           />
         </Show>
       </Show>
@@ -458,17 +445,17 @@ export function CommentCanvas(props: { doc: Doc }) {
       <For each={pins()}>
         {(pin) => {
           const thread = () => drive.thread(pin.id)
-          const first = () => people[thread()?.messages[0]?.by ?? me]
+          const first = () => thread()?.messages[0]
+          const who = () => ((first()?.by ?? me) === me ? ctx.t("drive.you") : (first()?.by ?? ""))
           return (
             <button
               type="button"
               data-pin={pin.id}
               data-state={pin.id === drive.state.doc.thread ? "on" : undefined}
-              data-agent={first()?.agent ? "" : undefined}
               style={{ left: `${pin.x}px`, top: `${pin.y}px` }}
-              title={`${names.who(thread()?.messages[0]?.by ?? me)}: ${names.said(thread()?.messages[0]?.text ?? "")}`}
+              title={`${who()}: ${first()?.text ?? ""}`}
             >
-              {first()?.initials}
+              {who().slice(0, 2).toUpperCase()}
               <Show when={(thread()?.messages.length ?? 0) > 1}>
                 <i>{thread()?.messages.length}</i>
               </Show>
@@ -549,7 +536,6 @@ export function CommentCanvas(props: { doc: Doc }) {
                     )
                     setPicked(undefined)
                     drive.focusThread(id)
-                    answer(id, props.doc.cls === "confidential" ? "drive.agent.proposed" : "drive.agent.rewrote")
                   }}
                 >
                   {ctx.t("drive.edit")}
@@ -578,7 +564,7 @@ export function CommentCanvas(props: { doc: Doc }) {
         {(at) => (
           <div data-slot="drive-popover" style={{ left: `${at().left}px`, top: `${at().top}px` }}>
             <Show when={threadCard()} keyed>
-              {(thread) => <ThreadCard thread={thread} onClose={closeCard} answer={answer} />}
+              {(thread) => <ThreadCard thread={thread} onClose={closeCard} />}
             </Show>
             <Show when={newCard()} keyed>
               {(card) => <NewComment card={card} onCancel={closeCard} onSend={commit} />}
@@ -605,9 +591,9 @@ function NewComment(props: {
         <AnchorLine thread={props.card} />
       </div>
       <div data-slot="drive-card-who">
-        <Avatar person={me} size="small" />
+        <Avatar name={ctx.t("drive.you")} size="small" />
         <b>{ctx.t("drive.you")}</b>
-        <Show when={drive.state.mode === "mvp"}>
+        <Show when={!drive.person()}>
           <span data-slot="drive-via">{ctx.t("drive.comment.dynwork")}</span>
         </Show>
       </div>
@@ -645,7 +631,7 @@ function NewComment(props: {
 }
 
 /** A thread's card: its messages, the agent at work, and a reply box, Send to the agent and Resolve. */
-function ThreadCard(props: { thread: Thread; onClose: () => void; answer: (id: string) => void }) {
+function ThreadCard(props: { thread: Thread; onClose: () => void }) {
   const ctx = usePlugin()
   let field: HTMLTextAreaElement | undefined
   const send = () => {
@@ -653,7 +639,6 @@ function ThreadCard(props: { thread: Thread; onClose: () => void; answer: (id: s
     if (!text) return
     drive.reply(props.thread.id, text)
     if (field) field.value = ""
-    if (/@agent/i.test(text)) props.answer(props.thread.id)
   }
   return (
     <>
@@ -672,9 +657,6 @@ function ThreadCard(props: { thread: Thread; onClose: () => void; answer: (id: s
       <div data-slot="drive-card-messages">
         <For each={props.thread.messages}>{(message) => <MessageLine message={message} />}</For>
       </div>
-      <Show when={drive.state.typing === props.thread.id}>
-        <AgentWorking />
-      </Show>
       <Show
         when={props.thread.open}
         fallback={
@@ -703,10 +685,7 @@ function ThreadCard(props: { thread: Thread; onClose: () => void; answer: (id: s
             size="small"
             icon="outline-steer"
             title={ctx.t("drive.comment.toAgent.hint")}
-            onClick={() => {
-              drive.reply(props.thread.id, ctx.t("drive.comment.toAgent.text"))
-              props.answer(props.thread.id)
-            }}
+            onClick={() => drive.reply(props.thread.id, ctx.t("drive.comment.toAgent.text"))}
           >
             {ctx.t("drive.comment.toAgent")}
           </Button>
@@ -740,7 +719,7 @@ export function AgentWorking(): JSX.Element {
 }
 
 /** The comment mode banner's hint, by format. */
-export const commentHint = (doc: Doc) =>
+export const commentHint = (doc: Document) =>
   doc.format === "xlsx"
     ? "drive.mode.hint.sheet"
     : doc.format === "pptx"

@@ -1,19 +1,19 @@
 import { usePlugin, type MountedSession } from "@opencode/plugin/gui"
 import { builtinContext } from "@opencode/plugin/gui/builtin"
-import { DockPrompt } from "@opencode/session-ui/dock-prompt"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
-import { createEffect, For, Match, onCleanup, Show, Switch } from "solid-js"
-import { Deck, HtmlFrame, paperHtml, pdfHtml, Sheet } from "./canvas"
-import { docKey } from "./chat"
-import type { Change, Doc } from "./demo"
-import { ClassTag, FormatGlyph, Tag, useNames } from "./parts"
+import { createEffect, createResource, For, Match, Show, Switch } from "solid-js"
+import { isFailure, type Link } from "../../drive/contract"
+import { uploadFiles } from "./browser"
+import { conversationOf, docKey } from "./chat"
+import { failureText, FormatGlyph, Tag, useNames } from "./parts"
 import { drive } from "./store"
-import { DemoBadge } from "../shell"
+import { PreviewFrame } from "./workspace"
 
-// The Drive beside a chat (a side panel tab, as Claude's artifacts): the chat's artifacts in the order its agent made
-// or changed them, and one tab per document with its versions. A document opens in the Drive view to comment on it.
+// The Drive beside a chat (a side panel tab, as Claude's artifacts): the documents the chat made, changed or attached,
+// newest first, from the conversation ↔ document index, and one tab per document with its preview. A document opens in
+// the Drive view for the rest.
 
 /** What a change's card says it did. */
 const actKey = {
@@ -24,50 +24,69 @@ const actKey = {
   read: "drive.card.read",
 } as const
 
-/** The chat's artifacts: a card per change, Add from the Drive, and the sample conversation for an empty chat. */
+/** The chat's artifacts: a card per change, Add from the Drive, and Upload to the Drive for a file the chat made. */
 export function ArtifactsPanel(props: { session: MountedSession }) {
   const ctx = usePlugin()
   const names = useNames()
-  const chat = () => drive.chat(props.session.key)
+  const links = () => drive.linksOf(props.session.id)
+  let input: HTMLInputElement | undefined
+  // The index names documents no listing may hold yet.
+  createEffect(() => void drive.learn(links().map((link) => link.document)))
   const add = async () => {
     const id = await ctx.dialogs.select({
       title: ctx.t("drive.panel.add"),
       placeholder: ctx.t("drive.search"),
-      options: drive.state.docs.map((doc) => ({
+      options: (drive.remote()?.documents ?? []).map((doc) => ({
         title: doc.name,
         value: doc.id,
         description: names.path(doc.folder),
       })),
     })
-    const doc = drive.doc(id)
-    if (!doc) return
-    drive.attach(props.session.key, doc.id)
-    ctx.layout.open(docKey(doc.id), props.session, { tab: "select" })
+    if (!id) return
+    const linked = await drive.link(props.session.id, id, "attached")
+    if (linked) return ctx.toast.show({ title: failureText(ctx, linked), variant: "error" })
+    ctx.layout.open(docKey(id), props.session, { tab: "select" })
   }
   return (
     <div data-component="drive-panel">
       <div data-slot="drive-panel-head">
         <Icon name="file-document" size="small" />
         <b>{ctx.t("drive.panel.title")}</b>
-        <DemoBadge />
         <span data-slot="drive-grow" />
+        <input
+          ref={input}
+          type="file"
+          multiple
+          hidden
+          onChange={(event) => {
+            const files = [...(event.currentTarget.files ?? [])]
+            event.currentTarget.value = ""
+            void uploadFiles(ctx, files, conversationOf(ctx, props.session))
+          }}
+        />
+        <Button
+          variant="ghost"
+          size="small"
+          icon="cloud-upload"
+          title={ctx.t("drive.panel.upload.hint")}
+          onClick={() => input?.click()}
+        >
+          {ctx.t("drive.panel.upload")}
+        </Button>
         <Button variant="ghost" size="small" icon="plus" onClick={() => void add()}>
           {ctx.t("drive.panel.add")}
         </Button>
       </div>
       <div data-slot="drive-panel-body">
         <Show
-          when={chat().changes.length}
+          when={links().length}
           fallback={
             <div data-slot="drive-panel-empty">
               <p>{ctx.t("drive.panel.empty")}</p>
-              <Button variant="contrast" icon="download" onClick={() => drive.loadSample(props.session.key)}>
-                {ctx.t("drive.panel.sample")}
-              </Button>
             </div>
           }
         >
-          <For each={chat().changes}>{(change) => <ChangeCard change={change} session={props.session} />}</For>
+          <For each={links()}>{(link) => <ChangeCard link={link} session={props.session} />}</For>
           <p data-slot="drive-note">{ctx.t("drive.panel.note")}</p>
         </Show>
       </div>
@@ -75,38 +94,26 @@ export function ArtifactsPanel(props: { session: MountedSession }) {
   )
 }
 
-/** A change as a card: the document, what the agent did and the version, its folder. Click opens it beside the chat. */
-export function ChangeCard(props: { change: Change; session: MountedSession }) {
+/** A change as a card: the document, what the chat did and when, its folder. Click opens it beside the chat. */
+export function ChangeCard(props: { link: Link; session: MountedSession }) {
   const ctx = usePlugin()
   const names = useNames()
-  const doc = () => drive.doc(props.change.doc)
   return (
-    <Show when={doc()}>
+    <Show when={drive.doc(props.link.document)}>
       {(found) => (
         <button
           type="button"
           data-slot="drive-change"
-          onClick={() => {
-            drive.setVersion(
-              props.session.key,
-              found().id,
-              props.change.rev === found().rev ? undefined : props.change.rev,
-            )
-            ctx.layout.open(docKey(found().id), props.session, { tab: "select" })
-          }}
+          onClick={() => ctx.layout.open(docKey(found().id), props.session, { tab: "select" })}
         >
           <FormatGlyph format={found().format} size="large" />
           <span data-slot="drive-change-body">
             <span data-slot="drive-change-title">{found().name}</span>
             <span data-slot="drive-change-meta">
-              <Tag
-                tone={props.change.act === "proposed" ? "warning" : props.change.act === "created" ? "agent" : "info"}
-              >
-                {ctx.t(actKey[props.change.act])}
+              <Tag tone={props.link.act === "proposed" ? "warning" : props.link.act === "created" ? "agent" : "info"}>
+                {ctx.t(actKey[props.link.act])}
               </Tag>
-              <span data-slot="drive-version-pill">
-                {props.change.from ? `v${props.change.from} → ` : ""}v{props.change.rev}
-              </span>
+              <span data-slot="drive-faint">{names.ago(props.link.at)}</span>
               <span data-slot="drive-faint">{names.path(found().folder)}</span>
             </span>
           </span>
@@ -117,17 +124,25 @@ export function ChangeCard(props: { change: Change; session: MountedSession }) {
   )
 }
 
-/** One document beside the chat: its header with versions, comments and Open in the Drive, then its content. */
+/** One document beside the chat: its header with Open in the Drive, then its preview. */
 export function DocPanel(props: { session: MountedSession; id: string }) {
   const ctx = usePlugin()
   const names = useNames()
   const doc = () => drive.doc(props.id)
-  const revs = () => (drive.state.versions[props.id] ?? [{ rev: doc()?.rev ?? 1 }]).map((version) => version.rev)
-  const shown = () => drive.chat(props.session.key).version[props.id] ?? doc()?.rev
-  const open = () => drive.threadsOf(props.id).filter((thread) => thread.open).length
-  const toDrive = (thread?: string) => {
-    drive.openDoc(props.id, "comments")
-    if (thread) drive.focusThread(thread)
+  const [page] = createResource(
+    () => drive.client() && { id: props.id },
+    (input) => drive.client()?.preview(input),
+  )
+  const failed = () => {
+    const answer = page()
+    return answer && isFailure(answer) ? answer : undefined
+  }
+  const shown = () => {
+    const answer = page()
+    return answer && !isFailure(answer) ? answer : undefined
+  }
+  const toDrive = () => {
+    void drive.openDoc(props.id)
     builtinContext(ctx).layout.page("drive")
   }
   return (
@@ -139,182 +154,32 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
             <div data-slot="drive-panel-meta">
               <span data-slot="drive-panel-title">{found().name}</span>
               <span data-slot="drive-faint">
-                {names.path(found().folder)} · <ClassTag cls={found().cls} />
+                {names.path(found().folder)} · {names.ago(found().updated)}
               </span>
             </div>
-            <select
-              data-slot="drive-level"
-              aria-label={ctx.t("drive.panel.version")}
-              value={String(shown())}
-              onChange={(event) => {
-                const rev = Number(event.currentTarget.value)
-                drive.setVersion(props.session.key, props.id, rev === found().rev ? undefined : rev)
-              }}
-            >
-              <For each={revs()}>
-                {(rev) => (
-                  <option value={String(rev)} selected={rev === shown()}>
-                    v{rev}
-                    {rev === found().rev ? ` · ${ctx.t("drive.version.current")}` : ""}
-                  </option>
-                )}
-              </For>
-            </select>
-            <IconButton
-              type="button"
-              variant="ghost-muted"
-              icon={<Icon name="comment" size="small" />}
-              aria-label={ctx.t("drive.tab.comments")}
-              title={ctx.t("drive.tab.comments")}
-              onClick={() => toDrive()}
-            />
-            <Show when={open()}>
-              <span data-slot="drive-faint">{open()}</span>
-            </Show>
             <IconButton
               type="button"
               variant="ghost-muted"
               icon={<Icon name="square-arrow-top-right" size="small" />}
               aria-label={ctx.t("drive.panel.open")}
               title={ctx.t("drive.panel.open")}
-              onClick={() => toDrive()}
+              onClick={toDrive}
             />
           </div>
-          <Show when={shown() !== found().rev}>
-            <div data-slot="drive-banner" data-tone="warning">
-              <Icon name="outline-reset" size="small" />
-              <span data-slot="drive-grow">{ctx.t("drive.panel.old", { rev: String(shown()) })}</span>
-              <Button
-                variant="ghost"
-                size="small"
-                onClick={() => drive.setVersion(props.session.key, props.id, undefined)}
-              >
-                {ctx.t("drive.panel.current")}
-              </Button>
-            </div>
-          </Show>
-          <div
-            data-slot="drive-panel-content"
-            data-format={found().format}
-            onClick={(event) => {
-              const id = (event.target as HTMLElement).closest<HTMLElement>("[data-t]")?.dataset.t
-              if (id) toDrive(id)
-            }}
-          >
-            <Compact doc={found()} />
+          <div data-slot="drive-panel-content" data-format={found().format}>
+            <Switch fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
+              <Match when={failed()}>
+                {(failure) => (
+                  <p data-slot="drive-note">
+                    {ctx.t("drive.preview.failed")} {failureText(ctx, failure())}
+                  </p>
+                )}
+              </Match>
+              <Match when={shown()}>{(answer) => <PreviewFrame page={answer()} title={found().name} />}</Match>
+            </Switch>
           </div>
         </div>
       )}
     </Show>
-  )
-}
-
-function Compact(props: { doc: Doc }) {
-  const ctx = usePlugin()
-  const names = useNames()
-  let paper: HTMLDivElement | undefined
-  // A resolved thread's quote stays in the text without its highlight, as in the view.
-  createEffect(() => {
-    const threads = drive.threadsOf(props.doc.id)
-    drive.state.paper[props.doc.id]
-    queueMicrotask(() =>
-      paper
-        ?.querySelectorAll<HTMLElement>("[data-t]")
-        .forEach((element) =>
-          element.toggleAttribute(
-            "data-resolved",
-            threads.find((thread) => thread.id === element.dataset.t)?.open === false,
-          ),
-        ),
-    )
-  })
-  return (
-    <Switch>
-      <Match when={props.doc.format === "docx" || props.doc.format === "markdown"}>
-        <div
-          ref={paper}
-          data-slot="drive-paper"
-          data-compact=""
-          innerHTML={paperHtml(props.doc, names.path(props.doc.folder), ctx.t)}
-        />
-      </Match>
-      <Match when={props.doc.format === "pdf"}>
-        <div data-slot="drive-pdf" data-compact="" innerHTML={pdfHtml(props.doc)} />
-      </Match>
-      <Match when={props.doc.format === "xlsx"}>
-        <Sheet doc={props.doc} compact />
-      </Match>
-      <Match when={props.doc.format === "pptx"}>
-        <Deck doc={props.doc} compact />
-      </Match>
-      <Match when={props.doc.format === "html"}>
-        <HtmlFrame
-          doc={props.doc}
-          anchors={() =>
-            drive
-              .threadsOf(props.doc.id)
-              .flatMap((thread) =>
-                thread.open && thread.anchor.kind === "element"
-                  ? [{ id: thread.id, find: thread.anchor.find, on: false }]
-                  : [],
-              )
-          }
-        />
-      </Match>
-    </Switch>
-  )
-}
-
-/**
- * The agent's pending overwrite, where the composer is, as OpenCode's permission dock: Allow writes a new revision
- * (the current one stays in the history), Deny leaves the document alone.
- */
-export function OverwriteDock(props: { session: MountedSession }) {
-  const ctx = usePlugin()
-  const doc = () => drive.doc("d2")
-  const keys = (event: KeyboardEvent) => {
-    if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return
-    event.preventDefault()
-    drive.settleDock(props.session.key, true)
-  }
-  document.addEventListener("keydown", keys)
-  onCleanup(() => document.removeEventListener("keydown", keys))
-  return (
-    <DockPrompt
-      kind="permission"
-      header={
-        <div data-slot="permission-row" data-variant="header">
-          <span data-slot="permission-icon">
-            <Icon name="warning" size="normal" />
-          </span>
-          <div data-slot="permission-header-title">{ctx.t("drive.dock.title")}</div>
-        </div>
-      }
-      footer={
-        <>
-          <div />
-          <div data-slot="permission-footer-actions">
-            <Button variant="ghost" size="normal" onClick={() => drive.settleDock(props.session.key, false)}>
-              {ctx.t("drive.dock.deny")}
-            </Button>
-            <Button variant="submit" size="normal" onClick={() => drive.settleDock(props.session.key, true)}>
-              {ctx.t("drive.dock.allow")}
-              <kbd data-slot="proposal-key">⌘↵</kbd>
-            </Button>
-          </div>
-        </>
-      }
-    >
-      <div data-slot="permission-row">
-        <span data-slot="permission-spacer" aria-hidden="true" />
-        <div data-slot="permission-hint">
-          {ctx.t("drive.dock.description", {
-            doc: doc()?.name ?? "",
-            rev: String(doc()?.rev ?? 0),
-            next: String((doc()?.rev ?? 0) + 1),
-          })}
-        </div>
-      </div>
-    </DockPrompt>
   )
 }

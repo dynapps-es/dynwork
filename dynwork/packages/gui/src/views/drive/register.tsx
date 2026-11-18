@@ -1,15 +1,27 @@
 import { MenuItem, Panel, type PanelTab, type SetupContext } from "@opencode/plugin/gui"
-import { BuiltinSlot } from "@opencode/plugin/gui/builtin"
-import { createMemo, Show } from "solid-js"
+import { createEffect, createMemo, Show } from "solid-js"
 import type definition from "../../accounts/index"
+import { connection } from "../../accounts/renderer"
+import { DriveClient } from "../../drive/client"
+import { Drive } from "../../drive/contract"
 import { listKey } from "./chat"
-import { ArtifactsPanel, DocPanel, OverwriteDock } from "./panel"
-import { drive } from "./store"
+import { ArtifactsPanel, DocPanel } from "./panel"
+import { drive, follow } from "./store"
 import "./drive.css"
 
-// The Drive beside a chat: one side panel with a tab for the chat's artifacts and a tab per document opened from it,
-// the + menu's "Artifacts" item, and the agent's pending overwrite in the composer's dock.
+// The Drive in the window: the `dynwork.drive` Ipc for the view and the panels, and beside a chat one side panel with a
+// tab for the chat's artifacts and a tab per document opened from it, and the + menu's "Artifacts" item.
 export function registerDrive(ctx: SetupContext<typeof definition>) {
+  DriveClient.attach(ctx.use(Drive))
+  // The active account's Governance address and user name, for Open in Governance and the edition banner, from the
+  // accounts Ipc the window entry already holds.
+  createEffect(() => {
+    const live = connection()
+    const active =
+      live?.status === "active" ? live.value.state()?.accounts.find((account) => account.active) : undefined
+    follow(active && { url: active.url, user: active.user ?? active.label })
+  })
+
   const list = createMemo((): PanelTab => ({ id: "drive", title: ctx.t("drive.panel.title"), group: "drive" }))
   // The same tab object per document while its name and the language stay: a new one would render its label again.
   const docs = new Map<string, { name: string; tab: PanelTab }>()
@@ -57,17 +69,4 @@ export function registerDrive(ctx: SetupContext<typeof definition>) {
       },
     }),
   )
-
-  ctx.add(BuiltinSlot, {
-    at: "session.composer.dock",
-    render: () => (
-      <Show when={ctx.sessions.current()}>
-        {(session) => (
-          <Show when={drive.chat(session().key).dock}>
-            <OverwriteDock session={session()} />
-          </Show>
-        )}
-      </Show>
-    ),
-  })
 }

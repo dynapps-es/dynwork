@@ -79,6 +79,43 @@ export function make(options: Options = {}): Fake {
       sha256: entry.revisions[0]?.sha256,
     }
   }
+  // A new document and its first revision, which 0.83 leaves unnamed whether it comes from a file or a template.
+  const add = (input: {
+    name: string
+    bytes: Uint8Array
+    mime: string
+    format: string
+    folder?: string
+    template?: string
+    contextId?: string
+  }) => {
+    const id = randomUUID()
+    const entry: Entry = {
+      document: {
+        id,
+        name: input.name,
+        format: input.format,
+        mime: input.mime,
+        folder: input.folder,
+        owner: user,
+        mine: true,
+        access: "own",
+        size: 0,
+        revision: "",
+        template: input.template,
+        created: now(),
+        updated: now(),
+      },
+      bytes: new Uint8Array(),
+      revisions: [],
+      comments: [],
+      proposals: [],
+      contexts: [],
+    }
+    entries.set(id, entry)
+    const revision = revise(entry, input.bytes, { contextId: input.contextId })
+    return { document: entry.document, revision }
+  }
   const writable = (mode?: "land" | "propose") =>
     switches.suggestOnly && mode !== "propose" ? fail("suggest", "Agents may only suggest here.") : undefined
 
@@ -190,32 +227,15 @@ export function make(options: Options = {}): Fake {
       const blocked = writable()
       if (blocked) return blocked
       const mime = input.mime ?? "application/octet-stream"
-      const id = randomUUID()
-      const entry: Entry = {
-        document: {
-          id,
-          name: input.name,
-          format: formatOf(input.name, mime),
-          mime,
-          folder: input.folder,
-          owner: user,
-          mine: true,
-          access: "own",
-          size: 0,
-          revision: "",
-          created: now(),
-          updated: now(),
-        },
-        bytes: new Uint8Array(),
-        revisions: [],
-        comments: [],
-        proposals: [],
-        contexts: [],
-      }
-      entries.set(id, entry)
-      // 0.83 records no message on a document it creates from a file.
-      const revision = revise(entry, input.bytes, { contextId: input.contextId })
-      return { document: entry.document, revision }
+      return add({ ...input, mime, format: formatOf(input.name, mime) })
+    }),
+    create: method("create", (input) => {
+      if (input.folder !== undefined && !folders.has(input.folder)) return fail("not-found", "No such folder.")
+      const blocked = writable()
+      if (blocked) return blocked
+      const made = templates[input.template]
+      if (!made) return fail("invalid", "No such template.")
+      return add({ ...input, ...made, bytes: new TextEncoder().encode(`${input.name}\n`) })
     }),
     edit: method("edit", (id, input) => {
       const entry = found(id)
@@ -315,4 +335,13 @@ function formatOf(name: string, mime: string) {
   if (bare === "text/markdown") return "markdown"
   if (bare === "application/pdf") return "pdf"
   return name.split(".").pop()?.toLowerCase() ?? "binary"
+}
+
+// The templates the fake makes documents from: Dynapps' and the core's blank Markdown (C9).
+const templates: Record<string, { format: string; mime: string }> = {
+  "dynapps-word": { format: "docx", mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" },
+  "dynapps-sheet": { format: "xlsx", mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
+  "dynapps-deck": { format: "pptx", mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation" },
+  "dynapps-html": { format: "html", mime: "text/html" },
+  "blank-markdown": { format: "markdown", mime: "text/markdown" },
 }

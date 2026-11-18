@@ -52,6 +52,10 @@ export interface Backend {
   upload(
     input: Attribution & { name: string; bytes: Uint8Array; mime?: string; folder?: string },
   ): Promise<Created | Failure>
+  /** A document from one of the instance's templates; the instance keeps no message on it (0.83). */
+  create(
+    input: Pick<Attribution, "contextId"> & { template: string; name: string; folder?: string },
+  ): Promise<Created | Failure>
   edit(
     id: string,
     input: Attribution & {
@@ -206,6 +210,17 @@ export function remote(options: Remote): Backend {
             mime: input.mime,
             folderId: input.folder,
             message: input.message,
+            contextId: input.contextId,
+          }),
+        (created) => ({ document: document(created.document), revision: revision(created.revision) }),
+      ),
+    create: (input) =>
+      call(
+        (jwt) =>
+          SpDrive.create(url, jwt, {
+            templateId: input.template,
+            name: input.name,
+            folderId: input.folder,
             contextId: input.contextId,
           }),
         (created) => ({ document: document(created.document), revision: revision(created.revision) }),

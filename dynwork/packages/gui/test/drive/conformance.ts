@@ -77,6 +77,19 @@ export function conformance(name: string, make: () => Subject) {
       expect((await ok(backend.get(created.document.id))).document.folder).toBe(child.id)
     })
 
+    test("a template makes a document in the folder, with an unnamed first revision", async () => {
+      const { backend } = make()
+      const parent = await ok(backend.createFolder({ name: `Templates ${randomUUID()}` }))
+      const created = crossing(
+        Created,
+        await ok(backend.create({ template: "dynapps-word", name: "Q3 report", folder: parent.id })),
+      )
+      expect(created.document).toMatchObject({ name: "Q3 report", folder: parent.id, template: "dynapps-word" })
+      expect(created.revision.message).toBeUndefined()
+      const listed = await ok(backend.list({ scope: "folder", folder: parent.id }))
+      expect(listed.documents.map((document) => document.id)).toEqual([created.document.id])
+    })
+
     test("a listing pages with its cursor until there is no next page", async () => {
       const { backend } = make()
       const prefix = `page-${randomUUID()}`
