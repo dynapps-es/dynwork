@@ -256,7 +256,8 @@ test("without a governance plugin nothing is reported", async () => {
 }, 30_000)
 
 // A scheduled task's run is a child session of the task's anchor: its own calls name it, never the anchor, although
-// OpenCode's X-Session-Id header carries the anchor (the cache affinity) on both.
+// OpenCode's X-Session-Id header carries the anchor (the cache affinity) on both. Its id is a run's
+// (`routines/local/backend.ts`), so it finishes without waking the anchor and every call recorded is the run's.
 async function child() {
   const parent = (
     await service.post("/api/session", {
@@ -268,6 +269,7 @@ async function child() {
   const run = (
     await service.post("/api/session", {
       location: { directory: project },
+      id: `ses_aut_dynwork_${crypto.randomUUID().replaceAll("-", "")}`,
       title: "run",
       parentID: parent,
       model: { id: "claude-sonnet-5-5", providerID: "systemprompt" },
