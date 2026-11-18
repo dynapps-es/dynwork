@@ -12,6 +12,7 @@ import { RoutinesIpc } from "./ipc"
 import { RoutinesLocal } from "./local/backend"
 import { RoutinesClock } from "./local/clock"
 import { RoutinesSync } from "./local/sync"
+import { RoutinesTemplatesReader } from "./local/templates"
 
 // Main itself, as the caller of an Ipc method it runs on its own (a chat card's Schedule).
 const main = { window: 0, signal: new AbortController().signal }
@@ -52,8 +53,9 @@ export interface Options {
 
 // The routines' main side, set up by the `dynwork` built-in's main entry next to the accounts: the registry of backends
 // and the `dynwork.routines` Ipc over it, and the clock of the local routines. Answers the registry, so that code that
-// owns a backend can register it, the clock's `check`, to call when `ready` may have changed and on wake, and `pull`,
-// which syncs with Governance now: on the relay's `routines.changed` hint, a change of account and a wake.
+// owns a backend can register it, the clock's `check`, to call when `ready` may have changed and on wake, `pull`,
+// which syncs with Governance now: on the relay's `routines.changed` hint, a change of account and a wake, and
+// `templates`, which reads Governance's templates now: on the relay's `templates.changed` hint.
 export function setup(ctx: MainContext, options: Options) {
   const registry = RoutinesBackend.make()
   const provider = { changed: () => {}, run: (_: Run) => {}, open: (_: Run) => {} }
@@ -63,6 +65,14 @@ export function setup(ctx: MainContext, options: Options) {
   const store = ctx.storage.store("routines", { schema: RoutinesLocal.Saved, initial: RoutinesLocal.initial })
   const client = service(ctx)
   const shared: { sync?: RoutinesSync.Sync } = {}
+  // The templates Governance offers, read with the sync's account; a new answer is a change of the local backend.
+  const templates =
+    options.sync &&
+    RoutinesTemplatesReader.make({
+      account: options.sync.account,
+      device: options.sync.device,
+      changed: () => local.touched(),
+    })
   const local = RoutinesLocal.make({
     label: options.label,
     store,
@@ -75,6 +85,7 @@ export function setup(ctx: MainContext, options: Options) {
     account: options.sync ? () => options.sync?.account()?.id : undefined,
     synced: () => shared.sync?.synced(),
     queued: () => void shared.sync?.sync(),
+    templates: templates && templates.current,
     notify: (notice) =>
       options.notify?.({
         ...notice,
@@ -97,6 +108,7 @@ export function setup(ctx: MainContext, options: Options) {
       account: options.sync.account,
       device: options.sync.device,
       now: Date.now,
+      templates,
     })
     shared.sync = sync
     ctx.onCleanup(sync.dispose)
@@ -131,6 +143,7 @@ export function setup(ctx: MainContext, options: Options) {
     registry,
     check: () => void clock.check(),
     pull: () => void shared.sync?.sync(),
+    templates: () => void templates?.read(),
     /** DynWork's service, while it runs. */
     client,
     /** Changes through the Ipc's own methods, so every window reads the change (the chat's cards, `RoutinesChat`). */

@@ -5,11 +5,15 @@ import {
   isFailure,
   Routine,
   RunPage,
+  Templates,
   type Change,
   type Definition,
   type Failure,
   type Field,
+  type Personal,
+  type Template,
 } from "../../src/routines/contract"
+import { RoutinesTemplates } from "../../src/routines/templates"
 import { crossing } from "./wire"
 
 /** What the suite needs of a backend under test, besides the backend. */
@@ -20,7 +24,7 @@ export interface Subject {
 }
 
 // The keys the form keeps for itself: a backend field with one of them would shadow it in `Failure.fields`.
-const reserved = ["name", "instructions", "agent", "model", "schedule", "enabled"]
+const reserved = ["name", "instructions", "agent", "model", "schedule", "enabled", "template"]
 
 /**
  * The suite every routines backend passes before it is registered: the local one with a fake service, the farm's with
@@ -58,6 +62,16 @@ export function conformance(name: string, make: () => Promise<Subject> | Subject
       expect((await listed(backend)).map((routine) => routine.ref.id)).toContain(created.ref.id)
       expect((await listed(backend)).length).toBe(before.length + 1)
       expect(await ok(backend.get(created.ref.id))).toEqual(created)
+    })
+
+    test("a definition's template link survives create, read and an edit of a free field", async () => {
+      const { backend } = await make()
+      const definition = { ...(await sample(backend, "Linked")), template: { id: "conformance", revision: 3 } }
+      const created = await ok(backend.create(definition))
+      expect(created.definition.template).toEqual({ id: "conformance", revision: 3 })
+      expect((await ok(backend.get(created.ref.id))).definition.template).toEqual({ id: "conformance", revision: 3 })
+      const updated = await ok(backend.update(created.ref.id, { ...created.definition, name: "Linked, renamed" }))
+      expect(updated.definition.template).toEqual({ id: "conformance", revision: 3 })
     })
 
     test("a routine without a schedule is allowed and runs only when started", async () => {
@@ -261,6 +275,45 @@ export function conformance(name: string, make: () => Promise<Subject> | Subject
       expectFailure(answer, "unsupported")
     })
 
+    test("templates are listed and each is activated once, or the backend has none", async () => {
+      const { backend } = await make()
+      const answer = backend.templates ? await backend.templates() : undefined
+      if (answer === undefined || isFailure(answer)) {
+        if (answer) expectFailure(answer, "unsupported")
+        if (backend.activate) expectFailure(await backend.activate("any", { timezone: "Europe/Madrid" }), "unsupported")
+        return
+      }
+      expect(crossing(Templates, answer)).toEqual(answer)
+      const linked = new Set(answer.links.map((link) => link.id))
+      const free = answer.templates.find((template) => template.where === "local" && !linked.has(template.id))
+      if (!free || !backend.activate) throw new Error("a backend with templates offers one to activate")
+      const created = await ok(backend.activate(free.id, personalFor(free)))
+      expect(created.definition.template).toEqual({ id: free.id, revision: free.revision })
+      expect(created.template).toMatchObject({
+        id: free.id,
+        name: free.name,
+        locked: RoutinesTemplates.locked(free),
+        state: "published",
+        mandatory: free.mandatory,
+      })
+      expect(await ok(backend.get(created.ref.id))).toEqual(created)
+      expect((await ok(backend.templates())).links).toContainEqual({ id: free.id, state: "published", retire: null })
+      expectFailure(await backend.activate(free.id, personalFor(free)), "conflict")
+      expectFailure(await backend.activate("no-such-template", personalFor(free)), "not-found")
+    })
+
+    test("a template's change is answered once, or the backend has none to answer", async () => {
+      const { backend } = await make()
+      if (!backend.answer) return
+      expectFailure(await backend.answer("no-such-routine", true), "not-found")
+      const changed = (await listed(backend)).find((routine) => routine.template?.update)
+      if (!changed) return
+      expect(crossing(Routine, changed)).toEqual(changed)
+      expect(await backend.answer(changed.ref.id, false)).toBeUndefined()
+      const after = await ok(backend.get(changed.ref.id))
+      expect([after.definition, after.template?.update]).toEqual([changed.definition, undefined])
+    })
+
     test("everything it answers survives the wire", async () => {
       const subject = await make()
       const { backend } = subject
@@ -322,6 +375,15 @@ async function valueFor(backend: Backend, field: Field) {
   if (field.kind === "multiselect") return first ? [first] : []
   if (field.kind === "select") return first ?? ""
   return "text"
+}
+
+// What a person fills in to activate `template`: the zone, a folder where it needs one, the confirmation of "Don't ask".
+function personalFor(template: Template): Personal {
+  return {
+    timezone: "Europe/Madrid",
+    ...(template.personal.folder === "required" ? { folder: "/tmp/work" } : {}),
+    ...(template.definition.options.permissions === "bypass" ? { approved: true } : {}),
+  }
 }
 
 async function ok<A>(answer: Promise<A | Failure>): Promise<A> {

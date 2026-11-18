@@ -92,6 +92,39 @@ describe("the Ipc methods", () => {
     expect(isFailure(lookup) ? [] : lookup.length).toBeGreaterThan(0)
   })
 
+  test("templates and activate go to the backend they name; one without templates answers unsupported", async () => {
+    const { client, registry, time } = setup()
+    await client.refresh()
+    const answer = await client.templates({ backend: "local" })
+    if (isFailure(answer)) throw new Error(answer.message)
+    const optional = answer.templates.find((template) => !template.mandatory)
+    const created = await client.activate({
+      backend: "local",
+      template: optional?.id ?? "",
+      personal: { timezone: "Europe/Madrid", folder: "/work" },
+    })
+    if (isFailure(created)) throw new Error(created.message)
+    expect(routinesIn(client).find((routine) => routine.ref.id === created.ref.id)?.template?.id).toBe(optional?.id)
+    expectFailure(await client.templates({ backend: "farm" }), "unsupported")
+    expectFailure(await client.templates({ backend: "nowhere" }), "not-found")
+    const { templates: _, activate: __, ...bare } = RoutinesDemo.local(time.now)
+    registry.register(bare)
+    expectFailure(await client.templates({ backend: "local" }), "unsupported")
+    expectFailure(
+      await client.activate({ backend: "local", template: "x", personal: { timezone: "UTC" } }),
+      "unsupported",
+    )
+  })
+
+  test("a template's change is answered on the backend it names; one without templates answers unsupported", async () => {
+    const { client, registry, time } = setup()
+    await client.refresh()
+    expectFailure(await client.answer({ backend: "local", id: "no-such-task", apply: false }), "not-found")
+    const { answer: _, ...bare } = RoutinesDemo.local(time.now)
+    registry.register(bare)
+    expectFailure(await client.answer({ backend: "local", id: "no-such-task", apply: true }), "unsupported")
+  })
+
   test("create, update, pause, resume and remove change the state before they answer, and push it", async () => {
     const { client, local, pushes } = setup()
     await client.refresh()
@@ -167,6 +200,7 @@ describe("the Ipc methods", () => {
     ["remove", (c: Client) => c.remove({ backend: "x", id: "1" })],
     ["pause", (c: Client) => c.pause({ backend: "x", id: "1" })],
     ["cancel", (c: Client) => c.cancel({ backend: "x", run: "1" })],
+    ["answer", (c: Client) => c.answer({ backend: "x", id: "1", apply: true })],
     [
       "validate",
       (c: Client) =>

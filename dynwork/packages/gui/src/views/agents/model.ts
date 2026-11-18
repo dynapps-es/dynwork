@@ -8,6 +8,9 @@ import {
   type Ref,
   type Routine,
   type Run,
+  type Template,
+  type TemplateLink,
+  type Templates,
   type Transcript,
 } from "../../routines/contract"
 import { fieldSaid, runTime, type Translate } from "./format"
@@ -31,6 +34,46 @@ export interface Viewer {
   readonly transcript?: Transcript
   readonly failure?: Failure
   readonly loading: boolean
+}
+
+/** A backend's templates as the view holds them: the last answer, and the failure of the last read. */
+export interface Offered {
+  readonly value?: Templates
+  readonly failure?: Failure
+  readonly loading: boolean
+}
+
+/**
+ * What a template's card says and offers:
+ * - `assigned`: mandatory, Dynapps assigns it and its routine arrives unasked; the card opens it once it is here.
+ * - `active`: the person has its routine, here or on another computer, or Governance links one that is not here yet.
+ * - `requires`: a connector it uses is not among this computer's; the card links to Connectors.
+ * - `available`: "Use template".
+ */
+export type TemplateCard =
+  | { kind: "assigned"; routine?: Routine }
+  | { kind: "active"; routine?: Routine }
+  | { kind: "requires"; server: string }
+  | { kind: "available" }
+
+/**
+ * The card of `template` among the routines of its backend and its links. `connectors` are the names of this
+ * computer's connectors, undefined while they are not known (nothing is then said to be missing).
+ */
+export function templateCard(input: {
+  template: Template
+  links: readonly TemplateLink[]
+  routines: readonly Routine[]
+  connectors?: readonly string[]
+}): TemplateCard {
+  const template = input.template
+  const routine = input.routines.find((candidate) => candidate.definition.template?.id === template.id)
+  const found = routine ? { routine } : {}
+  if (template.mandatory) return { kind: "assigned", ...found }
+  if (routine || input.links.some((link) => link.id === template.id)) return { kind: "active", ...found }
+  const server = template.definition.options.connectors.find((name) => !input.connectors?.includes(name))
+  if (input.connectors && server) return { kind: "requires", server }
+  return { kind: "available" }
 }
 
 export const refKey = (ref: Ref) => `${ref.backend}/${ref.id}`
@@ -58,6 +101,7 @@ export function createAgentsModel(input: {
     history: {} as Record<string, Page>,
     activity: {} as Record<string, Page>,
     choices: {} as Record<string, Choice[]>,
+    templates: {} as Record<string, Offered>,
     viewer: undefined as Viewer | undefined,
     busy: {} as Record<string, boolean>,
     failure: undefined as Failure | undefined,
@@ -115,6 +159,37 @@ export function createAgentsModel(input: {
       }
     },
     choices: (backend: string, lookup: string) => state.choices[`${backend}/${lookup}`] ?? [],
+    /** The values of a lookup once read; undefined until then. */
+    values: (backend: string, lookup: string) => state.choices[`${backend}/${lookup}`]?.map((choice) => choice.value),
+    /**
+     * The templates of every backend that has them, each with its card. A backend shows those that run where it does:
+     * a local one `local` templates, a remote one `cloud` ones.
+     */
+    offered: () =>
+      Object.entries(state.templates).flatMap(([backend, offered]) => {
+        const where = capabilities(backend)?.kind === "remote" ? "cloud" : "local"
+        const own = routines().filter((routine) => routine.ref.backend === backend)
+        return (offered.value?.templates ?? [])
+          .filter((template) => template.where === where)
+          .map((template) => ({
+            backend,
+            template,
+            card: templateCard({
+              template,
+              links: offered.value?.links ?? [],
+              routines: own,
+              connectors: model.values(backend, "connectors"),
+            }),
+          }))
+      }),
+    /** Whether any backend's templates are still being read, and the failures of the last reads. */
+    offeredPage: () => {
+      const pages = Object.values(state.templates)
+      return {
+        loading: pages.some((page) => page.loading),
+        failures: pages.flatMap((page) => (page.failure ? [page.failure] : [])),
+      }
+    },
     busy: (key: string) => state.busy[key] === true,
 
     setTab: (tab: Tab) => setState("tab", tab),
@@ -155,12 +230,37 @@ export function createAgentsModel(input: {
       )
     },
 
-    /** The labels of a lookup, read once per backend. */
-    async loadChoices(backend: string, lookup: string) {
+    /** The labels of a lookup, read once per backend, or again with `again`. */
+    async loadChoices(backend: string, lookup: string, again = false) {
       const client = input.client()
-      if (!client || state.choices[`${backend}/${lookup}`]) return
+      if (!client || (!again && state.choices[`${backend}/${lookup}`])) return
       const answer = await client.options({ backend, lookup })
       setState("choices", `${backend}/${lookup}`, isFailure(answer) ? [] : [...answer])
+    },
+
+    /**
+     * Every backend's templates, with its connectors, so a card says which one is missing; `fresh` reads the connectors
+     * again. A backend without templates (`unsupported`) shows none and no failure.
+     */
+    async loadTemplates(fresh = false) {
+      const client = input.client()
+      if (!client) return
+      await Promise.all(
+        backends().map(async (backend) => {
+          const id = backend.backend
+          const before = state.templates[id]
+          setState("templates", id, { ...before, loading: true })
+          const answer = await client.templates({ backend: id })
+          if (!isFailure(answer)) await model.loadChoices(id, "connectors", fresh)
+          setState(
+            "templates",
+            id,
+            isFailure(answer)
+              ? { value: before?.value, loading: false, ...(answer.code === "unsupported" ? {} : { failure: answer }) }
+              : { value: answer, loading: false },
+          )
+        }),
+      )
     },
 
     /** A run that changed, from the Ipc's `run` event or an action: it takes its place in every list that holds it. */
@@ -222,6 +322,12 @@ export function createAgentsModel(input: {
         if (!failure && sameRef(state.selected, routine.ref)) model.deselect()
         return failure
       }),
+
+    /** The answer to what a template's new revision changed: Apply takes the template's values, else the task's stay. */
+    answer: (routine: Routine, apply: boolean) =>
+      act(`answer/${refKey(routine.ref)}`, (client) =>
+        client.answer({ backend: routine.ref.backend, id: routine.ref.id, apply }),
+      ),
 
     cancel: (run: Run) =>
       act(`cancel/${refKey(run.ref)}`, (client) => client.cancel({ backend: run.ref.backend, run: run.ref.id })),

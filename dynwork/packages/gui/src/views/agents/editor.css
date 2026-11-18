@@ -181,6 +181,11 @@
     overflow-wrap: anywhere;
   }
 
+  /* What a template sets: the lock before it says it cannot be changed here. */
+  [data-slot="form-static"][data-locked] {
+    gap: 6px;
+  }
+
   [data-slot="form-inline"] {
     display: flex;
     gap: 8px;

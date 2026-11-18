@@ -3,6 +3,7 @@ import { RoutinesBackend } from "../../src/routines/backend"
 import { isFailure, type Change, type Routine } from "../../src/routines/contract"
 import { RoutinesDemo } from "../../src/routines/demo"
 import { RoutinesFake } from "../../src/routines/fake"
+import { RoutinesTemplates } from "../../src/routines/templates"
 import { conformance, expectFailure, sample, type Subject } from "./conformance"
 import { clock, MINUTE } from "./fixture"
 
@@ -91,6 +92,78 @@ describe("the demo seeds", () => {
     expect(registry.list().map((backend) => backend.id)).toEqual([real.id, "local"])
     expect(registry.get(real.id)).toBe(real)
     expect(added.map((backend) => backend.id)).toEqual(["local"])
+  })
+})
+
+describe("templates in the fakes", () => {
+  async function library(backend: RoutinesFake.Fake) {
+    const answer = backend.templates ? await backend.templates() : undefined
+    if (!answer || isFailure(answer)) throw new Error("the fake has no templates")
+    return answer
+  }
+
+  test("the local one offers an optional template that needs a folder and a mandatory one, already a task", async () => {
+    const backend = RoutinesDemo.local(clock().now)
+    const answer = await library(backend)
+    expect(answer.templates.map((template) => [template.mandatory, template.personal.folder])).toEqual([
+      [false, "required"],
+      [true, "none"],
+    ])
+    const mandatory = answer.templates.find((template) => template.mandatory)
+    expect(answer.links).toEqual([{ id: mandatory?.id ?? "", state: "published", retire: null }])
+    const linked = (await routines(backend)).filter((routine) => routine.template)
+    expect(linked.map((routine) => routine.template)).toEqual([
+      {
+        id: mandatory?.id ?? "",
+        name: mandatory?.name ?? "",
+        locked: mandatory ? RoutinesTemplates.locked(mandatory) : [],
+        state: "published",
+        mandatory: true,
+      },
+    ])
+    expect(linked[0]?.definition.template).toEqual({ id: mandatory?.id ?? "", revision: mandatory?.revision ?? 0 })
+  })
+
+  test("the farm's has none: Cloud templates are not here yet", async () => {
+    const backend = RoutinesDemo.remote(clock().now)
+    expectFailure(await backend.templates?.(), "unsupported")
+    expectFailure(await backend.activate?.("any", { timezone: "Europe/Madrid" }), "unsupported")
+  })
+
+  test("a template is activated once: a second task linked to it, made any way, is refused", async () => {
+    const backend = RoutinesDemo.local(clock().now)
+    const optional = (await library(backend)).templates.find((template) => !template.mandatory)
+    if (!optional || !backend.activate) throw new Error("no optional template")
+    const created = await backend.activate(optional.id, { timezone: "Europe/Madrid", folder: "/work" })
+    if (isFailure(created)) throw new Error(created.message)
+    expectFailure(await backend.create(created.definition), "conflict")
+    expectFailure(await backend.activate(optional.id, { timezone: "Europe/Madrid", folder: "/work" }), "conflict")
+    expect(await backend.remove(created.ref.id)).toBeUndefined()
+    const again = await backend.activate(optional.id, { timezone: "Europe/Madrid", folder: "/work" })
+    expect(isFailure(again) ? again.code : again.definition.template?.id).toBe(optional.id)
+  })
+
+  test("an activation the template refuses saves nothing", async () => {
+    const backend = RoutinesDemo.local(clock().now)
+    const optional = (await library(backend)).templates.find((template) => !template.mandatory)
+    const count = (await routines(backend)).length
+    expectFailure(await backend.activate?.(optional?.id ?? "", { timezone: "Europe/Madrid" }), "invalid")
+    expect(await routines(backend)).toHaveLength(count)
+  })
+
+  test("a linked task keeps what its template locks, and a mandatory one cannot be removed", async () => {
+    const backend = RoutinesDemo.local(clock().now)
+    const linked = (await routines(backend)).find((routine) => routine.template?.mandatory)
+    if (!linked) throw new Error("no linked task")
+    const definition = linked.definition
+    expectFailure(
+      await backend.update(linked.ref.id, { ...definition, options: { ...definition.options, connectors: [] } }),
+      "conflict",
+    )
+    const renamed = await backend.update(linked.ref.id, { ...definition, name: "My timesheet", enabled: false })
+    expect(isFailure(renamed) ? renamed.code : renamed.definition.name).toBe("My timesheet")
+    expectFailure(await backend.remove(linked.ref.id), "conflict")
+    expect(await backend.pause(linked.ref.id)).toBeUndefined()
   })
 })
 

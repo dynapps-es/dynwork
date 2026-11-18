@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import type { Capabilities } from "../../../src/routines/contract"
-import { actions, facts, openable, routineStatus, runTone, stateKey, waiting } from "../../../src/views/agents/routine"
+import {
+  actions,
+  facts,
+  openable,
+  routineStatus,
+  runTone,
+  stateKey,
+  templateNotice,
+  waiting,
+} from "../../../src/views/agents/routine"
 import { setup, t } from "./fixture"
 
 const said = (words?: { key: string; params: Record<string, string> }) => words && t(words.key, words.params)
@@ -53,6 +62,21 @@ describe("actions follow the capabilities", () => {
     view.farm.setStatus("unreachable", "The Agent Farm does not answer.")
     await view.wire.client.refresh()
     expect(said(actions(crm, view.model.capabilities("farm")).start.reason)).toBe("The Agent Farm does not answer.")
+  })
+
+  test("a routine a template assigns cannot be deleted, only paused; an optional one can be deleted", async () => {
+    const view = await setup()
+    const assigned = view.find("Timesheet draft")
+    expect(assigned.template).toMatchObject({ mandatory: true })
+    const allowed = actions(assigned, view.model.capabilities("local"))
+    expect([allowed.remove.enabled, said(allowed.remove.reason)]).toEqual([
+      false,
+      "Assigned by Dynapps; you can pause it",
+    ])
+    expect([allowed.toggle.enabled, allowed.edit.enabled]).toEqual([true, true])
+    if (!assigned.template) throw new Error("not linked")
+    const optional = { ...assigned, template: { ...assigned.template, mandatory: false } }
+    expect(actions(optional, view.model.capabilities("local")).remove.enabled).toBe(true)
   })
 
   test("a routine of another device runs only there, but can still be paused, edited and moved here", async () => {
@@ -166,5 +190,16 @@ describe("a run waiting for a permission", () => {
       "info",
       "danger",
     ])
+  })
+})
+
+describe("what a template did to a task on its own", () => {
+  test("is said until the person acts: retired, retired and paused, or out of their reach", async () => {
+    const view = await setup()
+    const routine = view.find("Weekly ticket summary")
+    expect(templateNotice(routine)).toBeUndefined()
+    expect(said(templateNotice({ ...routine, notice: "retired" }))).toBe("Template retired")
+    expect(said(templateNotice({ ...routine, notice: "retired-paused" }))).toBe("Template retired; paused")
+    expect(said(templateNotice({ ...routine, notice: "no-access" }))).toBe("You no longer have access to this template")
   })
 })

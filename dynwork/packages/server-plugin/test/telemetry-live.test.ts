@@ -249,7 +249,67 @@ test("without a governance plugin nothing is reported", async () => {
   })
   await Bun.sleep(500)
   expect(model.length).toBeGreaterThan(0)
-  // The stamp belongs to the hooks plugin, like the bridge's: without governance the calls go as OpenCode builds them.
-  expect(model.every((call) => call.body.metadata?.user_id === undefined)).toBe(true)
+  // Nothing is reported without governance, but the calls still carry the session: each session is its own
+  // conversation in Governance, which is what links a scheduled task's run to it.
+  for (const call of model) expect(call.body.metadata?.user_id).toBe(JSON.stringify({ session_id: DynWorkTelemetry.session(id) }))
   expect(tracked).toEqual([])
+}, 30_000)
+
+// A scheduled task's run is a child session of the task's anchor: its own calls name it, never the anchor, although
+// OpenCode's X-Session-Id header carries the anchor (the cache affinity) on both. Its id is a run's
+// (`routines/local/backend.ts`), so it finishes without waking the anchor and every call recorded is the run's.
+async function child() {
+  const parent = (
+    await service.post("/api/session", {
+      location: { directory: project },
+      title: "anchor",
+      model: { id: "claude-sonnet-5-5", providerID: "systemprompt" },
+    })
+  ).body.data.id
+  const run = (
+    await service.post("/api/session", {
+      location: { directory: project },
+      id: `ses_aut_dynwork_${crypto.randomUUID().replaceAll("-", "")}`,
+      title: "run",
+      parentID: parent,
+      model: { id: "claude-sonnet-5-5", providerID: "systemprompt" },
+    })
+  ).body.data.id
+  tracked.length = 0
+  model.length = 0
+  await service.post(`/api/session/${run}/prompt`, { text: "hi" }, project)
+  await fetch(`${service.url}/api/experimental/session/${run}/wait?location[directory]=${encodeURIComponent(project)}`, {
+    method: "POST",
+    headers: service.headers,
+  })
+  await Bun.sleep(500)
+  expect(model.length).toBeGreaterThan(0)
+  return { parent, run }
+}
+
+test("without a governance plugin, a child session's calls carry its own id and not its parent's", async () => {
+  const { parent, run } = await child()
+  for (const call of model) {
+    expect(call.headers["x-session-id"]).toBe(parent)
+    expect(call.body.metadata?.user_id).toBe(JSON.stringify({ session_id: DynWorkTelemetry.session(run) }))
+    expect(call.body.metadata?.user_id).not.toContain(DynWorkTelemetry.session(parent))
+  }
+  expect(tracked).toEqual([])
+}, 30_000)
+
+test("with a governance plugin, a child session's calls carry its own id and not its parent's", async () => {
+  await client.apply({
+    instance: { key: "alpha", url: instance.url.origin },
+    manifest,
+    jwt,
+    expiresAt: Date.now() + 3_600_000,
+    gateway: { label: "Alpha", models },
+  })
+  const { parent, run } = await child()
+  for (const call of model) {
+    expect(call.headers["x-session-id"]).toBe(parent)
+    expect(call.body.metadata?.user_id).toBe(JSON.stringify({ session_id: DynWorkTelemetry.session(run) }))
+  }
+  // The events and the model calls land on the same context: the run's own.
+  expect(named("UserPromptSubmit").map((call) => call.body.session_id)).toEqual([DynWorkTelemetry.session(run)])
 }, 30_000)

@@ -1,6 +1,14 @@
-import type { Capabilities, Definition, Field, Instructions, Run, Schedule } from "../../routines/contract"
+import type {
+  Capabilities,
+  Definition,
+  Field,
+  Instructions,
+  Run,
+  Schedule,
+  TemplateChange,
+} from "../../routines/contract"
 import main from "../../routines/i18n/en"
-import { describe } from "./schedule"
+import { describe, presetOf } from "./schedule"
 
 // How the Agents view writes times, durations, costs and schedules. Every function takes the window's `t` and locale,
 // so tests read the same copy the app shows.
@@ -135,6 +143,46 @@ export function cardChanges(t: Translate, before: Definition, after: Definition,
   return cardRows(t, after, where).flatMap((row, index) =>
     old[index]?.value === row.value ? [] : [{ ...row, before: old[index]?.value ?? "" }],
   )
+}
+
+/**
+ * What a template's new revision changed where the person had changed it too, a line each: "Schedule: 08:00 → 07:30"
+ * (the times alone when nothing else of it changed), "Notify me: Only when something fails → Every run". `fields` are
+ * the backend's, which name its options and their choices.
+ */
+export function templateChanges(t: Translate, changes: readonly TemplateChange[], fields: readonly Field[]) {
+  return changes.map((change) => {
+    const field = fields.find((candidate) => `options.${candidate.key}` === change.path)
+    const said = field && fieldSaid(t, field)
+    const values =
+      change.path === "schedule"
+        ? scheduleChange(t, change.from, change.to)
+        : [change.from, change.to].map((value) => optionText(t, value, said))
+    return `${changeLabel(t, change.path, said)}: ${values[0]} → ${values[1]}`
+  })
+}
+
+function changeLabel(t: Translate, path: string, field?: Field) {
+  if (path === "name") return t("agents.chat.row.routine")
+  if (path === "model") return t("agents.form.model")
+  if (path === "schedule") return t("agents.chat.row.schedule")
+  return field?.label ?? path
+}
+
+function scheduleChange(t: Translate, from: TemplateChange["from"], to: TemplateChange["to"]) {
+  const crons = [from, to].map((value) => (typeof value === "string" ? value : undefined))
+  const presets = crons.map((cron) => (cron === undefined ? undefined : presetOf(cron)))
+  const days = crons.map((cron) => cron?.trim().split(/\s+/).slice(2).join(" "))
+  const times = presets.flatMap((preset) => (preset && "time" in preset ? [preset.time] : []))
+  if (times.length === 2 && days[0] === days[1]) return times
+  return crons.map((cron) => scheduleText(t, cron === undefined ? undefined : { cron, timezone: "" }))
+}
+
+function optionText(t: Translate, value: TemplateChange["from"], field?: Field) {
+  if (value === undefined || value === null) return t("agents.chat.none")
+  if (Array.isArray(value)) return value.join(", ")
+  if (typeof value === "object") return JSON.stringify(value)
+  return field?.choices?.find((choice) => choice.value === String(value))?.label ?? String(value)
 }
 
 // Main writes its copy in English (`routines/i18n/en.ts`): its English text names the key the window translates.

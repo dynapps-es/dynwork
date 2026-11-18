@@ -9,10 +9,17 @@ import { Ipc } from "@opencode/plugin/gui"
 export const Ref = Schema.Struct({ backend: Schema.String, id: Schema.String })
 export type Ref = typeof Ref.Type
 
+const Prompt = Schema.Struct({ kind: Schema.Literal("prompt"), text: Schema.String })
+const Skill = Schema.Struct({
+  kind: Schema.Literal("skill"),
+  skill: Schema.String,
+  text: Schema.optional(Schema.String),
+})
+
 /** What a routine does when it runs. Which kinds a backend takes is `Capabilities.instructions`. */
 export const Instructions = Schema.Union([
-  Schema.Struct({ kind: Schema.Literal("prompt"), text: Schema.String }),
-  Schema.Struct({ kind: Schema.Literal("skill"), skill: Schema.String, text: Schema.optional(Schema.String) }),
+  Prompt,
+  Skill,
   /** A catalogue agent of the backend (the farm's), run on `input`. */
   Schema.Struct({ kind: Schema.Literal("agent"), agent: Schema.String, input: Schema.String }),
 ])
@@ -45,8 +52,109 @@ export const Definition = Schema.Struct({
   enabled: Schema.Boolean,
   /** The backend's own fields, by `Field.key`. Keys never collide with the common ones above. */
   options: Schema.Record(Schema.String, Schema.Json),
+  /**
+   * The template the routine was activated from, at the revision it follows. Governance enforces what that template
+   * locks (`templates.ts` `locked`) and refuses a second live routine of the same template for the same person.
+   */
+  template: Schema.optional(Schema.Struct({ id: Schema.String, revision: Schema.Number })),
 })
 export type Definition = typeof Definition.Type
+
+// Templates: scheduled tasks an admin publishes in Governance for groups of people, which each person activates as a
+// routine of their own (or gets, when mandatory). The wire is fixed by the plan's `docs/contract.md`, shared with
+// Governance; `templates.ts` holds the rules a linked routine follows.
+
+/**
+ * A template as Governance serves it. Its `definition` is the template's part of a `Definition`: never a time zone,
+ * a folder or anything else that is the person's (`personal` says what the activation asks for).
+ */
+export const Template = Schema.Struct({
+  /** A slug the author chose, unique. */
+  id: Schema.String,
+  /** Bumps on every publish. */
+  revision: Schema.Number,
+  name: Schema.String,
+  /** Short Markdown. */
+  description: Schema.String,
+  /** Every person who sees it gets it, unclaimed, and cannot remove it. */
+  mandatory: Schema.Boolean,
+  /** Only `local` is activated here; `cloud` is reserved for the Agent Farm's. */
+  where: Schema.Literals(["local", "cloud"]),
+  definition: Schema.Struct({
+    instructions: Schema.Union([Prompt, Skill]),
+    agent: Schema.optional(Schema.String),
+    model: Schema.optional(Schema.String),
+    schedule: Schema.optional(Schema.Struct({ cron: Schema.String })),
+    options: Schema.Struct({
+      /** A ceiling: a person may go from `bypass` to `ask`, never the reverse. */
+      permissions: Schema.Literals(["ask", "bypass"]),
+      /** Governance's servers by name; never `"all"`. */
+      connectors: Schema.Array(Schema.String),
+      timeLimit: Schema.optional(Schema.Number),
+      recover: Schema.optional(Schema.Json),
+      catchUp: Schema.optional(Schema.Json),
+      notify: Schema.optional(Schema.Literals(["failures", "every", "never"])),
+    }),
+  }),
+  locks: Schema.Struct({
+    model: Schema.Boolean,
+    /** `time`: how often is fixed (the cron's day, month and weekday), the minute and hour are the person's. */
+    schedule: Schema.Literals(["free", "time", "locked"]),
+    /** A person may lower the time limit, never raise it past this. */
+    timeLimitMax: Schema.NullOr(Schema.Number),
+  }),
+  personal: Schema.Struct({
+    folder: Schema.Literals(["none", "required"]),
+    /** Shown when the person activates it. */
+    hint: Schema.NullOr(Schema.String),
+  }),
+})
+export type Template = typeof Template.Type
+
+/**
+ * Where a template the person has a live routine of stands. `closed`: no new activations, the routines keep it.
+ * `retired`: `retire` says what became of the routines. `no_access`: the person no longer sees it.
+ */
+export const TemplateState = Schema.Literals(["published", "closed", "retired", "no_access"])
+export type TemplateState = typeof TemplateState.Type
+
+export const TemplateLink = Schema.Struct({
+  id: Schema.String,
+  state: TemplateState,
+  retire: Schema.NullOr(Schema.Literals(["unlink", "pause", "remove"])),
+})
+export type TemplateLink = typeof TemplateLink.Type
+
+/**
+ * One field a template's new revision changed where the person had changed it too: they keep theirs, and the view says
+ * the template's `from` → `to` (`templates.ts` `merge`). `path` is `name`, `model`, `schedule` (the cron) or
+ * `options.<key>`; a value the template does not set is absent.
+ */
+export const TemplateChange = Schema.Struct({
+  path: Schema.String,
+  from: Schema.optional(Schema.Json),
+  to: Schema.optional(Schema.Json),
+})
+export type TemplateChange = typeof TemplateChange.Type
+
+/** What `templates` answers: the templates the person sees, and a link per template they have a routine of. */
+export const Templates = Schema.Struct({ templates: Schema.Array(Template), links: Schema.Array(TemplateLink) })
+export type Templates = typeof Templates.Type
+
+/** What the person fills in to activate a template. */
+export const Personal = Schema.Struct({
+  /** The IANA zone the template's cron is read in. */
+  timezone: Schema.String,
+  /** Where `personal.folder` is `required`. */
+  folder: Schema.optional(Schema.String),
+  /** The person's own cron, within what `locks.schedule` leaves free. */
+  cron: Schema.optional(Schema.String),
+  /** The person's own model, where `locks.model` is false. */
+  model: Schema.optional(Schema.String),
+  /** The person confirmed a template that runs without asking ("Approved by Dynapps"). */
+  approved: Schema.optional(Schema.Boolean),
+})
+export type Personal = typeof Personal.Type
 
 /** Where a run's conversation is read. */
 export const Conversation = Schema.Union([
@@ -142,6 +250,28 @@ export const Routine = Schema.Struct({
    * as the other device left it, and the view says so until the next edit here.
    */
   conflict: Schema.optional(Schema.Number),
+  /** For a routine activated from a template (`Definition.template`): what the views need of that template. */
+  template: Schema.optional(
+    Schema.Struct({
+      id: Schema.String,
+      name: Schema.String,
+      /** The paths the template locks (`templates.ts` `locked`): the form and the chat tools refuse to change them. */
+      locked: Schema.Array(Schema.String),
+      state: TemplateState,
+      mandatory: Schema.Boolean,
+      /**
+       * A new revision was merged into the routine and changed fields the person had changed: the view says each one
+       * until they answer it (`answer`: Apply or Keep mine).
+       */
+      update: Schema.optional(Schema.Struct({ revision: Schema.Number, changes: Schema.Array(TemplateChange) })),
+    }),
+  ),
+  /**
+   * What a template did to the routine on its own, which the view says: its template was retired and the routine is an
+   * ordinary one now (`retired`), also paused (`retired-paused`), until the next edit; or it was paused because the
+   * person no longer has access to its template (`no-access`), while it stays paused.
+   */
+  notice: Schema.optional(Schema.Literals(["retired", "retired-paused", "no-access"])),
 })
 export type Routine = typeof Routine.Type
 
@@ -352,6 +482,18 @@ export const Routines = Ipc.define({
     },
     /** Checks a definition without saving it; `invalid` carries one message per field. */
     validate: { input: Schema.Struct({ ...OnBackend, definition: Definition }), output: Done },
+    /** The templates the person sees and their links; `unsupported` for a backend without templates. */
+    templates: { input: Schema.Struct(OnBackend), output: Outcome(Templates) },
+    /** Makes the person's routine of a template; `conflict` when they already have one. */
+    activate: {
+      input: Schema.Struct({ ...OnBackend, template: Schema.String, personal: Personal }),
+      output: Outcome(Routine),
+    },
+    /**
+     * The person's answer to what a template's new revision changed (`Routine.template.update`): `apply` writes the
+     * template's values, otherwise theirs stay. The notice goes either way.
+     */
+    answer: { input: Schema.Struct({ ...OnRoutine, apply: Schema.Boolean }), output: Done },
   },
 })
 

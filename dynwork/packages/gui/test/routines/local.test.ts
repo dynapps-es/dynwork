@@ -191,7 +191,7 @@ describe("the local backend", () => {
     time.advance(MINUTE)
     service.finish("failed")
     await until(() => backend.running() === 0)
-    await until(() => service.sessions.get(anchor)?.metadata?.dynwork !== undefined && notices.length > 0)
+    await until(() => service.sessions.get(anchor)?.metadata?.dynwork?.last !== undefined && notices.length > 0)
     expect(service.sessions.get(anchor)?.metadata).toMatchObject({
       dynwork: { routine: routine.ref.id, role: "anchor", last: { run: run.ref.id, state: "failed" } },
     })

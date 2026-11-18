@@ -78,6 +78,8 @@ test("the tools carry the scheduled-task names, and stay out of Code Mode", () =
     "pause_scheduled_task",
     "resume_scheduled_task",
     "run_scheduled_task",
+    "list_task_templates",
+    "activate_task_template",
   ])
   expect(tools.every((tool) => tool.options.codemode === false)).toBe(true)
 })
@@ -205,4 +207,50 @@ test("pause, resume, get and what is running name their kind and task, and answe
     "delete",
     "run",
   ])
+})
+
+test("the template tools ask main, and activating names the template and the user's part on a card", async () => {
+  const stand = main()
+  const activation: DynWorkRoutines.Activation = { id: "project-health", folder: "/work/portal", time: "07:30" }
+  const listing = Effect.runPromise(stand.tools.templates.execute({}, context("call_templates")))
+  const activating = Effect.runFork(stand.tools.activate.execute(activation, context("call_activate")))
+  await settle()
+  expect(stand.requests).toEqual([
+    { id: "call_templates", session: "ses_chat", kind: "templates" },
+    { id: "call_activate", session: "ses_chat", kind: "activate", activation },
+  ])
+  DynWorkRoutines.answer({ id: "call_templates", text: "- project-health", error: false })
+  expect(await listing).toEqual({ content: "- project-health", metadata: { error: false } })
+  // The activation waits for the user, as a proposal does.
+  expect(activating.pollUnsafe()).toBeUndefined()
+  expect(DynWorkRoutines.pending().requests.map((request) => request.id)).toContain("call_activate")
+  DynWorkRoutines.answer({ id: "call_activate", text: "Created the task", error: false })
+  expect(await Effect.runPromise(Fiber.join(activating))).toEqual({
+    content: "Created the task",
+    metadata: { error: false },
+  })
+})
+
+test("a stopped activation is withdrawn, so main drops its card", async () => {
+  const stand = main()
+  const fiber = Effect.runFork(stand.tools.activate.execute({ id: "project-health" }, context("call_stopped_template")))
+  await settle()
+  await Effect.runPromise(Fiber.interrupt(fiber))
+  expect(stand.withdrawn).toEqual(["call_stopped_template"])
+})
+
+test("the template tools are described in the four languages, and the others point to them", () => {
+  const tools = main().tools
+  const list = tools.templates.description
+  expect(["templates", "plantillas", "modèles", "sjablonen"].filter((word) => !list.includes(word))).toEqual([])
+  const activate = tools.activate.description
+  expect(
+    ["activar una plantilla", "activer un modèle", "een sjabloon activeren"].filter((word) => !activate.includes(word)),
+  ).toEqual([])
+  expect(activate).toContain("list_task_templates")
+  // A new task goes through a template that already does it; a locked field is a refusal to pass on, not to retry.
+  expect(tools.create.description).toContain("propose activate_task_template instead of copying it")
+  expect(tools.update.description).toContain("ask your administrator")
+  expect(tools.delete.description).toContain("(a mandatory template) cannot be deleted, only paused")
+  expect(tools.delete.description).toContain("deactivates that template")
 })

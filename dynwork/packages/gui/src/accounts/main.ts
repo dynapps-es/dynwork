@@ -141,11 +141,13 @@ const setup: Plugin.MainSetup = (ctx) => {
   })
   routines.check = routinesMain.check
   routines.pull = routinesMain.pull
-  // Another computer changed a routine: Governance's hint arrives over the relay while remote control is connected.
+  // Another computer changed a routine, or an admin published, closed or retired a template: Governance's hints arrive
+  // over the relay while remote control is connected.
   // Without it the sync still reads the feed every few minutes.
   ctx.onCleanup(
     tunnel.onControl((message) => {
       if (message.t === "routines.changed") routines.pull()
+      if (message.t === "templates.changed") routinesMain.templates()
     }),
   )
   ctx.onCleanup(() => {

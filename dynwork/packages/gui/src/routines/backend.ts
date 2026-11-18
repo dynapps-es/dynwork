@@ -1,6 +1,18 @@
 export * as RoutinesBackend from "./backend"
 
-import type { Capabilities, Change, Choice, Definition, Failure, Routine, Run, RunPage, Transcript } from "./contract"
+import type {
+  Capabilities,
+  Change,
+  Choice,
+  Definition,
+  Failure,
+  Personal,
+  Routine,
+  Run,
+  RunPage,
+  Templates,
+  Transcript,
+} from "./contract"
 
 /**
  * A place routines run: this computer, the Agent Farm, or a fake. It lives in the main process, where its credentials
@@ -42,6 +54,19 @@ export interface Backend {
   transcript(run: string): Promise<Transcript | Failure>
   /** The user opened the run: it stops counting as unread. */
   viewed(run: string): Promise<void>
+  /** The templates the person sees and a link per template they have a routine of. Only a backend with templates. */
+  templates?(): Promise<Templates | Failure>
+  /**
+   * Makes the person's routine of a template (`RoutinesTemplates.activate`): `conflict` when they have one already,
+   * `not-found` for a template they do not see. Only a backend with templates.
+   */
+  activate?(template: string, personal: Personal): Promise<Routine | Failure>
+  /**
+   * The person's answer to what a template's new revision changed (`Routine.template.update`): `apply` writes the
+   * template's values (`RoutinesTemplates.apply`), otherwise the routine stays. A routine without one is left as it is.
+   * Only a backend with templates.
+   */
+  answer?(id: string, apply: boolean): Promise<Failure | undefined>
   /**
    * JESÚS: the farm has no push, so poll `GET /tasks?updated_since=<last cursor minus 30 s>` inside, only while this is
    * subscribed, and answer each task that changed as a `Change` with its `Run`.

@@ -22,10 +22,11 @@ window                                    main process
 | `contract.ts` | The Schema data (`Definition`, `Routine`, `Run`, `Capabilities`, `Field`, `Failure`, ...) and the `dynwork.routines` Ipc |
 | `backend.ts`  | `interface Backend`, the `Registry` of backends and `fail`, which builds a `Failure`                                     |
 | `validate.ts` | `check(capabilities, definition)`: the rules the capabilities state, for any backend to run before its own               |
+| `templates.ts` | `locked`, `violates`, `activate`, `merge` and `apply`: the rules a routine made from a template follows ("Templates" below) |
 | `ipc.ts`      | The Ipc implementation over a registry: the state snapshot, routing, watching, failures as data                          |
 | `fake.ts`     | An in-memory backend with an injectable clock: `Fake.make(options)`                                                      |
 | `demo.ts`     | The two seeded fakes (`local`, `farm`) shaped like the approved mockup, and `register`, which adds those not taken       |
-| `local/`      | The local backend (anchor and run sessions on DynWork's service, storage in the plugin's), its clock (`clock.ts`) and its Governance sync (`sync.ts`) |
+| `local/`      | The local backend (anchor and run sessions on DynWork's service, storage in the plugin's), its clock (`clock.ts`), its Governance sync (`sync.ts`) and its templates read (`templates.ts`) |
 | `farm/`       | The Agent Farm backend's skeleton and its handover `README.md` for Jesús Vargas: off unless `DYNWORK_ROUTINES_FARM=1`    |
 | `main.ts`     | The main-process setup: the registry, the local backend and its clock, the demos and the Ipc. From `accounts/main.ts`    |
 | `chat.ts`     | Routines from a chat: the routines tools' requests, the approval cards (`Chat` Ipc in `contract.ts`) and Schedule. From `accounts/main.ts` |
@@ -68,6 +69,9 @@ fails: a backend that cannot serve says so in `status`.
   open, each backend's own `watch` is subscribed once, and a backend that registers meanwhile is subscribed too.
 - `move`: makes this device the one that runs a routine of another device; a backend without owners (the optional
   `Backend.move`) answers `unsupported`.
+- `templates`, `activate`, `answer`: a backend's templates, the activation of one, and the person's answer to what a new
+  revision changed ("Templates" below); a backend without them (the optional `Backend.templates`, `Backend.activate` and
+  `Backend.answer`) answers `unsupported`.
 - Every other method names its `backend` and answers the backend's own answer.
 
 ## Backends
@@ -83,6 +87,55 @@ replacing), pause, resume, start, finish, unread and viewed, paging, cancel, rem
 its fields, watch, quota, transcripts, and everything surviving the Ipc's wire. `test/routines/fake.test.ts` shows how to
 run it; `test/routines/wire.ts` is a window's client over a registry, with every value crossing as the bridge makes it
 cross, for the views' tests.
+
+## Templates
+
+An admin publishes **templates** of scheduled tasks in Governance for groups of people; each person activates one as a
+routine of their own, or gets it unasked when it is mandatory. The wire is fixed by the plan's `docs/contract.md`, which
+Governance implements too; this is what Dynwork holds of it.
+
+- **Template** (`contract.ts`): `id` (a slug), `revision`, `name`, `description`, `mandatory`, `where` (`local`; `cloud`
+  is decoded and reserved for the Agent Farm), the template's part of a `Definition` (never a time zone or a folder),
+  `locks` (`model`, `schedule`: `free`, `time` or `locked`, `timeLimitMax`) and `personal` (`folder`: `none` or
+  `required`, and a `hint`). `templates()` answers them with a `TemplateLink` (`state`: `published`, `closed`,
+  `retired`, `no_access`; `retire`: `unlink`, `pause`, `remove`) per template the person has a routine of.
+- **The link.** A routine made from a template carries `Definition.template = { id, revision }`, next to `name`, not in
+  `options`. Governance keeps at most one live routine per person and template, refuses an edit that changes what the
+  template locks, and refuses removing a mandatory one; each refusal is a `conflict` here. `Routine.template` carries
+  what the views need: the template's name, its `locked` paths, its `state`, `mandatory`, and `update`, a merged revision
+  whose `changes` the view still announces. `Routine.notice` says what a template did to the routine on its own
+  (`retired`, `retired-paused`, `no-access`).
+- **Locked** (`locked(template)`): always `instructions`, `agent`, `where`, `options.connectors` and
+  `options.permissions`; `model` when `locks.model`; the cron's `schedule.day`, `schedule.month` and `schedule.weekday`
+  when `locks.schedule` is `time`, and `schedule.minute` and `schedule.hour` too when it is `locked`; `options.timeLimit`
+  when `timeLimitMax` is a number. The name, pausing, the time zone, the folder, `recover`, `catchUp` and `notify` are
+  always the person's.
+- **Violations** (`violates(template, before, after)`): the locked paths an edit changes to something the template does
+  not allow. A path the edit leaves alone is never one. `options.permissions` and `options.timeLimit` are ceilings:
+  `bypass` to `ask` and a lower time limit are allowed, `ask` to `bypass` and a limit past `timeLimitMax` are not.
+- **Activation** (`activate(template, personal)`): the template's defaults, the person's `Personal` (time zone, the
+  folder where it is `required`, a cron and a model where the template leaves them free), and the link to its revision;
+  a time limit with a ceiling and no default starts at the ceiling. It answers `invalid`, one message per field, for a
+  Cloud template, a missing zone or required folder, a template that runs without asking (`permissions: "bypass"`) the
+  person did not confirm (`approved`), and a personal value the template locks.
+- **Merge** (`merge({ base, next, task, zone, previous })`): a new revision into the person's routine, three ways, with
+  `base` the revision the routine follows. What `next` locks takes its value. A default the person left as `base` had
+  it takes `next`'s; one they changed keeps theirs, and when `next` changed it too it is a `TemplateChange` (`path`:
+  `name`, `model`, `schedule` or `options.<key>`, `from` → `to`). The cron merges by part: the time (minute and hour
+  together), the day, the month and the weekday. Permissions never go up to `bypass` without the person (it is a change
+  to answer) and come down at once; a time limit stays under the new ceiling. A change not answered yet stays while the
+  routine still differs from the template. `apply(definition, changes)` writes the template's values: what Apply does.
+- **Answer** (`answer(routine, apply)`): the person's Apply (the template's values, written as an edit here) or Keep mine
+  (nothing written); the notice goes either way. The detail shows "The template changed: Schedule: 08:00 → 07:30" with
+  both buttons.
+- **Backends.** The local backend serves what `local/templates.ts` last read of Governance's `GET /templates` ("Sync with
+  Governance"): `signed-out` without an account, `unreachable` until a read answered, `unsupported` without a sync. Its
+  `activate` refuses a mandatory template (`conflict`: its routine arrives by the claim), one the person already has a
+  routine of here or that Governance links (`conflict`), and an unknown one (`not-found`); otherwise it makes the routine
+  with `RoutinesTemplates.activate` through `create`, so it goes through the outbox like any routine made here. The local demo fake
+  serves two templates, an optional one that needs a folder and a mandatory one already linked to "Timesheet draft",
+  and enforces the link's rules as Governance does; the farm's has none. The conformance suite checks, where a backend
+  has templates, that one activates once, answers its link, and survives the wire.
 
 ## The local backend
 
@@ -209,6 +262,43 @@ computer).
   computer's. A routine owned elsewhere reads "Runs on <name>", can be edited and paused, its "Run now" is refused with
   that reason, and the detail offers "Move to this computer" (`move`: the owner changes through the same `If-Match`
   write; nothing counts as missed before the move). The clock fires only routines owned here (`Local.here`).
+- **Templates.** `local/templates.ts` (`RoutinesTemplatesReader.make`) reads `GET /templates` with the same account,
+  session and `X-Dynwork-Peer` as the feed, first in every pass (so a mandatory template's routine, which that read makes
+  in Governance, comes in the same pass's feed), and at once on the relay's `templates.changed` hint (`RoutinesMain`'s
+  `templates`). Each account keeps its own answer and `ETag`, sent back as `If-None-Match`: a `304`, an error or
+  Governance down keep the last answer, and another account's is never served. Nothing is stored: after a restart the
+  first read fills it. A new answer is a change of the local backend, so the windows read the templates again.
+- **Following a template.** The computer that owns a linked routine (`Local.here`), and only it, writes what its
+  template asks for, in every pass after the claims, so before the routine's next run. A routine with a change of the
+  person's still waiting is left for the next pass.
+  - A newer revision in `GET /templates`: the revision the routine follows is read once from
+    `GET /templates/{id}/revisions/{revision}` (kept in memory) as the base of `RoutinesTemplates.merge`, and the merged
+    definition, naming the new revision, is written. A computer that missed several revisions merges once, from the one
+    it follows. What the person had changed too stays theirs and is noted (`SavedRoutine.update`, shown as
+    `Routine.template.update`) until they answer it. A base Governance does not serve leaves the routine for later.
+  - `published`, `closed`: nothing else; a closed template's routines keep receiving its revisions.
+  - `retired` with `unlink` or `pause`: the link is dropped from the definition (an ordinary routine now, which
+    Governance already paused for `pause`) and `SavedRoutine.retired` makes it say "Template retired" (or "…; paused")
+    until the next edit here. `remove` arrives as a tombstone, like any removed routine.
+  - `no_access`: it is paused once, with "You no longer have access to this template" while it stays paused
+    (`SavedRoutine.revoked`). Only the person resumes it; access back clears the mark, never resumes it.
+  - Each of these writes is a `put` marked as the template's (`Op.template`). A `409` on it takes Governance's row without
+    the conflict note and makes the change again on it (an edit made on another computer meanwhile stays). An edit of
+    the person's that joins a waiting template `put` unmarks it: a `409` then follows the usual conflict rule.
+  - `409 {"error":"template_locked","current":<row>}` (`TEMPLATES.md` §2): Governance refuses what a merge wrote for the
+    revision it names. Its row is taken, the merge's unanswered change goes, and that revision (by account, template and
+    revision, in memory) is not merged again until the app starts again: no retry within a pass nor on every pass. An edit
+    of the person's refused that way is a conflict like any other: Governance's row, with "Changed on another computer".
+  - A `409` (either kind) on a template `put` while an edit of the person's of that routine waits behind it (made while
+    the `put` was on its way) is handled as a conflict too: Governance's row with the note, so they know their edit did
+    not land; the template's change is made again on that row in a later pass.
+- **Mandatory templates.** Governance makes their routine unclaimed and in no time zone (§4). The feed reads it in this
+  computer's zone (`Options.zone`, the system's by default) and the claim writes it with the owner; a claim lost to a
+  computer in another zone replaced no edit and leaves no conflict note.
+- **One routine per template.** A `put` that creates a routine linked to a template the person already has a live routine
+  of (made on another computer before this one read it) is answered `409 {"error":"already_activated","routine":<row>}`:
+  Governance's row is taken, and the routine made here goes with its runs and its waiting changes, without a conflict
+  note. The Templates card then says where the routine is and opens it.
 - **Hint.** Governance's change hint arrives as a relay control message (`@dynwork/remote`'s `events.control`, surfaced by
   `RemoteTunnel.onControl`) only while the remote-control tunnel is connected; without it the poll catches up.
 
@@ -222,7 +312,11 @@ computer).
 Known limits: a routine moved to another computer can still fire here until
 this computer reads the move (seconds with the hint, at most one poll without).
 
-`test/routines/sync.test.ts` runs two computers against `test/routines/governance.ts`, a fake Governance over real HTTP.
+`test/routines/sync.test.ts` runs two computers against `test/routines/governance.ts`, a fake Governance over real HTTP;
+`test/routines/templates.test.ts` runs the templates read, activation, merge, propagation and link states against it:
+the fake keeps every revision it served or published, refuses a linked write whose locked fields are not its named
+revision's (`template_locked`), makes a mandatory template's routine on `GET /templates`, and `retire`, `close`,
+`revoke` and `grant` do what Governance does.
 
 ## The clock
 
@@ -274,12 +368,28 @@ they matter. The same conversation, or any other, then manages the user's tasks 
   | `delete_scheduled_task` | `id` | name, schedule, where; Delete (danger) / Cancel |
   | `pause_scheduled_task`, `resume_scheduled_task` | `id`: at once, as they are reversible and run nothing | none |
   | `run_scheduled_task` | `id`: Run now | "Run now?" only for a "Don't ask" task; an "Ask me" one starts at once, as it asks anyway |
+  | `list_task_templates` | the templates the user sees: id, name, optional or assigned, schedule, whether and as which task it is active, what it sets, what the user must give (folder, time) | none |
+  | `activate_task_template` | `Activation`: the template's `id` plus the user's part (`folder`, `time` or `repeat`…, `timezone`, `model`) | the task `RoutinesTemplates.activate` makes, as a create card: Schedule / Cancel |
 
   A task's id is `<backend>:<id>` (`local:3f2a`). An id that names no task answers "No scheduled task has the id …",
   and the tool results stay short: what changed, the task's id and name, where it runs. The rules the agent follows
   (only these tools, never Dynwork's files, database or APIs; list before creating; update instead of duplicating or to
   rename; what "Ask me" and "Don't ask" mean and asking which; asking when a named target does not match; the user's
   language) are in `list_scheduled_tasks`'s description, which the agent reads with every tool.
+
+- **Templates.** A task made from a template (`Routine.template`, filled by the local backend from `Definition.template`
+  and the template Governance last offered) keeps what the template locks, and the tools read it through the backend's
+  `templates()`, never by importing `templates.ts` (gui depends on the server plugin, not the reverse). `list_scheduled_tasks`
+  and `get_scheduled_task` say "from Dynapps template X" and which fields it sets. `update_scheduled_task` refuses, before
+  any card, a change `RoutinesTemplates.violates` reports: "Set by the Dynapps template X; ask your administrator", one
+  line per field in the tool's own terms (`time`, `repeat`, `connectors`…); a name, a time within a `time` lock, the
+  notifications and the like go through. `changed` keeps `Definition.template`. `delete_scheduled_task` refuses a
+  mandatory task (it can be paused); for an optional one the answer after Delete says the template is off and can be
+  activated again. `activate_task_template` refuses a mandatory template, an unknown one, one already active and a
+  personal value the template locks, and answers `invalid` with the missing field (the folder) for the agent to ask; its
+  card is the create card of the template's own task, and pressing it is the confirmation ("Approved by Dynapps") of a
+  template that runs without asking. `create_scheduled_task`'s description sends the agent to a matching template first.
+  The form and the cards read the same rules: see `views/README.md` ("Templates").
 - **Bridge.** The tools run in the service, the routines live here. The plugin's own RPC (`dynwork.routines-chat`) carries
   them: a tool publishes a `request` event and waits; main follows the plugin's events (`chat.ts` `setup`), answers
   with the `answer` method, reads the requests still waiting with `pending` after each (re)connection, and a stopped
@@ -314,4 +424,5 @@ they matter. The same conversation, or any other, then manages the user's tasks 
 
 It reads no cron: a scheduled, enabled routine's `next` is a day after its last change. Runs start only through `start`
 and finish when the clock passes their duration and `settle()` runs (`main.ts` calls it every few seconds). Nothing is
-persisted, and nothing syncs.
+persisted, and nothing syncs. Its templates are all `published`: it never closes, retires or hides one, and it never
+merges a revision: a seeded routine's `template.update` is the change its `answer` takes or leaves.

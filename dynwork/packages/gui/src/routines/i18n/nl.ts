@@ -65,4 +65,14 @@ export default {
   "routines.fail.chatOffline": "De service van Dynwork draait niet.",
   "routines.fail.chatOpen": "Het gesprek kon niet worden geopend.",
   "routines.fail.chatStart": "Het gesprek kon niet worden gestart.",
+
+  "routines.fail.noTemplates": "Hier zijn geen sjablonen.",
+  "routines.fail.templatesSignedOut": "Meld je aan om de sjablonen van de organisatie te zien.",
+  "routines.fail.templatesUnread": "De sjablonen zijn nog niet uit Governance gelezen.",
+  "routines.fail.templateAssigned": "Dit sjabloon is toegewezen: de taak komt vanzelf.",
+  "routines.fail.templateActive": "Dit sjabloon is al actief.",
+  "routines.fail.templateSets": "Het sjabloon legt dit vast.",
+  "routines.fail.templateCloud": "Hier kunnen alleen sjablonen worden geactiveerd die op deze computer draaien.",
+  "routines.fail.templateFolder": "Dit sjabloon heeft een projectmap nodig.",
+  "routines.fail.templateConfirm": "Bevestig dat het zonder te vragen draait.",
 } satisfies Record<keyof typeof en, string>

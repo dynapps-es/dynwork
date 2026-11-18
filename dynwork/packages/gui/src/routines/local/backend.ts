@@ -16,7 +16,9 @@ import {
   type Routine,
   type Run,
   type RunState,
+  type Templates,
 } from "../contract"
+import { RoutinesTemplates } from "../templates"
 import { RoutinesValidate } from "../validate"
 import { RoutinesClock } from "./clock"
 import { enqueue, type Saved, type SavedRoutine, type SavedRun } from "./store"
@@ -203,6 +205,11 @@ export interface Options {
   synced?: () => boolean | undefined
   /** Something went to the outbox: the sync sends it. */
   queued?: () => void
+  /**
+   * The templates Governance offers the active account, as last read (`./templates.ts`); undefined until a read
+   * answered. Absent: this backend has no templates.
+   */
+  templates?: () => Templates | undefined
 }
 
 export interface Local extends Backend {
@@ -278,6 +285,14 @@ export function make(options: Options): Local {
   }
   const ref = (routine: string) => ({ backend, id: routine })
   const missing = (what: string, key: string) => fail("not-found", `No ${what} ${key}.`)
+  // The templates as last read; undefined for a backend without them.
+  const offered = () => {
+    if (!options.templates) return undefined
+    const read = options.templates()
+    if (read) return read
+    if (!options.account?.()) return fail("signed-out", "Sign in to see your organization's templates.")
+    return fail("unreachable", "Templates have not been read from Governance yet.")
+  }
   const offline = () => fail("unreachable", "Dynwork's service is not running.")
 
   const toRun = (record: SavedRun): Run => ({
@@ -296,9 +311,36 @@ export function make(options: Options): Local {
       : { kind: "none" },
   })
 
+  // What the views and the chat tools need of a routine's template: its locks and whether it is mandatory come from the
+  // template Governance last offered; a template the person no longer sees locks nothing here (Governance still checks).
+  // A merged revision the person has not answered comes from the store (`sync.ts`).
+  const templateOf = (stored: SavedRoutine): Routine["template"] => {
+    const link = stored.definition.template
+    if (!link) return undefined
+    const read = options.templates?.()
+    const found = read?.templates.find((template) => template.id === link.id)
+    return {
+      id: link.id,
+      name: found?.name ?? stored.definition.name,
+      locked: found ? RoutinesTemplates.locked(found) : [],
+      state: read?.links.find((candidate) => candidate.id === link.id)?.state ?? "published",
+      mandatory: found?.mandatory ?? false,
+      ...(stored.update ? { update: stored.update } : {}),
+    }
+  }
+
+  // What its template did to the routine on its own: retired (and paused), or paused for a lost access while it stays so.
+  const noticeOf = (stored: SavedRoutine): Routine["notice"] => {
+    if (stored.retired) return stored.retired === "pause" ? "retired-paused" : "retired"
+    if (stored.revoked && !stored.definition.enabled) return "no-access"
+    return undefined
+  }
+
   const toRoutine = (stored: SavedRoutine): Routine => {
     const own = saved().runs.filter((record) => record.routine === stored.id)
     const next = RoutinesClock.next(stored.definition, options.now())
+    const template = templateOf(stored)
+    const notice = noticeOf(stored)
     return {
       ref: ref(stored.id),
       definition: stored.definition,
@@ -318,6 +360,8 @@ export function make(options: Options): Local {
         : { kind: "none" },
       updated: stored.updated,
       ...(stored.conflict === undefined ? {} : { conflict: stored.conflict }),
+      ...(template ? { template } : {}),
+      ...(notice ? { notice } : {}),
     }
   }
 
@@ -342,12 +386,13 @@ export function make(options: Options): Local {
       if (index >= 0) draft.routines[index] = { ...draft.routines[index]!, ...patch }
     })
 
-  // A change of the routine made here: written with its outbox entry in one step, and it clears a conflict's note.
+  // A change of the routine made here: written with its outbox entry in one step, and it clears the notes of a conflict
+  // and of a retired template.
   const write = (routine: string, patch: Partial<SavedRoutine>) => {
     options.store.update((draft) => {
       const index = draft.routines.findIndex((stored) => stored.id === routine)
       if (index < 0) return
-      const { conflict: _, ...rest } = { ...draft.routines[index]!, ...patch }
+      const { conflict: _, retired: __, ...rest } = { ...draft.routines[index]!, ...patch }
       draft.routines[index] = rest
       enqueue(draft, { kind: "put", routine, account: rest.account })
     })
@@ -774,6 +819,39 @@ export function make(options: Options): Local {
     },
     transcript: async (run) =>
       recordOf(run) ? fail("unsupported", "This run is read in its session.") : missing("run", run),
+    templates: async () => offered() ?? fail("unsupported", "There are no templates here."),
+    // The person's routine of a template, made as any routine made here is: it reaches Governance through the outbox,
+    // where a routine of the same template made on another computer first wins (`sync.ts`, `already_activated`).
+    activate: async (template, personal) => {
+      const answer = offered()
+      if (!answer) return fail("unsupported", "There are no templates here.")
+      if (isFailure(answer)) return answer
+      const found = answer.templates.find((candidate) => candidate.id === template)
+      if (!found) return missing("template", template)
+      if (found.mandatory) return fail("conflict", "This template is assigned to you: its task arrives on its own.")
+      const linked = saved().routines.some((stored) => mine(stored) && stored.definition.template?.id === template)
+      if (linked || answer.links.some((link) => link.id === template))
+        return fail("conflict", "This template is already active.")
+      const definition = RoutinesTemplates.activate(found, personal)
+      return isFailure(definition) ? definition : local.create(definition)
+    },
+    // Apply writes the template's values as an edit here does; Keep mine only forgets the change, which Governance never had.
+    answer: async (routine, apply) => {
+      const stored = routineOf(routine)
+      if (!stored) return missing("routine", routine)
+      if (!stored.update) return undefined
+      const definition = RoutinesTemplates.apply(stored.definition, stored.update.changes)
+      if (apply) {
+        write(routine, { definition, updated: options.now() })
+        await follows(stored, definition)
+      }
+      options.store.update((draft) => {
+        const found = draft.routines.find((candidate) => candidate.id === routine)
+        if (found) delete found.update
+      })
+      emit({ routine: ref(routine) })
+      return undefined
+    },
     // Upstream marks only a root session viewed, never a child: the run's own session is marked here.
     viewed: async (run) => {
       const record = recordOf(run)

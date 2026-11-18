@@ -8,8 +8,10 @@ import {
   reasonText,
   runWhen,
   scheduleText,
+  templateChanges,
   when,
 } from "../../../src/views/agents/format"
+import { RoutinesLocal } from "../../../src/routines/local/backend"
 import { describe as words, upcoming } from "../../../src/views/agents/schedule"
 import { MINUTE } from "../../routines/fixture"
 import { setup, t } from "./fixture"
@@ -125,5 +127,27 @@ describe("the header and the cards", () => {
     expect(instructionsText(t, view.find("Timesheet draft").definition.instructions)).toBe("Skill timesheet-report")
     expect(instructionsText(t, view.find("Sync CRM").definition.instructions)).toStartWith("Agent crm-sync: Copy")
     expect(instructionsText(t, view.find("Weekly ticket summary").definition.instructions)).toStartWith("Review the")
+  })
+})
+
+describe("a template's change in words", () => {
+  test("each change reads as its field, then before → after; a time that is all that changed reads as times", () => {
+    const changes = [
+      { path: "schedule", from: "0 8 * * 1-5", to: "30 7 * * 1-5" },
+      { path: "options.notify", from: "failures", to: "every" },
+      { path: "options.timeLimit", from: 60, to: 90 },
+      { path: "name", from: "Daily review", to: "Morning review" },
+      { path: "model", to: "anthropic/b" },
+    ]
+    expect(templateChanges(t, changes, RoutinesLocal.fields)).toEqual([
+      "Schedule: 08:00 → 07:30",
+      "Notify me: Only when something fails → Every run",
+      "Time limit (minutes): 60 → 90",
+      "Task: Daily review → Morning review",
+      "Model: None → anthropic/b",
+    ])
+    expect(templateChanges(t, [{ path: "schedule", from: "0 8 * * 1-5", to: "0 8 * * 1" }], [])).toEqual([
+      "Schedule: Weekdays at 08:00 → Mondays at 08:00",
+    ])
   })
 })

@@ -1,7 +1,7 @@
 export * as RoutinesDemo from "./demo"
 
 import type { Registry } from "./backend"
-import type { Capabilities, Routine, Run, Transcript } from "./contract"
+import type { Capabilities, Routine, Run, Template, Transcript } from "./contract"
 import { RoutinesFake } from "./fake"
 import { RoutinesFarm } from "./farm/backend"
 import { RoutinesLocal } from "./local/backend"
@@ -37,7 +37,10 @@ const localCapabilities = (label: string): Omit<Capabilities, "backend" | "quota
   fields: RoutinesLocal.fields,
 })
 
-/** The routines of this computer: two of them wait on a result, one on another device, one is paused. */
+/**
+ * The routines of this computer: two of them wait on a result, one on another device, one is paused. Two templates:
+ * an optional one that needs a project folder, and a mandatory one whose task is the one on another device.
+ */
 export function local(now: () => number) {
   const t = now()
   const here = { label: "Demo MacBook", online: true, here: true }
@@ -116,7 +119,8 @@ export function local(now: () => number) {
         instructions: { kind: "skill", skill: "timesheet-report" },
         schedule: { cron: "0 17 * * 5", timezone: ZONE },
         enabled: true,
-        options: { ...defaults },
+        options: { ...defaults, connectors: ["odoo"] },
+        template: { id: "timesheet-draft", revision: 3 },
       },
       next: t + 4 * DAY,
       owner: home,
@@ -194,11 +198,49 @@ export function local(now: () => number) {
     }),
   ]
 
+  const templates: Template[] = [
+    {
+      id: "project-health",
+      revision: 2,
+      name: "Project health check",
+      description: "Every weekday morning, a look at a project's open merge requests and failing tests.",
+      mandatory: false,
+      where: "local",
+      definition: {
+        instructions: {
+          kind: "prompt",
+          text: "Review the open merge requests and the failing tests of this project, and list what needs attention today.",
+        },
+        model: "claude-sonnet-5-5",
+        schedule: { cron: "0 9 * * 1-5" },
+        options: { permissions: "ask", connectors: ["dynbrain"], timeLimit: 30, notify: "failures" },
+      },
+      locks: { model: true, schedule: "time", timeLimitMax: 60 },
+      personal: { folder: "required", hint: "The folder of the project it reviews." },
+    },
+    {
+      id: "timesheet-draft",
+      revision: 3,
+      name: "Timesheet draft",
+      description: "Every Friday, the week's timesheet drafted from your tickets, ready to review.",
+      mandatory: true,
+      where: "local",
+      definition: {
+        instructions: { kind: "skill", skill: "timesheet-report" },
+        schedule: { cron: "0 17 * * 5" },
+        options: { permissions: "ask", connectors: ["odoo"], timeLimit: 30, notify: "failures" },
+      },
+      locks: { model: false, schedule: "time", timeLimitMax: null },
+      personal: { folder: "none", hint: null },
+    },
+  ]
+
   return RoutinesFake.make({
     id: localId,
     capabilities: localCapabilities(here.label),
     routines,
     runs,
+    templates,
     choices: {
       agents: [
         { value: "build", label: "Build" },

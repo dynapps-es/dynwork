@@ -293,11 +293,20 @@
     color: inherit;
     text-align: start;
 
-    &:is(:hover, :focus-visible) {
+    &:not([data-static]):is(:hover, :focus-visible) {
       background: var(--v2-background-bg-base);
       box-shadow: var(--v2-elevation-raised);
       outline: none;
     }
+  }
+
+  /* A template's card is not a button: its action is, at the end of its meta line. */
+  [data-slot="agents-card-action"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-inline-start: auto;
   }
 
   [data-slot="agents-card-top"] {

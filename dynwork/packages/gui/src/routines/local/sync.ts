@@ -2,10 +2,12 @@ export * as RoutinesSync from "./sync"
 
 import { Schema } from "effect"
 import type { Persisted } from "@opencode/plugin/gui/main"
-import { Definition } from "../contract"
+import { Definition, Template, type Templates } from "../contract"
+import { RoutinesTemplates } from "../templates"
 import type { Device, Local } from "./backend"
 import type { RoutinesClock } from "./clock"
 import { enqueue, type Op, type Saved, type SavedRoutine } from "./store"
+import type { RoutinesTemplatesReader } from "./templates"
 
 // The local routines' definitions, shared with the user's other computers through Governance (the `dynwork-routines`
 // extension: a change feed and writes with optimistic concurrency). It runs in main, with the account's session; the
@@ -23,6 +25,20 @@ import { enqueue, type Op, type Saved, type SavedRoutine } from "./store"
 // - Claim: a routine made for this user in Governance comes unclaimed (no owner). This computer claims it with the same
 //   `If-Match` write as an edit; until Governance takes the claim it stays unclaimed here and nothing runs it. A `409`
 //   means another of the user's computers won: its row is kept, without a conflict note.
+// - Templates: each pass first reads `GET /templates` (`./templates.ts`), so a mandatory template's routine, which that
+//   read makes in Governance, comes in the same pass's feed, in no time zone: it is read, and claimed, in this
+//   computer's. A `409 already_activated` means the person's routine of that template already exists (made on another
+//   computer): Governance's row is kept and the one made here goes.
+// - Following a template: the computer that owns a linked routine, and only it, writes what its template asks for
+//   before the routine's next run. A newer revision is merged into it (`RoutinesTemplates.merge`, with the revision it
+//   follows read from `GET /templates/{id}/revisions/{revision}` as the base), and what the person had changed too is
+//   kept and noted for them to answer. A retired template's link is dropped (`unlink`, `pause`; `remove` comes as a
+//   tombstone) and the routine says so. A template the person lost access to pauses it once; only they resume it. Each
+//   is a `put` of the template's: a `409` takes Governance's row without a note and makes the change again on it. A
+//   `409 template_locked` (Governance refuses what the merge wrote for that revision) takes its row too, but that
+//   revision is not merged again until the app starts again: no retry within a pass, nor every pass after it. An edit of
+//   the person's refused as `template_locked` is a conflict like any other: Governance's row, with the note. So is a
+//   `409` on a template's write while an edit of the person's of that routine waits behind it.
 // - Accounts: each routine and outbox entry carries the account it belongs to. A pass reads, applies and sends only the
 //   active account's (and tags those of none yet); another account's stay stored, hidden and waiting.
 // - Without Governance everything keeps working here; the outbox waits and the Agents view says "Not synced".
@@ -52,6 +68,10 @@ export interface Options {
   now: () => number
   fetch?: (input: string, init?: RequestInit) => Promise<Response>
   timers?: RoutinesClock.Timers
+  /** The templates Governance offers, read on every pass. Absent: none are read. */
+  templates?: RoutinesTemplatesReader.Reader
+  /** This computer's IANA time zone, which a mandatory template's routine is claimed in. Default: the system's. */
+  zone?: () => string
 }
 
 // A routine as Governance answers it; a tombstone has `deleted` and no definition.
@@ -74,7 +94,14 @@ const decodePage = Schema.decodeUnknownOption(
   Schema.Struct({ routines: Schema.Array(Row), cursor: Schema.String, more: Schema.Boolean }),
 )
 const decodeConflict = Schema.decodeUnknownOption(Schema.Struct({ current: Row }))
+const decodeLocked = Schema.decodeUnknownOption(
+  Schema.Struct({ error: Schema.Literal("template_locked"), current: Row }),
+)
+const decodeActivated = Schema.decodeUnknownOption(
+  Schema.Struct({ error: Schema.Literal("already_activated"), routine: Row }),
+)
 const decodeDefinition = Schema.decodeUnknownOption(Definition)
+const decodeTemplate = Schema.decodeUnknownOption(Template)
 
 type Sent = "done" | "again" | "offline"
 type Answer = { status: number; body: unknown } | undefined
@@ -89,6 +116,12 @@ const real: RoutinesClock.Timers = {
 export function make(options: Options) {
   const timers = options.timers ?? real
   const send = options.fetch ?? fetch
+  const zone = options.zone ?? (() => Intl.DateTimeFormat().resolvedOptions().timeZone)
+  // A template's revisions never change: each is read once, by account, template and revision.
+  const revisions = new Map<string, Template>()
+  // The revisions Governance refused a merge into (`template_locked`), by account, template and revision: not merged
+  // again while the app runs.
+  const refused = new Set<string>()
   const life: {
     running?: Promise<void>
     again: boolean
@@ -136,10 +169,12 @@ export function make(options: Options) {
     const device = options.device()
     if (!account || !device) return settle(undefined)
     life.account = account.id
+    await options.templates?.read()
     const pulled = await pull(account, device)
     if (pulled) {
       upload(device)
       claim()
+      await follow(account, device)
     }
     settle(pulled && (await flush(account, device)))
   }
@@ -227,7 +262,7 @@ export function make(options: Options) {
       return true
     }
     if (!input.force && current?.revision !== undefined && current.revision >= row.revision) return false
-    const definition = decodeDefinition(row.definition)
+    const definition = decodeDefinition(zoned(row.definition))
     if (definition._tag === "None") return false
     const changed = Date.parse(row.updated_at)
     const { conflict: _, ...kept } = current ?? { id: row.id }
@@ -285,6 +320,96 @@ export function make(options: Options) {
     })
   }
 
+  // What each linked routine this computer owns needs from its template, as Governance last offered them. A routine with
+  // a change of its own still waiting is left for the next pass: its write goes first.
+  async function follow(account: Account, device: Device) {
+    const offered = options.templates?.current()
+    if (!offered) return
+    const waiting = new Set(outbox().flatMap((op) => (op.kind === "run" ? [] : [op.routine])))
+    const linked = saved().routines.filter(
+      (stored) =>
+        ours(stored) &&
+        stored.definition.template &&
+        stored.revision !== undefined &&
+        options.local.here(stored.id) &&
+        !waiting.has(stored.id),
+    )
+    await Promise.all(linked.map((stored) => step(account, device, offered, stored)))
+  }
+
+  async function step(account: Account, device: Device, offered: Templates, stored: SavedRoutine) {
+    const link = stored.definition.template
+    if (!link) return
+    const standing = offered.links.find((candidate) => candidate.id === link.id)
+    if (standing?.state === "retired") {
+      if (standing.retire === "remove") return
+      const { template: _, ...definition } = stored.definition
+      const retired = standing.retire === "pause" ? "pause" : "unlink"
+      return rewrite(stored, (current) => {
+        const { update: _, ...rest } = current
+        return { ...rest, definition, retired }
+      })
+    }
+    if (standing?.state === "no_access") {
+      if (stored.revoked) return
+      return rewrite(stored, (current) => ({
+        ...current,
+        definition: { ...current.definition, enabled: false },
+        revoked: true,
+      }))
+    }
+    // The template is theirs again: a later loss pauses it again, and what was paused stays so.
+    if (stored.revoked) {
+      options.store.update((draft) => {
+        const found = draft.routines.find((candidate) => candidate.id === stored.id)
+        if (found) delete found.revoked
+      })
+      options.local.touched(stored.id)
+    }
+    const next = offered.templates.find((candidate) => candidate.id === link.id)
+    if (!next || next.revision <= link.revision || refused.has(`${account.id}/${next.id}/${next.revision}`)) return
+    const base = await revision(account, device, link.id, link.revision)
+    if (!base) return
+    const merged = RoutinesTemplates.merge({
+      base,
+      next,
+      task: stored.definition,
+      zone: zone(),
+      previous: stored.update?.changes,
+    })
+    rewrite(stored, (current) => {
+      const { update: _, ...rest } = current
+      const definition = merged.definition
+      if (merged.changes.length === 0) return { ...rest, definition }
+      return { ...rest, definition, update: { revision: next.revision, changes: merged.changes } }
+    })
+  }
+
+  // A change only the routine's template makes, with its outbox entry. Skipped when the routine changed meanwhile: the
+  // next pass starts from it.
+  function rewrite(stored: SavedRoutine, change: (current: SavedRoutine) => SavedRoutine) {
+    options.store.update((draft) => {
+      const index = draft.routines.findIndex((candidate) => candidate.id === stored.id)
+      const current = draft.routines[index]
+      if (!current || !same(current.definition, stored.definition)) return
+      draft.routines[index] = { ...change(current), updated: options.now() }
+      enqueue(draft, { kind: "put", routine: stored.id, account: stored.account, template: true })
+    })
+    options.local.touched(stored.id)
+  }
+
+  // The revision of a template a routine follows: the base of the merge. Undefined while Governance does not serve it.
+  async function revision(account: Account, device: Device, template: string, number: number) {
+    const key = `${account.id}/${template}/${number}`
+    const kept = revisions.get(key)
+    if (kept) return kept
+    const answer = await call(account, device, "GET", `/templates/${encodeURIComponent(template)}/revisions/${number}`)
+    const found = answer?.status === 200 ? decodeTemplate(answer.body) : undefined
+    if (!found || found._tag === "None") return undefined
+    revisions.set(key, found.value)
+    return found.value
+  }
+
   // Sends the outbox in order until it is empty, or Governance stops answering.
   async function flush(account: Account, device: Device) {
     for (;;) {
@@ -323,6 +448,17 @@ export function make(options: Options) {
     if (row?._tag === "Some") {
       written(row.value)
       return "done"
+    }
+    const twin = answer.status === 409 ? decodeActivated(answer.body) : undefined
+    if (twin?._tag === "Some") return activated(op, twin.value.routine)
+    if (answer.status === 409 && op.kind === "put" && op.template) {
+      // An edit of the person's made while it was on its way: it is not made on Governance's row, so they are told.
+      const mine = outbox().some(
+        (queued) => queued.id !== op.id && queued.routine === op.routine && queued.kind === "put" && !queued.template,
+      )
+      if (!mine) return again(account, device, stored, answer.body)
+      refuse(account, stored, answer.body)
+      return conflict(op, stored, device, answer.body)
     }
     if (answer.status === 409) return conflict(op, stored, device, answer.body)
     // Governance lost a routine it had: it is created again.
@@ -385,6 +521,52 @@ export function make(options: Options) {
     })
   }
 
+  // `409 already_activated`: the person already has a routine of the template this one was activated from, made on
+  // another computer. Governance keeps one per person and template: its row is taken, and the one made here goes with
+  // its runs and the changes still waiting to be sent.
+  function activated(op: Op, row: Row): Sent {
+    options.store.update((draft) => {
+      draft.routines = draft.routines.filter((stored) => stored.id !== op.routine)
+      draft.runs = draft.runs.filter((record) => record.routine !== op.routine)
+      draft.outbox = (draft.outbox ?? []).filter((queued) => queued.routine !== op.routine)
+      adopt(draft, row)
+    })
+    options.local.touched(op.routine)
+    options.local.touched(row.id)
+    return "done"
+  }
+
+  // `409` on a write only the template made: Governance's row is taken as it is, without a note (nothing of the person's
+  // is replaced), and what the template asks for is made again on it. The notes of that write go with it. Refused as
+  // `template_locked`, the revision it named is remembered and not merged again: its row stays as Governance has it.
+  async function again(account: Account, device: Device, sent: SavedRoutine, body: unknown): Promise<Sent> {
+    const found = decodeConflict(body)
+    if (found._tag === "None") return "done"
+    const current = found.value.current
+    const link = refuse(account, sent, body)
+    options.store.update((draft) => {
+      adopt(draft, current, { force: true })
+      const stored = draft.routines.find((candidate) => candidate.id === current.id)
+      if (stored && link && stored.update?.revision === link.revision) delete stored.update
+      if (stored && !link) {
+        delete stored.retired
+        delete stored.revoked
+      }
+      draft.outbox = (draft.outbox ?? []).filter((queued) => queued.routine !== current.id || queued.kind === "run")
+    })
+    options.local.touched(current.id)
+    if (!link) await follow(account, device)
+    return "done"
+  }
+
+  // The link a template write named, when Governance refused it as `template_locked`: that revision is not merged again
+  // while the app runs.
+  function refuse(account: Account, sent: SavedRoutine, body: unknown) {
+    const link = decodeLocked(body)._tag === "Some" ? sent.definition.template : undefined
+    if (link) refused.add(`${account.id}/${link.id}/${link.revision}`)
+    return link
+  }
+
   // `409`: the routine changed elsewhere since this computer last synced it. When Governance already holds what was
   // sent (an answer that got lost), its revision is taken quietly. Otherwise its row replaces the edit made here, the
   // routine says so, and the later changes of it made on top of that edit are dropped. A claim another computer won
@@ -398,7 +580,7 @@ export function make(options: Options) {
       written(current)
       return "done"
     }
-    const claimed = stored.owner === null && same(current.definition, stored.definition)
+    const claimed = stored.owner === null && claimedOnly(stored.definition, current.definition)
     options.store.update((draft) => {
       adopt(draft, current, { force: true, ...(claimed ? {} : { conflict: options.now() }) })
       draft.outbox = (draft.outbox ?? []).filter(
@@ -407,6 +589,26 @@ export function make(options: Options) {
     })
     options.local.touched(current.id)
     return "done"
+  }
+
+  // A routine Governance made from a mandatory template comes in no time zone (the plan's `docs/contract.md` §4): it is
+  // read in this computer's, which its claim writes.
+  function zoned(definition: unknown) {
+    if (typeof definition !== "object" || definition === null || !("template" in definition)) return definition
+    if (!("schedule" in definition) || typeof definition.schedule !== "object" || definition.schedule === null)
+      return definition
+    const schedule = definition.schedule
+    if ("timezone" in schedule && typeof schedule.timezone === "string" && schedule.timezone !== "") return definition
+    return { ...definition, schedule: { ...schedule, timezone: zone() } }
+  }
+
+  // A claim another computer won replaced no edit made here: the definitions differ at most in the time zone each
+  // computer read a mandatory template's routine in.
+  function claimedOnly(mine: Definition, theirs: unknown) {
+    const read = decodeDefinition(zoned(theirs))
+    if (read._tag === "None") return false
+    if (!mine.template || !read.value.schedule || !mine.schedule) return same(read.value, mine)
+    return same({ ...read.value, schedule: { ...read.value.schedule, timezone: mine.schedule.timezone } }, mine)
   }
 
   void sync()

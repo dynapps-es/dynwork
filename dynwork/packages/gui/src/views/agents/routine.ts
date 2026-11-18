@@ -86,10 +86,19 @@ export function actions(routine: Routine, capabilities?: Capabilities) {
     edit:
       blocked ??
       (capabilities?.actions.edit === "replace" ? { enabled: true, reason: words("agents.reason.replace") } : yes),
-    remove: blocked ?? yes,
+    // Assigned by Dynapps: the person pauses it, Governance keeps it.
+    remove: blocked ?? (routine.template?.mandatory ? no("agents.reason.mandatory") : yes),
     cancel: blocked ?? (capabilities?.actions.cancel ? yes : no("agents.reason.cancel")),
     open: blocked ?? (routine.conversation.kind !== "none" || routine.last ? yes : no("agents.reason.empty")),
   }
+}
+
+/** What a template did to the routine on its own, in words: retired, retired and paused, or out of the person's reach. */
+export function templateNotice(routine: Routine): Words | undefined {
+  if (routine.notice === "retired") return words("agents.template.retired")
+  if (routine.notice === "retired-paused") return words("agents.template.retiredPaused")
+  if (routine.notice === "no-access") return words("agents.template.revoked")
+  return undefined
 }
 
 /** Whether a run can be opened from a list: a run that never started has nothing to read. */

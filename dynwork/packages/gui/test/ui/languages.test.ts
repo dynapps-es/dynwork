@@ -40,7 +40,7 @@ const texts = (field: Field) => [
   ]),
 ]
 // The main-process sources whose failures and fields a window shows.
-const sources = ["validate.ts", "ipc.ts", "chat.ts", "local/backend.ts", "farm/backend.ts"]
+const sources = ["validate.ts", "templates.ts", "ipc.ts", "chat.ts", "local/backend.ts", "farm/backend.ts"]
 
 describe.each(languages)("Dynwork in %s", (_, table) => {
   test("every English key has one with the same placeholders, and none extra", () => {

@@ -3,7 +3,7 @@ import { Button } from "@opencode/ui/button"
 import { createEffect, For, lazy, Match, on, onCleanup, Show, Switch } from "solid-js"
 import { isServer } from "solid-js/web"
 import { RoutinesClient } from "../../routines/client"
-import { isFailure, type Routine, type Run } from "../../routines/contract"
+import { isFailure, type Routine, type Run, type Template } from "../../routines/contract"
 import { sessionHref } from "../runs/model"
 import { device } from "../device"
 import { ViewShell } from "../shell"
@@ -73,6 +73,23 @@ export default function AgentsView(props: { where?: Where }) {
     }),
   )
 
+  // Templates are read when their tab opens (the connectors too), and again on every change main pushes meanwhile: a
+  // new answer from Governance, or a routine of one of them made or removed.
+  createEffect(
+    on([client, () => model.state.tab], ([current, tab]) => {
+      if (current && tab === "templates") void model.loadTemplates(true)
+    }),
+  )
+  createEffect(
+    on(
+      () => client()?.state(),
+      () => {
+        if (model.state.tab === "templates") void model.loadTemplates()
+      },
+      { defer: true },
+    ),
+  )
+
   // The labels the detail shows for the agent, the model and every field filled from a lookup.
   createEffect(
     on(selected, (routine) => {
@@ -95,15 +112,20 @@ export default function AgentsView(props: { where?: Where }) {
     void model.open(run)
   }
 
-  // The form edits `routine`, or creates one on the backend of the chip in use (the first backend with "All").
-  const form = (routine?: Routine) => {
+  // The form edits `routine`, activates `offered.template` on its backend, or creates one on the backend of the chip in
+  // use (the first backend with "All").
+  const form = (routine?: Routine, offered?: { backend: string; template: Template }) => {
+    const backend = offered?.backend ?? model.backends().find((item) => item.kind === model.state.where)?.backend
+    if (offered) void model.loadChoices(offered.backend, "models")
     const created = createFormModel({
       client,
       backends: model.backends,
       routine,
-      backend: model.backends().find((backend) => backend.kind === model.state.where)?.backend,
+      template: offered?.template,
+      backend,
       zone: systemZone(),
       now: Date.now,
+      models: () => (backend ? model.values(backend, "models") : undefined),
     })
     ctx.dialogs.open((dialog) => (
       <RoutineForm form={created} agents={model} close={dialog.close} onSaved={model.select} />
@@ -210,7 +232,7 @@ export default function AgentsView(props: { where?: Where }) {
               <RoutineCards model={model} />
             </Match>
             <Match when={model.state.tab === "templates"}>
-              <Templates />
+              <Templates model={model} use={(backend, template) => form(undefined, { backend, template })} />
             </Match>
             <Match when={model.state.tab === "activity"}>
               <Activity model={model} open={open} />

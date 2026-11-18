@@ -65,4 +65,14 @@ export default {
   "routines.fail.chatOffline": "Le service de Dynwork n'est pas en cours d'exécution.",
   "routines.fail.chatOpen": "Impossible d'ouvrir la conversation.",
   "routines.fail.chatStart": "Impossible de démarrer la conversation.",
+
+  "routines.fail.noTemplates": "Il n'y a pas de modèles ici.",
+  "routines.fail.templatesSignedOut": "Connectez-vous pour voir les modèles de votre organisation.",
+  "routines.fail.templatesUnread": "Les modèles n'ont pas encore été lus depuis Governance.",
+  "routines.fail.templateAssigned": "Ce modèle vous est attribué : sa tâche arrive d'elle-même.",
+  "routines.fail.templateActive": "Ce modèle est déjà actif.",
+  "routines.fail.templateSets": "C'est le modèle qui le fixe.",
+  "routines.fail.templateCloud": "Seuls les modèles qui s'exécutent sur cet ordinateur peuvent être activés ici.",
+  "routines.fail.templateFolder": "Ce modèle a besoin d'un dossier de projet.",
+  "routines.fail.templateConfirm": "Confirmez qu'il s'exécute sans demander.",
 } satisfies Record<keyof typeof en, string>
