@@ -6,9 +6,9 @@ import { SegmentedControl, SegmentedControlItem } from "@opencode/ui/segmented-c
 import { TextInput } from "@opencode/ui/text-input"
 import { Textarea } from "@opencode/ui/textarea"
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js"
-import { isFailure, type Anchor, type Document, type Failure } from "../../drive/contract"
+import { isFailure, type Anchor, type Document, type Failure, type Mention } from "../../drive/contract"
 import { DriveCapabilities } from "../../drive/capabilities"
-import { askAgent } from "./chat"
+import { askAgent, sessionOf, titleOf } from "./chat"
 import { anchorsOf, matchNodes, nodeLabel, pickable, quoteIn, type Node, type Thread } from "./model"
 import { AnchorLine, Avatar, failureText, MessageLine } from "./parts"
 import { drive } from "./store"
@@ -176,7 +176,16 @@ function ThreadCard(props: { doc: Document; thread: Thread }) {
           />
         </Show>
       </div>
-      <For each={props.thread.messages}>{(message) => <MessageLine message={message} />}</For>
+      <For each={props.thread.messages}>
+        {(message) => (
+          <>
+            <MessageLine message={message} />
+            <Show when={drive.mentionOf(message.id)}>
+              {(mention) => <AgentNote doc={props.doc} mention={mention()} text={message.text} />}
+            </Show>
+          </>
+        )}
+      </For>
       <Show
         when={props.thread.open}
         fallback={
@@ -219,7 +228,7 @@ function ThreadCard(props: { doc: Document; thread: Thread }) {
                 }}
               />
               <div data-slot="drive-card-row">
-                <Mention field={() => field} />
+                <AgentButton field={() => field} />
                 <span data-slot="drive-grow" />
                 <Button variant="ghost" size="small" onClick={() => drive.cancelReply()}>
                   {ctx.t("drive.cancel")}
@@ -237,8 +246,47 @@ function ThreadCard(props: { doc: Document; thread: Thread }) {
   )
 }
 
+/**
+ * What became of a comment that asked for the agent: the chat it went to, or why it went nowhere. A document no chat has
+ * used cannot be answered by a chat that does not exist, so it offers to start from one.
+ */
+function AgentNote(props: { doc: Document; mention: Mention; text: string }) {
+  const ctx = usePlugin()
+  const chat = () => props.mention.conversation
+  const session = () => (chat() === undefined ? undefined : sessionOf(ctx, chat()!))
+  return (
+    <p
+      data-slot="drive-note"
+      data-tone={props.mention.outcome === "woken" ? "info" : "warning"}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <Show when={props.mention.outcome === "woken"}>
+        {ctx.t("drive.mention.woken", { chat: (chat() && titleOf(ctx, chat()!)) ?? ctx.t("drive.chat.untitled") })}
+      </Show>
+      <Show when={props.mention.outcome === "failed"}>{ctx.t("drive.mention.failed")}</Show>
+      <Show when={props.mention.outcome === "unlinked"}>{ctx.t("drive.mention.unlinked")}</Show>
+      <Show when={props.mention.outcome === "woken" && session()}>
+        {(open) => (
+          <Button variant="ghost" size="small" onClick={() => ctx.tabs.focus(open().tab)}>
+            {ctx.t("drive.mention.open")}
+          </Button>
+        )}
+      </Show>
+      <Show when={props.mention.outcome === "unlinked"}>
+        <Button
+          variant="ghost"
+          size="small"
+          onClick={() => askAgent(ctx, props.doc, ctx.t("drive.ask.doc", { doc: props.doc.name }) + props.text)}
+        >
+          {ctx.t("drive.useInChat")}
+        </Button>
+      </Show>
+    </p>
+  )
+}
+
 /** The agent's mention, written into a box. */
-function Mention(props: { field: () => HTMLTextAreaElement | undefined }) {
+function AgentButton(props: { field: () => HTMLTextAreaElement | undefined }) {
   const ctx = usePlugin()
   return (
     <Button
@@ -305,7 +353,7 @@ function Composer(props: { doc: Document; anchor: Anchor }) {
         }}
       />
       <div data-slot="drive-card-row">
-        <Mention field={() => field} />
+        <AgentButton field={() => field} />
         <span data-slot="drive-grow" />
         <Button variant="ghost" size="small" onClick={() => drive.cancelComment()}>
           {ctx.t("drive.cancel")}

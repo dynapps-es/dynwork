@@ -25,11 +25,12 @@ function issued() {
 
 conformance("fake", () => {
   const backend = DriveFake.make({ user })
-  return { backend, suggestOnly: backend.suggestOnly, stage: backend.stage }
+  return { backend, user, suggestOnly: backend.suggestOnly, stage: backend.stage }
 })
 
 conformance("Governance, over sp-client", () => ({
   backend: remote(),
+  user,
   suggestOnly: (on) => {
     instance.state.drive.suggestOnly = on
   },

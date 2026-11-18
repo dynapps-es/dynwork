@@ -2,7 +2,16 @@ export * as DriveFake from "./fake"
 
 import { createHash, randomUUID } from "node:crypto"
 import { fail, type Backend } from "./backend"
-import type { Comment, Document, Failure, Folder, Proposal, Revision } from "./contract"
+import {
+  isFailure,
+  type Comment,
+  type Document,
+  type Failure,
+  type Folder,
+  type Proposal,
+  type Revision,
+} from "./contract"
+import { DriveMentions } from "./mentions"
 
 export interface Options {
   /** The signed-in user's id: what the fake writes as owner and author. */
@@ -19,6 +28,8 @@ export interface Fake extends Backend {
   suggestOnly(on: boolean): void
   /** Holds bytes as the instance holds what the agent's `documents_upload` sent, and answers the `blob_ref` to import. */
   stage(bytes: Uint8Array, mime: string): string
+  /** Says to every open `mentions` stream that someone was mentioned, as the instance does for a comment that mentions. */
+  announce(heard: DriveMentions.Heard): void
   /** How many calls reached the backend, by method. */
   readonly calls: Readonly<Record<string, number>>
 }
@@ -46,6 +57,19 @@ export function make(options: Options = {}): Fake {
   const switches: { down?: Failure; suggestOnly: boolean } = { suggestOnly: false }
   const calls: Record<string, number> = {}
   const blobs = new Map<string, { bytes: Uint8Array; mime: string }>()
+  // The open `mentions` streams: each a queue of what was announced and the way to wake its reader.
+  const streams = new Set<{ queue: DriveMentions.Heard[]; wake: () => void }>()
+  const announce = (heard: DriveMentions.Heard) =>
+    streams.forEach((stream) => {
+      stream.queue.push(heard)
+      stream.wake()
+    })
+  // What the instance does with a comment: it keeps the body as written, and refuses a mention option for a user the
+  // body does not mention; the reader sees `@Agent` for the user's own mention (`DriveMentions.read`).
+  const spoken = (body: string, agent: boolean | undefined) =>
+    agent && !body.includes(`](user:${user})`)
+      ? fail("invalid", "Every mention must appear in the body.")
+      : { stored: body, ...DriveMentions.read(body, user) }
 
   const revise = (entry: Entry, bytes: Uint8Array, attribution: { message?: string; contextId?: string }) => {
     const revision: Revision = {
@@ -312,15 +336,19 @@ export function make(options: Options = {}): Fake {
       // The instance checks a quote against the node's own text, markers and all
       if (!target || (anchor.find !== undefined && !target.text.includes(anchor.find)))
         return fail("conflict", "The commented text is gone.", entry.document.revision)
+      const said = spoken(input.body, input.agent)
+      if (isFailure(said)) return said
       const comment: Comment = {
         id: randomUUID(),
         anchor,
         author: user,
         mine: true,
-        body: input.body,
+        body: said.text,
+        ...(said.agent ? { agent: true } : {}),
         created: now(),
       }
       entry.comments.push(comment)
+      if (input.agent) announce({ document: id, comment: comment.id, user, author: user })
       return comment
     }),
     reply: method("reply", (id, input) => {
@@ -328,16 +356,20 @@ export function make(options: Options = {}): Fake {
       if (!("document" in entry)) return entry
       const parent = entry.comments.find((comment) => comment.id === input.parent)
       if (!parent) return fail("not-found", "No such comment.")
+      const said = spoken(input.body, input.agent)
+      if (isFailure(said)) return said
       const comment: Comment = {
         id: randomUUID(),
         anchor: parent.anchor,
         author: user,
         mine: true,
-        body: input.body,
+        body: said.text,
+        ...(said.agent ? { agent: true } : {}),
         parent: parent.id,
         created: now(),
       }
       entry.comments.push(comment)
+      if (input.agent) announce({ document: id, comment: comment.id, user, author: user })
       return comment
     }),
     resolve: method("resolve", (id, target) => {
@@ -354,6 +386,8 @@ export function make(options: Options = {}): Fake {
 
   return {
     ...backend,
+    mentions: method("mentions", (signal: AbortSignal) => stream(streams, signal)),
+    announce,
     ...(options.contexts
       ? {
           byContext: method("byContext", (context: string) =>
@@ -377,6 +411,25 @@ export function make(options: Options = {}): Fake {
     },
     calls,
   }
+}
+
+// A `mentions` stream: what is announced while it is open, until `signal` aborts.
+function stream(open: Set<{ queue: DriveMentions.Heard[]; wake: () => void }>, signal: AbortSignal) {
+  const state = { wake: () => {} }
+  const mine = { queue: [] as DriveMentions.Heard[], wake: () => state.wake() }
+  open.add(mine)
+  signal.addEventListener("abort", () => state.wake(), { once: true })
+  return (async function* () {
+    try {
+      while (!signal.aborted) {
+        const next = mine.queue.shift()
+        if (next) yield next
+        else await new Promise<void>((resolve) => (state.wake = resolve))
+      }
+    } finally {
+      open.delete(mine)
+    }
+  })()
 }
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 8)

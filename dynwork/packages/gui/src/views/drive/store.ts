@@ -199,6 +199,8 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     shownFolders: () => visibleFolders(folders(), state.browse),
     /** The open document. */
     current: () => doc(state.open),
+    /** What became of a comment that asked for the agent (`@Agent`): which chat was woken, or why none was. */
+    mentionOf: (comment: string) => remote()?.mentions.find((entry) => entry.comment === comment),
     /** What one conversation did, newest first. */
     linksOf: (conversation: string) => links().filter((link) => link.conversation === conversation),
     /** A document's comment threads, newest first. */

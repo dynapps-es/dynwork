@@ -10,16 +10,17 @@ window                                main process
   DriveClient (client.ts)   contract.ts  ipc.ts      backend.ts
 ```
 
-| File              | Role                                                                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `contract.ts`     | The Schema data (`Document`, `Folder`, `Revision`, `Comment`, `Anchor`, `Link`, `Failure`, `State`) and the `dynwork.drive` Ipc |
-| `backend.ts`      | `interface Backend` (one account's Drive), `fail`, and `remote`: the real one over `SpDrive` from `@dynwork/sp-client`          |
-| `capabilities.ts` | The switches for what the instance has not delivered yet, and every decision they change, as pure functions                     |
-| `ipc.ts`          | The service: the active account, its snapshot and polling, attribution, the conversation index, failures as data                |
-| `fake.ts`         | An in-memory Drive that behaves as 0.83 where DynWork can tell: `DriveFake.make(options)`                                       |
-| `agent.ts`        | What the agent does with the `documents` MCP tools: its folder, its signature, its index, its uploaded pages (phase 07)         |
-| `main.ts`         | The main-process setup over the accounts, from `accounts/main.ts`                                                               |
-| `client.ts`       | The window's live Ipc client, handed over by the window entry for the views to read                                             |
+| File              | Role                                                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `contract.ts`     | The Schema data (`Document`, `Folder`, `Revision`, `Comment`, `Anchor`, `Link`, `Failure`, `State`) and the `dynwork.drive` Ipc  |
+| `backend.ts`      | `interface Backend` (one account's Drive), `fail`, and `remote`: the real one over `SpDrive` from `@dynwork/sp-client`           |
+| `capabilities.ts` | The switches for what the instance has not delivered yet, and every decision they change, as pure functions                      |
+| `ipc.ts`          | The service: the active account, its snapshot and polling, attribution, the conversation index, failures as data                 |
+| `fake.ts`         | An in-memory Drive that behaves as 0.83 where DynWork can tell: `DriveFake.make(options)`                                        |
+| `agent.ts`        | What the agent does with the `documents` MCP tools: its folder, its signature, its index, its uploaded pages (phase 07)          |
+| `mentions.ts`     | `@Agent` in a comment: written as a real mention, followed on the bridge stream, and woken to the linked conversation (phase 08) |
+| `main.ts`         | The main-process setup over the accounts, from `accounts/main.ts`                                                                |
+| `client.ts`       | The window's live Ipc client, handed over by the window entry for the views to read                                              |
 
 Everything crossing to a window is a Schema value of DynWork's own, with epoch milliseconds for time; the backend reads
 the wire. `test/drive/conformance.ts` is the suite every backend passes: the fake, and the real one against sp-client's
@@ -101,6 +102,49 @@ OpenCode service                                       main process
   `folder_id` and the upload of pages: it needs rewording when either of the first two goes on.
 - **When it is not there.** Main closed or signed out: the plugin's ask times out after 10 seconds and the call runs as
   the agent wrote it, at the Drive's root; the touch is lost, and the document is not in the index.
+
+## @Agent in a comment (phase 08, D12, D15)
+
+A comment that asks for the agent (`@Agent`, also `@Agente`, as a word of its own) is a real mention of the user themself
+with `attention: agent`: the instance's way to say "my agent, do this". The service writes it (`DriveMentions.write`:
+the first `@Agent` becomes `@[Name](user:<id>)`, the form the instance requires in the body, and the write carries
+`mention_options`), and every reader gets the text back as `@Agent` with `Comment.agent` set (`DriveMentions.read`). An
+account that does not know its user's id keeps the text as typed and wakes nothing.
+
+```
+window ──comment "@Agent …"──► DriveIpc ──► Governance (mention of oneself, attention agent)
+                                 │  asked ─────────────────────────────┐
+                                 │                                     ▼
+Governance ──/v1/bridge/stream──► Backend.mentions ──► DriveMentions.attend ──► session.prompt ──► the conversation
+                                                         (once per comment)        │
+                                       documents_comment (the agent's own MCP tool) ◄┘ answers in the thread
+```
+
+- **Two sources, one handler.** The service tells `DriveMentions` about each comment it writes with `@Agent`, and
+  `Backend.mentions` (the bridge stream, `SpDrive.mentions`) says every `document.comment.mentioned` of the user. The stream
+  is what reaches a comment written elsewhere (the web); the write's own call does not wait for it. Both end in `attend`,
+  which reads the comment back from the instance and takes it only when it is the user's own and mentions the user: the
+  stream's word is not taken for it.
+- **Once per comment.** `attend` is keyed by the comment id: one in flight at a time, and a record per comment kept in the
+  plugin's storage (`Saved.mentions`, the newest 200) once decided, so a repeat of the stream, the write, or a restart of the
+  app does not prompt twice. A `failed` outcome is kept too: the user sends it again as a new comment.
+- **Never another account's.** The conversation comes from the index of the account the comment belongs to
+  (`linksOf(account)`); nothing of another account is read for it, and when the active account is no longer that one by the
+  time the comment is read, nothing is read or woken. The stream is closed when the account changes and opened for the new
+  one.
+- **Which conversation.** The latest that worked with the document (any act in the index) and whose session still exists;
+  one that is gone is passed over. None: the outcome is `unlinked`, nobody is woken, and the thread says so with "Use in a
+  chat" (`AgentNote`, `views/drive/comments.tsx`).
+- **The way back.** The prompt carries the thread and where it points; the conversation answers with the `documents` MCP
+  tools it already has (D4): `documents_comment` replies in the thread, `documents_edit` changes the document, and
+  phase 07's hooks file those writes under the conversation. DynWork posts nothing for the agent. Without the `documents`
+  server in the service (the app in development) the conversation is prompted and has no tool to answer with.
+- **What the instance does not say (0.83).** The stream's event has no `attention`, a mention of oneself makes no
+  notification (`/api/v1/notifications` lists only other people's), and the stream keeps no history and sends no heartbeat.
+  So a mention someone else made is not attended even when it says `attention: agent`: it would run another person's words
+  as the user's agent, and is left to Governance; only the user mentioning themself is a job. DynWork opens the stream
+  again every five minutes and two seconds after it ends, and a mention made while it was closed is lost, except for those
+  the service writes (they do not wait for the stream).
 
 ## Capabilities
 

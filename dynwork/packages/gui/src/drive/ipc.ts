@@ -5,13 +5,16 @@ import { Schema } from "effect"
 import type { IpcImpl, Persisted } from "@opencode/plugin/gui/main"
 import { fail, type Backend } from "./backend"
 import { DriveCapabilities } from "./capabilities"
-import { isFailure, Link, type Conversation, type Drive, type Failure, type State } from "./contract"
+import { isFailure, Link, Mention, type Conversation, type Drive, type Failure, type State } from "./contract"
+import { DriveMentions } from "./mentions"
 
 /** The account the Drive shows: the active, signed-in one, and the name its direct writes are signed with. */
 export interface Account {
   id: string
   /** The user's email or name: "<user> by DynWork". */
   user: string
+  /** The user's id in the instance: what `@Agent` mentions. Absent in an account signed in before DynWork kept it. */
+  userId?: string
 }
 
 /** Timers the service arms; `set` answers what cancels it. Tests pass their own, so nothing waits on real time. */
@@ -21,7 +24,8 @@ export interface Timers {
 
 /**
  * What the service keeps on this computer, per account: the `x-context-id` it gave each conversation (a UUID v4, by
- * session id), the conversation ↔ document index and the folder each conversation's files go to (by session id).
+ * session id), the conversation ↔ document index, the folder each conversation's files go to (by session id) and
+ * what became of the comments that asked for the agent.
  */
 export const Saved = Schema.Struct({
   accounts: Schema.Record(
@@ -31,6 +35,7 @@ export const Saved = Schema.Struct({
       links: Schema.Array(Link),
       // Absent in what an earlier version saved.
       folders: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+      mentions: Schema.optionalKey(Schema.Array(Mention)),
     }),
   ),
 })
@@ -52,6 +57,9 @@ export interface Options<A extends Account = Account> {
 
 // The snapshot pushed to windows, tagged with the account it was read for. A switch of account replaces it whole.
 type Cache = Pick<State, "account" | "status" | "folders" | "documents" | "read">
+
+/** How many comments that asked for the agent an account keeps the outcome of: the newest. */
+const keptMentions = 200
 
 const empty = (account: string | undefined): Cache => ({
   account,
@@ -78,6 +86,11 @@ export function make<A extends Account>(options: Options<A>) {
       timer.unref?.()
       return () => clearTimeout(timer)
     },
+  }
+  // Main code that follows the active account and the comments that ask for the agent (`DriveMentions`).
+  const listeners = {
+    account: new Set<(account: A | undefined) => unknown>(),
+    asked: new Set<(asked: { account: string; document: string; comment: string }) => unknown>(),
   }
   const live: {
     account?: A
@@ -108,6 +121,7 @@ export function make<A extends Account>(options: Options<A>) {
     live.backend = account ? options.backend(account) : undefined
     live.cache = empty(account?.id)
     options.changed()
+    listeners.account.forEach((listener) => listener(account))
     return true
   }
 
@@ -192,8 +206,26 @@ export function make<A extends Account>(options: Options<A>) {
   const links = (account: string | undefined) =>
     (account === undefined ? [] : (options.store.value.accounts[account]?.links ?? [])).toSorted((a, b) => b.at - a.at)
 
+  const mentions = (account: string | undefined) =>
+    account === undefined ? [] : (options.store.value.accounts[account]?.mentions ?? [])
+
+  // `@Agent` in the text of a comment is written as a mention of the user themself, handed to their agent, and the comment
+  // that made it is attended (`DriveMentions`) once it exists. An account that does not know its user keeps the text as it is.
+  const say = (account: Account, body: string) =>
+    account.userId !== undefined && DriveMentions.asks(body)
+      ? { body: DriveMentions.write(body, { id: account.userId, name: account.user }), agent: true }
+      : { body, agent: false }
+  const asked = (account: Account, document: string, comment: string, agent: boolean) => {
+    if (agent) listeners.asked.forEach((listener) => listener({ account: account.id, document, comment }))
+  }
+
   const ipc: IpcImpl<(typeof Drive)["spec"]> = {
-    state: () => ({ ...live.cache, capabilities: capabilities(), links: links(live.cache.account) }),
+    state: () => ({
+      ...live.cache,
+      capabilities: capabilities(),
+      links: links(live.cache.account),
+      mentions: mentions(live.cache.account),
+    }),
     refresh: () => load(),
     watch: (_, caller) =>
       new Promise<void>((resolve) => {
@@ -279,20 +311,28 @@ export function make<A extends Account>(options: Options<A>) {
       on(async (backend, account) => {
         if (!DriveCapabilities.anchorable(capabilities(), input.anchor))
           return fail("unsupported", "This kind of comment is not available yet.")
-        return backend.comment(input.id, {
-          body: input.body,
+        const said = say(account, input.body)
+        const created = await backend.comment(input.id, {
+          body: said.body,
           anchor: input.anchor,
           contextId: author(account, input.conversation).contextId,
+          ...(said.agent ? { agent: true } : {}),
         })
+        if (!isFailure(created)) asked(account, input.id, created.id, said.agent)
+        return created
       }),
     reply: (input) =>
-      on((backend, account) =>
-        backend.reply(input.id, {
-          body: input.body,
+      on(async (backend, account) => {
+        const said = say(account, input.body)
+        const created = await backend.reply(input.id, {
+          body: said.body,
           parent: input.parent,
           contextId: author(account, input.conversation).contextId,
-        }),
-      ),
+          ...(said.agent ? { agent: true } : {}),
+        })
+        if (!isFailure(created)) asked(account, input.id, created.id, said.agent)
+        return created
+      }),
     resolve: (input) => on((backend) => backend.resolve(input.id, input.comment)),
     link: (input) =>
       on(async (_, account) => {
@@ -352,6 +392,35 @@ export function make<A extends Account>(options: Options<A>) {
     /** Main calls it on every change of the accounts: a new active account replaces the snapshot. */
     account: () => {
       if (follow()) void load()
+    },
+    /** The active account, signed in, or undefined. */
+    current: () => {
+      if (follow()) void load()
+      return live.account
+    },
+    /** What a conversation did to which documents of an account, newest first. */
+    linksOf: links,
+    /** What became of the comments of an account that asked for the agent: one record per comment, kept. */
+    mention: {
+      get: (account: string, comment: string) => mentions(account).find((entry) => entry.comment === comment),
+      add: (account: string, entry: Mention) => {
+        options.store.update((draft) => {
+          draft.accounts[account] ??= { contexts: {}, links: [] }
+          draft.accounts[account].mentions = [...(draft.accounts[account].mentions ?? []), entry].slice(-keptMentions)
+        })
+        options.changed()
+      },
+    },
+    /** For main code: `account` is told when the active account changes, `asked` when a comment asks for the agent. */
+    listen: {
+      account: (listener: (account: A | undefined) => unknown) => {
+        listeners.account.add(listener)
+        return () => void listeners.account.delete(listener)
+      },
+      asked: (listener: (asked: { account: string; document: string; comment: string }) => unknown) => {
+        listeners.asked.add(listener)
+        return () => void listeners.asked.delete(listener)
+      },
     },
     /** The `x-context-id` of a conversation of the active account, for the agent's writes (phase 07). */
     context: (conversation: string) => (live.account ? context(live.account.id, conversation) : undefined),

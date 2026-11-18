@@ -4,6 +4,7 @@ import { Effect } from "effect"
 import { SpClient, SpDrive } from "@dynwork/sp-client"
 import { DynWorkAccounts } from "../accounts/accounts"
 import { isFailure } from "./contract"
+import { DriveMentions } from "./mentions"
 import type {
   Access,
   AgentCap,
@@ -80,12 +81,26 @@ export interface Backend {
       mode?: "land" | "propose"
     },
   ): Promise<Edited | Failure>
-  /** `unsupported` for an anchor the instance does not take. */
-  comment(id: string, input: { body: string; anchor: Anchor; contextId?: string }): Promise<Comment | Failure>
-  reply(id: string, input: { body: string; parent: string; contextId?: string }): Promise<Comment | Failure>
+  /**
+   * `unsupported` for an anchor the instance does not take. With `agent`, the body mentions the user themself
+   * (`DriveMentions.write`) and the instance is told to hand the mention to the user's agent.
+   */
+  comment(
+    id: string,
+    input: { body: string; anchor: Anchor; contextId?: string; agent?: boolean },
+  ): Promise<Comment | Failure>
+  reply(
+    id: string,
+    input: { body: string; parent: string; contextId?: string; agent?: boolean },
+  ): Promise<Comment | Failure>
   resolve(id: string, comment: string): Promise<Comment | Failure>
   /** The documents written with `contextId`, newest first: only where the instance lists by conversation (P3). */
   byContext?(contextId: string): Promise<readonly Document[] | Failure>
+  /**
+   * The mentions of the user, as the instance announces them while the stream is open, until `signal` aborts. The stream
+   * keeps no history: what was mentioned while it was closed is not delivered.
+   */
+  mentions?(signal: AbortSignal): Promise<AsyncIterable<DriveMentions.Heard> | Failure>
 }
 
 /** A failure. It is retryable only when `unreachable`, the one code that clears up by itself. */
@@ -138,7 +153,7 @@ export function remote(options: Remote): Backend {
     anchor: wire.anchor,
     author: wire.author_user_id,
     mine: mine(wire.author_user_id),
-    body: wire.body,
+    ...bodyOf(wire.body, options.user),
     parent: wire.parent_id ?? undefined,
     created: Date.parse(wire.created_at),
     resolved: wire.resolved_at ? Date.parse(wire.resolved_at) : undefined,
@@ -309,19 +324,45 @@ export function remote(options: Remote): Backend {
       // 0.83 anchors to a node only; the other kinds wait for P10.
       if (input.anchor.kind !== "node") return fail("unsupported", "This kind of comment is not available yet.")
       const anchor = { node: input.anchor.node, find: input.anchor.find }
+      const mention = mentionOf(options.user, input.agent)
+      if (isFailure(mention)) return mention
       return call(
-        (jwt) => SpDrive.createComment(url, jwt, id, { body: input.body, anchor, contextId: input.contextId }),
+        (jwt) => SpDrive.createComment(url, jwt, id, { body: input.body, anchor, contextId: input.contextId, mention }),
         comment,
       )
     },
-    reply: (id, input) =>
-      call(
+    reply: async (id, input) => {
+      const mention = mentionOf(options.user, input.agent)
+      if (isFailure(mention)) return mention
+      return call(
         (jwt) =>
-          SpDrive.replyComment(url, jwt, id, { body: input.body, parentId: input.parent, contextId: input.contextId }),
+          SpDrive.replyComment(url, jwt, id, {
+            body: input.body,
+            parentId: input.parent,
+            contextId: input.contextId,
+            mention,
+          }),
         comment,
-      ),
+      )
+    },
     resolve: (id, target) => call((jwt) => SpDrive.resolveComment(url, jwt, id, target), comment),
+    // The stream is opened with a JWT the account mints again when the instance refuses it; a stream that breaks later just ends.
+    mentions: (signal) => options.withJwt((jwt) => SpDrive.mentions(url, jwt, signal)).catch(failure),
   }
+}
+
+// What a comment says to a reader (`DriveMentions.read`), and whether it hands the user's agent a job.
+function bodyOf(wire: string, user: string | undefined) {
+  const read = DriveMentions.read(wire, user)
+  return { body: read.text, ...(read.agent ? { agent: true } : {}) }
+}
+
+// The mention a comment hands the user's own agent: the user themself, with `attention: agent`. A write that asks for it
+// without knowing the user cannot be made.
+function mentionOf(user: string | undefined, agent: boolean | undefined) {
+  if (!agent) return undefined
+  if (user === undefined) return fail("invalid", "Governance did not accept it.")
+  return { userId: user, attention: "agent" } as const
 }
 
 type SpDriveFolder = Effect.Success<ReturnType<typeof SpDrive.createFolder>>

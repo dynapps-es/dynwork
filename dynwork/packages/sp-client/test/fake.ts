@@ -61,6 +61,16 @@ export function startDrive() {
     suggestOnly: false,
     // Size of each upload part the instance asks for
     partSize: 8 * 1024 * 1024,
+    // The bridge stream: what each open stream is sent, and the frames sent to every stream that opens from now on
+    streams: new Set<(frame: string) => void>(),
+    backlog: [] as string[],
+    // `announce` sends a frame to the streams open now and to those that open later (the instance keeps no history, the
+    // fake does, so that a test need not race the stream's opening).
+    announce(name: string, value: Record<string, unknown>, keep = true) {
+      const frame = `data: ${JSON.stringify({ type: "CUSTOM", timestamp: new Date().toISOString(), name, value })}\n\n`
+      if (keep) this.backlog.push(frame)
+      this.streams.forEach((send) => send(frame))
+    },
   }
 }
 
@@ -202,6 +212,33 @@ export function startFake() {
     }
     if (route === "GET /v1/models") return Response.json(alpha.models.body)
     if (route === "GET /v1/bridge/whoami") return Response.json(alpha.whoami.body)
+    if (route === "GET /v1/bridge/stream") {
+      const bearer = request.headers.get("authorization")?.replace(/^Bearer /, "")
+      if (bearer === undefined || !state.jwts.has(bearer))
+        return Response.json(alpha.rejected_jwt.body, { status: 401 })
+      const drive = state.drive
+      const encoder = new TextEncoder()
+      let send = (_frame: string) => {}
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            send = (frame) => controller.enqueue(encoder.encode(frame))
+            // A comment line first, so that the headers go out before the first event does
+            send(": connected\n\n")
+            drive.streams.add(send)
+            drive.backlog.forEach(send)
+            request.signal.addEventListener("abort", () => {
+              drive.streams.delete(send)
+              controller.close()
+            })
+          },
+          cancel() {
+            drive.streams.delete(send)
+          },
+        }),
+        { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } },
+      )
+    }
     if (request.method === "GET" && path.startsWith("/v1/bridge/plugins/")) {
       const file = state.files[path.slice("/v1/bridge/plugins/".length).split("/").map(decodeURIComponent).join("/")]
       if (file === undefined) return Response.json({ code: "not_found", message: "file not found" }, { status: 404 })
@@ -578,7 +615,15 @@ export function startFake() {
       if (rest === "comments") {
         const all = drive.comments.get(entry.id) ?? []
         if (request.method === "GET") return Response.json({ comments: all })
-        const input = json() as { body?: string; anchor?: { node: string; find?: string }; parent_id?: string }
+        const input = json() as {
+          body?: string
+          anchor?: { node: string; find?: string }
+          parent_id?: string
+          mention_options?: Array<{ user_id: string; attention: string }>
+        }
+        // As the instance does: an option names a user the body mentions as `@[Name](user:<id>)`
+        if (input.mention_options?.some((option) => !input.body?.includes(`](user:${option.user_id})`)))
+          return refuse(400, "invalid_params", "every mention option must name a user the comment mentions")
         if (input.anchor === undefined && input.parent_id === undefined)
           return refuse(400, "invalid_params", "invalid comment: a comment needs a node anchor or a parent_id")
         if (input.anchor !== undefined && input.anchor.node !== "n1")
@@ -595,6 +640,19 @@ export function startFake() {
           created_at: now(),
         }
         drive.comments.set(entry.id, [...all, comment])
+        // The instance announces each mention on the stream, whatever its attention
+        input.mention_options?.forEach((option) =>
+          drive.announce(
+            "document.comment.mentioned",
+            {
+              document_id: entry.id,
+              comment_id: comment.id,
+              mentioned_user_id: option.user_id,
+              author_id: user,
+            },
+            false,
+          ),
+        )
         return Response.json(comment, { status: 201 })
       }
       const resolve = /^comments\/([^/]+)\/resolve$/.exec(rest)

@@ -440,6 +440,87 @@ describe("comments", () => {
   })
 })
 
+describe("mentions", () => {
+  const me = "00000000-0000-4000-8000-0000000000aa"
+  const body = `@[Ana](user:${me}) summarise this`
+
+  test("a comment hands a mention to the user's agent with the option the instance reads", async () => {
+    const created = await upload("a.html", html)
+    await run(
+      SpDrive.createComment(fake.url, state.jwt, created.id, {
+        body,
+        anchor: { node: "n1" },
+        mention: { userId: me, attention: "agent" },
+      }),
+    )
+    await run(
+      SpDrive.replyComment(fake.url, state.jwt, created.id, {
+        body,
+        parentId: (await run(SpDrive.comments(fake.url, state.jwt, created.id)))[0]!.id,
+        mention: { userId: me, attention: "agent" },
+      }),
+    )
+    const posts = sent(`/api/v1/documents/${created.id}/comments`, "POST").map((entry) => JSON.parse(entry.body))
+    expect(posts.map((post) => post.mention_options)).toEqual(
+      Array.from({ length: 2 }, () => [{ user_id: me, attention: "agent" }]),
+    )
+  })
+
+  test("a comment without a mention sends no option", async () => {
+    const created = await upload("a.html", html)
+    await run(SpDrive.createComment(fake.url, state.jwt, created.id, { body: "plain", anchor: { node: "n1" } }))
+    expect(JSON.parse(sent(`/api/v1/documents/${created.id}/comments`, "POST")[0]!.body)).not.toHaveProperty(
+      "mention_options",
+    )
+  })
+
+  test("an option for a user the body does not mention is refused as invalid", async () => {
+    const created = await upload("a.html", html)
+    const error = await fail(
+      SpDrive.createComment(fake.url, state.jwt, created.id, {
+        body: "no token here",
+        anchor: { node: "n1" },
+        mention: { userId: me, attention: "agent" },
+      }),
+    )
+    expect(error).toMatchObject({ _tag: "Protocol", status: 400 })
+  })
+
+  test("the stream answers the mentions that were sent and skips every other event", async () => {
+    const stream = fake.state.drive
+    stream.announce("document.comment.created", { document_id: "d1", comment_id: "c0", author_id: "u1" })
+    stream.announce("document.comment.mentioned", {
+      document_id: "d1",
+      comment_id: "c1",
+      mentioned_user_id: me,
+      author_id: me,
+      excerpt: "x",
+    })
+    const abort = new AbortController()
+    const events = await SpDrive.mentions(fake.url, state.jwt, abort.signal)
+    expect((await events.next()).value).toEqual({ document: "d1", comment: "c1", user: me, author: me })
+    // One sent while the stream is open comes as well
+    stream.announce("document.comment.mentioned", {
+      document_id: "d2",
+      comment_id: "c2",
+      mentioned_user_id: me,
+      author_id: "someone",
+    })
+    expect((await events.next()).value).toEqual({ document: "d2", comment: "c2", user: me, author: "someone" })
+    abort.abort()
+    expect((await events.next()).done).toBe(true)
+    expect(sent("/v1/bridge/stream")[0]?.headers.authorization).toBe(`Bearer ${state.jwt}`)
+  })
+
+  test("a refused credential rejects before any event, and an unreachable instance too", async () => {
+    const abort = new AbortController()
+    await expect(SpDrive.mentions(fake.url, "not-a-jwt", abort.signal)).rejects.toBeInstanceOf(SpClient.Unauthorized)
+    await expect(SpDrive.mentions("http://127.0.0.1:9", state.jwt, abort.signal)).rejects.toBeInstanceOf(
+      SpClient.Unreachable,
+    )
+  })
+})
+
 describe("errors as data", () => {
   test("a 409 with the head the write lost to reads it from the body or from the detail", async () => {
     const created = await upload("a.html", html)

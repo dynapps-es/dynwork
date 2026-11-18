@@ -170,7 +170,10 @@ export const Comment = Schema.Struct({
   author: Schema.String,
   /** The author is the signed-in user (a write DynWork makes is the user's, signed as an agent). */
   mine: Schema.Boolean,
+  /** What the author wrote; a mention of the user themself reads `@Agent`, any other `@Name`. */
   body: Schema.String,
+  /** The comment hands the user's own agent a job: it mentions the user themself, which is how `@Agent` is written (D15). */
+  agent: Schema.optional(Schema.Boolean),
   /** The comment a reply answers. */
   parent: Schema.optional(Schema.String),
   created: Schema.Number,
@@ -240,6 +243,22 @@ export const Link = Schema.Struct({
 export type Link = typeof Link.Type
 
 /**
+ * What became of a comment that asked for the agent (`@Agent`): which conversation was woken, or why none was. Kept per
+ * account on this computer, newest last, so that a comment is attended once (D12, D15).
+ * - `woken`: the conversation was prompted with the thread. `unlinked`: no conversation of this computer holds the
+ *   document (`DriveIpc` index), so nothing was woken. `failed`: the thread could not be read or the conversation could
+ *   not be prompted.
+ */
+export const Mention = Schema.Struct({
+  comment: Schema.String,
+  document: Schema.String,
+  outcome: Schema.Literals(["woken", "unlinked", "failed"]),
+  conversation: Schema.optional(Schema.String),
+  at: Schema.Number,
+})
+export type Mention = typeof Mention.Type
+
+/**
  * A failure, as data: an Ipc rejection reaches the window as plain text, so nothing is thrown.
  * - `signed-out`: no active signed-in account, or the instance refused it. `unreachable`: no answer, retry later.
  * - `not-found`: no such document, folder, revision or comment, or one hidden from the user.
@@ -286,6 +305,8 @@ export const State = Schema.Struct({
   documents: Schema.Array(Document),
   /** The conversation ↔ document index of the account. */
   links: Schema.Array(Link),
+  /** What became of the comments that asked for the agent, oldest first. */
+  mentions: Schema.Array(Mention),
   /** When the Drive was last read. */
   read: Schema.optional(Schema.Number),
 })

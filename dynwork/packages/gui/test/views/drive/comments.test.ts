@@ -11,7 +11,7 @@ import {
   threadsOf,
   type Node,
 } from "../../../src/views/drive/model"
-import { file, setup } from "./fixture"
+import { account, file, setup } from "./fixture"
 
 const cleanups: Array<() => void> = []
 afterEach(() => cleanups.splice(0).forEach((cleanup) => cleanup()))
@@ -246,6 +246,15 @@ describe("comments in the store", () => {
     expect(thread?.messages.map((message) => [message.text, message.mine])).toEqual([["¿Seguro?", true]])
     expect(store.state.doc).toMatchObject({ tab: "comments", thread: created.id, filter: "open" })
     expect(store.state.doc.compose).toBeUndefined()
+  })
+
+  test("what became of a comment that asked for the agent is the service's record of it", async () => {
+    const { store, service, id } = await open()
+    const first = ok(await store.comment(id, { kind: "node", node: "n1" }, "Título claro"))
+    expect(store.mentionOf(first.id)).toBeUndefined()
+    service.mention.add(account.id, { comment: first.id, document: id, outcome: "unlinked", at: 1 })
+    expect(store.mentionOf(first.id)).toEqual({ comment: first.id, document: id, outcome: "unlinked", at: 1 })
+    expect(store.mentionOf("another")).toBeUndefined()
   })
 
   test("a reply goes to its thread and resolving moves the thread to Resolved", async () => {

@@ -21,6 +21,8 @@ import { crossing } from "./wire"
 /** What the suite needs of a backend under test, besides the backend. */
 export interface Subject {
   readonly backend: Backend
+  /** The signed-in user's id, as the backend and the instance know it. */
+  readonly user: string
   /** Caps agents at `suggest` where the documents are, or lifts the cap. */
   suggestOnly(on: boolean): void
   /** Holds bytes where the instance holds what the agent's `documents_upload` sent, and answers the `blob_ref`. */
@@ -247,6 +249,64 @@ export function conformance(name: string, make: () => Subject) {
       const comments = await ok(backend.comments(created.document.id))
       expect(comments.map((comment) => comment.id)).toEqual([first.id, reply.id])
       expect(comments[0]?.resolved).toBeNumber()
+    })
+
+    test("a comment that asks for the agent reads back as @Agent, and the stream announces the mention", async () => {
+      const { backend, user } = make()
+      const created = await ok(
+        backend.upload({ name: "asked.md", bytes: text("# Hola\nsecond"), mime: "text/markdown" }),
+      )
+      const node = (await ok(backend.outline(created.document.id))).nodes[0]
+      if (!node) throw new Error("the outline has no node")
+      const stop = new AbortController()
+      const events = await backend.mentions?.(stop.signal)
+      if (events === undefined || isFailure(events)) throw new Error("the backend does not announce mentions")
+      const asked = await ok(
+        backend.comment(created.document.id, {
+          body: `@[Ana](user:${user}) summarise`,
+          anchor: { kind: "node", node: node.id },
+          agent: true,
+        }),
+      )
+      expect(asked).toMatchObject({ body: "@Agent summarise", agent: true, mine: true })
+      const reply = await ok(
+        backend.reply(created.document.id, { body: `@[Ana](user:${user}) and this`, parent: asked.id, agent: true }),
+      )
+      expect(reply).toMatchObject({ body: "@Agent and this", agent: true })
+      const heard = events[Symbol.asyncIterator]()
+      expect((await heard.next()).value).toEqual({
+        document: created.document.id,
+        comment: asked.id,
+        user,
+        author: user,
+      })
+      expect((await heard.next()).value).toMatchObject({ comment: reply.id })
+      // A comment that does not ask is no mention, and reads as it was written
+      const plain = await ok(
+        backend.comment(created.document.id, { body: "note", anchor: { kind: "node", node: node.id } }),
+      )
+      expect(plain.agent).toBeUndefined()
+      expect((await ok(backend.comments(created.document.id))).map((entry) => entry.agent)).toEqual([
+        true,
+        true,
+        undefined,
+      ])
+      stop.abort()
+    })
+
+    test("a mention option for a body that does not mention the user is invalid", async () => {
+      const { backend } = make()
+      const created = await ok(backend.upload({ name: "unasked.md", bytes: text("# Hola"), mime: "text/markdown" }))
+      const node = (await ok(backend.outline(created.document.id))).nodes[0]
+      if (!node) throw new Error("the outline has no node")
+      expectFailure(
+        await backend.comment(created.document.id, {
+          body: "no mention",
+          anchor: { kind: "node", node: node.id },
+          agent: true,
+        }),
+        "invalid",
+      )
     })
 
     test("a comment on a node that is not in the head is a conflict", async () => {

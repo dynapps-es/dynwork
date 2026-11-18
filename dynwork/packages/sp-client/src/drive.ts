@@ -565,9 +565,15 @@ export const createComment = Effect.fn("SpDrive.createComment")(function* (
   baseUrl: string,
   jwt: string,
   id: string,
-  input: Pick<Attribution, "contextId"> & { readonly body: string; readonly anchor: DriveAnchor },
+  input: Pick<Attribution, "contextId"> & Attention & { readonly body: string; readonly anchor: DriveAnchor },
 ) {
-  return yield* postComment(baseUrl, jwt, id, { body: input.body, anchor: input.anchor }, input.contextId)
+  return yield* postComment(
+    baseUrl,
+    jwt,
+    id,
+    { body: input.body, anchor: input.anchor, ...attention(input) },
+    input.contextId,
+  )
 })
 
 /** A reply in the thread of `parentId`. */
@@ -575,9 +581,15 @@ export const replyComment = Effect.fn("SpDrive.replyComment")(function* (
   baseUrl: string,
   jwt: string,
   id: string,
-  input: Pick<Attribution, "contextId"> & { readonly body: string; readonly parentId: string },
+  input: Pick<Attribution, "contextId"> & Attention & { readonly body: string; readonly parentId: string },
 ) {
-  return yield* postComment(baseUrl, jwt, id, { body: input.body, parent_id: input.parentId }, input.contextId)
+  return yield* postComment(
+    baseUrl,
+    jwt,
+    id,
+    { body: input.body, parent_id: input.parentId, ...attention(input) },
+    input.contextId,
+  )
 })
 
 /**
@@ -600,6 +612,19 @@ export const resolveComment = Effect.fn("SpDrive.resolveComment")(function* (
     limit: 1024 * 1024,
   })
 })
+
+/**
+ * A user the comment's text mentions, and how the instance should treat the mention: `agent` hands it to the user's own
+ * agent. The body must carry the mention as `@[Name](user:<id>)` (the instance refuses a mention it does not find there).
+ */
+export type Attention = {
+  readonly mention?: { readonly userId: string; readonly attention: "silent" | "agent" | "human" }
+}
+
+const attention = (input: Attention) =>
+  input.mention === undefined
+    ? {}
+    : { mention_options: [{ user_id: input.mention.userId, attention: input.mention.attention }] }
 
 const postComment = (baseUrl: string, jwt: string, id: string, body: Record<string, unknown>, contextId?: string) =>
   json(
@@ -806,3 +831,86 @@ const base = Effect.fnUntraced(function* (baseUrl: string) {
     return yield* new Protocol({ endpoint: "base URL", message: "the instance URL must use https unless it is local" })
   return `${url.origin}${url.pathname.replace(/\/+$/, "")}`
 })
+
+/** A mention of the signed-in user in someone's comment, as the bridge stream announces it. */
+export type Mentioned = {
+  readonly document: string
+  readonly comment: string
+  /** The user who was mentioned. */
+  readonly user: string
+  /** The user who wrote the comment. */
+  readonly author: string
+}
+
+/**
+ * Opens the bridge stream (`GET /v1/bridge/stream`, server-sent events) and answers the `document.comment.mentioned`
+ * events it carries, until it ends or `signal` aborts. The event says who was mentioned and by whom, not with which
+ * attention (0.83), and the stream keeps no history: a mention made while it was closed is not replayed. It rejects, before
+ * answering, with `Unauthorized` or `Unreachable`, so that a caller can mint again and retry; a stream that breaks later
+ * just ends.
+ */
+export async function mentions(baseUrl: string, jwt: string, signal: AbortSignal): Promise<AsyncGenerator<Mentioned>> {
+  const endpoint = "GET /v1/bridge/stream"
+  const root = await Effect.runPromise(base(baseUrl))
+  const response = await fetch(`${root}/v1/bridge/stream`, {
+    headers: { accept: "text/event-stream", authorization: `Bearer ${jwt}` },
+    redirect: "manual",
+    signal,
+  }).catch(() => undefined)
+  // A fixed message: a fetch error can quote request headers, and so the credential
+  if (response === undefined) throw new Unreachable({ endpoint, message: "the request failed" })
+  if (response.status === 401) throw new Unauthorized({ endpoint, message: "the credential was refused" })
+  if (response.status !== 200 || response.body === null)
+    throw new Unreachable({ endpoint, message: `status ${response.status}`, status: response.status })
+  return heard(response.body)
+}
+
+async function* heard(body: ReadableStream<Uint8Array>): AsyncGenerator<Mentioned> {
+  const decoder = new TextDecoder()
+  const text = { pending: "" }
+  const reader = body.getReader()
+  try {
+    for (;;) {
+      const chunk = await reader.read().catch(() => ({ done: true as const, value: undefined }))
+      if (chunk.done) return
+      text.pending += decoder.decode(chunk.value, { stream: true })
+      const frames = text.pending.split(/\r?\n\r?\n/)
+      text.pending = frames.pop() ?? ""
+      // A frame the instance sends and this client does not know is skipped, never an error
+      for (const frame of frames) {
+        const found = mention(frame)
+        if (found !== undefined) yield found
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+  }
+}
+
+const Heard = Schema.Struct({
+  name: Schema.Literal("document.comment.mentioned"),
+  value: Schema.Struct({
+    document_id: Schema.String,
+    comment_id: Schema.String,
+    mentioned_user_id: Schema.String,
+    author_id: Schema.String,
+  }),
+})
+
+// The event of one frame (its `data:` lines are an AG-UI custom event), when it is a mention.
+function mention(frame: string): Mentioned | undefined {
+  const data = frame
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n")
+  const decoded = Schema.decodeUnknownOption(Schema.fromJsonString(Heard))(data)
+  if (decoded._tag === "None") return undefined
+  const value = decoded.value.value
+  return {
+    document: value.document_id,
+    comment: value.comment_id,
+    user: value.mentioned_user_id,
+    author: value.author_id,
+  }
+}
