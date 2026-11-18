@@ -8,6 +8,10 @@ declare module "*.svg" {
 interface ImportMeta {
   glob<T = unknown>(
     pattern: string | string[],
+    options: { query?: string; import?: string; eager: true },
+  ): Record<string, T>
+  glob<T = unknown>(
+    pattern: string | string[],
     options?: { query?: string; import?: string; eager?: boolean },
   ): Record<string, () => Promise<T>>
 }
