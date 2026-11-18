@@ -136,7 +136,8 @@ export function remote(options: Remote): Backend {
   const document = (wire: SpDriveDocument): Document => ({
     id: wire.id,
     name: wire.name,
-    format: wire.format,
+    // The instance keeps an uploaded PDF as a `file`; to the Drive it is a PDF, with its glyph, label and viewer.
+    format: wire.format === "file" && wire.mime_type.split(";")[0]?.trim() === "application/pdf" ? "pdf" : wire.format,
     mime: wire.mime_type,
     folder: wire.folder_id ?? undefined,
     owner: wire.owner_user_id,

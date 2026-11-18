@@ -360,7 +360,8 @@ export function startFake() {
       const id = crypto.randomUUID()
       // A multipart file type may carry parameters (`text/html;charset=utf-8`); the instance keeps the bare type
       const mime = declared.split(";")[0] ?? declared
-      const format = mime === "text/html" ? "html" : mime === "text/markdown" ? "markdown" : "binary"
+      // 0.83 keeps any other upload, a PDF included, as format `file`.
+      const format = mime === "text/html" ? "html" : mime === "text/markdown" ? "markdown" : "file"
       drive.documents.set(id, {
         id,
         folder_id: typeof folder === "string" ? folder : null,

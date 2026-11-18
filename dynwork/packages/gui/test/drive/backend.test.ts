@@ -166,6 +166,17 @@ describe("the Governance backend", () => {
     ])
   })
 
+  test("an uploaded PDF, which the instance keeps as a file, reads as a PDF", async () => {
+    const pdf = await ok(
+      remote().upload({ name: "scan.pdf", bytes: new TextEncoder().encode("%PDF-1.4"), mime: "application/pdf" }),
+    )
+    expect(pdf.document.format).toBe("pdf")
+    const other = await ok(
+      remote().upload({ name: "data.bin", bytes: new Uint8Array([1, 2]), mime: "application/octet-stream" }),
+    )
+    expect(other.document.format).toBe("file")
+  })
+
   test("a document is the user's own only when its owner is the signed-in user", async () => {
     const created = await ok(
       remote().upload({ name: "owner.md", bytes: new TextEncoder().encode("x"), mime: "text/markdown" }),
