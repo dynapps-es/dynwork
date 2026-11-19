@@ -15,6 +15,7 @@ Files here:
 | ------------ | ------------------------------------------------------------------------------------------------------------ |
 | `backend.ts` | `RoutinesFarm`: the skeleton `make()`, the farm's `fields`, its `base` capabilities and the development flag |
 | `client.ts`  | `FarmClient`: the connection mode and the `FarmTransport` every farm call goes through (see "Transport")     |
+| `cloud.ts`   | `FarmCloud`: gives the farm the account's PAT through a one-time upload link (see "Cloud access")            |
 | `README.md`  | This document                                                                                                |
 
 The backend never handles a credential itself: `client.ts` reads the account's JWT from `accounts/` at the moment of
@@ -279,9 +280,48 @@ Rules the transport keeps:
   upload ticket the farm hands out through a tool, then a direct `PUT` to the farm, never through Governance.
 - **The JWT stays in main and in the header.** It is not in the URL, a `Failure`, a log line or anything the Ipc
   carries; a failure never repeats a proxy's body, and anything a server sends back is cleared of the JWT before it is
-  used. The PAT is never read here at all.
+  used. The PAT is never read here at all: only `cloud.ts` reads it (see "Cloud access").
 - **Results and logs that can be large travel as links** the farm signs (a result, the full log), not inline, so they
   are neither copied into Governance nor near the 4 MiB limit.
+
+## Cloud access
+
+Cloud runs the user's tasks as the user: with their models, their cost and their connectors in Governance. For that the
+farm keeps the PAT this Dynwork account already signs in with, as the user's `gateway_pat` credential named
+`sp-gateway`. The user does nothing: no link to open, no button. `cloud.ts` (`FarmCloud.make({ transport, accounts })`)
+puts it there with `ensure(cause)`:
+
+1. `farm_whoami`. If `gateway_identity.user_credential` is true, the farm holds a PAT and nothing more happens.
+2. `farm_request_credential_upload({ type: "gateway_pat", name: "sp-gateway" })` answers an `upload_url` that works
+   once, for this user, for about a minute.
+3. The account lends the PAT (`accounts.withPat`, decrypted from `safeStorage` in main only for that call) and it goes
+   in one `PUT upload_url` with the body `{ "value": ... }`, straight to the farm: no `Authorization`, never following
+   a redirect, and only to an `https` link on the upload route (plain `http` only on this machine). Then nothing
+   holds it.
+
+When it runs (`cause`):
+
+| Cause          | When                                                                                                        | Uploads                                                      |
+| -------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `capabilities` | the backend prepares `capabilities()`                                                                       | only when the farm holds no PAT for the user                 |
+| `refused`      | a task or a launch failed with `farm_access_revoked` or `user_gateway_credential_missing` (`retry(reason)`) | always (steps 2 and 3), whatever the farm says it holds      |
+| `account`      | the account mints a session (accounts' `renewed`), which follows every sign-in                              | when this PAT is not the one last uploaded from this process |
+
+Calls for one account share one run, so two at once upload once. `ensure` never rejects: it answers `present`,
+`uploaded` or `unchanged`, or a refusal with a `code`. `unavailable` (the proxy's `503 service_not_running`) means
+Governance does not give this account the farm: nothing is asked or uploaded and Cloud shows as not available.
+`signed_out` means there is no PAT to give. To tell a new PAT from the uploaded one, `cloud.ts` keeps in memory only a
+hash of it keyed with a random key of this process; nothing is stored.
+
+The PAT never goes through the farm's MCP server (Governance records every tool call), a log line, a `Failure`, the Ipc
+or the store. A log line never carries the upload link either: until it is used, it is as good as the PAT.
+
+**The shared PAT, and its risk.** The farm and this Mac hold the same credential. It is a Device key, interactive, and
+it does not expire. Revoking it in Governance (or the instance refusing it) cuts both: Dynwork signs out, and every
+Cloud task, scheduled ones included, fails with `farm_access_revoked` until the user signs in again; then the `account`
+cause uploads the new PAT under the same name and the next task runs. Signing out of Governance in Dynwork leaves the
+farm holding the old PAT; the tasks fail the same way once that PAT is revoked. Anyone who reads the farm's copy of the
+key (the tasks' pods carry it) can act as the user in Governance as long as it is valid.
 
 ## Tasks from a chat
 
