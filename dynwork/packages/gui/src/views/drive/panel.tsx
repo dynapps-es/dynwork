@@ -8,10 +8,10 @@ import { isFailure, type Document, type Link, type Revision } from "../../drive/
 import { uploadFiles } from "./browser"
 import { conversationOf, docKey, openInDrive } from "./chat"
 import { CommentMarks, MarksToggle, ThreadCard } from "./comments"
-import { createPresent, failureText, FormatGlyph, PresentButton, PresentExit, Tag, useNames } from "./parts"
+import { SharePopover } from "./menus"
+import { failureText, FormatGlyph, PresentButton, PresentExit, Tag, useNames } from "./parts"
 import { drive, governance } from "./store"
-import { Viewer } from "./viewer"
-import { Sharing } from "./workspace"
+import { createPresent, Viewer } from "./viewer"
 
 // The Drive beside a chat (a side panel tab, as Claude's artifacts): the documents the chat made, changed or attached,
 // newest first, from the conversation ↔ document index, and one tab per document with its viewer and a version picker.
@@ -131,8 +131,9 @@ export function ChangeCard(props: { link: Link; session: MountedSession }) {
 const [picks, setPicks] = createStore<Record<string, string | undefined>>({})
 
 /**
- * One document beside the chat: its header with its version, the comments marked on it, Share, Present and Open in the
- * Drive, then its viewer. A click on a comment's mark opens its thread in a dialog.
+ * One document beside the chat: its header with its version, the comments marked on it, Share (a popover under its
+ * button), Present and Open in the Drive, then its viewer. A click on a comment's mark or its bubble opens its thread
+ * in a dialog.
  */
 export function DocPanel(props: { session: MountedSession; id: string }) {
   const ctx = usePlugin()
@@ -193,15 +194,7 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
             <MarksToggle doc={found()} />
             <Show when={governance(found().id)}>
               <ctx.ui.Tooltip value={ctx.t("drive.share.hint")} placement="bottom">
-                <ctx.ui.IconButton
-                  icon="outline-share"
-                  label={ctx.t("drive.tab.share")}
-                  onClick={() => {
-                    // The dialog renders apart from this header: it takes the document as it is now.
-                    const shared = found()
-                    ctx.dialogs.open(() => <ShareDialog doc={shared} />)
-                  }}
-                />
+                <SharePopover doc={found()} />
               </ctx.ui.Tooltip>
             </Show>
             <PresentButton present={present} />
@@ -243,38 +236,6 @@ function ThreadDialog(props: { doc: Document; thread: string }) {
         <div data-component="drive-dialog">
           <Show when={thread()} fallback={<p data-slot="drive-note">{ctx.t("drive.comment.gone")}</p>}>
             {(found) => <ThreadCard doc={props.doc} thread={found()} />}
-          </Show>
-        </div>
-      </DialogBody>
-    </Dialog>
-  )
-}
-
-/**
- * The document's Share tab beside a chat: who can see it and what agents may do, read when it opens. A part the Drive
- * does not answer is left out, as the drawer's tab does.
- */
-function ShareDialog(props: { doc: Document }) {
-  const ctx = usePlugin()
-  const [read] = createResource(
-    () => drive.client(),
-    async (client) => {
-      const [access, cap] = await Promise.all([
-        client.access({ id: props.doc.id }),
-        client.agentCap({ kind: "document", id: props.doc.id }),
-      ])
-      return { access: isFailure(access) ? undefined : access, cap: isFailure(cap) ? undefined : cap }
-    },
-  )
-  return (
-    <Dialog>
-      <DialogHeader>
-        <DialogTitleGroup title={ctx.t("drive.tab.share")} description={props.doc.name} />
-      </DialogHeader>
-      <DialogBody>
-        <div data-component="drive-dialog">
-          <Show when={read()} fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
-            {(found) => <Sharing doc={props.doc} access={found().access} cap={found().cap} />}
           </Show>
         </div>
       </DialogBody>

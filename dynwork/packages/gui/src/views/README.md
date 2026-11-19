@@ -111,18 +111,23 @@ in-memory Drive for the tests.
   `dynapps-html`, `blank-markdown`: the instance has no route that lists them, C9).
 - **A document** opens over the browser: its bar, the edition banner (DynWork counts as an agent; what it may do on the
   document attended, and what a scheduled task could do unattended), its index, its viewer (below), and a drawer with
-  Info, Versions (numbered, with their "… by DynWork" message), Proposals and Share, on the selected tab's background.
+  Info, Versions (numbered, with their "… by DynWork" message) and Proposals, on the selected tab's background.
   Back returns where it was opened from (`store.ts` keeps it when it opens): the chat whose side panel opened it (its
   tab, opened again when it was closed), else the browser's scope, folder and search as they were, else Home. The
   index (`outline.ts`) lists the headings of an HTML page, a Markdown document or a Word preview, jumps to one, and
   marks the one being read (the last whose top has passed the upper third of the document's area, else the first),
   kept in sight in a long index; a sheet, a slide deck or a PDF has none and shows no column. In an HTML frame the
   heading being read comes from main's observer (`../drive/README.md`, "The viewer's frames"). The bar shows and hides
-  the index, the drawer and the comments marked on the document (with how many threads are open), and the inner edge
-  of the index (180–420 px) and of the drawer (320–720 px) resizes it (`@opencode/ui/resize-handle`), all kept in the
-  window's storage (`panes.ts`). Present shows the
-  document alone, full screen (the Fullscreen API on the canvas, which takes the window with it); Escape or Exit
-  returns to the view as it was. Every
+  the index, the drawer and the comments marked on the document (one button with the number of open threads inside it,
+  as the chat header counts its artifacts), and the inner edge of the index (180–420 px) and of the drawer (320–720 px)
+  resizes it (`@opencode/ui/resize-handle`), all kept in the window's storage (`panes.ts`). Share opens the Share
+  popover under it (below). Present shows the document alone with the window full screen: the canvas goes over the
+  whole window as a manual popover in the top layer (`data-presenting`: the app's panels contain their content, which
+  would hold a fixed element), still in its place in the page so its frame does not load again, while main holds the
+  window full screen (`Frames.present`, `../drive/present.ts`).
+  The Fullscreen API cannot do it: the app's windows give a page no `fullscreen` permission. Escape anywhere in the
+  window (main sees it before the page, the document's frame included), Exit, or the window leaving full screen returns
+  to the view as it was. Every
   icon-only button carries a tooltip. Ask the agent opens the document beside the last chat with a composer chip. What
   the Drive keeps to the person (sharing, restoring, accepting proposals, renaming, moving, trashing) opens the
   document in Governance while `personActions` is off; Export as PDF and Copy link work here.
@@ -133,8 +138,8 @@ in-memory Drive for the tests.
   the chat made to the Drive's root with the conversation's name and `x-context-id` (D2, D3). Each document opens in a
   side panel tab of its own (`dynwork:drive.<id>`), several at once (D6), with its viewer and a version picker (the
   head unless the tab picks another). Its header shows and hides the comments marked on the document, opens Share (the
-  drawer's Share tab, in a dialog), Presents the document and opens it in the Drive; a click on a comment's mark opens
-  its thread in a dialog, to read, reply and resolve. Use in a chat attaches a document to the routed chat (a
+  same popover as the Drive's), Presents the document and opens it in the Drive; a click on a comment's mark or its
+  bubble opens its thread in a dialog, to read, reply and resolve. Use in a chat attaches a document to the routed chat (a
   composer chip and its tab) and records it in the index; opening the chip routes its link (`origin: dynwork-drive`)
   back to the document's tab. A restored tab whose document the window has not read yet stays hidden until the Drive
   answers, and shows as missing, so it can be closed, when the Drive no longer has it.
@@ -154,6 +159,12 @@ in-memory Drive for the tests.
     it keeps inline styles out); a quote or node the page does not show marks nothing. A mark carries the thread's id
     and nothing of the comment: the page's scripts may reach the network, so the text stays in the app, where a click
     on the mark opens it. A comment added or resolved writes a new `srcdoc`, and the frame goes back to the heading being read.
+  - Beside an HTML page or Markdown at its head, while the marks show and a thread is open, a column of the app's own
+    holds the comments' bubbles (`CommentBubbles`, as Google Docs): one beside each marked part with the initials of
+    who wrote its thread (0.83 names no picture for anyone), threads at one height in one bubble (two faces and "+N",
+    `bubbleRows`), and a click opens the bubble's first thread, as its mark does. Where the marks sit comes from main's
+    observer in the frame (an HTML page: ids and pixels, `../drive/README.md`) or from the app's own layout
+    (Markdown). The column is outside the frame: no name, picture or text of a comment goes into a page.
   - Markdown from its source (`/content`, at the tab's version), drawn by the app's own renderer (`ctx.ui.Markdown`),
     as the timeline draws a message.
   - PDF in DynWork's own viewer (`pdf-viewer.tsx` over pdf.js, `pdf.ts` for its arithmetic and options), loaded with
@@ -180,7 +191,18 @@ in-memory Drive for the tests.
   included); otherwise the comment anchors to the node. A cell range is offered only with `rangeComments`; a PDF takes
   no comment (D22). An author no grant names reads "Someone", unless the instance names people by id (`peopleByRest`).
 
-The menus load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does.
+- **Share** (`share-popover.tsx`, the decision in `model.ts`, `sharing`): a popover under the Share button
+  (`@opencode/ui/popover`), the same beside a chat and in the Drive's bar, which replaces the drawer's Share tab. It
+  reads who has access when it opens: the document's title and a close, Invite by name or email, the people with access
+  (the owner; each grant with its level in a select; what a folder grants in grey, never changed here; the agents' cap,
+  attended and unattended), the reason nothing changes here, Copy link (the document's page in Governance) and Open in
+  Governance. The list scrolls inside the popover. On 0.83 the instance refuses DynWork's credential every change of
+  access (a share, a revocation, the agents' cap: hard rules no policy of the Dynapps extension opens, and the core
+  has no agent as a grant subject), so invite and the levels are shut, with a tooltip that says why: the user does it
+  in Governance when their access lets them share, and otherwise its owner can. 0.83 has no access for everyone and no
+  public link, so the popover has no General access section.
+
+The menus and the Share popover load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does.
 
 ## Runs
 

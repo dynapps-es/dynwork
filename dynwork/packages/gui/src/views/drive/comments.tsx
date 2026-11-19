@@ -4,13 +4,24 @@ import { Icon } from "@opencode/ui/icon"
 import { SegmentedControl, SegmentedControlItem } from "@opencode/ui/segmented-control"
 import { TextInput } from "@opencode/ui/text-input"
 import { Textarea } from "@opencode/ui/textarea"
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js"
 import { isFailure, type Anchor, type Document, type Failure, type Mention } from "../../drive/contract"
 import { DriveCapabilities } from "../../drive/capabilities"
 import { askAgent, sessionOf, titleOf } from "./chat"
-import { anchorsOf, marked, matchNodes, nodeLabel, pickable, quoteIn, type Node, type Thread } from "./model"
+import {
+  anchorsOf,
+  bubbleRows,
+  marked,
+  matchNodes,
+  nodeLabel,
+  pickable,
+  quoteIn,
+  type Node,
+  type Placed,
+  type Thread,
+} from "./model"
 import { panes } from "./panes"
-import { AnchorLine, Avatar, failureText, MessageLine } from "./parts"
+import { AnchorLine, authorName, Avatar, failureText, MessageLine } from "./parts"
 import { drive } from "./store"
 
 // Comments on a document (D11). The instance anchors a comment to a node (a paragraph, a table cell, a slide's box) and
@@ -36,27 +47,73 @@ export function MarksToggle(props: { doc: Document }) {
   const ctx = usePlugin()
   const open = () => drive.threadsOf(props.doc.id).filter((thread) => thread.open).length
   const label = () => ctx.t(panes.marks() ? "drive.marks.hide" : "drive.marks.show")
+  // One button with its count inside, as the chat header counts its artifacts.
   return (
     <Show when={marked(props.doc)}>
       <ctx.ui.Tooltip value={label()} placement="bottom">
-        <span data-slot="drive-marks-toggle">
-          <ctx.ui.IconButton
-            variant="ghost"
-            icon="comment"
-            pressed={panes.marks()}
-            label={label()}
-            onClick={() => panes.toggle("marks")}
-          />
+        <Button
+          variant="ghost"
+          icon="comment"
+          data-slot="drive-marks-toggle"
+          data-state={panes.marks() ? "pressed" : undefined}
+          aria-pressed={panes.marks()}
+          aria-label={label()}
+          onClick={() => panes.toggle("marks")}
+        >
           <Show when={open()}>
-            <span data-slot="drive-count">{open()}</span>
+            <span class="tabular-nums">{open()}</span>
           </Show>
-        </span>
+        </Button>
       </ctx.ui.Tooltip>
     </Show>
   )
 }
 
-/** The Comments tab of a document's drawer: its threads, and the composer or the picker of a new comment. */
+/**
+ * The comments' bubbles in a column beside a document, as Google Docs shows them: one beside each marked part, with
+ * who wrote its thread (their initials: 0.83 gives no picture), and the threads at one height in one bubble, two faces
+ * and "+N". A click opens the bubble's first thread, as a click on its mark does. The column is the app's own, outside
+ * the document's frame: no name, picture or text of a comment goes into the page.
+ */
+export function CommentBubbles(props: {
+  doc: Document
+  placed: readonly Placed[]
+  onThread: (thread: string) => void
+}) {
+  const ctx = usePlugin()
+  const author = (thread: string) => {
+    const first = drive.threadsOf(props.doc.id).find((item) => item.id === thread)?.messages[0]
+    return first ? authorName(ctx, first) : ctx.t("drive.comment.other")
+  }
+  return (
+    <aside data-slot="drive-bubbles" aria-label={ctx.t("drive.tab.comments")}>
+      {/* By place, not by object: the rows are new at each scroll, and a button that stays takes the click. */}
+      <Index each={bubbleRows(props.placed)}>
+        {(row) => (
+          <button
+            type="button"
+            data-slot="drive-bubble"
+            style={{ top: `${row().top}px` }}
+            title={row().threads.map(author).join(", ")}
+            aria-label={ctx.t("drive.bubble", { count: String(row().threads.length) })}
+            onClick={() => {
+              const first = row().threads[0]
+              if (first) props.onThread(first)
+            }}
+          >
+            <span data-slot="drive-avatars">
+              <Index each={row().threads.slice(0, 2)}>{(thread) => <Avatar name={author(thread())} size="small" />}</Index>
+            </span>
+            <Show when={row().threads.length > 2}>
+              <span data-slot="drive-bubble-more">+{row().threads.length - 2}</span>
+            </Show>
+          </button>
+        )}
+      </Index>
+    </aside>
+  )
+}
+
 export function CommentsTab(props: { doc: Document; onReveal?: (thread: string) => void }) {
   const ctx = usePlugin()
   const threads = () => drive.threadsOf(props.doc.id)

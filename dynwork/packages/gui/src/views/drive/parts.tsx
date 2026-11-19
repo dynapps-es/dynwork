@@ -1,9 +1,10 @@
 import { usePlugin, type Context } from "@opencode/plugin/gui"
 import { Icon } from "@opencode/ui/icon"
-import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
+import { For, Show, type JSX } from "solid-js"
 import type { Document, Failure } from "../../drive/contract"
 import { ago, known, pathOf, size, stem, type Format, type Message } from "./model"
 import { drive, governance } from "./store"
+import type { Present } from "./viewer"
 
 // Small pieces every Drive screen shares: the format glyph, avatars, tags, thumbnails, times and a thread's lines.
 
@@ -66,11 +67,20 @@ export function openGovernance(ctx: Pick<Context, "system">, doc?: Pick<Document
   if (url) void ctx.system.openExternal(url)
 }
 
+/** An access level, in the window's language when it is one the Drive names. */
+export function levelText(t: (key: string) => string, level: string) {
+  return ["own", "share", "edit", "comment", "view"].includes(level) ? t(`drive.level.${level}`) : level
+}
+
 /** The user's access level, in the window's language when it is one the Drive names. */
 export function Level(props: { level: string }) {
   const ctx = usePlugin()
-  const named = () => ["own", "share", "edit", "comment", "view"].includes(props.level)
-  return <>{named() ? ctx.t(`drive.level.${props.level}`) : props.level}</>
+  return <>{levelText(ctx.t, props.level)}</>
+}
+
+/** What an agent may do, in words: `none`, `read`, `suggest`, `edit`, or the instance's own word. */
+export function capText(t: (key: string) => string, cap: string) {
+  return ["none", "read", "suggest", "edit"].includes(cap) ? t(`drive.cap.${cap}`) : cap
 }
 
 /** Names, times, sizes and paths in the window's language. */
@@ -124,13 +134,19 @@ export function Thumb(props: { doc?: Pick<Document, "name" | "format"> }) {
   )
 }
 
+/**
+ * Who wrote a comment: "You", or a name. The Drive names an author by an id only: the grants of the documents opened
+ * name some, and the rest are "Someone".
+ */
+export function authorName(ctx: Pick<Context, "t">, message: Pick<Message, "mine" | "author">) {
+  return message.mine ? ctx.t("drive.you") : (drive.nameOf(message.author) ?? ctx.t("drive.comment.other"))
+}
+
 /** One message of a thread: who, when, and the text with `@Agent` marked. */
 export function MessageLine(props: { message: Message }) {
   const ctx = usePlugin()
   const names = useNames()
-  // The Drive names an author by an id only: the grants of the documents opened name some, and the rest are "Someone".
-  const name = () =>
-    props.message.mine ? ctx.t("drive.you") : (drive.nameOf(props.message.author) ?? ctx.t("drive.comment.other"))
+  const name = () => authorName(ctx, props.message)
   const parts = () => props.message.text.split(/(@\p{L}+)/u)
   return (
     <div data-slot="drive-message">
@@ -159,34 +175,6 @@ export function AnchorLine(props: { text: string; icon: "outline-quote" | "dot-g
     </span>
   )
 }
-
-/**
- * Present: a document alone, full screen, through the Fullscreen API on the element that holds its viewer, which takes
- * the window full screen with it. Escape, or Exit over the document, brings the view back as it was.
- */
-export function createPresent(target: () => HTMLElement | undefined) {
-  const [on, setOn] = createSignal(false)
-  const sync = () => setOn(document.fullscreenElement !== null && document.fullscreenElement === target())
-  const stop = () => {
-    if (on()) void document.exitFullscreen().catch(() => undefined)
-  }
-  onMount(() => {
-    document.addEventListener("fullscreenchange", sync)
-    onCleanup(() => {
-      document.removeEventListener("fullscreenchange", sync)
-      stop()
-    })
-  })
-  return {
-    on,
-    start: () =>
-      void target()
-        ?.requestFullscreen()
-        .catch(() => undefined),
-    stop,
-  }
-}
-export type Present = ReturnType<typeof createPresent>
 
 /** The Present button of a document's bar. */
 export function PresentButton(props: { present: Present }) {

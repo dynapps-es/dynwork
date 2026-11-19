@@ -12,8 +12,8 @@ import { DriveFrames } from "./frames"
 // main's own: while a window shows a frame and asks for it (`watch`), main attaches to the window, auto-attaches to its
 // sub-frames, keeps the viewer's and lets the others go, and in each viewer frame adds the observer to every new
 // document in `DriveFrames.world`, with a binding that exists only in that world. Neither reaches the page: its
-// scripts cannot see, call or replace them. What the binding receives is parsed here (a kind and one short id) and
-// sent to that window alone, which keeps only an id it gave the page. When the window stops watching, main detaches,
+// scripts cannot see, call or replace them. What the binding receives is parsed here (a kind and one short id, or
+// bounded mark positions) and sent to that window alone, which keeps only ids it gave the page. When the window stops watching, main detaches,
 // unless another client had attached first, which it then leaves attached.
 
 /** What `make` needs of a window's contents. */
@@ -26,21 +26,38 @@ export interface Options {
   seen: (window: number, seen: Seen) => void
 }
 
-/** What a window's frame may report through the binding: a kind and one id, as JSON, nothing else. */
+const Id = Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(256))
+
+/**
+ * What a window's frame may report through the binding, as JSON, nothing else: a kind and one id, or where at most
+ * `DriveFrames.maxMarks` marks sit, each an id and a whole number of pixels within `DriveFrames.farthest`.
+ */
 const Report = Schema.fromJsonString(
-  Schema.Struct({
-    kind: Schema.Literals(["heading", "mark"]),
-    id: Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(256)),
-  }),
+  Schema.Union([
+    Schema.Struct({ kind: Schema.Literals(["heading", "mark"]), id: Id }),
+    Schema.Struct({
+      kind: Schema.Literal("marks"),
+      items: Schema.Array(
+        Schema.Struct({
+          id: Id,
+          top: Schema.Int.check(Schema.isBetween({ minimum: -DriveFrames.farthest, maximum: DriveFrames.farthest })),
+        }),
+      ).check(Schema.isMaxLength(DriveFrames.maxMarks)),
+    }),
+  ]),
 )
-const decodeReport = Schema.decodeUnknownOption(Report)
+// A report with anything more than these keys is not one.
+const decodeReport = Schema.decodeUnknownOption(Report, { onExcessProperty: "error" })
 const decodeTree = Schema.decodeUnknownOption(
   Schema.Struct({ frameTree: Schema.Struct({ frame: Schema.Struct({ name: Schema.optional(Schema.String) }) }) }),
 )
 
+/** The longest report taken: `maxMarks` marks with the longest ids. */
+const longest = 32 * 1024
+
 /** A report the binding received, or undefined for anything that is not one: too long, another shape, not JSON. */
 export function report(payload: unknown) {
-  if (typeof payload !== "string" || payload.length > 512) return undefined
+  if (typeof payload !== "string" || payload.length > longest) return undefined
   return Option.getOrUndefined(decodeReport(payload))
 }
 
@@ -117,7 +134,7 @@ export function make(options: Options) {
       const frame = entry.sessions.get(session)
       if (called.name !== DriveFrames.binding || frame === undefined || !entry.frames.has(frame)) return
       const seen = report(called.payload)
-      if (seen) options.seen(window, { frame, kind: seen.kind, id: seen.id })
+      if (seen) options.seen(window, { frame, ...seen })
     }
     // Another client detached the debugger: attach again while the window still watches.
     const detach = () => {

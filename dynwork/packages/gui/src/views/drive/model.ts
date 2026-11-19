@@ -330,3 +330,41 @@ export function shareSubject(subject: { kind: string; value: string; name?: stri
     subject.name === undefined ? subject.value : subject.email ? `${subject.name} (${subject.email})` : subject.name
   return subject.kind === "user" ? named : `${named} (${subject.kind})`
 }
+
+/** A thread placed beside a document: its first mark's top, in pixels from the top of the document's visible area. */
+export interface Placed {
+  readonly thread: string
+  readonly top: number
+}
+
+/**
+ * The comments' bubbles beside a document, top to bottom: a thread joins the bubble above while its top is closer than
+ * `size` to that bubble's, so threads at one height share a bubble.
+ */
+export function bubbleRows(placed: readonly Placed[], size = 28) {
+  return placed
+    .toSorted((a, b) => a.top - b.top)
+    .reduce<{ top: number; threads: string[] }[]>((rows, item) => {
+      const last = rows.at(-1)
+      if (last && item.top - last.top < size) last.threads.push(item.thread)
+      else rows.push({ top: item.top, threads: [item.thread] })
+      return rows
+    }, [])
+}
+
+/**
+ * What the Share popover offers on a document. Every change of who has access is the person's in the instance (0.83
+ * refuses DynWork's credential a share, a revocation and a change of the agents' cap, whatever the user's access), so
+ * inviting, changing a level and removing someone stay shut, and `change` says why: `governance` when the user may share
+ * the document, which they do there; `level` when their access does not let them share it. An access not read counts as
+ * the first. `copy` and `governance` offer the document's page in Governance, when the account's instance is known: to
+ * copy, and to open it where the user can share.
+ */
+export function sharing(input: { access: string | undefined; link: string | undefined }) {
+  const shares = input.access === undefined || input.access === "own" || input.access === "share"
+  return {
+    change: shares ? ("governance" as const) : ("level" as const),
+    copy: input.link !== undefined,
+    governance: shares && input.link !== undefined,
+  }
+}

@@ -412,6 +412,22 @@ describe("what the viewer takes from main's observer of a frame", () => {
     expect(fromFrame(seen("mark", "intro"), shown)).toBeUndefined()
   })
 
+  test("where the page's marks sit, only for threads the viewer marked on it", () => {
+    const items = [
+      { id: "t1", top: 120 },
+      // Not marks the viewer gave this page: a script's, or what every object has.
+      { id: "t2", top: 40 },
+      { id: "__proto__", top: 0 },
+      { id: "constructor", top: 0 },
+      { id: "intro", top: 10 },
+    ]
+    expect(fromFrame({ frame: shown.name, kind: "marks", items }, shown)).toEqual({
+      kind: "marks",
+      placed: [{ thread: "t1", top: 120 }],
+    })
+    expect(fromFrame({ frame: `${DriveFrames.name}:5`, kind: "marks", items }, shown)).toBeUndefined()
+  })
+
   test("each frame gets the name it is given, and the guard's when none is", () => {
     expect(frameOf({ html: "<p>x</p>" }, { name: shown.name }).name).toBe(shown.name)
     expect(DriveFrames.isViewer(frameOf({ html: "<p>x</p>" }).name)).toBe(true)

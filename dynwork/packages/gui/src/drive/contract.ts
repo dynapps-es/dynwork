@@ -480,22 +480,35 @@ export const Shares = Ipc.define({
 })
 
 /**
- * What a viewer frame was seen doing (`frames.ts`): the heading the reader is at, or the comment mark they clicked, by
- * the id the viewer gave it in the page. `frame` is the frame's name. Nothing else ever comes out of a frame.
+ * What a viewer frame was seen doing (`frames.ts`), by the ids the viewer gave the page: the heading the reader is at,
+ * the comment mark they clicked, or where the first mark of each thread sits, in pixels from the top of the frame's
+ * visible area (`marks`), for the comments' bubbles beside it. `frame` is the frame's name. Nothing else ever comes out
+ * of a frame.
  */
-export const Seen = Schema.Struct({
-  frame: Schema.String,
-  kind: Schema.Literals(["heading", "mark"]),
-  id: Schema.String,
-})
+export const Seen = Schema.Union([
+  Schema.Struct({ frame: Schema.String, kind: Schema.Literals(["heading", "mark"]), id: Schema.String }),
+  Schema.Struct({
+    frame: Schema.String,
+    kind: Schema.Literal("marks"),
+    items: Schema.Array(Schema.Struct({ id: Schema.String, top: Schema.Number })),
+  }),
+])
 export type Seen = typeof Seen.Type
 
-/** The window's HTML frames, observed by main in an isolated world of each (`watch.ts`). */
+/**
+ * The window's document viewer: its HTML frames, observed by main in an isolated world of each (`watch.ts`), and Present,
+ * the window full screen for a document alone (`present.ts`).
+ */
 export const Frames = Ipc.define({
   id: "dynwork.drive.frames",
   methods: {
     /** Holds until the window aborts the call; while one is held, main reports what the frame named `frame` is at. */
     watch: { input: Schema.Struct({ frame: Schema.String }) },
+    /**
+     * Holds while the window presents a document: main takes the window full screen, and back when the window aborts
+     * the call. It returns early when the presentation ends in main: Escape, or the window leaving full screen.
+     */
+    present: {},
   },
   events: { seen: Seen },
 })

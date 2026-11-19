@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test"
 import type { Document, Folder, Link } from "../../../src/drive/contract"
 import {
   ago,
+  bubbleRows,
   byConversation,
   highlight,
   known,
   mimeOf,
   pathOf,
+  sharing,
   size,
   visibleDocs,
   visibleFolders,
@@ -184,5 +186,59 @@ describe("names, sizes and times", () => {
     expect(ago(0, "en", "now")).toBe("now")
     expect(ago(5, "en", "now")).toBe("5 minutes ago")
     expect(ago(1440, "es", "ahora")).toBe("ayer")
+  })
+})
+
+describe("the comments' bubbles beside a document", () => {
+  test("one per height, top to bottom, threads closer than a bubble sharing it", () => {
+    expect(
+      bubbleRows([
+        { thread: "c", top: 400 },
+        { thread: "a", top: 100 },
+        { thread: "b", top: 110 },
+        { thread: "d", top: 127 },
+        { thread: "e", top: 128 },
+      ]),
+    ).toEqual([
+      { top: 100, threads: ["a", "b", "d"] },
+      { top: 128, threads: ["e"] },
+      { top: 400, threads: ["c"] },
+    ])
+  })
+
+  test("none without threads, and a bubble of another size groups by it", () => {
+    expect(bubbleRows([])).toEqual([])
+    expect(
+      bubbleRows(
+        [
+          { thread: "a", top: 0 },
+          { thread: "b", top: 40 },
+        ],
+        48,
+      ),
+    ).toEqual([{ top: 0, threads: ["a", "b"] }])
+  })
+})
+
+describe("what the Share popover offers", () => {
+  const link = "https://governance.example/drive/d1"
+
+  test("who may share a document is sent to Governance to do it: nothing changes from here", () => {
+    expect(sharing({ access: "own", link })).toEqual({ change: "governance", copy: true, governance: true })
+    expect(sharing({ access: "share", link })).toEqual({ change: "governance", copy: true, governance: true })
+  })
+
+  test("who may not share it is told so, with no way to Governance for it", () => {
+    expect(["edit", "comment", "view"].map((access) => sharing({ access, link }))).toEqual(
+      Array(3).fill({ change: "level", copy: true, governance: false }),
+    )
+  })
+
+  test("an access not read is taken as one that may share", () => {
+    expect(sharing({ access: undefined, link })).toEqual({ change: "governance", copy: true, governance: true })
+  })
+
+  test("without the document's page in Governance there is no link to copy or open", () => {
+    expect(sharing({ access: "own", link: undefined })).toEqual({ change: "governance", copy: false, governance: false })
   })
 })
