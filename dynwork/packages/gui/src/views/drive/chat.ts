@@ -1,4 +1,5 @@
 import type { Context, SessionRef } from "@opencode/plugin/gui"
+import { builtinContext } from "@opencode/plugin/gui/builtin"
 import type { Document } from "../../drive/contract"
 import { drive } from "./store"
 
@@ -13,6 +14,23 @@ export const docKey = (id: string) => `dynwork:drive.${id}`
 export const origin = "dynwork-drive"
 
 type Host = Pick<Context, "tabs" | "layout" | "screen" | "sessions" | "toast" | "t">
+
+/** Opens a document in the Drive view from the chat it is beside; its Back comes back to that chat. */
+export function openInDrive(ctx: Context, session: SessionRef, id: string) {
+  void drive.openDoc(id, { from: { server: session.server.id, id: session.id, tab: session.tab } })
+  builtinContext(ctx).layout.page("drive")
+}
+
+/**
+ * Back from the open document to where it was opened from: the chat it was beside, opened again when its tab is closed,
+ * or the Drive as it was then (`drive.closeDoc`).
+ */
+export function back(ctx: Pick<Context, "tabs">) {
+  const chat = drive.closeDoc()
+  if (!chat) return
+  if (ctx.tabs.list().some((tab) => tab.key === chat.tab)) return ctx.tabs.focus(chat.tab)
+  ctx.tabs.open({ server: chat.server, id: chat.id }, { focus: true })
+}
 
 /** The chat to send a document to: the routed one, else the last chat tab. */
 function target(ctx: Host): SessionRef | undefined {

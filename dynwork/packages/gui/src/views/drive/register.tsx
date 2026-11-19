@@ -7,6 +7,7 @@ import { DriveClient } from "../../drive/client"
 import { Drive } from "../../drive/contract"
 import { docKey, listKey, origin, sessionOf } from "./chat"
 import { arrivals, landing } from "./model"
+import { initial, keepPanes, Panes } from "./panes"
 import { DocTabLabel, ListTabLabel } from "./tab-label"
 import { ArtifactsPanel, DocPanel } from "./panel"
 import { registerShares } from "./share"
@@ -22,6 +23,8 @@ const ArtifactsCount = lazy(() => import("./count"))
 // the + menu's "Drive" item; and the link of the Drive's composer chips, which opens the document's tab again.
 export function registerDrive(ctx: SetupContext<typeof definition>) {
   DriveClient.attach(ctx.use(Drive))
+  // How the user lays out an open document, opened now so it has loaded by the time one opens.
+  keepPanes(ctx.storage.store("drive.panes", { schema: Panes, initial }))
   // The agent's shares wait for the user on a card in their conversation.
   registerShares(ctx)
   // The active account's Governance address and user name, for Open in Governance and the edition banner, from the

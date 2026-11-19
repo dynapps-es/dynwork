@@ -1,13 +1,11 @@
 import { usePlugin, type MountedSession } from "@opencode/plugin/gui"
-import { builtinContext } from "@opencode/plugin/gui/builtin"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
-import { IconButton } from "@opencode/ui/icon-button"
 import { createEffect, createResource, For, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 import { isFailure, type Link, type Revision } from "../../drive/contract"
 import { uploadFiles } from "./browser"
-import { conversationOf, docKey } from "./chat"
+import { conversationOf, docKey, openInDrive } from "./chat"
 import { failureText, FormatGlyph, Tag, useNames } from "./parts"
 import { drive } from "./store"
 import { Viewer } from "./viewer"
@@ -150,10 +148,6 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
     index <= 0
       ? `${ctx.t("drive.rev", { rev: String(list().length) })} · ${ctx.t("drive.version.current")}`
       : ctx.t("drive.rev", { rev: String(list().length - index) })
-  const toDrive = () => {
-    void drive.openDoc(props.id)
-    builtinContext(ctx).layout.page("drive")
-  }
   return (
     <Show when={doc()}>
       {(found) => (
@@ -178,14 +172,13 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
                 }))}
               />
             </Show>
-            <IconButton
-              type="button"
-              variant="ghost-muted"
-              icon={<Icon name="square-arrow-top-right" size="small" />}
-              aria-label={ctx.t("drive.panel.open")}
-              title={ctx.t("drive.panel.open")}
-              onClick={toDrive}
-            />
+            <ctx.ui.Tooltip value={ctx.t("drive.panel.open")} placement="bottom">
+              <ctx.ui.IconButton
+                icon="square-arrow-top-right"
+                label={ctx.t("drive.panel.open")}
+                onClick={() => openInDrive(ctx, props.session, props.id)}
+              />
+            </ctx.ui.Tooltip>
           </div>
           <div data-slot="drive-panel-content" data-format={found().format}>
             <Viewer doc={found()} revision={shown() > 0 ? picks[key()] : undefined} />

@@ -61,11 +61,13 @@ describe("dynwork built-in", () => {
       t: (key: string) => key,
       layout: { ready: () => false },
       sessions: { current: () => undefined },
+      // The Drive opens how the user lays out a document; it has not loaded here.
+      storage: { store: () => ({ value: undefined, ready: () => false, update: () => {}, set: () => {} }) },
     }
     expect(definition).toBeObject()
     const dispose = createRoot((dispose) => {
-      // SAFETY: the setup reads only `desktop`, `use`, `add`, `t`, `layout.ready` and `sessions.current`, which the
-      // stand-in provides.
+      // SAFETY: the setup reads only `desktop`, `use`, `add`, `t`, `layout.ready`, `sessions.current` and
+      // `storage.store`, which the stand-in provides.
       renderer(ctx as unknown as Parameters<typeof renderer>[0])
       return dispose
     })

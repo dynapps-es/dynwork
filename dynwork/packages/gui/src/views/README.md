@@ -110,11 +110,16 @@ in-memory Drive for the tests.
   makes a folder, or a document from a Dynapps template (`dynapps-word`, `dynapps-sheet`, `dynapps-deck`,
   `dynapps-html`, `blank-markdown`: the instance has no route that lists them, C9).
 - **A document** opens over the browser: its bar, the edition banner (DynWork counts as an agent; what it may do on the
-  document attended, and what a scheduled task could do unattended), its viewer (below), and a drawer with Info,
-  Versions (numbered, with their "… by DynWork" message), Proposals and Share. Open beside the chat puts it in a tab of
-  the last chat's side panel. What the Drive keeps to the person (sharing, restoring, accepting proposals, renaming,
-  moving, trashing) opens the document in Governance while `personActions` is off; Export as PDF and Copy link work
-  here.
+  document attended, and what a scheduled task could do unattended), its index, its viewer (below), and a drawer with
+  Info, Versions (numbered, with their "… by DynWork" message), Proposals and Share, on the selected tab's background.
+  Back returns where it was opened from (`store.ts` keeps it when it opens): the chat whose side panel opened it (its
+  tab, opened again when it was closed), else the browser's scope, folder and search as they were, else Home. The
+  index (`outline.ts`) lists the headings of an HTML page, a Markdown document or a Word preview, and jumps to one; a
+  sheet, a slide deck or a PDF has none and shows no column. The bar shows and hides the index and the drawer, and the
+  drawer's edge resizes it (`@opencode/ui/resize-handle`), all kept in the window's storage (`panes.ts`). Every
+  icon-only button carries a tooltip. Ask the agent opens the document beside the last chat with a composer chip. What
+  the Drive keeps to the person (sharing, restoring, accepting proposals, renaming, moving, trashing) opens the
+  document in Governance while `personActions` is off; Export as PDF and Copy link work here.
 - **Beside a chat** (`panel.tsx`, `register.tsx`): the chat header's button (`count.tsx`, in the `session.header` slot
   before the context ring) shows how many documents the chat has in its Artifacts tab, none at 0, while an account has
   a Drive, and opens that tab; it loads on the client only (Kobalte's tooltip). The + menu's Drive opens the Artifacts
@@ -133,6 +138,9 @@ in-memory Drive for the tests.
     with no flags (no scripts, no network but `data:`); production sends `sandbox allow-scripts` with `https:`, so
     animations and libraries from a CDN run as on the web. It is never more than the instance allowed, and never
     `allow-same-origin`, `allow-top-navigation*` or `allow-popups-to-escape-sandbox`, whatever the instance sends.
+    The page is read into an inert document (`DOMParser`: nothing runs or loads) to give each heading an id, and written
+    back whole with the policy first in its head; the index jumps by navigating the frame to `about:srcdoc#<id>`, a
+    same-document navigation that main's frame guard lets through.
   - Markdown from its source (`/content`, at the tab's version), drawn by the app's own renderer (`ctx.ui.Markdown`),
     as the timeline draws a message.
   - PDF in DynWork's own viewer (`pdf-viewer.tsx` over pdf.js, `pdf.ts` for its arithmetic and options), loaded with

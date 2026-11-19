@@ -2,6 +2,7 @@ import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
 import { createEffect, on, onCleanup, Show } from "solid-js"
 import { Browser, BrowserActions } from "./browser"
+import { back } from "./chat"
 import { drive } from "./store"
 import { Workspace } from "./workspace"
 import { ViewShell } from "../shell"
@@ -55,7 +56,7 @@ export default function DriveView() {
                     drive.state.opened.failure ? `drive.failure.${drive.state.opened.failure.code}` : "drive.loading",
                   )}
                 </span>
-                <Button variant="ghost" size="small" icon="arrow-left" onClick={() => drive.closeDoc()}>
+                <Button variant="ghost" size="small" icon="arrow-left" onClick={() => back(ctx)}>
                   {ctx.t("views.back")}
                 </Button>
               </div>

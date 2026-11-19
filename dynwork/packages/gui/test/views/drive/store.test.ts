@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { isFailure } from "../../../src/drive/contract"
-import { account as active, follow, governance } from "../../../src/views/drive/store"
+import { back, openInDrive } from "../../../src/views/drive/chat"
+import { account as active, drive, follow, governance } from "../../../src/views/drive/store"
 import { frameOf } from "../../../src/views/drive/viewer"
 import { flush } from "../../drive/wire"
 import { account, chat, file, names, setup } from "./fixture"
@@ -236,7 +237,12 @@ describe("a chat's artifacts", () => {
     expect(await store.link(chat.id, report, "edited")).toBeUndefined()
     expect(await store.link("ses_other", id("Acme proposal 2027.pptx"), "created")).toBeUndefined()
     // The links of one test may share a millisecond, so which act is the latest is `latest`'s test (agent.test.ts).
-    expect(store.artifactsOf(chat.id).map((link) => link.document).toSorted()).toEqual([report, analysis].toSorted())
+    expect(
+      store
+        .artifactsOf(chat.id)
+        .map((link) => link.document)
+        .toSorted(),
+    ).toEqual([report, analysis].toSorted())
   })
 })
 
@@ -313,6 +319,82 @@ describe("an open document", () => {
   test("DynWork edits as the person only once the Drive allows it (P1)", async () => {
     expect((await stand()).store.person()).toBe(false)
     expect((await stand({ capabilities: { personActions: true } })).store.person()).toBe(true)
+  })
+})
+
+describe("Back from an open document", () => {
+  const vat = { server: "local", id: "ses_vat", tab: "tab-vat" }
+
+  test("opened from a folder, it goes back to that folder of the browser", async () => {
+    const { store, id } = await stand()
+    await store.goFolder(id("Artifacts/odoo-modules"))
+    await store.openDoc(id("VAT dashboard by journal.html"))
+    expect(store.closeDoc()).toBeUndefined()
+    expect(store.state.open).toBeUndefined()
+    expect([store.state.browse.scope, store.state.browse.folder]).toEqual(["home", id("Artifacts/odoo-modules")])
+    expect(names(store.shown())).toContain("VAT dashboard by journal.html")
+  })
+
+  test("opened from a search or a scope, it goes back to it, even when the browser moved meanwhile", async () => {
+    const { store, id } = await stand()
+    await store.setScope("shared")
+    await store.setQuery("contract")
+    await store.openDoc(id("Framework contract.pdf"))
+    await store.goFolder(id("Internal"))
+    store.closeDoc()
+    await flush()
+    expect([store.state.browse.scope, store.state.browse.folder, store.state.browse.query]).toEqual([
+      "shared",
+      undefined,
+      "contract",
+    ])
+    expect(names(store.shown())).toEqual(["Framework contract.pdf"])
+  })
+
+  test("opened beside a chat, it answers that chat and leaves the browser as it was", async () => {
+    const { store, id } = await stand()
+    await store.goFolder(id("Internal"))
+    await store.openDoc(id("VAT dashboard by journal.html"), { from: vat })
+    expect(store.closeDoc()).toEqual(vat)
+    expect(store.state.browse.folder).toBe(id("Internal"))
+    // Each opening says where it came from: the next one, from the browser, goes back to it.
+    await store.openDoc(id("Framework contract.pdf"))
+    expect(store.closeDoc()).toBeUndefined()
+  })
+
+  test("from nowhere known it goes to the Drive's Home", async () => {
+    const { store, id } = await stand()
+    await store.goFolder(id("Internal"))
+    expect(store.closeDoc()).toBeUndefined()
+    expect([store.state.browse.scope, store.state.browse.folder]).toEqual(["home", undefined])
+  })
+
+  test("Open in the Drive from a chat's side panel comes back to that chat's tab, opened again when it was closed", () => {
+    const pages: string[] = []
+    const calls: unknown[] = []
+    const tabs = { list: [] as { key: string }[] }
+    const ctx = {
+      layout: { page: (page: string) => pages.push(page) },
+      tabs: {
+        list: () => tabs.list,
+        focus: (key: string) => calls.push(["focus", key]),
+        open: (session: unknown, options: unknown) => calls.push(["open", session, options]),
+      },
+    }
+    const session = { id: vat.id, tab: vat.tab, server: { id: vat.server } }
+    // SAFETY: `openInDrive` reads the session's ids and `layout.page`; `back` reads only `tabs`.
+    openInDrive(ctx as never, session as never, "doc-1")
+    expect([pages, drive.state.open]).toEqual([["drive"], "doc-1"])
+    tabs.list = [{ key: "tab-other" }, { key: vat.tab }]
+    back(ctx as never)
+    expect(calls).toEqual([["focus", vat.tab]])
+    expect(drive.state.open).toBeUndefined()
+
+    calls.length = 0
+    openInDrive(ctx as never, session as never, "doc-1")
+    tabs.list = []
+    back(ctx as never)
+    expect(calls).toEqual([["open", { server: vat.server, id: vat.id }, { focus: true }]])
   })
 })
 

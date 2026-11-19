@@ -9,6 +9,7 @@ import { DriveIpc } from "../../../src/drive/ipc"
 import { askAgent, docKey, listKey, openArtifacts } from "../../../src/views/drive/chat"
 import { registerDrive } from "../../../src/views/drive/register"
 import { isPdf } from "../../../src/views/drive/model"
+import { initial, Panes } from "../../../src/views/drive/panes"
 import { frameOf, load } from "../../../src/views/drive/viewer"
 import { startFake } from "../../../../sp-client/test/fake"
 import { storage } from "../../routines/fixture"
@@ -247,13 +248,14 @@ describe("the side panel's tabs", () => {
         return () => {}
       },
       t: (key: string) => key,
+      storage: { store: () => storage(Panes, initial) },
       sessions: { current: () => session },
       layout: {
         open: (key: string, target: unknown, options: unknown) => opened.push({ key, session: target, options }),
       },
     }
     const dispose = createRoot((dispose) => {
-      // SAFETY: the Drive's setup reads only `use`, `add`, `t`, `sessions.current` and `layout.open`.
+      // SAFETY: the Drive's setup reads only `use`, `add`, `t`, `storage.store`, `sessions.current` and `layout.open`.
       registerDrive(ctx as unknown as Parameters<typeof registerDrive>[0])
       return dispose
     })

@@ -32,6 +32,21 @@ import {
 
 export type DocTab = "details" | "comments" | "versions" | "proposals" | "share"
 
+/** The chat a document was opened from, beside it: where its Back returns. */
+export interface FromChat {
+  readonly server: string
+  readonly id: string
+  /** The chat's shell tab. */
+  readonly tab: string
+}
+
+/** Where the browser was when a document opened over it: where its Back returns. */
+interface FromDrive {
+  readonly scope: Scope
+  readonly folder: string | undefined
+  readonly query: string
+}
+
 /** What the open document's drawer reads, each part as the Drive answers it; `failure` when the document is not there. */
 export interface Opened {
   detail?: Detail
@@ -105,6 +120,8 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     /** The document open in the view, over the browser. */
     open: undefined as string | undefined,
     opened: {} as Opened,
+    /** Where the open document was opened from; none for a document opened from nowhere known, whose Back goes Home. */
+    from: undefined as { chat: FromChat } | { drive: FromDrive } | undefined,
     doc: { ...blankDoc },
     /** The comments and the nodes of the documents opened in this window, by document. */
     discussion: {} as Record<string, Discussion>,
@@ -314,13 +331,25 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     },
 
     // The open document.
-    /** Opens a document over the browser and reads its drawer: details, versions, proposals, access and the agent's cap. */
-    async openDoc(id: string, tab?: DocTab) {
+    /**
+     * Opens a document over the browser and reads its drawer: details, versions, proposals, access and the agent's cap.
+     * It remembers where it was opened from, for Back: the chat it was beside (`from`), else the browser as it was.
+     */
+    async openDoc(id: string, opening: { tab?: DocTab; from?: FromChat } = {}) {
       const read = ++asked.open
+      const browse = state.browse
+      setState(
+        "from",
+        reconcile(
+          opening.from
+            ? { chat: opening.from }
+            : { drive: { scope: browse.scope, folder: browse.folder, query: browse.query } },
+        ),
+      )
       setState("open", id)
       setState("browse", "selected", id)
       setState("opened", reconcile({}))
-      setState("doc", { ...blankDoc, tab: tab ?? "details" })
+      setState("doc", { ...blankDoc, tab: opening.tab ?? "details" })
       const client = options.client()
       if (!client) return setState("opened", { failure: disconnected })
       const keep = (part: Opened) => {
@@ -349,10 +378,25 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
         discuss(id),
       ])
     },
+    /**
+     * Closes the open document and goes back where it was opened from: the browser as it was then, or Home when that is
+     * not known. Answers the chat to go back to when it was opened beside one; the browser stays as it is then.
+     */
     closeDoc() {
       asked.open++
+      const from = state.from
+      const chat = from && "chat" in from ? { ...from.chat } : undefined
+      const back =
+        from && "drive" in from ? { ...from.drive } : { scope: "home" as Scope, folder: undefined, query: "" }
       setState("open", undefined)
       setState("opened", reconcile({}))
+      setState("from", undefined)
+      if (chat) return chat
+      const browse = state.browse
+      if (browse.scope === back.scope && browse.folder === back.folder && browse.query === back.query) return undefined
+      setState("browse", { scope: back.scope, folder: back.folder, query: back.query })
+      void reload()
+      return undefined
     },
     setTab(tab: DocTab) {
       setState("doc", "tab", tab)

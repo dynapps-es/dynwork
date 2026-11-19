@@ -1001,8 +1001,10 @@
   border-right: 1px solid var(--v2-border-border-muted);
 
   button {
+    flex: none;
     padding: 4px 8px;
     overflow: hidden;
+    line-height: 18px;
     border: 0;
     border-radius: 5px;
     background: transparent;
@@ -1019,7 +1021,11 @@
     }
 
     &[data-level="2"] {
-      padding-left: 18px;
+      padding-inline-start: 18px;
+    }
+
+    &[data-level="3"] {
+      padding-inline-start: 28px;
     }
 
     &[data-state="pressed"] {
@@ -1037,13 +1043,18 @@
   text-transform: uppercase;
 }
 
+/* The drawer is as wide as its edge was dragged (`panes.ts`), and never takes more than most of the view. Its content
+   sits on the background of the selected tab, so the tab and what it shows read as one piece. */
 [data-slot="drive-drawer"] {
+  position: relative;
   display: flex;
   flex: none;
   flex-direction: column;
   width: 400px;
+  max-width: 70%;
   min-height: 0;
   border-left: 1px solid var(--v2-border-border-muted);
+  background-color: var(--background-stronger);
 
   > [data-component="tabs"] {
     flex: none;

@@ -1,10 +1,11 @@
 import { usePlugin } from "@opencode/plugin/gui"
-import { createMemo, createResource, lazy, Match, Switch } from "solid-js"
+import { createEffect, createMemo, createResource, lazy, Match, onCleanup, Switch } from "solid-js"
 import { isServer } from "solid-js/web"
 import type { DriveClient } from "../../drive/client"
 import { isFailure, type Content, type Document, type Failure, type Page } from "../../drive/contract"
 import { DriveFrames } from "../../drive/frames"
 import { isPdf } from "./model"
+import { anchorPage, markdownHeadings, renderedHeading, type Heading } from "./outline"
 import { failureText } from "./parts"
 import { drive } from "./store"
 
@@ -54,8 +55,25 @@ export async function load(
   return isFailure(page) ? page : { kind: "page", page }
 }
 
-/** A document's viewer. It reads again when the document gets a new head, or when the tab picks another version. */
-export function Viewer(props: { doc: Document; revision?: string }) {
+/** What a viewer tells of its document's outline: its headings, and a jump to one of them. */
+export interface Outline {
+  readonly headings: readonly Heading[]
+  go(index: number): void
+}
+
+// The formats whose headings make an index: an HTML page, Markdown, and Word as the Drive previews it. A sheet's or a
+// slide deck's preview has no reading order to index, and a PDF's viewer draws pages, not headings.
+const outlined = ["html", "markdown", "docx"]
+
+/**
+ * A document's viewer. It reads again when the document gets a new head, or when the tab picks another version. With
+ * `onOutline` it tells the outline of what it shows, and undefined when it shows nothing that has one.
+ */
+export function Viewer(props: {
+  doc: Document
+  revision?: string
+  onOutline?: (outline: Outline | undefined) => void
+}) {
   const ctx = usePlugin()
   // A snapshot or a listing hands over a new document object for the same document: only these fields read again.
   const source = createMemo(
@@ -104,6 +122,7 @@ export function Viewer(props: { doc: Document; revision?: string }) {
     const answer = ready()
     return answer?.kind === "pdf" ? answer.pdf : undefined
   }
+  const onOutline = () => (outlined.includes(props.doc.format) ? props.onOutline : undefined)
   return (
     <Switch fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
       <Match when={failed()}>
@@ -113,24 +132,61 @@ export function Viewer(props: { doc: Document; revision?: string }) {
           </p>
         )}
       </Match>
-      <Match when={page()}>{(found) => <PageFrame page={found()} title={props.doc.name} />}</Match>
-      <Match when={markdown()}>
-        {(found) => (
-          <div data-slot="drive-markdown">
-            <ctx.ui.Markdown text={found().text} />
-          </div>
-        )}
+      <Match when={page()}>
+        {(found) => <PageFrame page={found()} title={props.doc.name} onOutline={onOutline()} />}
       </Match>
+      <Match when={markdown()}>{(found) => <MarkdownDoc text={found().text} onOutline={onOutline()} />}</Match>
       <Match when={!isServer && pdf()}>{(found) => <PdfViewer doc={props.doc} bytes={found().bytes} />}</Match>
     </Switch>
   )
 }
 
-/** A page in a frame with the sandbox and the policy `frameOf` gives it. */
-function PageFrame(props: { page: Page; title: string }) {
+/** A Markdown document, drawn by the app's renderer; its outline scrolls to a heading as rendered. */
+function MarkdownDoc(props: { text: string; onOutline?: (outline: Outline | undefined) => void }) {
+  const ctx = usePlugin()
+  let element: HTMLDivElement | undefined
+  createEffect(() => {
+    const headings = markdownHeadings(props.text)
+    props.onOutline?.({
+      headings,
+      go: (index) => {
+        const rendered = [...(element?.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6") ?? [])]
+        renderedHeading(
+          rendered.map((heading) => ({ text: heading.textContent ?? "", element: heading })),
+          headings,
+          index,
+        )?.scrollIntoView({ block: "start", behavior: "smooth" })
+      },
+    })
+  })
+  onCleanup(() => props.onOutline?.(undefined))
+  return (
+    <div ref={element} data-slot="drive-markdown">
+      <ctx.ui.Markdown text={props.text} />
+    </div>
+  )
+}
+
+/** A page in a frame with the sandbox and the policy `frameOf` gives it; its outline jumps to a heading's id. */
+function PageFrame(props: { page: Page; title: string; onOutline?: (outline: Outline | undefined) => void }) {
   const frame = createMemo(() => frameOf(props.page))
+  let element: HTMLIFrameElement | undefined
+  createEffect(() => {
+    const headings = frame().headings
+    props.onOutline?.({
+      headings,
+      // The frame's own URL with the heading as its fragment: the page scrolls there and nothing loads.
+      go: (index) => {
+        const id = headings[index]?.id
+        const view = element?.contentWindow
+        if (id && view) view.location.href = `about:srcdoc#${encodeURIComponent(id)}`
+      },
+    })
+  })
+  onCleanup(() => props.onOutline?.(undefined))
   return (
     <iframe
+      ref={element}
       data-slot="drive-frame"
       name={frame().name}
       sandbox={frame().sandbox}
@@ -148,6 +204,7 @@ const flags = ["allow-scripts", "allow-forms", "allow-modals", "allow-popups", "
  * The frame for a page: the sandbox flags its policy's `sandbox` directive grants, out of `flags` (none without the
  * directive, so no scripts), and the page under that policy as a meta tag, first in its head, less the directives
  * only a response header can carry. Never more than the instance allowed; no policy at all is `default-src 'none'`.
+ * The page is read into an inert document (`anchorPage`) to give its headings ids, and written back whole.
  */
 export function frameOf(page: Page) {
   const directives = (page.csp ?? "default-src 'none'")
@@ -163,15 +220,29 @@ export function frameOf(page: Page) {
   const policy = directives
     .filter((directive) => !/^(sandbox|frame-ancestors|report-uri|report-to)(\s|$)/i.test(directive))
     .join("; ")
-  const head = [
-    `<meta charset="utf-8">`,
-    `<meta http-equiv="Content-Security-Policy" content="${policy.replace(/"/g, "&quot;")}">`,
-    `<meta name="referrer" content="no-referrer">`,
-  ].join("")
+  const anchored = anchorPage(page.html)
+  const tags = [
+    [["charset", "utf-8"]],
+    [
+      ["http-equiv", "Content-Security-Policy"],
+      ["content", policy],
+    ],
+    [
+      ["name", "referrer"],
+      ["content", "no-referrer"],
+    ],
+  ].map((attributes) => {
+    const meta = anchored.page.createElement("meta")
+    attributes.forEach(([key, value]) => meta.setAttribute(key, value))
+    return meta
+  })
+  anchored.page.head.prepend(...tags)
   return {
     // Main keeps a frame with this name on its srcdoc (`drive/frames.ts`).
     name: DriveFrames.name,
     sandbox: flags.filter((flag) => granted.includes(flag)).join(" "),
-    srcdoc: `<!doctype html><html><head>${head}</head><body>${page.html}</body></html>`,
+    srcdoc: `<!doctype html>${anchored.page.documentElement.outerHTML}`,
+    /** The page's headings, each with the id a jump navigates the frame to. */
+    headings: anchored.headings,
   }
 }

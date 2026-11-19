@@ -1,7 +1,6 @@
 import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
-import { IconButton } from "@opencode/ui/icon-button"
 import { SegmentedControl, SegmentedControlItem } from "@opencode/ui/segmented-control"
 import { TextInput } from "@opencode/ui/text-input"
 import { Textarea } from "@opencode/ui/textarea"
@@ -159,19 +158,19 @@ function ThreadCard(props: { doc: Document; thread: Thread }) {
       <div data-slot="drive-thread-anchor">
         <Pointing doc={props.doc} anchor={anchor()} />
         <Show when={props.thread.open && canComment(props.doc)}>
-          <IconButton
-            type="button"
-            variant="ghost-muted"
-            size="small"
-            icon={<Icon name="check" size="small" />}
-            aria-label={ctx.t("drive.comment.resolve")}
-            title={ctx.t("drive.comment.resolve.hint")}
-            disabled={busy()}
-            onClick={(event) => {
-              event.stopPropagation()
-              void act(() => drive.resolve(props.doc.id, props.thread.id))
-            }}
-          />
+          <ctx.ui.Tooltip value={ctx.t("drive.comment.resolve.hint")}>
+            <ctx.ui.IconButton
+              variant="ghost-muted"
+              size="small"
+              icon="check"
+              label={ctx.t("drive.comment.resolve")}
+              disabled={busy()}
+              onClick={(event) => {
+                event.stopPropagation()
+                void act(() => drive.resolve(props.doc.id, props.thread.id))
+              }}
+            />
+          </ctx.ui.Tooltip>
         </Show>
       </div>
       <For each={props.thread.messages}>
