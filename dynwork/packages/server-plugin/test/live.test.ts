@@ -255,6 +255,11 @@ test("while an instance's gateway is applied it is the only provider and only Cl
     ((await service.get("/api/provider", directory)) as { data: Array<{ id: string }> }).data
       .map((entry) => entry.id)
       .toSorted()
+  // The policies of the config documents the service has loaded.
+  const loaded = async (directory: string) =>
+    (
+      (await service.get("/api/config", directory)) as Array<{ info?: { policies?: Array<Record<string, unknown>> } }>
+    ).flatMap((entry) => entry.info?.policies ?? [])
   const integrations = async (directory: string) =>
     ((await service.get("/api/integration", directory)) as { data: Array<{ id: string }> }).data.map(
       (entry) => entry.id,
@@ -318,6 +323,14 @@ test("while an instance's gateway is applied it is the only provider and only Cl
     { effect: "allow", action: "provider.use", resource: "systemprompt" },
     { effect: "allow", action: "provider.use", resource: "claude-agent" },
   ])
+  // The service loads them before the sign-out below. OpenCode reloads config only for events on its own files, and on
+  // Linux a replace and a removal of opencode.json that land in one batch of file events reach it as no event at all.
+  expect(
+    await until(
+      () => loaded(projectA),
+      (statements) => statements.some((statement) => statement.resource === "claude-agent"),
+    ),
+  ).toContainEqual({ effect: "allow", action: "provider.use", resource: "claude-agent" })
   // Nor is a provider offered that would vanish once connected, connected or not, and connecting one is refused.
   // Claude Agent stays on offer.
   const blocked = await integrations(projectA)
