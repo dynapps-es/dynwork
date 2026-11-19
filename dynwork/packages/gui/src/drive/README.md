@@ -201,17 +201,18 @@ documents_share ──execute.before──► plugin: confirm ──event──�
 
 - **The card.** `views/drive/share.tsx`, in the `session.composer.dock` slot, drawn as OpenCode's permission dock. It
   says what, with whom and at which level («Share _Q3 report.md_ with _Luis Martín_ · Edit»); a transfer and a revocation
-  have their own words. The document comes by name from the Drive, a folder from the Drive as last read. A person: the
-  agent passes the user id it got from `documents_people`, so the plugin keeps what each `documents_people` call of the
-  conversation answered (`DynWorkDocuments.heard`, user id → name and email) and the card says «Name (email)», the email
-  telling two people of one name apart. An id or email the conversation never looked up (found before the service
-  restarted, or given by the user) is looked up by main before the card shows: by id over REST while `peopleByRest` is
-  on (0.84), otherwise through the `documents` MCP server's `documents_people` (`Backend.findPeople`,
-  `SpDrive.lookupPeople`: the account's JWT, `initialize` then `tools/call`). That tool says it searches by "name, email
-  or id", but 0.83.0 compares only display name, name, full name and email (`search_active_by_prefix`): an email is
-  named, an id finds nobody (observed on sp-local 0.83.0), so on 0.83 an id the conversation never looked up still shows
-  raw. Only an exact match names them; a lookup that fails or takes over 3 seconds (`DriveShare.lookupWithin`) leaves
-  the value as the agent gave it, and the card shows anyway.
+  have their own words. The document comes by name from the Drive, a folder from the Drive as last read. A person, first found first: the
+  conversation's own `documents_people` answer (the plugin keeps it per conversation, `DynWorkDocuments.heard`, and adds
+  it to the share); the people the account met (`DriveIpc` `known`: every `documents_people` answer of the agent,
+  which the plugin sends as the `people` event, and everyone a card named, in the Drive's store on this computer, the
+  latest 500, id, name and email only, so it survives restarts and crosses conversations); then a lookup, by id over
+  REST while `peopleByRest` is on (0.84), otherwise through the `documents` MCP server's `documents_people`
+  (`Backend.findPeople`, `SpDrive.lookupPeople`). That tool says it searches by "name, email or id", but 0.83.0 compares
+  only display name, name, full name and email (`search_active_by_prefix`): an email is named, an id finds nobody. So
+  on 0.83 the agent's rules ask it to look a person up with `documents_people` right before each share (dropped once
+  `peopleByRest` is on). Only an exact match names them; a lookup that fails or takes over 3 seconds
+  (`DriveShare.lookupWithin`) leaves the value as the agent gave it, and the card shows anyway. The card says «Name
+  (email)», the email telling two people of one name apart.
 - **Allow in this conversation.** Kept in main, per conversation and kind of share (grant, transfer, revoke), while the
   app runs: the next share of that kind there is allowed with no card, and the cards of that kind already waiting there
   go too. Another conversation asks again; a restart asks again. A subagent's share shows in, and counts for, the

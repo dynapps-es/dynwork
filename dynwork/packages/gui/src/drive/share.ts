@@ -25,7 +25,7 @@ export interface Session {
 
 export interface Options {
   /** The Drive service, for the names on the card. */
-  service: Pick<DriveIpc.Service, "using" | "capabilities" | "folders">
+  service: Pick<DriveIpc.Service, "using" | "capabilities" | "folders" | "known" | "current">
   /** A session of the service, or undefined when it does not know it. */
   session: (id: string) => Promise<Session | undefined>
   /** Sends the plugin the user's decision. */
@@ -123,16 +123,24 @@ export function make(options: Options) {
     return options.service.folders().find((folder) => folder.id === id)?.name
   }
 
-  // The name and email the conversation's `documents_people` call gave come with the share. A user named by an id or an
-  // email the conversation never looked up (it found them before the service restarted, say) is looked up here: by id
-  // over REST while the instance has it (`peopleByRest`, 0.84), otherwise through the `documents` MCP server's
-  // `documents_people`. That tool says it searches by "name, email or id", but 0.83.0 matches names and emails only
-  // (`search_active_by_prefix`): an email is named, an id finds nobody until the instance searches ids. Only an exact
+  // Who a share names, first found first: the conversation's own `documents_people` answer (the plugin adds it to the
+  // share), the people the account met before (`DriveIpc` `known`: the agent's lookups in any conversation, and earlier
+  // cards, kept across restarts), then a lookup: by id over REST while the instance has it (`peopleByRest`, 0.84),
+  // otherwise through the `documents` MCP server's `documents_people`. That tool says it searches by "name, email or id",
+  // but 0.83.0 matches names and emails only (`search_active_by_prefix`): an email is named, an id finds nobody, which is
+  // why the agent is told to look a person up right before sharing (`DynWorkDocuments.instructions`). Only an exact
   // match names them; a lookup that fails or takes longer than `lookupWithin` leaves the value as the agent gave it,
-  // and the card shows anyway.
+  // and the card shows anyway. Whoever is named is remembered for the account.
   async function person(subject: DynWorkDocuments.Subject) {
-    if (subject.name !== undefined || subject.kind !== "user") return subject
+    if (subject.kind !== "user") return subject
+    const account = options.service.current()?.id
+    if (subject.name !== undefined) {
+      if (account) options.service.known.remember(account, [personOf(subject)])
+      return subject
+    }
     const value = subject.value
+    const known = account === undefined ? undefined : options.service.known.find(account, value)
+    if (known) return { ...subject, ...withName(known) }
     const email = value.includes("@")
     const found = await within(
       options.service.using((backend) =>
@@ -144,7 +152,8 @@ export function make(options: Options) {
         ? undefined
         : found.find((item) => (email ? item.email?.toLowerCase() === value.toLowerCase() : item.id === value))
     if (!match) return subject
-    return { ...subject, name: match.name, ...(match.email === undefined ? {} : { email: match.email }) }
+    if (account) options.service.known.remember(account, [match])
+    return { ...subject, ...withName(match) }
   }
 
   function withdraw(id: string) {
@@ -160,6 +169,19 @@ export function make(options: Options) {
 
   return {
     request,
+    /** The people an agent's `documents_people` answered (the plugin's `people` event): kept for the active account. */
+    heard: (seen: DynWorkDocuments.Seen) => {
+      const account = options.service.current()?.id
+      if (account)
+        options.service.known.remember(
+          account,
+          seen.people.map((item) => ({
+            id: item.user_id,
+            name: item.name,
+            ...(item.email === undefined ? {} : { email: item.email }),
+          })),
+        )
+    },
     withdraw,
     /** The shares still waiting in the service, read after (re)connecting: new ones are shown, gone ones dropped. */
     sync: async (waiting: readonly DynWorkDocuments.Share[]) => {
@@ -195,6 +217,8 @@ const sameScope = (a: ShareCard, b: ShareCard) => a.session === b.session && a.k
 const named = (name: string | undefined) => (name === undefined ? {} : { name })
 
 const CONFIRM = `rpc.${DynWorkDocuments.id}.confirm` as const
+const PEOPLE = `rpc.${DynWorkDocuments.id}.people` as const
+const decodeSeen = Schema.decodeUnknownOption(DynWorkDocuments.Seen)
 const WITHDRAW = `rpc.${DynWorkDocuments.id}.withdraw` as const
 const RETRY = 2_000
 const decodeShare = Schema.decodeUnknownOption(DynWorkDocuments.Share)
@@ -250,7 +274,7 @@ async function follow(
   call: (method: string, value: unknown) => Promise<unknown>,
   signal: AbortSignal,
 ) {
-  for await (const event of client.event.subscribe({ types: [CONFIRM, WITHDRAW], signal })) {
+  for await (const event of client.event.subscribe({ types: [CONFIRM, WITHDRAW, PEOPLE], signal })) {
     if (event.type === "server.connected") {
       const waiting = decodeShares(await call("shares", {}).catch(() => undefined))
       if (waiting._tag === "Some") void logic.sync(waiting.value.shares)
@@ -259,9 +283,27 @@ async function follow(
       const share = decodeShare(event.data)
       if (share._tag === "Some") void logic.request(share.value)
     }
+    if (event.type === PEOPLE) {
+      const seen = decodeSeen(event.data)
+      if (seen._tag === "Some") logic.heard(seen.value)
+    }
     if (event.type === WITHDRAW) {
       const withdrawn = decodeWithdrawn(event.data)
       if (withdrawn._tag === "Some") logic.withdraw(withdrawn.value.id)
     }
   }
+}
+
+// A person as the account keeps them: id, name and email, nothing else.
+function personOf(subject: DynWorkDocuments.Subject) {
+  return {
+    id: subject.value,
+    name: subject.name ?? subject.value,
+    ...(subject.email === undefined ? {} : { email: subject.email }),
+  }
+}
+
+// The name and email a card shows for someone found.
+function withName(person: { readonly name: string; readonly email?: string }) {
+  return { name: person.name, ...(person.email === undefined ? {} : { email: person.email }) }
 }

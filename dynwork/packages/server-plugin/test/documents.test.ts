@@ -329,6 +329,40 @@ describe("what the user confirms before the agent shares", () => {
     })
   })
 
+  test("the people a documents_people call answered go to main as id, name and email only", () => {
+    const answer = {
+      people: [
+        { user_id: "u-1", name: "Ana Ruiz", email: "ana@dynapps.es", access: "edit" },
+        { user_id: "u-2", name: "Bea Gil" },
+      ],
+    }
+    expect(
+      DynWorkDocuments.heard({
+        tool: "documents_documents_people",
+        sessionID: "ses_seen",
+        id: "c",
+        input: { query: "a" },
+        status: "completed",
+        result: { output: answer },
+      }),
+    ).toEqual({
+      people: [
+        { user_id: "u-1", name: "Ana Ruiz", email: "ana@dynapps.es" },
+        { user_id: "u-2", name: "Bea Gil" },
+      ],
+    })
+    // Nothing to tell main: an empty answer, or another call.
+    const none = { sessionID: "ses_seen", id: "c", input: {}, status: "completed" as const }
+    expect(
+      DynWorkDocuments.heard({ ...none, tool: "documents_documents_people", result: { output: { people: [] } } }),
+    ).toBeUndefined()
+    expect(
+      DynWorkDocuments.heard({ ...none, tool: "documents_documents_read", result: { output: answer } }),
+    ).toBeUndefined()
+    const seen = { people: [{ user_id: "u-1", name: "Ana Ruiz", email: "ana@dynapps.es" }] }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Seen)(seen)).toEqual(seen)
+  })
+
   test("a transfer and a revoke_all are asked about too, each as what it is", () => {
     expect(DynWorkDocuments.sharing(call({ document_id: "d1", transfer_to: "user-luis" }))).toEqual({
       id: "call_s",
@@ -575,6 +609,18 @@ describe("the rules about the server", () => {
     expect(flat(DynWorkDocuments.rules(["documents"], both)[0]?.instructions ?? "")).toBe(text)
     expect(DynWorkDocuments.rules(["other"], both)).toEqual([])
     for (const variant of [{}, { rawHtmlByMcp: true }, { mcpFolders: true }, both])
+      expect(
+        DynWorkInstructions.overBudget(DynWorkInstructions.block(DynWorkDocuments.rules(["documents"], variant))),
+      ).toBeUndefined()
+  })
+
+  test("on 0.83 the agent looks a person up right before sharing; an instance that names people by id does not need it", () => {
+    const line = "look them up with documents_people by name or email in the same Code Mode call"
+    expect(flat(DynWorkDocuments.instructions())).toContain(line)
+    expect(flat(DynWorkDocuments.instructions({ rawHtmlByMcp: true, mcpFolders: true }))).toContain(line)
+    expect(flat(DynWorkDocuments.instructions({ peopleByRest: true }))).not.toContain(line)
+    expect(flat(DynWorkDocuments.instructions({ peopleByRest: true }))).toContain("Before every documents_share")
+    for (const variant of [{}, { peopleByRest: true }, { rawHtmlByMcp: true, mcpFolders: true }])
       expect(
         DynWorkInstructions.overBudget(DynWorkInstructions.block(DynWorkDocuments.rules(["documents"], variant))),
       ).toBeUndefined()

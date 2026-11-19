@@ -80,8 +80,8 @@ export const RoutinesDefinition = Rpc.define({
 })
 
 // What the agent does with the `documents` MCP server (`./documents`): main adds a write's folder and message, hears
-// what each write touched, and shows each share on a card for the user to decide (`shown` once the card is up, `decide`,
-// and `shares` after it reconnects).
+// what each write touched, shows each share on a card for the user to decide (`shown` once the card is up, `decide`,
+// and `shares` after it reconnects), and keeps the people the agent looked up (`people`) to name them on later cards.
 export const DocumentsDefinition = Rpc.define({
   id: DynWorkDocuments.id,
   methods: {
@@ -107,6 +107,7 @@ export const DocumentsDefinition = Rpc.define({
     touch: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Touch) },
     confirm: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Share) },
     withdraw: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Withdrawn) },
+    people: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Seen) },
   },
 })
 
@@ -650,7 +651,9 @@ export default Plugin.define({
       }),
     )
     yield* ctx.tool.hook("execute.after", (event) => {
-      DynWorkDocuments.heard(event)
+      // The people the agent looked up go to main, which keeps them per account for later cards.
+      const seen = DynWorkDocuments.heard(event)
+      if (seen) Effect.runFork(documentsRpc.events.emit("people", seen).pipe(Effect.ignore))
       const touched = DynWorkDocuments.touch(event)
       return touched ? documentsRpc.events.emit("touch", touched).pipe(Effect.ignore) : Effect.void
     })

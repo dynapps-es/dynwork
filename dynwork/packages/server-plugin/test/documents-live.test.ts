@@ -149,6 +149,7 @@ const models = [
 const asks: DynWorkDocuments.Ask[] = []
 const touches: DynWorkDocuments.Touch[] = []
 const confirms: DynWorkDocuments.Share[] = []
+const seen: DynWorkDocuments.Seen[] = []
 const decision = { allow: false, listening: true }
 const listening = new AbortController()
 
@@ -171,7 +172,9 @@ beforeAll(async () => {
     expiresAt: Date.now() + 3_600_000,
     gateway: { label: "Alpha", models },
   })
-  const types = ["ask", "touch", "confirm"].map((name) => `types=rpc.${DynWorkDocuments.id}.${name}`).join("&")
+  const types = ["ask", "touch", "confirm", "people"]
+    .map((name) => `types=rpc.${DynWorkDocuments.id}.${name}`)
+    .join("&")
   const events = await fetch(`${service.url}/api/event?${types}`, {
     headers: { ...service.headers, accept: "text/event-stream" },
     signal: listening.signal,
@@ -192,6 +195,7 @@ beforeAll(async () => {
           })
         }
         if (event.type.endsWith(".touch")) touches.push(event.data)
+        if (event.type.endsWith(".people")) seen.push(event.data)
         if (event.type.endsWith(".confirm")) {
           const share: DynWorkDocuments.Share = event.data
           confirms.push(share)
@@ -370,6 +374,12 @@ test("a person the program looked up shows on the card by name and email", async
     name: "Jesús Pérez",
     email: "jesus@dynapps.es",
   })
+  // Main hears whom the lookup found, to keep them for the account.
+  await until(
+    async () => seen.length,
+    (count) => count > 0,
+  )
+  expect(seen.at(-1)).toEqual({ people: [{ user_id: "e51c808f-1", name: "Jesús Pérez", email: "jesus@dynapps.es" }] })
 }, 60_000)
 
 test("a share nobody in Dynwork hears is refused, not left waiting", async () => {

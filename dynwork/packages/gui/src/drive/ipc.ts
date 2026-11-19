@@ -4,7 +4,7 @@ import { Schema } from "effect"
 import type { IpcImpl, Persisted } from "@opencode/plugin/gui/main"
 import { fail, type Backend } from "./backend"
 import { DriveCapabilities } from "./capabilities"
-import { isFailure, Link, Mention, type Conversation, type Drive, type Failure, type State } from "./contract"
+import { isFailure, Link, Mention, Person, type Conversation, type Drive, type Failure, type State } from "./contract"
 import { DriveMentions } from "./mentions"
 
 /** The account the Drive shows: the active, signed-in one, and the name its direct writes are signed with. */
@@ -29,8 +29,8 @@ const Context = Schema.Struct({ id: Schema.String, name: Schema.String })
 
 /**
  * What the service keeps on this computer, per account: each conversation's context (by session id), the conversation
- * ↔ document index, the folder each conversation's files go to (by session id) and what became of the comments that
- * asked for the agent. A context saved as a plain string is a UUID an earlier version made up and the instance never
+ * ↔ document index, the folder each conversation's files go to (by session id), what became of the comments that
+ * asked for the agent, and the people the agent and the share cards met (id, name and email only, for the cards). A context saved as a plain string is a UUID an earlier version made up and the instance never
  * registered: it is not sent, and the conversation's next write registers one in its place. The index keys
  * conversations by session id, so no link is lost.
  */
@@ -43,6 +43,7 @@ export const Saved = Schema.Struct({
       // Absent in what an earlier version saved.
       folders: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
       mentions: Schema.optionalKey(Schema.Array(Mention)),
+      people: Schema.optionalKey(Schema.Array(Person)),
     }),
   ),
 })
@@ -67,6 +68,9 @@ type Cache = Pick<State, "account" | "status" | "folders" | "documents" | "read"
 
 /** How many comments that asked for the agent an account keeps the outcome of: the newest. */
 const keptMentions = 200
+
+/** How many people an account keeps for the share cards: the most recently seen. */
+export const keptPeople = 500
 
 const empty = (account: string | undefined): Cache => ({
   account,
@@ -488,6 +492,30 @@ export function make<A extends Account>(options: Options<A>) {
           draft.accounts[account].mentions = [...(draft.accounts[account].mentions ?? []), entry].slice(-keptMentions)
         })
         options.changed()
+      },
+    },
+    /**
+     * The people an account met (`DriveShare`): what the agent's `documents_people` answered and what the cards looked up,
+     * so a card names someone by id after a restart or in another conversation, where 0.83 cannot look an id up. The
+     * most recent `keptPeople`; a person seen again moves to the end with what was seen last.
+     */
+    known: {
+      find: (account: string, value: string) => {
+        const lower = value.toLowerCase()
+        return options.store.value.accounts[account]?.people?.findLast(
+          (person) => person.id === value || person.email?.toLowerCase() === lower,
+        )
+      },
+      remember: (account: string, people: readonly Person[]) => {
+        if (people.length === 0) return
+        const ids = new Set(people.map((person) => person.id))
+        options.store.update((draft) => {
+          draft.accounts[account] ??= { contexts: {}, links: [] }
+          draft.accounts[account].people = [
+            ...(draft.accounts[account].people ?? []).filter((person) => !ids.has(person.id)),
+            ...people,
+          ].slice(-keptPeople)
+        })
       },
     },
     /** For main code: `account` is told when the active account changes, `asked` when a comment asks for the agent. */

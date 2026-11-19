@@ -287,10 +287,16 @@ export function sharing(event: {
 // over REST before 0.84 (`peopleByRest`), and the agent passes a person to `documents_share` as the id it got there, which
 // would leave the card with a UUID. One process-wide slot, as for the asks; only the most recent conversations are kept.
 const peopleTool = `${server}_${server}_people`
-const People = Schema.Struct({
+
+/**
+ * The people a `documents_people` call answered (user id, name, email: nothing else), published as the `people` event:
+ * main keeps them per account, so a later card names them even in another conversation or after a restart.
+ */
+export const Seen = Schema.Struct({
   people: Schema.Array(Schema.Struct({ user_id: Schema.String, name: Schema.String, email: Text })),
 })
-const decodePeople = Schema.decodeUnknownOption(People)
+export type Seen = typeof Seen.Type
+const decodePeople = Schema.decodeUnknownOption(Seen)
 interface Known {
   readonly name: string
   readonly email?: string
@@ -298,17 +304,26 @@ interface Known {
 const peopleSlot = globalThis as typeof globalThis & { __dynworkPeople?: Map<string, Map<string, Known>> }
 const seen: Map<string, Map<string, Known>> = (peopleSlot.__dynworkPeople ??= new Map())
 
-/** Keeps the people a completed `documents_people` call of the conversation answered; any other call is ignored. */
-export function heard(event: Executed) {
-  if (event.tool !== peopleTool || event.status !== "completed") return
+/**
+ * Keeps the people a completed `documents_people` call of the conversation answered, and answers them, only their id,
+ * name and email, for main; any other call is ignored.
+ */
+export function heard(event: Executed): Seen | undefined {
+  if (event.tool !== peopleTool || event.status !== "completed") return undefined
   const found = Option.getOrUndefined(decodePeople(event.result?.output))
-  if (!found) return
+  if (!found || found.people.length === 0) return undefined
   const known = seen.get(event.sessionID) ?? new Map<string, Known>()
   seen.delete(event.sessionID)
   seen.set(event.sessionID, known)
   if (seen.size > 256) seen.delete(seen.keys().next().value ?? "")
-  for (const item of found.people)
+  const people = found.people.map((item) => ({
+    user_id: item.user_id,
+    name: item.name,
+    ...(item.email === undefined ? {} : { email: item.email }),
+  }))
+  for (const item of people)
     known.set(item.user_id, { name: item.name, ...(item.email === undefined ? {} : { email: item.email }) })
+  return { people }
 }
 
 // A user the conversation looked up gets their name and email; anything else stays as the agent wrote it.
@@ -417,6 +432,8 @@ export interface Switches {
   readonly rawHtmlByMcp?: boolean
   /** `documents_import` makes a document of an uploaded blob, scripts kept, and `documents_folder` makes folders. */
   readonly mcpFolders?: boolean
+  /** The instance names people by id (`GET /documents/people?ids=`), so a share card names anyone without a lookup. */
+  readonly peopleByRest?: boolean
 }
 
 /** The rules the plugin adds to the instance's own when the `documents` server is among its MCP servers. */
@@ -476,6 +493,13 @@ export function instructions(switches: Switches = {}) {
         "refuses documents_edit on an HTML document for that reason. To change a page, upload the whole changed page again",
         "under a new name: it becomes a new document next to the old one, and you tell the user so in one line.",
       ]
+  // 0.83 names nobody by id, so the card can name a person only from a `documents_people` answer DynWork saw.
+  const lookup = switches.peopleByRest
+    ? []
+    : [
+        "Right before each documents_share to a person, look them up with documents_people by name or email in the same",
+        "Code Mode call, even when you already have their id, so Dynwork can show the user who it is on the card.",
+      ]
   return [
     "Documents, pages, reports, presentations and artifacts you make for the user go in their Drive with the `documents`",
     "tools, not in local files. Write a local file only when the user asks for one; code and the project's files stay",
@@ -492,5 +516,6 @@ export function instructions(switches: Switches = {}) {
     "A file you upload to put inside another document (an image for a Word file) is not imported as a document.",
     "Before every documents_share the user allows or rejects it on a card in this conversation: call it without asking",
     "first, and when the user rejects it, do not try again unless they ask.",
+    ...lookup,
   ].join("\n")
 }

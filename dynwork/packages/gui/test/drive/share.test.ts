@@ -22,6 +22,8 @@ interface Standing {
   around?: (fake: DriveFake.Fake) => Partial<Backend>
   /** No window open to show a card. */
   windowless?: boolean
+  /** The Drive's saved store, to read again as after a restart. */
+  store?: ReturnType<typeof storage<typeof DriveIpc.Saved>>
 }
 
 async function stand(options: Standing = {}) {
@@ -32,7 +34,7 @@ async function stand(options: Standing = {}) {
   const service = DriveIpc.make({
     account: () => ana,
     backend: () => backend,
-    store: storage(DriveIpc.Saved, DriveIpc.initial),
+    store: options.store ?? storage(DriveIpc.Saved, DriveIpc.initial),
     changed: () => {},
     capabilities: () => options.capabilities ?? {},
     timers: manualTimers(),
@@ -50,7 +52,7 @@ async function stand(options: Standing = {}) {
     attended: () => !options.windowless,
     changed: () => void changes.count++,
   })
-  return { logic, decisions, shown, changes, document: document.id, folder: folder.id }
+  return { logic, service, decisions, shown, changes, document: document.id, folder: folder.id }
 }
 
 const grant = (id: string, session: string, document: string): DynWorkDocuments.Share => ({
@@ -254,6 +256,77 @@ describe("a person the conversation never looked up", () => {
     await at.logic.request(unseen("call_1", "user-luis"))
     expect(await subjects(at)).toEqual([{ kind: "user", value: "user-luis", name: "Luis Martín" }])
     expect(searched).toEqual([])
+  })
+})
+
+describe("the people the account met, kept across conversations and restarts", () => {
+  const jesus = { user_id: "e51c808f-4246", name: "Jesús Pérez", email: "jesus.perez@dynapps.es" }
+  const byId = (id: string, session: string) => ({
+    ...grant(id, session, "doc-x"),
+    subject: { kind: "user", value: jesus.user_id },
+  })
+  // A lookup that would fail the test: the card must name the person from what the account kept.
+  const noLookup = () => ({
+    findPeople: async () => {
+      throw new Error("looked up")
+    },
+  })
+  const named = { kind: "user", value: jesus.user_id, name: jesus.name, email: jesus.email }
+
+  test("a person the agent looked up in another conversation is named here, with no lookup", async () => {
+    const searched: string[] = []
+    const at = await stand({ around: () => ({ findPeople: async (query) => (searched.push(query), []) }) })
+    at.logic.heard({ people: [jesus] })
+    await at.logic.request(byId("call_1", "ses_other"))
+    expect(at.logic.cards().map((card) => card.subject)).toEqual([named])
+    expect(searched).toEqual([])
+  })
+
+  test("after a restart (the store read again) the person is still named", async () => {
+    const store = storage(DriveIpc.Saved, DriveIpc.initial)
+    const before = await stand({ store })
+    before.logic.heard({ people: [jesus] })
+    const after = await stand({ store, around: noLookup })
+    await after.logic.request(byId("call_1", "ses_q3"))
+    expect(after.logic.cards().map((card) => card.subject)).toEqual([named])
+  })
+
+  test("whoever a card named is remembered: from the conversation's own lookup, or found by email", async () => {
+    const store = storage(DriveIpc.Saved, DriveIpc.initial)
+    const first = await stand({ store })
+    // The plugin named them from the conversation's own documents_people.
+    await first.logic.request({ ...byId("call_1", "ses_a"), subject: named })
+    const ana = { id: "u-ana", name: "Ana Ruiz", email: "ana@dynapps.es" }
+    const second = await stand({ store, around: () => ({ findPeople: async () => [ana] }) })
+    await second.logic.request({ ...grant("call_2", "ses_b", "doc-x"), subject: { kind: "user", value: ana.email } })
+    const third = await stand({ store, around: noLookup })
+    await third.logic.request(byId("call_3", "ses_c"))
+    await third.logic.request({ ...grant("call_4", "ses_c", "doc-x"), subject: { kind: "user", value: "u-ana" } })
+    expect(third.logic.cards().map((card) => card.subject?.name)).toEqual(["Jesús Pérez", "Ana Ruiz"])
+  })
+
+  test("only id, name and email are kept, for the account, the most recent keptPeople", async () => {
+    const at = await stand()
+    at.logic.heard({ people: [jesus] })
+    expect(at.service.known.find("account-ana", jesus.user_id)).toEqual({
+      id: jesus.user_id,
+      name: jesus.name,
+      email: jesus.email,
+    })
+    expect(at.service.known.find("account-ana", "JESUS.PEREZ@dynapps.es")?.id).toBe(jesus.user_id)
+    expect(at.service.known.find("account-other", jesus.user_id)).toBeUndefined()
+    const crowd = Array.from({ length: DriveIpc.keptPeople }, (_, index) => ({ id: `u-${index}`, name: `P${index}` }))
+    at.service.known.remember("account-ana", crowd)
+    expect(at.service.known.find("account-ana", jesus.user_id)).toBeUndefined()
+    // Seen again: kept with what was seen last, and the oldest of the rest makes room.
+    at.service.known.remember("account-ana", [
+      { id: "u-0", name: "P0 renamed" },
+      { id: "u-new", name: "New" },
+    ])
+    expect(at.service.known.find("account-ana", "u-0")?.name).toBe("P0 renamed")
+    expect(at.service.known.find("account-ana", "u-1")).toBeUndefined()
+    expect(at.service.known.find("account-ana", "u-2")?.name).toBe("P2")
+    expect(at.service.known.find("account-ana", "u-new")?.name).toBe("New")
   })
 })
 
