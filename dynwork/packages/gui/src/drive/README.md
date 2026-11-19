@@ -20,6 +20,8 @@ window                                main process
 | `agent.ts`        | What the agent does with the `documents` MCP tools: its folder, its signature, its index, its uploaded pages (phase 07)          |
 | `mentions.ts`     | `@Agent` in a comment: written as a real mention, followed on the bridge stream, and woken to the linked conversation (phase 08) |
 | `share.ts`        | The agent's shares: each `documents_share` call waits on a card in its conversation for the user's decision (D24)                |
+| `frames.ts`       | The viewer's HTML frames: main's navigation guard, and the observer main runs in their isolated world                            |
+| `watch.ts`        | Main's observer of a window's viewer frames over the DevTools protocol (`dynwork.drive.frames`)                                  |
 | `main.ts`         | The main-process setup over the accounts, from `accounts/main.ts`                                                                |
 | `client.ts`       | The window's live Ipc client, handed over by the window entry for the views to read                                              |
 
@@ -234,6 +236,41 @@ documents_share ──execute.before──► plugin: confirm ──event──�
   after 10 seconds (`DynWorkDocuments.heardWithin`) the plugin refuses the share with a `Tool.Error` the agent reads
   ("Dynwork could not ask the user to confirm this share…"). It fails closed: never shared unseen, never left waiting
   for nobody.
+
+## The viewer's frames (phase 16)
+
+The viewer shows an HTML page (and the Drive's previews) in a sandboxed `srcdoc` frame without `allow-same-origin`,
+under the policy the instance served it with (D5); its scripts may run, and an agent may have written it (G11). The app
+cannot read it, but the index follows the heading being read and a click on a comment's mark opens its thread. What
+the window learns of the frame is two ids at most, and nothing of DynWork reaches the page:
+
+- **Where it runs.** Electron 44 runs a sandboxed frame out of process, so the window's `webFrame` cannot reach it.
+  `WebFrameMain.executeJavaScript` runs in the page's own world, where its scripts see and can replace what runs, and
+  not at all in a frame whose policy runs no scripts (measured). Main uses the DevTools protocol instead (`watch.ts`):
+  while a window shows a frame and holds `watch({ frame })` for it, main attaches to the window
+  (`webContents.debugger`), auto-attaches to its sub-frames (`Target.setAutoAttach`, flat sessions), lets go of every
+  frame whose name is not a viewer's (`DriveFrames.isViewer`), and in a viewer frame adds a binding
+  (`Runtime.addBinding`, `executionContextName: dynwork-drive`) and the observer (`Page.addScriptToEvaluateOnNewDocument`
+  in the world `dynwork-drive`, `runImmediately`) to every document. Both exist only in that isolated world: the page's
+  scripts cannot see, call or replace them, and the frame's policy does not apply to them. Measured in Electron 44: it
+  runs in frames with no scripts and `default-src 'none'`, survives a new `srcdoc`, and a page's own
+  `window.dynworkDriveFrame` is not the binding.
+- **What it reports** (`DriveFrames.observer`): the id of the heading being read when it changes (`DriveFrames.reading`:
+  the last heading whose top has passed the upper third of the frame, else the first), and the comment of a mark the
+  user clicked, only for a trusted click, so the page's scripts cannot click one for the user. Nothing else.
+- **What main takes.** A binding call from a viewer frame's session whose name a call of that window watches, parsed as
+  `{ kind: "heading" | "mark", id }` with an id of 1 to 256 characters (`DriveWatch.report`); anything else is dropped.
+  It goes to that window alone, as the `seen` event of `dynwork.drive.frames`.
+- **What the window takes** (`views/drive/viewer.tsx`, `fromFrame`): a report for its own frame's name whose id is a
+  heading id or a mark it gave that page. A page that forges a report can at most move the index to one of its own
+  headings, or open one of its own threads.
+- **When it stops.** When the window's last frame stops watching, main detaches if it attached; if another client had
+  attached first (the force-focus helper), main leaves it attached and lets its own sessions go. If another client
+  detaches while the window watches, main attaches again. Each frame of a window has its own name
+  (`dynwork-drive-frame:<n>`), which the navigation guard keeps on its page as before.
+- **Limits.** A frame that runs in its window's process (no site isolation) is not reached: the index then does not
+  follow the reading and a mark opens nothing, and the rest works. A page may rename its frame (`window.name`) before
+  main reads it: it is then not observed.
 
 ## Capabilities
 

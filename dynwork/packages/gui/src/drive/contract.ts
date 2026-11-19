@@ -478,3 +478,24 @@ export const Shares = Ipc.define({
     },
   },
 })
+
+/**
+ * What a viewer frame was seen doing (`frames.ts`): the heading the reader is at, or the comment mark they clicked, by
+ * the id the viewer gave it in the page. `frame` is the frame's name. Nothing else ever comes out of a frame.
+ */
+export const Seen = Schema.Struct({
+  frame: Schema.String,
+  kind: Schema.Literals(["heading", "mark"]),
+  id: Schema.String,
+})
+export type Seen = typeof Seen.Type
+
+/** The window's HTML frames, observed by main in an isolated world of each (`watch.ts`). */
+export const Frames = Ipc.define({
+  id: "dynwork.drive.frames",
+  methods: {
+    /** Holds until the window aborts the call; while one is held, main reports what the frame named `frame` is at. */
+    watch: { input: Schema.Struct({ frame: Schema.String }) },
+  },
+  events: { seen: Seen },
+})

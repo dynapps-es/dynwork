@@ -1,14 +1,17 @@
 import { usePlugin, type MountedSession } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
+import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 import { Icon } from "@opencode/ui/icon"
-import { createEffect, createResource, For, Show } from "solid-js"
+import { createEffect, createResource, For, on, Show } from "solid-js"
 import { createStore } from "solid-js/store"
-import { isFailure, type Link, type Revision } from "../../drive/contract"
+import { isFailure, type Document, type Link, type Revision } from "../../drive/contract"
 import { uploadFiles } from "./browser"
 import { conversationOf, docKey, openInDrive } from "./chat"
-import { failureText, FormatGlyph, Tag, useNames } from "./parts"
-import { drive } from "./store"
+import { CommentMarks, MarksToggle, ThreadCard } from "./comments"
+import { createPresent, failureText, FormatGlyph, PresentButton, PresentExit, Tag, useNames } from "./parts"
+import { drive, governance } from "./store"
 import { Viewer } from "./viewer"
+import { Sharing } from "./workspace"
 
 // The Drive beside a chat (a side panel tab, as Claude's artifacts): the documents the chat made, changed or attached,
 // newest first, from the conversation ↔ document index, and one tab per document with its viewer and a version picker.
@@ -127,12 +130,27 @@ export function ChangeCard(props: { link: Link; session: MountedSession }) {
 // the choice lives here and not in it.
 const [picks, setPicks] = createStore<Record<string, string | undefined>>({})
 
-/** One document beside the chat: its header with its version and Open in the Drive, then its viewer. */
+/**
+ * One document beside the chat: its header with its version, the comments marked on it, Share, Present and Open in the
+ * Drive, then its viewer. A click on a comment's mark opens its thread in a dialog.
+ */
 export function DocPanel(props: { session: MountedSession; id: string }) {
   const ctx = usePlugin()
   const names = useNames()
   const doc = () => drive.doc(props.id)
   const key = () => `${props.session.id}:${props.id}`
+  let content: HTMLDivElement | undefined
+  const present = createPresent(() => content)
+  // The comments and nodes the marks need, read again with each new head.
+  createEffect(
+    on(
+      () => drive.client() && doc()?.revision,
+      (revision) => {
+        if (revision) void drive.discuss(props.id)
+      },
+    ),
+  )
+  const thread = (found: Document, id: string) => ctx.dialogs.open(() => <ThreadDialog doc={found} thread={id} />)
   // Read again when the document gets a new head; the source is a string so a new object for it reads nothing.
   const [revisions] = createResource(
     () => drive.client() && `${props.id}:${doc()?.revision ?? ""}`,
@@ -172,6 +190,21 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
                 }))}
               />
             </Show>
+            <MarksToggle doc={found()} />
+            <Show when={governance(found().id)}>
+              <ctx.ui.Tooltip value={ctx.t("drive.share.hint")} placement="bottom">
+                <ctx.ui.IconButton
+                  icon="outline-share"
+                  label={ctx.t("drive.tab.share")}
+                  onClick={() => {
+                    // The dialog renders apart from this header: it takes the document as it is now.
+                    const shared = found()
+                    ctx.dialogs.open(() => <ShareDialog doc={shared} />)
+                  }}
+                />
+              </ctx.ui.Tooltip>
+            </Show>
+            <PresentButton present={present} />
             <ctx.ui.Tooltip value={ctx.t("drive.panel.open")} placement="bottom">
               <ctx.ui.IconButton
                 icon="square-arrow-top-right"
@@ -180,11 +213,71 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
               />
             </ctx.ui.Tooltip>
           </div>
-          <div data-slot="drive-panel-content" data-format={found().format}>
-            <Viewer doc={found()} revision={shown() > 0 ? picks[key()] : undefined} />
+          <div ref={content} data-slot="drive-panel-content" data-format={found().format}>
+            <Viewer
+              doc={found()}
+              revision={shown() > 0 ? picks[key()] : undefined}
+              onMark={(id) => thread(found(), id)}
+            />
+            <Show when={found().format === "markdown" && shown() <= 0}>
+              <CommentMarks doc={found()} interactive={false} onThread={(id) => thread(found(), id)} />
+            </Show>
+            <PresentExit present={present} />
           </div>
         </div>
       )}
     </Show>
+  )
+}
+
+/** A thread picked on a document beside a chat: read, reply and resolve, as in the Drive's Comments tab. */
+function ThreadDialog(props: { doc: Document; thread: string }) {
+  const ctx = usePlugin()
+  const thread = () => drive.threadsOf(props.doc.id).find((item) => item.id === props.thread)
+  return (
+    <Dialog>
+      <DialogHeader>
+        <DialogTitleGroup title={ctx.t("drive.tab.comments")} description={props.doc.name} />
+      </DialogHeader>
+      <DialogBody>
+        <div data-component="drive-dialog">
+          <Show when={thread()} fallback={<p data-slot="drive-note">{ctx.t("drive.comment.gone")}</p>}>
+            {(found) => <ThreadCard doc={props.doc} thread={found()} />}
+          </Show>
+        </div>
+      </DialogBody>
+    </Dialog>
+  )
+}
+
+/**
+ * The document's Share tab beside a chat: who can see it and what agents may do, read when it opens. A part the Drive
+ * does not answer is left out, as the drawer's tab does.
+ */
+function ShareDialog(props: { doc: Document }) {
+  const ctx = usePlugin()
+  const [read] = createResource(
+    () => drive.client(),
+    async (client) => {
+      const [access, cap] = await Promise.all([
+        client.access({ id: props.doc.id }),
+        client.agentCap({ kind: "document", id: props.doc.id }),
+      ])
+      return { access: isFailure(access) ? undefined : access, cap: isFailure(cap) ? undefined : cap }
+    },
+  )
+  return (
+    <Dialog>
+      <DialogHeader>
+        <DialogTitleGroup title={ctx.t("drive.tab.share")} description={props.doc.name} />
+      </DialogHeader>
+      <DialogBody>
+        <div data-component="drive-dialog">
+          <Show when={read()} fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
+            {(found) => <Sharing doc={props.doc} access={found().access} cap={found().cap} />}
+          </Show>
+        </div>
+      </DialogBody>
+    </Dialog>
   )
 }

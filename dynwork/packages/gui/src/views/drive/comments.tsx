@@ -8,7 +8,8 @@ import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid
 import { isFailure, type Anchor, type Document, type Failure, type Mention } from "../../drive/contract"
 import { DriveCapabilities } from "../../drive/capabilities"
 import { askAgent, sessionOf, titleOf } from "./chat"
-import { anchorsOf, matchNodes, nodeLabel, pickable, quoteIn, type Node, type Thread } from "./model"
+import { anchorsOf, marked, matchNodes, nodeLabel, pickable, quoteIn, type Node, type Thread } from "./model"
+import { panes } from "./panes"
 import { AnchorLine, Avatar, failureText, MessageLine } from "./parts"
 import { drive } from "./store"
 
@@ -21,11 +22,42 @@ import { drive } from "./store"
 /** How many paragraphs and cells the picker shows before it asks for a narrower search. */
 const SHOWN = 80
 
-/** The user may comment unless the document is theirs to read only. */
-const canComment = (doc: Document) => (drive.state.opened.detail?.access ?? doc.access) !== "view"
+/** The user may comment unless the document is theirs to read only: by the open document's detail when it is that one. */
+const canComment = (doc: Document) => {
+  const detail = drive.state.opened.detail
+  return (detail?.document.id === doc.id ? detail.access : doc.access) !== "view"
+}
+
+/**
+ * Shows or hides the comments marked on the document, with how many threads are open. Only where marks are drawn: an
+ * HTML page and Markdown; the instance's previews of Word, Excel and PowerPoint, and a PDF, carry none.
+ */
+export function MarksToggle(props: { doc: Document }) {
+  const ctx = usePlugin()
+  const open = () => drive.threadsOf(props.doc.id).filter((thread) => thread.open).length
+  const label = () => ctx.t(panes.marks() ? "drive.marks.hide" : "drive.marks.show")
+  return (
+    <Show when={marked(props.doc)}>
+      <ctx.ui.Tooltip value={label()} placement="bottom">
+        <span data-slot="drive-marks-toggle">
+          <ctx.ui.IconButton
+            variant="ghost"
+            icon="comment"
+            pressed={panes.marks()}
+            label={label()}
+            onClick={() => panes.toggle("marks")}
+          />
+          <Show when={open()}>
+            <span data-slot="drive-count">{open()}</span>
+          </Show>
+        </span>
+      </ctx.ui.Tooltip>
+    </Show>
+  )
+}
 
 /** The Comments tab of a document's drawer: its threads, and the composer or the picker of a new comment. */
-export function CommentsTab(props: { doc: Document }) {
+export function CommentsTab(props: { doc: Document; onReveal?: (thread: string) => void }) {
   const ctx = usePlugin()
   const threads = () => drive.threadsOf(props.doc.id)
   const shown = () => threads().filter((thread) => thread.open === (drive.state.doc.filter === "open"))
@@ -88,7 +120,9 @@ export function CommentsTab(props: { doc: Document }) {
             </p>
           }
         >
-          <For each={shown()}>{(thread) => <ThreadCard doc={props.doc} thread={thread} />}</For>
+          <For each={shown()}>
+            {(thread) => <ThreadCard doc={props.doc} thread={thread} onReveal={props.onReveal} />}
+          </For>
         </Show>
         <Show when={!canComment(props.doc)}>
           <p data-slot="drive-note">{ctx.t("drive.comment.readOnly")}</p>
@@ -126,15 +160,20 @@ function Pointing(props: { doc: Document; anchor: Anchor }) {
 
 /**
  * A thread: what it points at, with Resolve beside it, and its messages, with Reply. Reply opens one reply box at a time, so a panel
- * of threads stays a list.
+ * of threads stays a list. Picking it brings its mark on the document into view (`onReveal`); picked from the document,
+ * it scrolls into view in its list.
  */
-function ThreadCard(props: { doc: Document; thread: Thread }) {
+export function ThreadCard(props: { doc: Document; thread: Thread; onReveal?: (thread: string) => void }) {
   const ctx = usePlugin()
   const [failure, setFailure] = createSignal<Failure>()
   const [busy, setBusy] = createSignal(false)
   let field: HTMLTextAreaElement | undefined
+  let card: HTMLDivElement | undefined
   const anchor = (): Anchor => ({ kind: "node", node: props.thread.node, find: props.thread.quote })
   const on = () => drive.state.doc.thread === props.thread.id
+  createEffect(() => {
+    if (on()) card?.scrollIntoView({ block: "nearest" })
+  })
   const replying = () => drive.state.doc.replying === props.thread.id
   const act = async (run: () => Promise<unknown>) => {
     setBusy(true)
@@ -150,10 +189,14 @@ function ThreadCard(props: { doc: Document; thread: Thread }) {
   }
   return (
     <div
+      ref={card}
       data-slot="drive-thread"
       data-state={on() ? "on" : undefined}
       data-resolved={props.thread.open ? undefined : ""}
-      onClick={() => drive.focusThread(props.thread.id)}
+      onClick={() => {
+        drive.focusThread(props.thread.id)
+        props.onReveal?.(props.thread.id)
+      }}
     >
       <div data-slot="drive-thread-anchor">
         <Pointing doc={props.doc} anchor={anchor()} />
@@ -472,11 +515,13 @@ const textOf = (element: Element) =>
     .join("")
 
 /**
- * The marks and the selection toolbar of a Markdown document, over the workspace's canvas that holds it: each block
- * the document's nodes name carries its thread, a click on one opens the thread, and a selection offers to comment on it.
- * It matches the document's blocks to its nodes by their text, in reading order (`matchNodes`).
+ * The marks and the selection toolbar of a Markdown document, over the element that holds it (the workspace's canvas, a
+ * chat's panel): each block the document's nodes name carries its node and, while the user shows the marks, its
+ * thread; a click on a marked block opens the thread (`onThread`, else the Comments tab). In the workspace
+ * (`interactive`) a selection offers to comment on it and comment mode (C) comments on a block. It matches the
+ * document's blocks to its nodes by their text, in reading order (`matchNodes`).
  */
-export function CommentMarks(props: { doc: Document }) {
+export function CommentMarks(props: { doc: Document; interactive?: boolean; onThread?: (thread: string) => void }) {
   const ctx = usePlugin()
   let mark!: HTMLSpanElement
   const [picked, setPicked] = createSignal<{
@@ -498,7 +543,7 @@ export function CommentMarks(props: { doc: Document }) {
     const matched = matchNodes(nodes, elements.map(textOf))
     elements.forEach((element, index) => {
       const node = matched[index]
-      const own = node ? threads.filter((thread) => thread.node === node.id) : []
+      const own = node && panes.marks() ? threads.filter((thread) => thread.node === node.id) : []
       const lead = own.find((thread) => thread.open) ?? own[0]
       if (node) element.dataset.node = node.id
       else delete element.dataset.node
@@ -514,13 +559,15 @@ export function CommentMarks(props: { doc: Document }) {
     frame = requestAnimationFrame(sync)
   }
 
-  createEffect(() => canvas()?.toggleAttribute("data-commenting", drive.state.doc.commenting))
+  const interactive = () => props.interactive !== false
+  createEffect(() => canvas()?.toggleAttribute("data-commenting", interactive() && drive.state.doc.commenting))
 
-  // What the marks depend on: the nodes, the threads and the open one.
+  // What the marks depend on: the nodes, the threads, the open one and whether they show.
   createEffect(() => {
     drive.nodesOf(props.doc.id)
     drive.threadsOf(props.doc.id)
     drive.state.doc.thread
+    panes.marks()
     later()
   })
 
@@ -532,6 +579,7 @@ export function CommentMarks(props: { doc: Document }) {
     observer.observe(outer, { childList: true, subtree: true, characterData: true })
     const mouseup = (event: MouseEvent) =>
       setTimeout(() => {
+        if (!interactive()) return
         const target = event.target instanceof Element ? event.target : undefined
         if (target?.closest("[data-slot=drive-selection]")) return
         setPicked(undefined)
@@ -568,8 +616,8 @@ export function CommentMarks(props: { doc: Document }) {
       const target = event.target instanceof Element ? event.target : undefined
       const block = target?.closest<HTMLElement>("[data-node]")
       const thread = target?.closest<HTMLElement>("[data-thread]")?.dataset.thread
-      if (thread) return drive.focusThread(thread)
-      if (!drive.state.doc.commenting || !block?.dataset.node || !canComment(props.doc)) return
+      if (thread) return props.onThread ? props.onThread(thread) : drive.focusThread(thread)
+      if (!interactive() || !drive.state.doc.commenting || !block?.dataset.node || !canComment(props.doc)) return
       drive.setCommenting(false)
       drive.startComment({ kind: "node", node: block.dataset.node })
     }
@@ -578,11 +626,12 @@ export function CommentMarks(props: { doc: Document }) {
       if (event.defaultPrevented) return
       const typing =
         event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable=true]")
-      if (event.key === "Escape" && drive.state.doc.commenting) {
+      if (event.key === "Escape" && interactive() && drive.state.doc.commenting) {
         event.preventDefault()
         return drive.setCommenting(false)
       }
-      if (typing || event.metaKey || event.ctrlKey || event.altKey || event.key.toLowerCase() !== "c") return
+      if (!interactive() || typing || event.metaKey || event.ctrlKey || event.altKey || event.key.toLowerCase() !== "c")
+        return
       if (canComment(props.doc)) drive.setCommenting(!drive.state.doc.commenting)
     }
     outer.addEventListener("mouseup", mouseup)
@@ -595,7 +644,7 @@ export function CommentMarks(props: { doc: Document }) {
       outer.removeEventListener("click", click)
       document.removeEventListener("keydown", keys)
       outer.removeAttribute("data-commenting")
-      drive.setCommenting(false)
+      if (interactive()) drive.setCommenting(false)
       host()
         ?.querySelectorAll("[data-node], [data-thread]")
         .forEach((element) => {

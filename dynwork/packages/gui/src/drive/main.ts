@@ -5,17 +5,21 @@ import type { MainContext } from "@opencode/plugin/gui/main"
 import type { DynWorkAccounts } from "../accounts/accounts"
 import { DriveAgent } from "./agent"
 import { DriveBackend } from "./backend"
-import { Drive } from "./contract"
+import { Drive, Frames } from "./contract"
 import { DriveFrames } from "./frames"
 import { DriveIpc } from "./ipc"
 import { DriveMentions } from "./mentions"
 import { DriveShare } from "./share"
+import { DriveWatch } from "./watch"
 
 export interface Options {
   /** What each account's instance has delivered; absent, nothing (`DriveCapabilities.none`). */
   capabilities?: DriveIpc.Options["capabilities"]
   timers?: DriveIpc.Timers
-  /** Electron's app and windows, to keep the viewer's HTML frame on its page (`frames.ts`); the main entry passes them. */
+  /**
+   * Electron's app and windows, to keep the viewer's HTML frame on its page (`frames.ts`) and to observe it for the
+   * window (`watch.ts`, the `dynwork.drive.frames` Ipc); the main entry passes them.
+   */
   frames?: DriveFrames.Host
   /** DynWork's service, where the agent's `documents` tools run: its writes are followed (`DriveAgent`). Absent, none is. */
   client?: () => OpenCodeClient | undefined
@@ -55,7 +59,17 @@ export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, opti
     timers: options.timers,
   })
   ctx.onCleanup(service.dispose)
-  if (options.frames) ctx.onCleanup(DriveFrames.guard(options.frames))
+  if (options.frames) {
+    ctx.onCleanup(DriveFrames.guard(options.frames))
+    const watch = DriveWatch.make({
+      contents: (window) => ctx.windows.get(window)?.webContents,
+      seen: (window, seen) => frames.emit("seen", seen, window),
+    })
+    ctx.onCleanup(watch.dispose)
+    const frames = ctx.provide(Frames, {
+      watch: (input, caller) => watch.watch(caller.window, input.frame, caller.signal),
+    })
+  }
   if (options.client) {
     DriveAgent.setup(ctx, { service, client: options.client, untitled: ctx.t("drive.chat.untitled") })
     DriveMentions.setup(ctx, { service, client: options.client })

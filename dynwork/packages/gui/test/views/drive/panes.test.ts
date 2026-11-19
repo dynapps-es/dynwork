@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { Persisted } from "@opencode/plugin/gui"
 import { createRoot, createSignal } from "solid-js"
-import { createPanes, drawerWidth, initial, Panes } from "../../../src/views/drive/panes"
+import { createPanes, drawerWidth, initial, outlineWidth, Panes } from "../../../src/views/drive/panes"
 import { storage } from "../../routines/fixture"
 
 // The layout over a store kept as its schema's JSON, as the window's storage keeps it.
@@ -49,8 +49,58 @@ describe("how an open document is laid out", () => {
     expect(saved.value.width).toBe(drawerWidth.min)
   })
 
+  test("the index resizes on its own, within its bounds, and keeps the width it is left at", () => {
+    const saved = storage(Panes, initial)
+    const { panes } = stand(saved)
+    expect(panes.width("outline")).toBe(initial.outlineWidth ?? 0)
+    panes.resize(301.6, "outline")
+    expect([panes.width("outline"), panes.width()]).toEqual([302, initial.width])
+    expect(saved.value.outlineWidth).toBe(initial.outlineWidth)
+    panes.settle()
+    expect([saved.value.outlineWidth, saved.value.width]).toEqual([302, initial.width])
+    // A window that opens the store later draws it at the same width.
+    expect(stand(saved).panes.width("outline")).toBe(302)
+    panes.resize(10_000, "outline")
+    expect(panes.width("outline")).toBe(outlineWidth.max)
+    panes.resize(12, "outline")
+    panes.settle()
+    expect(saved.value.outlineWidth).toBe(outlineWidth.min)
+    // Hiding it keeps its width for when it shows again.
+    panes.toggle("outline")
+    panes.toggle("outline")
+    expect([panes.outline(), panes.width("outline")]).toEqual([true, outlineWidth.min])
+  })
+
+  test("a layout kept before the index could be resized draws it at its default width", () => {
+    const { panes } = stand(storage(Panes, { outline: true, drawer: true, width: 500 }))
+    expect([panes.width("outline"), panes.width()]).toEqual([initial.outlineWidth, 500])
+  })
+
   test("a stored width out of bounds, from an older layout or another screen, is drawn within them", () => {
     const { panes } = stand(storage(Panes, { ...initial, width: 4000 }))
     expect(panes.width()).toBe(drawerWidth.max)
+  })
+})
+
+describe("the comments marked on a document", () => {
+  test("show until the user hides them, and stay as they left them", () => {
+    expect(stand().panes.marks()).toBe(true)
+    const saved = storage(Panes, initial)
+    const { panes } = stand(saved)
+    expect(panes.marks()).toBe(true)
+    panes.toggle("marks")
+    expect(panes.marks()).toBe(false)
+    expect(saved.value.marks).toBe(false)
+    expect(stand(saved).panes.marks()).toBe(false)
+    panes.toggle("marks")
+    expect(saved.value.marks).toBe(true)
+  })
+
+  test("a layout kept before the marks existed shows them, and keeps the rest", () => {
+    const saved = storage(Panes, { outline: false, drawer: true, width: 500 })
+    const { panes } = stand(saved)
+    expect([panes.marks(), panes.outline(), panes.width()]).toEqual([true, false, 500])
+    panes.toggle("marks")
+    expect(saved.value).toEqual({ outline: false, drawer: true, width: 500, marks: false })
   })
 })

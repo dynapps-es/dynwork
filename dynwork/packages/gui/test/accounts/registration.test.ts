@@ -3,7 +3,7 @@ import { runsOn } from "@opencode/plugin/gui/host"
 import { createRoot } from "solid-js"
 import { Accounts } from "../../src/accounts/contract"
 import { DriveClient } from "../../src/drive/client"
-import { Drive, Shares } from "../../src/drive/contract"
+import { Drive, Frames, Shares } from "../../src/drive/contract"
 import { Remote } from "../../src/remote/contract"
 import { RoutinesClient } from "../../src/routines/client"
 import { Chat, Routines } from "../../src/routines/contract"
@@ -71,8 +71,9 @@ describe("dynwork built-in", () => {
       renderer(ctx as unknown as Parameters<typeof renderer>[0])
       return dispose
     })
-    // The Drive and the agent's share cards, remote control, the routines and their chat cards ride on the same built-in
-    expect(used).toEqual([Accounts, Drive, Shares, Remote, Routines, Chat])
+    // The Drive, main's observer of its frames and the agent's share cards, remote control, the routines and their chat
+    // cards ride on the same built-in
+    expect(used).toEqual([Accounts, Drive, Frames, Shares, Remote, Routines, Chat])
     expect(connection()).toEqual({ status: "pending" })
     expect(DriveClient.connection()).toEqual({ status: "pending" })
     expect(RoutinesClient.connection()).toEqual({ status: "pending" })

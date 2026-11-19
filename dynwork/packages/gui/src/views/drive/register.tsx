@@ -4,7 +4,7 @@ import { isServer } from "solid-js/web"
 import type definition from "../../accounts/index"
 import { connection } from "../../accounts/renderer"
 import { DriveClient } from "../../drive/client"
-import { Drive } from "../../drive/contract"
+import { Drive, Frames } from "../../drive/contract"
 import { docKey, listKey, origin, sessionOf } from "./chat"
 import { arrivals, landing } from "./model"
 import { initial, keepPanes, Panes } from "./panes"
@@ -12,6 +12,7 @@ import { DocTabLabel, ListTabLabel } from "./tab-label"
 import { ArtifactsPanel, DocPanel } from "./panel"
 import { registerShares } from "./share"
 import { drive, follow } from "./store"
+import { attachFrames } from "./viewer"
 import "./drive.css"
 
 // The chat header's artifacts button, on the client only: Kobalte's tooltip runs browser-only code when it loads, and
@@ -23,6 +24,8 @@ const ArtifactsCount = lazy(() => import("./count"))
 // the + menu's "Drive" item; and the link of the Drive's composer chips, which opens the document's tab again.
 export function registerDrive(ctx: SetupContext<typeof definition>) {
   DriveClient.attach(ctx.use(Drive))
+  // Main's observer of the HTML frames: the heading being read and the comment mark clicked (`drive/watch.ts`).
+  attachFrames(ctx.use(Frames))
   // How the user lays out an open document, opened now so it has loaded by the time one opens.
   keepPanes(ctx.storage.store("drive.panes", { schema: Panes, initial }))
   // The agent's shares wait for the user on a card in their conversation.

@@ -1,6 +1,6 @@
 import { usePlugin, type Context } from "@opencode/plugin/gui"
 import { Icon } from "@opencode/ui/icon"
-import { For, Show, type JSX } from "solid-js"
+import { createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js"
 import type { Document, Failure } from "../../drive/contract"
 import { ago, known, pathOf, size, stem, type Format, type Message } from "./model"
 import { drive, governance } from "./store"
@@ -157,5 +157,62 @@ export function AnchorLine(props: { text: string; icon: "outline-quote" | "dot-g
       <Icon name={props.icon} size="small" />
       <span data-slot="drive-anchor-label">{props.text}</span>
     </span>
+  )
+}
+
+/**
+ * Present: a document alone, full screen, through the Fullscreen API on the element that holds its viewer, which takes
+ * the window full screen with it. Escape, or Exit over the document, brings the view back as it was.
+ */
+export function createPresent(target: () => HTMLElement | undefined) {
+  const [on, setOn] = createSignal(false)
+  const sync = () => setOn(document.fullscreenElement !== null && document.fullscreenElement === target())
+  const stop = () => {
+    if (on()) void document.exitFullscreen().catch(() => undefined)
+  }
+  onMount(() => {
+    document.addEventListener("fullscreenchange", sync)
+    onCleanup(() => {
+      document.removeEventListener("fullscreenchange", sync)
+      stop()
+    })
+  })
+  return {
+    on,
+    start: () =>
+      void target()
+        ?.requestFullscreen()
+        .catch(() => undefined),
+    stop,
+  }
+}
+export type Present = ReturnType<typeof createPresent>
+
+/** The Present button of a document's bar. */
+export function PresentButton(props: { present: Present }) {
+  const ctx = usePlugin()
+  return (
+    <ctx.ui.Tooltip value={ctx.t("drive.present.hint")} placement="bottom">
+      <ctx.ui.IconButton
+        variant="ghost"
+        icon="outline-maximize"
+        label={ctx.t("drive.present")}
+        onClick={() => props.present.start()}
+      />
+    </ctx.ui.Tooltip>
+  )
+}
+
+/** Exit, over a document while it is presented. */
+export function PresentExit(props: { present: Present }) {
+  const ctx = usePlugin()
+  return (
+    <Show when={props.present.on()}>
+      <div data-slot="drive-present-exit">
+        <ctx.ui.Button variant="neutral" size="small" icon="close" onClick={() => props.present.stop()}>
+          {ctx.t("drive.present.exit")}
+        </ctx.ui.Button>
+      </div>
+    </Show>
   )
 }
