@@ -14,9 +14,11 @@ Files here:
 | File         | What it is                                                                                                   |
 | ------------ | ------------------------------------------------------------------------------------------------------------ |
 | `backend.ts` | `RoutinesFarm`: the skeleton `make()`, the farm's `fields`, its `base` capabilities and the development flag |
+| `client.ts`  | `FarmClient`: the connection mode and the `FarmTransport` every farm call goes through (see "Transport")     |
 | `README.md`  | This document                                                                                                |
 
-Not here, on purpose: any farm HTTP call, any token handling. See "Where the token lives" for where they go.
+The backend never handles a credential itself: `client.ts` reads the account's JWT from `accounts/` at the moment of
+each request. See "Transport" and "Where the token lives".
 
 ## 1. What a routine is, and how the user sees it
 
@@ -81,7 +83,9 @@ Everything crossing to a window is a Schema value (epoch milliseconds for time).
 
 ## 3. Contract to farm
 
-The farm's base is `/farm/api/v1` (the short form below). Every call needs `Authorization: Bearer <token>`.
+The table names the farm's REST routes (base `/farm/api/v1`) because they define what each call does. DynWork does not
+call them directly: every one is reached through the farm's MCP tool of the same purpose (`farm_list_schedules`,
+`farm_create_schedule`...), which calls that route as the caller with the same rules. See "Transport".
 
 | Contract                     | Farm                                                                                                                                                                                                                 |
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -171,8 +175,8 @@ The farm's token is a secret, like the account PAT:
 - **Keep it as `safeStorage` ciphertext** in the plugin's main storage (`ctx.storage.store(...)`), decrypted only for the
   moment of a request, as `accounts/accounts.ts` keeps the PAT (base64 of `safeStorage.encryptString(token)`, with a
   check of `safeStorage.isEncryptionAvailable()`). `accounts/main.ts` already passes `secure: safeStorage` there.
-- **Where it is entered and how the farm accepts it** is open (see "What the farm is missing", 1). The provisional
-  route is a personal farm token the user pastes, stored as above.
+- **Nothing is entered.** Cloud uses the Governance account's own PAT, already held by `accounts/`: it mints the JWT
+  each farm call carries (see "Transport"). There is no farm token to paste or store.
 - **When it is missing or rejected**, `capabilities()` answers `status: "signed-out"` with a `detail` saying what to do,
   and every method answers `Failure` `signed-out`. The views then show the farm as unavailable with the reason and the
   way to fix it. Do not invent a new state.
@@ -205,10 +209,11 @@ what only the farm knows.
 
 None of this is solved here; each item has an owner who decides.
 
-1. **Authentication.** The farm accepts static tokens (a person or a service) and Entra ID (off by default). It does
-   **not** accept the Governance JWT. Options: the farm validates Governance's JWT (JWKS), a token exchange, or the
-   pasted personal token above as a stopgap. Needs the `subject` to Governance user and tenant to instance mapping.
-   Minimum scopes: `farm:tasks:read`, `farm:tasks:write`, `farm:tasks:cancel`, `farm:credentials:read`.
+1. **Authentication: solved by the transport.** The farm does not accept the user's Governance JWT, and does not
+   need to: DynWork calls the farm's MCP server through the Governance proxy (see "Transport"), which mints, per call
+   and only for users allowed to use it, the identity token the farm's tenant accepts. The farm's person is that
+   token's `email`. No farm token is pasted or stored, and REST calls straight to the farm with the user's JWT are not
+   an option, because the farm would then be accepting a token every Governance user can mint.
 2. **A name on schedules** (or `labels`) and, if it can be, **`PATCH /schedules/{id}`** (the farm leaves it for v2).
    Until then: DynWork's table, and edit is replace.
 3. **A transcript through the API.** Today only `result` and the log. Either an endpoint or a guaranteed `.jsonl` format.
@@ -237,6 +242,47 @@ David decides which of these the farm team takes on.
       are still there.
 - [ ] Commits follow upstream's convention with the `dynwork` scope: `feat(dynwork): connect the Agent Farm routines`.
 
+## Transport
+
+`client.ts` is the only way to the farm. `FarmClient.mode(process.env)` reads the connection mode in one place
+(`DYNWORK_ROUTINES_FARM_CONNECTION`; absent or empty is `sp`) and `FarmClient.select(mode, ...)` answers the
+`FarmTransport` for it, whose `callTool(name, args)` answers `{ ok: true, value }` or `{ ok: false, code, failure }`
+and never rejects.
+
+- **`sp` (the one implemented): the farm's MCP server through Governance.** A stateless Streamable HTTP `tools/call`
+  to `<account instance>/api/v1/mcp/dynapps-farm/mcp`, with the JWT the account mints from its PAT
+  (`accounts.session`) in `Authorization` and nowhere else. Governance checks on every call that the user may use the
+  farm's MCP server, mints the short-lived token the farm accepts and forwards the call, and records it. The farm
+  never accepts anything the user holds, so a fault in the farm cannot open it to every Governance user, and removing
+  someone from the farm's group takes effect on their next call. A call takes about 0.2 s, so a list is one call
+  (`farm_list_schedules`), never one per routine.
+- **`direct`: a farm reached with its own credentials, without Governance.** Not available yet: choosing it answers
+  `unsupported` (`direct_not_available`) on every call and never falls back to `sp`. An unknown mode answers
+  `mode_unknown` the same way.
+
+What the proxy answers, and what `callTool` makes of it:
+
+| The proxy                               | The answer                                                                                                     |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `503` `service_not_running`             | `unavailable`, `failed`: Governance does not give this account the farm (show Cloud as not available)          |
+| `401`                                   | mints a new JWT once and repeats the call; a second `401` is `unauthorized`, `signed-out`                      |
+| `413` (a request over 4 MiB)            | `too_large`, `failed`. The tools page what they return, so it should not happen                                |
+| `429`                                   | waits for `retry-after` (at most 10 s) and tries again, three tries in all; then `rate_limited`, `unreachable` |
+| other `5xx`, a network error, a timeout | `http_<status>`, `network` or `timeout`, `unreachable`                                                         |
+| a tool result with `isError`            | the farm's own `code` and a `Failure` as in "Errors"; tried again only when the farm marks it `retryable`      |
+
+Rules the transport keeps:
+
+- **No credential in an argument.** Governance stores the arguments and the result of every `tools/call`. An argument
+  named `value`, `token` or `pat` at any depth, in any case, is refused before any request (`secret_argument`); the
+  type of `args` refuses the lowercase top-level ones at compile time. A credential reaches the farm by a one-time
+  upload ticket the farm hands out through a tool, then a direct `PUT` to the farm, never through Governance.
+- **The JWT stays in main and in the header.** It is not in the URL, a `Failure`, a log line or anything the Ipc
+  carries; a failure never repeats a proxy's body, and anything a server sends back is cleared of the JWT before it is
+  used. The PAT is never read here at all.
+- **Results and logs that can be large travel as links** the farm signs (a result, the full log), not inline, so they
+  are neither copied into Governance nor near the 4 MiB limit.
+
 ## Tasks from a chat
 
 The scheduled-task tools (`@dynwork/server-plugin/routines`, "Create from a chat" in `routines/README.md`) let the
@@ -244,16 +290,16 @@ agent manage the user's tasks in a chat; the user sees them as tasks, and yours 
 `capabilities().label`; "Agent Farm" never reaches the UI). Every tool goes through the registry to the task's own
 backend, so a `farm:<id>` task reaches yours:
 
-| Tool | Your methods |
-| --- | --- |
-| `list_scheduled_tasks` | `list()`, with `capabilities().label` |
-| `list_running_tasks` | `runs({})` (the `queued` and `running` ones) and `list()` for the names |
-| `get_scheduled_task` | `get(id)`, `runs({ routine: id })` |
-| `create_scheduled_task` (`where: "farm"`) | `validate(definition)` before the card, `create(definition)` after Schedule |
-| `update_scheduled_task` | `get(id)`, `validate(definition)` before the card, `update(id, definition)` after Save |
-| `delete_scheduled_task` | `get(id)`, `remove(id)` after Delete |
-| `pause_scheduled_task`, `resume_scheduled_task` | `get(id)`, then `pause(id)` or `resume(id)` at once |
-| `run_scheduled_task` | `get(id)`, then `start(id)`: at once for "Ask me", after the card for "Don't ask" |
+| Tool                                            | Your methods                                                                           |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `list_scheduled_tasks`                          | `list()`, with `capabilities().label`                                                  |
+| `list_running_tasks`                            | `runs({})` (the `queued` and `running` ones) and `list()` for the names                |
+| `get_scheduled_task`                            | `get(id)`, `runs({ routine: id })`                                                     |
+| `create_scheduled_task` (`where: "farm"`)       | `validate(definition)` before the card, `create(definition)` after Schedule            |
+| `update_scheduled_task`                         | `get(id)`, `validate(definition)` before the card, `update(id, definition)` after Save |
+| `delete_scheduled_task`                         | `get(id)`, `remove(id)` after Delete                                                   |
+| `pause_scheduled_task`, `resume_scheduled_task` | `get(id)`, then `pause(id)` or `resume(id)` at once                                    |
+| `run_scheduled_task`                            | `get(id)`, then `start(id)`: at once for "Ask me", after the card for "Don't ask"      |
 
 - **What it sends.** A `Definition` built by `RoutinesChat.definitionOf` (create) or `RoutinesChat.changed` (update:
   your routine with only the given fields changed, its other options kept): `name`, `instructions` of kind `prompt`,
