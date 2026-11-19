@@ -3,7 +3,18 @@ export * as RoutinesFarm from "./backend"
 import { Effect, Option, Schema } from "effect"
 import { SpClient } from "@dynwork/sp-client"
 import { fail, type Backend } from "../backend"
-import type { Capabilities, Choice, Definition, Failure, Field, Routine, Run } from "../contract"
+import type {
+  Capabilities,
+  Change,
+  Choice,
+  Definition,
+  Failure,
+  Field,
+  Routine,
+  Run,
+  RunPage,
+  Transcript,
+} from "../contract"
 import { RoutinesValidate } from "../validate"
 import type { FarmClient } from "./client"
 import { FarmCloud } from "./cloud"
@@ -11,8 +22,8 @@ import { FarmCloud } from "./cloud"
 /**
  * The Agent Farm's routines backend ("Cloud"). A routine is a farm schedule: its `name` and `metadata` are the farm's,
  * there is no table here. Every call goes through a `FarmTransport` (`client.ts`) as farm MCP tools, and every task it
- * creates runs as the user (`gateway_identity: user`) with the PAT `cloud.ts` gives the farm. `README.md` next to this
- * file maps each method to the farm; the runs (`runs`, `cancel`, `transcript`, `viewed`, `watch`) are not written yet.
+ * creates runs as the user (`gateway_identity: user`) with the PAT `cloud.ts` gives the farm. A run is a farm task.
+ * `README.md` next to this file maps each method to the farm.
  */
 
 /** The id every `routine.ref.backend` of the farm carries, and the one the demo remote fake holds until this lands. */
@@ -176,7 +187,35 @@ export interface Options {
   cloud?: Pick<FarmCloud.Cloud, "ensure" | "retry">
   /** The models Governance admits for the user (`profile.models`); `undefined` when they cannot be read. */
   models: () => Promise<readonly string[] | undefined>
+  /** Milliseconds between two polls of `watch`. */
+  interval?: number
+  /** Downloads a result document from its short-lived link. */
+  fetch?: typeof fetch
 }
+
+/** How often `watch` asks the farm what changed, while subscribed. The farm has no push. */
+export const interval = 5_000
+
+/** Each poll asks for what changed this long before the newest change already seen, so that nothing falls between. */
+export const lookback = 30_000
+
+/** Runs per page of a routine's runs, paged here: the farm lists a schedule's tasks whole. */
+export const page = 25
+
+/**
+ * The key of `origin_context` that ties a reply to its routine. The farm does not say on a task which schedule fired it,
+ * and a reply (`session_ref`) belongs to no schedule: Dynwork names the routine itself.
+ */
+export const context = "dynwork_routine"
+
+// `last` is what the farm's task tools read as "the newest task": never a run id Dynwork passes on.
+const last = "last"
+// Most pages read for one answer, so a farm that keeps paging cannot hold a call forever.
+const pages = 20
+// The recent tasks read for the replies of the routines: the newest `scan` pages of 100.
+const scan = 3
+// The longest conversation kept in `Transcript.log`, from its end.
+const longest = 200_000
 
 /**
  * The backend. Without `options` it is the unconnected backend: it reports itself `disabled` and every method answers
@@ -189,6 +228,26 @@ export function make(options?: Options): Backend {
   const call = async (name: string, args?: FarmClient.Arguments) => {
     const answer = await client.callTool(name, args)
     return answer.ok ? answer.value : refused(answer)
+  }
+
+  // What the farm does not say on a task: the routine it belongs to and how it started, learned from the schedules'
+  // own lists, from `start` and from `reply`; and each routine's name, the title of its runs.
+  const known = new Map<string, { routine: string; trigger: Run["trigger"] }>()
+  const names = new Map<string, string>()
+  const learn = (schedule: Schedule) => {
+    names.set(schedule.schedule_id, schedule.name ?? "")
+    return schedule
+  }
+
+  const runOf = (task: Task, routine?: string): Run => {
+    const seen = known.get(task.task_id)
+    const linked = routine ?? seen?.routine ?? linkOf(task)
+    const trigger =
+      task.trigger === "schedule" || task.trigger === "manual"
+        ? task.trigger
+        : (seen?.trigger ?? (task.origin === "schedule" ? "schedule" : "manual"))
+    if (linked !== undefined) known.set(task.task_id, { routine: linked, trigger })
+    return toRun(task, linked, trigger, (linked === undefined ? undefined : names.get(linked)) || titleOf(task))
   }
 
   const whoami = async () => {
@@ -221,7 +280,131 @@ export function make(options?: Options): Backend {
   const schedule = async (id: string) => {
     const answer = await call("farm_get_schedule", { schedule_id: id })
     if (isRefused(answer)) return answer
-    return Option.getOrUndefined(decodeSchedule(answer)) ?? protocol()
+    const decoded = Option.getOrUndefined(decodeSchedule(answer))
+    return decoded === undefined ? protocol() : learn(decoded)
+  }
+
+  // The replies Dynwork sent among the user's recent tasks: those whose `origin_context` names a routine.
+  const replies = async (cursor?: string, read = 0): Promise<Task[] | Refused> => {
+    const answer = await call("farm_list_tasks", {
+      owner: "me",
+      limit: 100,
+      ...(cursor === undefined ? {} : { cursor }),
+    })
+    if (isRefused(answer)) return answer
+    const list = tasksOf(answer)
+    const linked = list.items.filter((task) => linkOf(task) !== undefined)
+    if (list.next === undefined || read + 1 >= scan) return linked
+    const more = await replies(list.next, read + 1)
+    return isRefused(more) ? more : [...linked, ...more]
+  }
+
+  // A routine's runs, newest first: the tasks its schedule fired and the replies sent to them, which the farm keeps
+  // outside the schedule. A reply goes first among runs of the same moment: it always follows the run it continues.
+  const history = async (id: string, found: readonly Task[]): Promise<Run[] | Refused> => {
+    const answer = await call("farm_list_schedule_runs", { schedule_id: id })
+    if (isRefused(answer)) return answer
+    const fired = tasksOf(answer).items
+    const ids = new Set(fired.map((task) => task.task_id))
+    return [...found.filter((task) => linkOf(task) === id && !ids.has(task.task_id)), ...fired]
+      .toSorted((left, right) => (time(right.created_at) ?? 0) - (time(left.created_at) ?? 0))
+      .map((task) => runOf(task, id))
+  }
+
+  const withRuns = (routine: Routine, runs: readonly Run[] | Refused): Routine =>
+    isRefused(runs) || runs[0] === undefined
+      ? routine
+      : { ...routine, last: runs[0], unread: runs.filter((run) => run.unread).length }
+
+  const activity = async (cursor?: string): Promise<RunPage | Failure> => {
+    const answer = await call("farm_list_tasks", {
+      owner: "me",
+      limit: page,
+      ...(cursor === undefined ? {} : { cursor }),
+    })
+    if (isRefused(answer)) return answer.failure
+    const list = tasksOf(answer)
+    return { items: list.items.map((task) => runOf(task)), ...(list.next === undefined ? {} : { next: list.next }) }
+  }
+
+  const task = async (run: string) => {
+    if (run === last) return missing()
+    const answer = await call("farm_get_task", { task_id: run })
+    if (isRefused(answer)) return answer
+    return Option.getOrUndefined(decodeTask(answer)) ?? protocol()
+  }
+
+  // The result document behind the short-lived `result.url`; the farm's summary when it cannot be read.
+  const resultOf = async (run: string) => {
+    const answer = await call("farm_get_task_result", { task_id: run })
+    if (isRefused(answer)) return undefined
+    const described = Option.getOrUndefined(decodeResult(answer))
+    if (described === undefined) return undefined
+    const document = await download(described.result.url, options.fetch ?? fetch)
+    const text = document?.result ?? described.summary ?? undefined
+    return { text, turns: document?.usage?.num_turns, duration: document?.usage?.duration_s }
+  }
+
+  // The whole conversation, page by page, as plain lines; a page shorter than asked for is the last one there is.
+  const conversation = async (run: string, cursor?: string, read = 0, lines: string[] = []): Promise<string[]> => {
+    const answer = await call("farm_get_task_transcript", {
+      task_id: run,
+      limit: 200,
+      ...(cursor === undefined ? {} : { cursor }),
+    })
+    const page = isRefused(answer) ? undefined : Option.getOrUndefined(decodeTranscript(answer))
+    if (page === undefined) return lines
+    const next = [...lines, ...page.messages.flatMap(linesOf)]
+    if (page.complete || !page.next_cursor || page.messages.length < 200 || read + 1 >= pages) return next
+    return conversation(run, page.next_cursor, read + 1, next)
+  }
+
+  // `watch`: one poll for every subscriber, only while there is one. `generation` tells a poll still answering after
+  // the last subscriber left (or a new one came) to say nothing.
+  const watchers = new Set<(change: Change) => void>()
+  const poll = {
+    generation: 0,
+    since: 0,
+    /** Each task's run as last reported, and when it changed. */
+    seen: new Map<string, { at: number; run: string }>(),
+    timer: undefined as ReturnType<typeof setTimeout> | undefined,
+  }
+  const every = options.interval ?? interval
+
+  const tick = async (generation: number) => {
+    await changes(generation).catch(() => undefined)
+    if (generation !== poll.generation) return
+    poll.timer = setTimeout(() => void tick(generation), every)
+    poll.timer.unref?.()
+  }
+
+  // Each task that changed since the newest change seen (minus `lookback`), as its run, once for each way the run
+  // reads: two changes within the same instant of `updated_at` are still two. A run that failed because the farm no
+  // longer holds a PAT it can use gets Cloud the PAT again; the routine is left as it is.
+  const changes = async (generation: number, cursor?: string, read = 0): Promise<void> => {
+    const answer = await call("farm_list_tasks", {
+      owner: "me",
+      updated_since: new Date(poll.since - lookback).toISOString(),
+      limit: 100,
+      ...(cursor === undefined ? {} : { cursor }),
+    })
+    if (generation !== poll.generation || isRefused(answer)) return
+    const list = tasksOf(answer)
+    list.items.forEach((task) => {
+      const at = time(task.updated_at) ?? poll.since
+      const run = runOf(task)
+      const read = JSON.stringify(run)
+      if (poll.seen.get(task.task_id)?.run === read) return
+      poll.seen.set(task.task_id, { at, run: read })
+      poll.since = Math.max(poll.since, at)
+      if (run.state === "failed" && FarmCloud.stale.some((code) => code === task.failure_reason))
+        void options.cloud?.retry(task.failure_reason ?? undefined)
+      watchers.forEach((changed) => changed({ ...(run.routine === undefined ? {} : { routine: run.routine }), run }))
+    })
+    poll.seen.forEach((seen, key) => {
+      if (seen.at < poll.since - 2 * lookback) poll.seen.delete(key)
+    })
+    if (list.next !== undefined && read + 1 < pages) return changes(generation, list.next, read + 1)
   }
 
   const routine = (answer: Record<string, unknown> | Refused): Routine | Failure => {
@@ -251,10 +434,23 @@ export function make(options?: Options): Backend {
   }
 
   const switched = async (current: Schedule, want: boolean) => {
+    learn(current)
     if (want === (current.state !== "paused") || current.state === "finished") return toRoutine(current)
     return routine(
       await call(want ? "farm_resume_schedule" : "farm_pause_schedule", { schedule_id: current.schedule_id }),
     )
+  }
+
+  const validate = async (definition: Definition) => {
+    const known = await capabilities()
+    if (known.status !== "ready")
+      return fail(known.status === "disabled" ? "failed" : known.status, known.detail ?? "Cloud is not available.")
+    const shared = RoutinesValidate.check(known, definition)?.fields ?? {}
+    const farm = await farmProblems(definition)
+    if (isRefused(farm)) return farm.failure
+    const problems = { ...farm, ...shared }
+    if (Object.keys(problems).length === 0) return undefined
+    return fail("invalid", "Some fields need attention.", problems)
   }
 
   return {
@@ -272,30 +468,29 @@ export function make(options?: Options): Backend {
       if (isRefused(answer)) return answer.failure
       return read.choices(answer, lookup.slice("credentials:".length))
     },
-    validate: async (definition) => {
-      const known = await capabilities()
-      if (known.status !== "ready")
-        return fail(known.status === "disabled" ? "failed" : known.status, known.detail ?? "Cloud is not available.")
-      const shared = RoutinesValidate.check(known, definition)?.fields ?? {}
-      const farm = await farmProblems(definition)
-      if (isRefused(farm)) return farm.failure
-      const problems = { ...farm, ...shared }
-      if (Object.keys(problems).length === 0) return undefined
-      return fail("invalid", "Some fields need attention.", problems)
-    },
+    validate,
     list: async () => {
-      const answer = await call("farm_list_schedules", { owner: "me" })
+      const [answer, found] = await Promise.all([call("farm_list_schedules", { owner: "me" }), replies()])
       if (isRefused(answer)) return answer.failure
-      return (Option.getOrUndefined(decodeList(answer))?.items ?? []).flatMap((item) => {
+      const schedules = (Option.getOrUndefined(decodeList(answer))?.items ?? []).flatMap((item) => {
         const decoded = Option.getOrUndefined(decodeSchedule(item))
-        return decoded === undefined ? [] : [toRoutine(decoded)]
+        return decoded === undefined ? [] : [learn(decoded)]
       })
+      const recent = isRefused(found) ? [] : found
+      return Promise.all(
+        schedules.map(async (item) => withRuns(toRoutine(item), await history(item.schedule_id, recent))),
+      )
     },
     get: async (id) => {
-      const answer = await schedule(id)
-      return isRefused(answer) ? answer.failure : toRoutine(answer)
+      const [answer, found] = await Promise.all([schedule(id), replies()])
+      if (isRefused(answer)) return answer.failure
+      return withRuns(toRoutine(answer), await history(id, isRefused(found) ? [] : found))
     },
+    // A definition is checked as `validate` checks it before the farm is asked: the farm takes a schedule without a
+    // name, which a routine must have.
     create: async (definition) => {
+      const problem = await validate(definition)
+      if (problem !== undefined) return problem
       const created = await withAccess("farm_create_schedule", {
         task: toTask(definition, {}),
         ...(definition.name.trim() === "" ? {} : { name: definition.name }),
@@ -311,6 +506,8 @@ export function make(options?: Options): Backend {
     update: async (id, definition) => {
       const current = await schedule(id)
       if (isRefused(current)) return current.failure
+      const problem = await validate(definition)
+      if (problem !== undefined) return problem
       const changed = await withAccess("farm_update_schedule", {
         schedule_id: id,
         changes: {
@@ -335,21 +532,99 @@ export function make(options?: Options): Backend {
       const fired = await withAccess("farm_fire_schedule", { schedule_id: id })
       if (isRefused(fired)) return fired.failure
       const task = Option.getOrUndefined(decodeTask(fired))
-      return task === undefined ? protocol().failure : toRun(task, current)
+      if (task === undefined) return protocol().failure
+      known.set(task.task_id, { routine: id, trigger: "manual" })
+      return runOf(task, id)
     },
-    // JESÚS: `cancel(run)` is `farm_cancel_task` on a task still going; a finished one is `Failure` `conflict`.
-    cancel: async () => notImplemented("cancel"),
-    // JESÚS: `runs({ routine, cursor })` is `farm_list_schedule_runs` (not paged by the farm, so paged here) and,
-    // without `routine`, `farm_list_tasks` newest first for Activity. Map `Run.state` as README's table says.
-    runs: async () => notImplemented("runs"),
-    // JESÚS: `transcript(run)` is `farm_get_task_result` for `Transcript.result` and `farm_get_task_transcript` for
-    // the conversation; `usage` comes from the task's `usage`.
-    transcript: async () => notImplemented("transcript"),
-    // JESÚS: `viewed(run)` is `farm_mark_task_viewed`: the farm keeps the read state per owner.
-    viewed: async () => {},
-    // JESÚS: `watch(changed)` polls `farm_list_tasks` with `updated_since=<cursor minus 30 s>` only while subscribed,
-    // calling `changed` with each `Change` (the `Run`, and its `routine` when it is one of ours).
-    watch: () => () => {},
+    cancel: async (run) => (run === last ? missing().failure : done(await call("farm_cancel_task", { task_id: run }))),
+    reply: async (input) => {
+      if (input.text.trim() === "") return fail("invalid", "Write how the run should go on.", { text: "Required." })
+      const parent = await task(input.run)
+      if (isRefused(parent)) return parent.failure
+      if (going.includes(states[parent.state] ?? "running"))
+        return fail("conflict", "This run is still going: answer it when it finishes.")
+      if (!parent.session_ref || parent.resumable === false) return fail("conflict", "This run cannot be continued.")
+      const routine = known.get(parent.task_id)?.routine ?? linkOf(parent)
+      const current = routine === undefined ? undefined : await schedule(routine)
+      const launched = await withAccess("farm_launch_task", {
+        ...continuation(parent, current === undefined || isRefused(current) ? undefined : current.task, input.text),
+        session_ref: parent.session_ref,
+        gateway_identity: "user",
+        ...(routine === undefined ? {} : { origin_context: { [context]: routine } }),
+      })
+      if (isRefused(launched)) return launched.failure
+      const created = Option.getOrUndefined(decodeTask(launched))
+      if (created === undefined) return protocol().failure
+      if (routine !== undefined) known.set(created.task_id, { routine, trigger: "manual" })
+      return runOf(created, routine)
+    },
+    answerQuestion: async (input) => {
+      const current = await task(input.run)
+      if (isRefused(current)) return current.failure
+      const question = current.state === "running" ? current.question : undefined
+      if (question === undefined || question === null || `q-${question.seq}` !== input.question)
+        return fail("conflict", "The run is not waiting for that answer any more.")
+      const choices = question.options ?? []
+      if (choices.length > 0 ? !choices.includes(input.choice) : input.choice.trim() === "")
+        return fail("invalid", "That is not one of the answers this question takes.")
+      return done(await call("farm_answer_task", { task_id: input.run, answer: input.choice, seq: question.seq }))
+    },
+    runs: async (input) => {
+      if (input.routine === undefined) return activity(input.cursor)
+      const from = input.cursor === undefined ? 0 : Number(input.cursor)
+      if (!Number.isSafeInteger(from) || from < 0 || input.cursor === "")
+        return fail("invalid", "That page of runs does not exist.")
+      const [current, found] = await Promise.all([
+        names.has(input.routine) ? undefined : schedule(input.routine),
+        replies(),
+      ])
+      if (current !== undefined && isRefused(current)) return current.failure
+      const runs = await history(input.routine, isRefused(found) ? [] : found)
+      if (isRefused(runs)) return runs.failure
+      return {
+        items: runs.slice(from, from + page),
+        ...(from + page < runs.length ? { next: String(from + page) } : {}),
+      }
+    },
+    transcript: async (run) => {
+      const current = await task(run)
+      if (isRefused(current)) return current.failure
+      const finished = !going.includes(states[current.state] ?? "running")
+      const [result, lines] = await Promise.all([finished ? resultOf(run) : undefined, conversation(run)])
+      const log = lines.join("\n")
+      const duration = current.usage?.duration_s ?? result?.duration
+      const turns = result?.turns
+      const answer: Transcript = {
+        ...(result?.text === undefined ? {} : { result: result.text }),
+        ...(log === "" ? {} : { log: log.length > longest ? log.slice(-longest) : log }),
+        ...(duration === undefined && turns === undefined
+          ? {}
+          : {
+              usage: {
+                ...(duration === undefined || duration === null ? {} : { duration: duration * 1000 }),
+                ...(turns === undefined ? {} : { turns }),
+              },
+            }),
+      }
+      return answer
+    },
+    viewed: async (run) => {
+      if (run !== last) await call("farm_mark_task_viewed", { task_id: run })
+    },
+    watch: (changed) => {
+      watchers.add(changed)
+      if (watchers.size === 1) {
+        poll.generation++
+        poll.since = Date.now()
+        poll.seen.clear()
+        void tick(poll.generation)
+      }
+      return () => {
+        if (!watchers.delete(changed) || watchers.size > 0) return
+        poll.generation++
+        clearTimeout(poll.timer)
+      }
+    },
   }
 
   // What only the farm knows: the models Governance admits for the user, the agents and each agent's ceiling.
@@ -437,13 +712,57 @@ const ScheduleOut = Schema.Struct({
   updated_at: Schema.String,
 })
 type Schedule = typeof ScheduleOut.Type
+const Text = Schema.optional(Schema.NullOr(Schema.String))
 const TaskOut = Schema.Struct({
   task_id: Schema.String,
   state: Schema.String,
-  failure_reason: Schema.optional(Schema.NullOr(Schema.String)),
-  trigger: Schema.optional(Schema.NullOr(Schema.String)),
-  started_at: Schema.optional(Schema.NullOr(Schema.String)),
-  finished_at: Schema.optional(Schema.NullOr(Schema.String)),
+  failure_reason: Text,
+  /** Only on a schedule's own list of tasks. */
+  trigger: Text,
+  origin: Text,
+  origin_context: Schema.optional(Schema.NullOr(Json)),
+  agent_id: Text,
+  prompt: Text,
+  question: Schema.optional(
+    Schema.NullOr(
+      Schema.Struct({
+        seq: Schema.Number,
+        text: Schema.String,
+        options: Schema.optional(Schema.NullOr(Schema.Array(Schema.String))),
+      }),
+    ),
+  ),
+  viewed: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  session_ref: Text,
+  resumable: Schema.optional(Schema.NullOr(Schema.Boolean)),
+  workspace: Schema.optional(Schema.NullOr(Json)),
+  usage: Schema.optional(Schema.NullOr(Schema.Struct({ duration_s: Schema.optional(Schema.NullOr(Schema.Number)) }))),
+  created_at: Schema.optional(Schema.String),
+  started_at: Text,
+  finished_at: Text,
+  updated_at: Schema.optional(Schema.String),
+})
+type Task = typeof TaskOut.Type
+const TaskPage = Schema.Struct({ items: Schema.Array(Schema.Unknown), next_cursor: Text })
+const ResultOut = Schema.Struct({ result: Schema.Struct({ url: Schema.String }), summary: Text })
+const ResultDocument = Schema.Struct({
+  result: Schema.String,
+  usage: Schema.optional(
+    Schema.Struct({ num_turns: Schema.optional(Schema.Number), duration_s: Schema.optional(Schema.Number) }),
+  ),
+})
+const TranscriptPage = Schema.Struct({
+  messages: Schema.Array(
+    Schema.Struct({
+      role: Schema.String,
+      text: Schema.String,
+      tool_uses: Schema.optional(
+        Schema.Array(Schema.Struct({ name: Text, is_error: Schema.optional(Schema.Boolean) })),
+      ),
+    }),
+  ),
+  next_cursor: Text,
+  complete: Schema.Boolean,
 })
 const WhoAmI = Schema.Struct({
   free_prompt: Schema.Boolean,
@@ -468,6 +787,10 @@ const Template = Schema.Struct({ id: Schema.String, revision: Schema.Number })
 const decodeSchedule = Schema.decodeUnknownOption(ScheduleOut)
 const decodeList = Schema.decodeUnknownOption(Items(Schema.Unknown))
 const decodeTask = Schema.decodeUnknownOption(TaskOut)
+const decodeTaskPage = Schema.decodeUnknownOption(TaskPage)
+const decodeResult = Schema.decodeUnknownOption(ResultOut)
+const decodeDocument = Schema.decodeUnknownOption(Schema.fromJsonString(ResultDocument))
+const decodeTranscript = Schema.decodeUnknownOption(TranscriptPage)
 const decodeWhoami = Schema.decodeUnknownOption(WhoAmI)
 const decodeAgents = Schema.decodeUnknownOption(Agents)
 const decodeTemplate = Schema.decodeUnknownOption(Template)
@@ -642,22 +965,88 @@ function optionsOf(schedule: Schedule, metadata: Record<string, unknown>): Defin
   }
 }
 
-// A task the schedule fired, as the run it is. The run's own reading of a task (questions, unread) is `runs`'s.
-function toRun(task: typeof TaskOut.Type, schedule: Schedule): Run {
+// A farm task as the run it is. A task waiting for its owner's answer is `running` with the reason `question`; a
+// finished one the owner has not seen is unread, as is one waiting for an answer.
+function toRun(task: Task, routine: string | undefined, trigger: Run["trigger"], title: string): Run {
   const started = time(task.started_at)
   const finished = time(task.finished_at)
+  const state = states[task.state] ?? "running"
+  const asked = state === "running" ? task.question : undefined
+  const question =
+    asked === undefined || asked === null
+      ? undefined
+      : { id: `q-${asked.seq}`, text: asked.text, choices: [...(asked.options ?? [])] }
+  const reason = question === undefined ? task.failure_reason : "question"
   return {
     ref: { backend: id, id: task.task_id },
-    routine: { backend: id, id: schedule.schedule_id },
-    state: states[task.state] ?? "running",
-    ...(task.failure_reason ? { reason: task.failure_reason } : {}),
-    trigger: task.trigger === "schedule" ? "schedule" : "manual",
+    ...(routine === undefined ? {} : { routine: { backend: id, id: routine } }),
+    state,
+    ...(reason ? { reason } : {}),
+    trigger,
     ...(started === undefined ? {} : { started }),
     ...(finished === undefined ? {} : { finished }),
-    title: schedule.name ?? "",
-    unread: false,
+    title,
+    unread: question !== undefined || (!going.includes(state) && task.viewed === false),
+    ...(question === undefined ? {} : { question }),
     conversation: { kind: "transcript" },
   }
+}
+
+const going: readonly Run["state"][] = ["queued", "running"]
+
+// The routine a reply names; a task fired by a schedule names none (`runOf` learns it from the schedule's list).
+function linkOf(task: Task) {
+  const value = task.origin_context?.[context]
+  return typeof value === "string" ? value : undefined
+}
+
+// A task of no known routine, as Activity titles it: its agent, or the first line of its prompt.
+function titleOf(task: Task) {
+  return task.agent_id ?? task.prompt?.split("\n")[0]?.slice(0, 80) ?? "Cloud task"
+}
+
+function tasksOf(answer: unknown) {
+  const list = Option.getOrUndefined(decodeTaskPage(answer))
+  return {
+    items: (list?.items ?? []).flatMap((item) => Option.toArray(decodeTask(item))),
+    ...(list?.next_cursor ? { next: list.next_cursor } : {}),
+  }
+}
+
+// One message of the conversation as plain lines: who said it, and each tool it called.
+function linesOf(message: (typeof TranscriptPage.Type)["messages"][number]) {
+  return [
+    `${message.role}: ${message.text}`,
+    ...(message.tool_uses ?? []).map((use) => `  - ${use.name ?? "tool"}${use.is_error ? " (error)" : ""}`),
+  ]
+}
+
+// A reply runs the routine's task again in the run's conversation, with the user's words as its prompt or, for an
+// agent, its input. Without the routine, the run's own agent and workspace (the farm requires the workspace again).
+function continuation(parent: Task, stored: Record<string, unknown> | undefined, text: string) {
+  const kept =
+    stored === undefined
+      ? parent.workspace
+        ? { workspace: Object.fromEntries(Object.entries(parent.workspace).filter((entry) => entry[1] !== null)) }
+        : {}
+      : Object.fromEntries(Object.entries(stored).filter(([key]) => carried.includes(key)))
+  const agent = stored === undefined ? parent.agent_id : stored.agent_id
+  return { ...kept, ...(typeof agent === "string" ? { agent_id: agent, input: text } : { prompt: text }) }
+}
+
+// What a reply takes from the routine's task: everything that shapes how it runs, nothing of how it started.
+const carried = ["model", "permission_mode", "workspace", "mcp_servers", "limits"]
+
+// The result document, from a short-lived link of the farm's storage: https, or http on this computer only, and no
+// redirect. `undefined` when it cannot be read.
+async function download(link: string, request: typeof fetch) {
+  const url = URL.canParse(link) ? new URL(link) : undefined
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url?.hostname ?? "")
+  if (url === undefined || url.username !== "" || url.password !== "") return undefined
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) return undefined
+  const response = await request(url, { redirect: "error", signal: AbortSignal.timeout(30_000) }).catch(() => undefined)
+  if (response === undefined || !response.ok) return undefined
+  return Option.getOrUndefined(decodeDocument(await response.text().catch(() => "")))
 }
 
 const states: Record<string, Run["state"]> = {
@@ -701,6 +1090,10 @@ function refused(answer: FarmClient.Refusal): Refused {
 
 function isRefused(value: unknown): value is Refused {
   return isObject(value) && value.refused === true
+}
+
+function missing(): Refused {
+  return { refused: true, code: "not_found", failure: fail("not-found", "There is no such run in Cloud.") }
 }
 
 function protocol(): Refused {

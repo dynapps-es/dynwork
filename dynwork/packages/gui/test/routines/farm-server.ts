@@ -1,4 +1,9 @@
 import { randomUUID } from "node:crypto"
+import { DynWorkAccounts } from "../../src/accounts/accounts"
+import { RoutinesFarm } from "../../src/routines/farm/backend"
+import { FarmClient } from "../../src/routines/farm/client"
+import { FarmCloud } from "../../src/routines/farm/cloud"
+import { setup, type Fake } from "../accounts/fixture"
 
 /**
  * A stand-in for the Agent Farm as Dynwork reaches it: the farm's MCP server behind the Governance MCP proxy
@@ -63,16 +68,40 @@ export interface Task {
   model: string | null
   state: "pending" | "queued" | "running" | "succeeded" | "failed" | "cancelled" | "expired"
   failure_reason: string | null
-  question: { seq: number; text: string; kind: string; options: string[]; expires_at: string } | null
+  origin: "api" | "schedule"
+  origin_context: Json | null
+  workspace: Json | null
+  question: Question | null
   answer: string | null
   viewed: boolean
   session_ref: string | null
-  transcript: { seq: number; role: string; text: string }[]
+  transcript: Message[]
+  /** The agent's final answer, as the result document holds it; `null` until there is a result. */
   result: string | null
+  usage: { input_tokens: number | null; output_tokens: number | null; duration_s: number | null } | null
   created_at: string
   started_at: string | null
   finished_at: string | null
   updated_at: string
+}
+
+/** A question as the farm shows it: `ask` is answered in free text, `permission` with one of `options`. */
+export interface Question {
+  seq: number
+  text: string
+  asked_at: string
+  kind: "ask" | "permission"
+  options: string[] | null
+}
+
+/** One message of a task's conversation, as `GET /tasks/{id}/transcript` pages it. */
+export interface Message {
+  seq: number
+  role: "user" | "assistant" | "tool"
+  text: string
+  tool_uses: { name: string | null; input_summary: string | null; result_summary: string | null; is_error: boolean }[]
+  at: string | null
+  truncated: boolean
 }
 
 export interface FarmState {
@@ -97,6 +126,10 @@ export interface FarmState {
   schedules: Map<string, Schedule>
   tasks: Map<string, Task>
   tickets: Set<string>
+  /** Result documents served at `result.url`, by key; a download consumes nothing. */
+  documents: Map<string, Json>
+  /** Where `result.url` points instead of this server, to hand out a link the backend must not follow. */
+  resultBase?: string
   /** Every tool call, in order, with its arguments as they arrived. */
   calls: { name: string; args: Json }[]
   unauthorized: boolean
@@ -106,6 +139,7 @@ export interface FarmState {
 
 const PATH = "/api/v1/mcp/dynapps-farm/mcp"
 const UPLOAD = "/farm/api/v1/credential-uploads/"
+const RESULTS = "/results/"
 
 export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?: () => number } = {}) {
   const now = input.now ?? Date.now
@@ -126,6 +160,7 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
     schedules: new Map(),
     tasks: new Map(),
     tickets: new Set(),
+    documents: new Map(),
     calls: [],
     unauthorized: false,
     unavailable: false,
@@ -164,13 +199,22 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
     last_fire_error: null,
   })
 
-  const taskWire = (task: Task) => {
-    const { transcript: _, answer: __, result: ___, ...rest } = task
+  const terminal = (task: Task) => ["succeeded", "failed", "cancelled", "expired"].includes(task.state)
+
+  // A task as the farm's `TaskOut`: no `schedule_id` (the farm does not show it on a task), `trigger` only on a
+  // schedule's own list, the result as a descriptor without a link.
+  const taskWire = (task: Task, trigger = false) => {
+    const { transcript: _, answer: __, result: ___, schedule_id: ____, trigger: _____, ...rest } = task
     return {
       ...rest,
       tenant: state.tenant,
+      ...(trigger ? { trigger: task.trigger } : {}),
       waiting_input: task.question !== null,
-      resumable: task.session_ref !== null && ["succeeded", "failed", "expired"].includes(task.state),
+      // Known once the task has finished: null while it goes.
+      resumable: terminal(task) ? task.session_ref !== null && task.state !== "cancelled" : null,
+      ...(task.result === null
+        ? {}
+        : { result: { s3_key: `results/${task.task_id}.json`, sha256: null, size_bytes: null } }),
     }
   }
 
@@ -217,12 +261,16 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
       model: null,
       state: "queued",
       failure_reason: null,
+      origin: "api",
+      origin_context: null,
+      workspace: null,
       question: null,
       answer: null,
       viewed: false,
       session_ref: `sess_${randomUUID().slice(0, 8)}`,
       transcript: [],
       result: null,
+      usage: null,
       created_at: iso(),
       started_at: null,
       finished_at: null,
@@ -238,6 +286,8 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
     prompt: (body.prompt as string | undefined) ?? null,
     input: (body.input as string | undefined) ?? null,
     model: (body.model as string | undefined) ?? null,
+    origin_context: (body.origin_context as Json | undefined) ?? null,
+    workspace: (body.workspace as Json | undefined) ?? null,
   })
 
   const tools: Record<string, (args: Json) => Json> = {
@@ -402,6 +452,7 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
         schedule_id: schedule.schedule_id,
         trigger: "manual",
         ...fromTask(schedule.task),
+        origin: "schedule",
       })
       schedule.runs_count += 1
       schedule.last_fired_at = task.created_at
@@ -414,60 +465,141 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
         items: [...state.tasks.values()]
           .filter((task) => task.schedule_id === schedule.schedule_id)
           .toReversed()
-          .map(taskWire),
+          .map((task) => taskWire(task, true)),
       }
     },
-    farm_list_tasks: (args) => ({
-      items: [...state.tasks.values()]
+    // Newest first, or oldest change first with `updated_since`; pages of `limit` (25, at most 100) with an opaque
+    // `next_cursor`.
+    farm_list_tasks: (args) => {
+      const limit = Math.min(typeof args.limit === "number" ? args.limit : 25, 100)
+      const from = typeof args.cursor === "string" ? Number(args.cursor.replace(/^c/, "")) : 0
+      const all = [...state.tasks.values()]
         .filter((task) => mine(task) !== undefined)
         .filter((task) => args.owner !== "me" || task.owner === state.subject)
+        .filter((task) => args.session_ref === undefined || task.session_ref === args.session_ref)
         .filter((task) => args.updated_since === undefined || task.updated_at >= String(args.updated_since))
-        .toReversed()
-        .map(taskWire),
-      next_cursor: null,
-    }),
+      const ordered =
+        args.updated_since === undefined
+          ? all.toReversed()
+          : all.toSorted((a, b) => a.updated_at.localeCompare(b.updated_at))
+      return {
+        items: ordered.slice(from, from + limit).map((task) => taskWire(task)),
+        next_cursor: from + limit < ordered.length ? `c${from + limit}` : null,
+      }
+    },
     farm_get_task: (args) => {
       const task = mine(state.tasks.get(String(args.task_id)))
       return task === undefined ? notFound() : taskWire(task)
     },
+    // The result's descriptor and a link to its document, as `GET /tasks/{id}/result`; only for a finished task.
+    farm_get_task_result: (args) => {
+      const task = mine(state.tasks.get(String(args.task_id)))
+      if (task === undefined) return notFound()
+      if (!terminal(task)) return error("task_not_terminal", "The task has not finished yet.")
+      if (task.result === null) return error("result_not_found", "The task left no result.")
+      const key = randomUUID()
+      state.documents.set(key, {
+        task_id: task.task_id,
+        state: task.state,
+        result: task.result,
+        session_ref: task.session_ref ?? "",
+        usage: { input_tokens: 10, output_tokens: 20, duration_s: task.usage?.duration_s ?? 0, num_turns: 3 },
+      })
+      return {
+        task_id: task.task_id,
+        tenant: state.tenant,
+        scope: null,
+        state: task.state,
+        result: {
+          s3_key: `results/${task.task_id}.json`,
+          sha256: null,
+          size_bytes: null,
+          content_type: "application/json",
+          url: `${state.resultBase ?? url()}${RESULTS}${key}`,
+          expires_at: iso(now() + 300_000),
+        },
+        summary: task.result.slice(0, 200),
+        usage: task.usage ?? { input_tokens: null, output_tokens: null, duration_s: null },
+        session_ref: task.session_ref,
+        resumable: task.session_ref !== null,
+      }
+    },
     farm_launch_task: (args) => {
       const problem = taskProblem({ ...args })
       if (problem) return problem
-      const parent = [...state.tasks.values()].find((task) => task.session_ref === args.session_ref)
+      const parent = [...state.tasks.values()].findLast((task) => task.session_ref === args.session_ref)
       if (args.session_ref !== undefined && mine(parent) === undefined) return error("session_not_found", "No session.")
-      const task = newTask({ owner: state.subject, ...fromTask(args), session_ref: parent?.session_ref ?? null })
-      return { status: 201, ...taskWire(task) }
+      if (parent?.workspace && args.workspace === undefined)
+        return error("workspace_required_for_resume", "Send the workspace again.", { field: "workspace" })
+      const fields = fromTask(args)
+      const task = newTask({
+        owner: state.subject,
+        ...fields,
+        origin_context: fields.origin_context ?? parent?.origin_context ?? null,
+        ...(parent === undefined ? {} : { session_ref: parent.session_ref }),
+      })
+      return {
+        status: 201,
+        task_id: task.task_id,
+        tenant: state.tenant,
+        scope: null,
+        state: task.state,
+        correlation_id: `mcp-${task.task_id}`,
+        created_at: task.created_at,
+        ...(parent === undefined ? {} : { parent_task_id: parent.task_id, session_agent_changed: false }),
+      }
     },
     farm_cancel_task: (args) => {
       const task = mine(state.tasks.get(String(args.task_id)))
       if (task === undefined) return notFound()
       if (!["pending", "queued", "running"].includes(task.state))
         return error("task_not_cancellable", "The task already finished.")
-      Object.assign(task, { state: "cancelled", finished_at: iso(), updated_at: iso() })
+      Object.assign(task, { state: "cancelled", finished_at: iso(), updated_at: iso(), viewed: false })
       return { task_id: task.task_id, state: task.state }
     },
     farm_mark_task_viewed: (args) => {
       const task = mine(state.tasks.get(String(args.task_id)))
       if (task === undefined) return notFound()
+      if (task.owner !== state.subject) return notFound()
       task.viewed = true
-      return taskWire(task)
+      return { task_id: task.task_id, viewed: true }
     },
+    // Pages of `limit` messages (50, at most 200) after the `seq` in `cursor`. While the task runs, `next_cursor` is
+    // where to resume later even when there is nothing more yet.
     farm_get_task_transcript: (args) => {
       const task = mine(state.tasks.get(String(args.task_id)))
       if (task === undefined) return notFound()
-      const after = typeof args.after === "number" ? args.after : 0
-      const items = task.transcript.filter((message) => message.seq > after)
-      return { task_id: task.task_id, items, next_cursor: null, complete: task.finished_at !== null }
+      const limit = Math.min(typeof args.limit === "number" ? args.limit : 50, 200)
+      const after = typeof args.cursor === "string" ? Number(args.cursor) : 0
+      const rest = task.transcript.filter((message) => message.seq > after)
+      const messages = rest.slice(0, limit)
+      const complete = terminal(task) && messages.length === rest.length
+      const last = messages.at(-1)?.seq ?? after
+      return {
+        task_id: task.task_id,
+        tenant: state.tenant,
+        scope: null,
+        state: task.state,
+        messages,
+        next_cursor: complete ? null : String(last),
+        complete,
+      }
     },
     farm_answer_task: (args) => {
       const task = mine(state.tasks.get(String(args.task_id)))
       if (task === undefined) return notFound()
       if (task.question === null || (args.seq !== undefined && args.seq !== task.question.seq))
         return error("no_open_question", "The task is not waiting for an answer.")
+      if (
+        task.question.kind === "permission" &&
+        (args.seq === undefined || !task.question.options?.includes(String(args.answer)))
+      )
+        return error("answer_invalid", "A permission question takes Allow or Deny, with its seq.")
+      const seq = task.question.seq
       task.answer = String(args.answer)
       task.question = null
       task.updated_at = iso()
-      return { task_id: task.task_id, answered: true }
+      return { seq, answered_at: iso() }
     },
   }
 
@@ -491,6 +623,10 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
         state.userCredential = true
         return new Response(null, { status: 204 })
       }
+      if (request.method === "GET" && path.startsWith(RESULTS)) {
+        const document = state.documents.get(path.slice(RESULTS.length))
+        return document === undefined ? new Response("expired", { status: 403 }) : Response.json(document)
+      }
       if (request.method !== "POST" || path !== PATH) return new Response("not found", { status: 404 })
       const bearer = request.headers.get("authorization")?.replace(/^Bearer /, "") ?? ""
       if (state.unauthorized || !(input.authorize?.(bearer) ?? bearer !== ""))
@@ -512,9 +648,11 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
   const advance = (id: string, change: Partial<Task>) => {
     const task = state.tasks.get(id)
     if (task === undefined) throw new Error(`no task ${id}`)
+    const was = terminal(task)
     Object.assign(task, { updated_at: iso() }, change)
-    if (["succeeded", "failed", "cancelled", "expired"].includes(task.state) && task.finished_at === null)
-      task.finished_at = iso()
+    // Finishing makes the task new to its owner again, as the farm's trigger does.
+    if (terminal(task) && !was)
+      Object.assign(task, { finished_at: task.finished_at ?? iso(), viewed: change.viewed ?? false })
     return task
   }
 
@@ -534,3 +672,46 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
 }
 
 export type FakeFarm = ReturnType<typeof fakeFarm>
+
+/**
+ * The farm backend as main will build it, against `farm`: a signed-in account of the sp-client fake `sp` (real JWT
+ * mint), the real `FarmClient.viaSp` and the real `FarmCloud`, with the account's instance URL pointed at the fake
+ * proxy. `interval` is the poll of `watch`, short in tests.
+ */
+export async function signedIn(
+  sp: Fake,
+  farm: FakeFarm,
+  options: { models?: () => Promise<readonly string[] | undefined>; interval?: number; fetch?: typeof fetch } = {},
+) {
+  const context = setup(sp)
+  const pat = sp.issuePat()
+  await context.accounts.signInToken({ url: sp.url, token: pat })
+  const accounts = {
+    active: context.accounts.active,
+    session: context.accounts.session,
+    stored: (key: string) => {
+      const stored = context.accounts.stored(key)
+      return stored && { ...stored, url: farm.url }
+    },
+  }
+  const client = FarmClient.viaSp({ accounts })
+  const cloud = FarmCloud.make({
+    transport: client,
+    accounts: {
+      active: context.accounts.active,
+      withPat: async (key, use) => {
+        if (context.accounts.list().find((account) => account.id === key)?.status !== "signedIn")
+          throw new DynWorkAccounts.NotSignedIn({ id: key })
+        return use(pat)
+      },
+    },
+  })
+  const backend = RoutinesFarm.make({
+    client,
+    cloud,
+    models: options.models ?? (async () => ["claude-sonnet-5-5", "claude-opus-5-5"]),
+    interval: options.interval ?? 5,
+    fetch: options.fetch,
+  })
+  return { ...context, pat, backend, client, cloud }
+}

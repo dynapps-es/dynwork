@@ -88,26 +88,29 @@ The table names the farm's MCP tools, the way DynWork reaches the farm (see "Tra
 calls as the caller (base `/farm/api/v1`). `make({ client, cloud, models })` takes the transport, the Cloud access
 (`cloud.ts`) and a reader of the models Governance admits for the user (`profileModels(accounts)`, which reads
 `GET /v1/bridge/profile`). Without them, `make()` is the unconnected backend: `disabled`, and `not implemented`
-elsewhere. Rows marked "not yet" are what is left to write.
+elsewhere.
 
-| Contract                     | Farm                                                                                                                                                                                                                                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities()`             | `cloud.ensure("capabilities")` first, then `farm_whoami` (`GET /whoami`): `free_prompt` (no `prompt` instructions without it), `permission_ceiling` (no "Don't ask" under `ask`), `schedules {used, max_per_user, max_tenant}` as `quota` (`shared` only without a per-person cap).                     |
-| `model`                      | `choose` with the models of the user's `profile.models` in Governance, as they come (no filter by prefix); `agent` when there are none. `options("models")` serves them; `Definition.model` is `task.model`.                                                                                            |
-| `options("agents")`          | `farm_list_agents` (`GET /agents`): one choice per `slug`                                                                                                                                                                                                                                               |
-| `options("plugins")`         | `farm_list_plugins` (`GET /plugins`). Served, but no field uses it: a farm task loads every plugin of its image and cannot choose among them.                                                                                                                                                           |
-| `options("credentials:...")` | `farm_list_credentials` (`GET /credentials`), the user's own credentials of that `type` (`git_token` for repository access, `mcp_url` for connectors)                                                                                                                                                   |
-| `validate(definition)`       | `RoutinesValidate.check`, then the model among the user's models, the agent in `farm_list_agents`, and no `bypass` for an agent whose `capabilities.permission_ceiling` is `ask`.                                                                                                                       |
-| `list()`, `get(id)`          | `farm_list_schedules {owner: me}`, `farm_get_schedule` (`GET /schedules`, `GET /schedules/{id}`). `name` and `metadata` are the farm's: there is no DynWork table.                                                                                                                                      |
-| `create(definition)`         | `farm_create_schedule` (`POST /schedules`): `name`, `metadata`, `task` with `gateway_identity: "user"` always, `recurrence` (absent for a routine with no schedule: it runs only when started), `overlap`. `enabled: false` is a pause right after.                                                     |
-| `update(id, definition)`     | `farm_update_schedule` (`PATCH /schedules/{id}`): in place, the `ref` stays (`actions.edit` is `in-place`). `task` and `metadata` are sent whole, keeping what DynWork does not write (other keys of `metadata`, the task's `scope`, `limits.cpu`...; not `notify`, whose URLs the farm never returns). |
-| `remove`, `pause`, `resume`  | `farm_delete_schedule`, `farm_pause_schedule`, `farm_resume_schedule`                                                                                                                                                                                                                                   |
-| `start(id)`                  | `farm_fire_schedule` (`POST /schedules/{id}/fire`): the `Run` of the task it makes, `trigger: "manual"`, `conversation: { kind: "transcript" }`. A paused schedule is `conflict`.                                                                                                                       |
-| `runs`, `watch` (not yet)    | `farm_list_schedule_runs`, `farm_list_tasks` (Activity, and `updated_since` while watched)                                                                                                                                                                                                              |
-| `cancel` (not yet)           | `farm_cancel_task`; `task_not_cancellable` is `conflict`                                                                                                                                                                                                                                                |
-| `transcript` (not yet)       | `farm_get_task_result` and `farm_get_task_transcript` (`GET /tasks/{id}/transcript`, paged by `seq`)                                                                                                                                                                                                    |
-| `viewed` (not yet)           | `farm_mark_task_viewed`: the farm keeps the read state per owner                                                                                                                                                                                                                                        |
-| `reply`, `answerQuestion`    | (not yet) `farm_launch_task` with `session_ref`; `farm_answer_task` with the question's `seq`                                                                                                                                                                                                           |
+| Contract                     | Farm                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities()`             | `cloud.ensure("capabilities")` first, then `farm_whoami` (`GET /whoami`): `free_prompt` (no `prompt` instructions without it), `permission_ceiling` (no "Don't ask" under `ask`), `schedules {used, max_per_user, max_tenant}` as `quota` (`shared` only without a per-person cap).                                                                                    |
+| `model`                      | `choose` with the models of the user's `profile.models` in Governance, as they come (no filter by prefix); `agent` when there are none. `options("models")` serves them; `Definition.model` is `task.model`.                                                                                                                                                           |
+| `options("agents")`          | `farm_list_agents` (`GET /agents`): one choice per `slug`                                                                                                                                                                                                                                                                                                              |
+| `options("plugins")`         | `farm_list_plugins` (`GET /plugins`). Served, but no field uses it: a farm task loads every plugin of its image and cannot choose among them.                                                                                                                                                                                                                          |
+| `options("credentials:...")` | `farm_list_credentials` (`GET /credentials`), the user's own credentials of that `type` (`git_token` for repository access, `mcp_url` for connectors)                                                                                                                                                                                                                  |
+| `validate(definition)`       | `RoutinesValidate.check`, then the model among the user's models, the agent in `farm_list_agents`, and no `bypass` for an agent whose `capabilities.permission_ceiling` is `ask`.                                                                                                                                                                                      |
+| `list()`, `get(id)`          | `farm_list_schedules {owner: me}`, `farm_get_schedule` (`GET /schedules`, `GET /schedules/{id}`). `name` and `metadata` are the farm's: there is no DynWork table. `last` and `unread` come from the routine's runs (below).                                                                                                                                           |
+| `create(definition)`         | `farm_create_schedule` (`POST /schedules`): `name`, `metadata`, `task` with `gateway_identity: "user"` always, `recurrence` (absent for a routine with no schedule: it runs only when started), `overlap`. `enabled: false` is a pause right after.                                                                                                                    |
+| `update(id, definition)`     | `farm_update_schedule` (`PATCH /schedules/{id}`): in place, the `ref` stays (`actions.edit` is `in-place`). `task` and `metadata` are sent whole, keeping what DynWork does not write (other keys of `metadata`, the task's `scope`, `limits.cpu`...; not `notify`, whose URLs the farm never returns).                                                                |
+| `remove`, `pause`, `resume`  | `farm_delete_schedule`, `farm_pause_schedule`, `farm_resume_schedule`                                                                                                                                                                                                                                                                                                  |
+| `start(id)`                  | `farm_fire_schedule` (`POST /schedules/{id}/fire`): the `Run` of the task it makes, `trigger: "manual"`, `conversation: { kind: "transcript" }`. A paused schedule is `conflict`.                                                                                                                                                                                      |
+| `runs({ routine })`          | `farm_list_schedule_runs` (`GET /schedules/{id}/tasks`, not paged by the farm, so paged here by `RoutinesFarm.page`) plus the replies sent to them (see `reply`), newest first.                                                                                                                                                                                        |
+| `runs({})` (Activity)        | `farm_list_tasks {owner: me}`, newest first, with the farm's own `cursor`. A task's routine is the one it was seen under (the farm does not say it on a task), or the one its `origin_context` names.                                                                                                                                                                  |
+| `watch(changed)`             | While subscribed, one poll every `RoutinesFarm.interval` of `farm_list_tasks {owner: me, updated_since}`, from the newest change seen minus `RoutinesFarm.lookback`; each change once, as its `Run` and routine. A run that failed with `farm_access_revoked` gives Cloud the PAT again (`cloud.retry`); the routine stays as it is.                                   |
+| `cancel(run)`                | `farm_cancel_task` (`DELETE /tasks/{id}`); `task_not_cancellable` is `conflict`                                                                                                                                                                                                                                                                                        |
+| `transcript(run)`            | `farm_get_task` (`not-found`), then for a finished run `farm_get_task_result`, whose `result.url` is downloaded (https, or http on this computer; no redirect) for `Transcript.result`, the summary when it cannot be; `farm_get_task_transcript` page by page as `log`, one line per message and per tool; `usage.duration` from the task, `turns` from the document. |
+| `viewed(run)`                | `farm_mark_task_viewed` (`POST /tasks/{id}/viewed`): the farm keeps the read state per owner and resets it when the task finishes.                                                                                                                                                                                                                                     |
+| `reply({ run, text })`       | `farm_launch_task` with the run's `session_ref`, `gateway_identity: "user"`, the routine's task (`model`, `permission_mode`, `workspace`, `mcp_servers`, `limits`), the words as `prompt` or as the agent's `input`, and `origin_context.dynwork_routine` naming the routine. A run still going, or not resumable, is `conflict`.                                      |
+| `answerQuestion(...)`        | `farm_answer_task` with the question's `seq` (`Question.id` is `q-<seq>`); a choice not among `options` is `invalid`, a question that is no longer open `conflict`. A question without `options` (`kind: ask`) takes the user's words.                                                                                                                                 |
 
 A definition and its schedule:
 
@@ -131,13 +134,17 @@ field. `user_gateway_credential_missing` or `farm_access_revoked` on a create, a
 PAT again (`cloud.retry`) and makes the call once more; when Cloud cannot take it, the `Failure` says so.
 
 `RunState`: `pending` and `queued` are `queued`; `running` is `running`; `succeeded` is `ok`; `failed` is `failed` and
-`TaskOut.failure_reason` is the `reason`; `cancelled` is `cancelled`; `expired` is `failed`; a schedule's
-`last_fire_state` of `skipped_overlap` or `skipped_quota` is `skipped` with `reason` `overlap` or `quota`. `late`,
-`blocked` and `missed` are produced by DynWork's own clock for local routines; the farm gives none of them.
+`TaskOut.failure_reason` is the `reason` (`farm_access_revoked`, `gateway_unavailable`, `timeout`...); `cancelled` is
+`cancelled`; `expired` is `failed` with `question_unanswered`. A task waiting for its owner (`question`) is `running`
+with the reason `question` and unread; a finished one is unread until its owner marks it seen. The farm makes no task
+for a skipped firing, so a farm run is never `skipped`. `late`, `blocked` and `missed` are produced by DynWork's own
+clock for local routines; the farm gives none of them.
 
 Odd cases, decided so that you do not have to:
 
 - **Tasks with no routine** (started from the chat, from a script) appear only in Activity, with no `Run.routine`.
+- **Replies.** A reply is a task of no schedule. Dynwork finds a routine's replies among the user's newest 300 tasks
+  by `origin_context.dynwork_routine`; an older reply is still in Activity.
 - **One list.** Cloud routines are listed with the local ones, told apart by `ref.backend`. They are not local
   routines, so they never enter the local routines' sync with Governance ("My routines", `../local/sync.ts`).
 - **Cost.** A farm task has no cost limit: the connected backend declares no cost field. The demo still shows
@@ -160,22 +167,18 @@ Only `1` turns it on (`RoutinesFarm.enabled`). When your backend is written, reg
 **The tests** run from `dynwork/packages/gui`:
 
 ```bash
-bun test test/routines/farm.test.ts           # the skeleton is what this README says it is
+bun test test/routines/farm.test.ts           # the conformance suite against the connected backend, and the unconnected one
+bun test test/routines/farm-backend-crud.test.ts test/routines/farm-backend-runs.test.ts
 bun test test/routines                        # the whole routines suite, as the CI runs it
-DYNWORK_ROUTINES_FARM_CONFORMANCE=1 bun test test/routines/farm.test.ts   # the full conformance suite against it
 bun typecheck
 ```
 
-The third line runs `test/routines/conformance.ts` against `RoutinesFarm.make()`. It is red now (14 of its 15 tests
-fail, as every method answers "not implemented") and it is your definition of done: every test green. That suite is the contract made executable: create, list, read back, edit (in place or replacing, per
-`actions.edit`), pause, resume, start and finish, unread and `viewed`, paging, cancel, remove, `not-found` everywhere,
-`invalid` with its fields, `watch`, the quota, transcripts, and everything surviving the Ipc's wire.
-
-It needs a way to bring a run to a terminal state (`finish`) and a farm to talk to. For that, write a **fake farm
-server** over real HTTP, as `test/routines/service.ts` does for DynWork's own service: the routes you call, the wire
-shapes of `farm-api` (`{ error: { code, message, retryable, details } }` for failures) and a `finish` that moves its
-tasks on. Point `RoutinesFarm.make(...)` at it in `farm.test.ts` where the `conformance(...)` call is. Do not mock the
-farm client: the point of the suite is that the real adapter passes.
+`farm.test.ts` runs `test/routines/conformance.ts` against `RoutinesFarm.make({ client, cloud, models })` over the real
+transport and accounts, with `test/routines/farm-server.ts` playing the Governance MCP proxy and the farm over real HTTP
+(`signedIn` builds the backend as main will). Its `finish` moves the fake's tasks to `succeeded` and waits for a poll
+of `watch`; its `ask` puts a question on a task. That suite is the contract made executable: create, list, read back,
+edit in place, pause, resume, start and finish, unread and `viewed`, paging, cancel, remove, `not-found` everywhere,
+`invalid` with its fields, `watch`, the quota, transcripts, replies, questions, and everything surviving the Ipc's wire.
 
 `../README.md` ("Backends") and `test/routines/wire.ts` (a window's client over a registry, with every value crossing
 as the bridge makes it cross) are the other test helpers.
@@ -224,11 +227,17 @@ what only the farm knows.
 
 1. **Notification.** The farm's callback needs a public URL, so the desktop polls `updated_since`. A push or SSE would
    remove the polling (farm v2).
+2. **The schedule of a task.** A task does not say which schedule fired it, and a reply belongs to none: `list()` reads
+   each routine's runs and the user's recent tasks, one call per routine. A `schedule_id` on every task, kept by a
+   reply, would make it one call.
+3. **Manual routines and the quota.** The farm counts a routine with no schedule against the schedule quota, so a user
+   at the limit cannot add one to run by hand; the contract expects they can.
+4. **Overlap on a manual start.** `overlap: skip` (the default) refuses a start while a run is going
+   (`schedule_overlap`, `conflict`); the contract expects a start to run whatever the schedule says.
 
 ## 8. Checklist for the PR
 
-- [ ] `cd dynwork/packages/gui && bun test && bun typecheck` green, and the conformance suite green against your backend
-      (`DYNWORK_ROUTINES_FARM_CONFORMANCE=1`, then make it unconditional in `farm.test.ts`).
+- [ ] `cd dynwork/packages/gui && bun test && bun typecheck` green, the conformance suite in `farm.test.ts` included.
 - [ ] CI's job `patch guard and tests` (`.github/workflows/dynwork.yml`) green.
 - [ ] Nothing says "systemprompt" in any user-visible text: it is "Governance". `test/views/strings.test.ts` checks it.
 - [ ] No upstream line touched: `bun dynwork/script/patches.ts` still says 249 of 250 lines used. New files only.
@@ -236,8 +245,7 @@ what only the farm knows.
 - [ ] Copy goes through the views' i18n files. Text a backend supplies (`Field.label`, `help`, choices, warnings,
       fixed `Failure` messages) is English; add each one to `routines/i18n/en.ts`, `es.ts`, `fr.ts` and `nl.ts` so
       the window shows it in the app's language (`test/ui/languages.test.ts` checks the fields).
-- [ ] Every `JESÚS:` comment you finished is deleted or turned into a plain comment, and the ones you did not finish
-      are still there.
+- [ ] No `JESÚS:` comment left under `routines/farm/` (`test/routines/handover.test.ts` checks it).
 - [ ] Commits follow upstream's convention with the `dynwork` scope: `feat(dynwork): connect the Agent Farm routines`.
 
 ## Transport

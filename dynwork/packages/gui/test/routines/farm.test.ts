@@ -1,15 +1,17 @@
-import { describe, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { fail } from "../../src/routines/backend"
-import { Capabilities } from "../../src/routines/contract"
+import { Capabilities, type Change } from "../../src/routines/contract"
 import { RoutinesDemo } from "../../src/routines/demo"
 import { RoutinesFarm } from "../../src/routines/farm/backend"
 import { RoutinesValidate } from "../../src/routines/validate"
+import { startFake, until, type Fake } from "../accounts/fixture"
 import { conformance, sample } from "./conformance"
+import { fakeFarm, signedIn, type FakeFarm } from "./farm-server"
 import { clock } from "./fixture"
 import { crossing } from "./wire"
 
-// The skeleton is Jesús's starting point: it has to be what the README says it is. It answers `not implemented` to
-// everything and says it is `disabled`, so the views show the farm as unavailable and nothing breaks.
+// Without its options the backend is the unconnected one main registers until the farm is wired: it answers
+// `not implemented` to everything and says it is `disabled`, so the views show the farm as unavailable and nothing breaks.
 describe("the Agent Farm skeleton", () => {
   test("is switched on only by DYNWORK_ROUTINES_FARM=1", () => {
     expect(RoutinesFarm.flag).toBe("DYNWORK_ROUTINES_FARM")
@@ -89,9 +91,86 @@ describe("the Agent Farm skeleton", () => {
   })
 })
 
-// For whoever writes the farm backend: `DYNWORK_ROUTINES_FARM_CONFORMANCE=1 bun test test/routines/farm.test.ts` runs
-// the whole suite against it. It is red until the methods are written, so it is off in the CI's runs. `make` is where
-// the suite takes the backend (point it at yours, with a fake farm server in front: see `test/routines/service.ts`) and
-// `finish` brings every run that is going to a terminal state (the fake farm server moves its tasks on).
-if (process.env.DYNWORK_ROUTINES_FARM_CONFORMANCE === "1")
-  conformance("the Agent Farm backend", () => ({ backend: RoutinesFarm.make(), finish: async () => {} }))
+// The whole suite against the connected backend, over the real transport and accounts, with the fake farm behind the
+// fake Governance MCP proxy (`farm-server.ts`). `finish` moves every task that is going to `succeeded` with a result and
+// waits for a poll of `watch` when one is subscribed; `ask` puts a question on a task as the farm's agent would.
+let sp: Fake
+let farm: FakeFarm
+const stops: Array<() => void> = []
+
+beforeAll(() => {
+  sp = startFake()
+  farm = fakeFarm({ authorize: (bearer) => sp.state.jwts.has(bearer) })
+})
+
+afterAll(() => {
+  stops.forEach((stop) => stop())
+  farm.stop()
+  sp.stop()
+})
+
+conformance("the Agent Farm backend", async () => {
+  Object.assign(farm.state, {
+    ceiling: "bypass",
+    userCredential: true,
+    freePrompt: true,
+    maxPerUser: 20,
+    maxTenant: 500,
+    catalogue: ["claude-sonnet-5-5", "claude-opus-5-5"],
+    agents: [{ slug: "code-reviewer" }],
+    credentials: [
+      { name: "git-readonly", type: "git_token" },
+      { name: "mcp-odoo", type: "mcp_url" },
+    ],
+  })
+  farm.state.schedules.clear()
+  farm.state.tasks.clear()
+  farm.reset()
+  const connected = await signedIn(sp, farm)
+  stops.push(connected.accounts.dispose)
+  const watching = { count: 0 }
+  const backend = {
+    ...connected.backend,
+    watch: (changed: (change: Change) => void) => {
+      watching.count++
+      const stop = connected.backend.watch(changed)
+      return () => {
+        watching.count--
+        stop()
+      }
+    },
+  }
+  const polls = () =>
+    farm.state.calls.filter((call) => call.name === "farm_list_tasks" && call.args.updated_since).length
+  return {
+    backend,
+    finish: async () => {
+      ;[...farm.state.tasks.values()]
+        .filter((task) => ["pending", "queued", "running"].includes(task.state))
+        .forEach((task) =>
+          farm.advance(task.task_id, {
+            state: "succeeded",
+            started_at: task.started_at ?? task.created_at,
+            result: `Finished ${task.task_id}.`,
+            question: null,
+          }),
+        )
+      if (watching.count === 0) return
+      // Two polls begun after the move: the first of them has answered by the time the second starts.
+      const seen = polls()
+      await until(() => polls() >= seen + 2)
+    },
+    ask: async (run, question) => {
+      farm.advance(run, {
+        state: "running",
+        question: {
+          seq: Number(question.id.replace(/^q-/, "")),
+          text: question.text,
+          asked_at: new Date().toISOString(),
+          kind: "ask",
+          options: [...question.choices],
+        },
+      })
+    },
+  }
+})

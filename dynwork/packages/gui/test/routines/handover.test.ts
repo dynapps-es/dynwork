@@ -41,7 +41,6 @@ describe("the farm handover markers", () => {
     expect(files).toContain("routines/contract.ts")
     expect(files).toContain("routines/backend.ts")
     expect(files).toContain("routines/main.ts")
-    expect(files).toContain("routines/farm/backend.ts")
     expect([...files].some((file) => file.startsWith("views/agents/"))).toBe(true)
   })
 
@@ -50,13 +49,8 @@ describe("the farm handover markers", () => {
     expect(without.map((marker) => `${marker.file}:${marker.line}`)).toEqual([])
   })
 
-  // The catalogue and the routines themselves are written; the runs are what is left to write.
-  test("the farm backend marks every method of Backend that is not written yet, and none that is", async () => {
-    const text = await Bun.file(path.join(src, "routines/farm/backend.ts")).text()
-    const marked = (method: string) => new RegExp(`// JESÚS: \`${method}\\(`).test(text)
-    const pending = ["cancel", "runs", "transcript", "viewed", "watch"]
-    const written = ["capabilities", "options", "validate", "list", "get", "create", "update", "remove", "pause"]
-    expect(pending.filter((method) => !marked(method))).toEqual([])
-    expect([...written, "resume", "start"].filter(marked)).toEqual([])
+  // The farm backend is written (its behaviour is `farm.test.ts`'s conformance): the farm folder keeps no marker.
+  test("the farm folder has no marker left", async () => {
+    expect((await comments()).filter((marker) => marker.file.startsWith("routines/farm/"))).toEqual([])
   })
 })

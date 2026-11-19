@@ -459,18 +459,27 @@ describe("one list", () => {
 describe("the fake farm", () => {
   test("serves the run tools the backend reads next: runs, viewed, transcript, answers, cancel", async () => {
     const { backend, client: transport } = await cloud()
+    const message = { seq: 1, role: "assistant" as const, text: "Working.", tool_uses: [], at: null, truncated: false }
     const created = await ok(backend.create(definition("Runs", { schedule: undefined })))
     const run = await ok(backend.start(created.ref.id))
     farm.advance(run.ref.id, {
       state: "running",
-      question: { seq: 4, text: "Go on?", kind: "choice", options: ["Yes", "No"], expires_at: "2026-11-20T00:00:00Z" },
-      transcript: [{ seq: 1, role: "assistant", text: "Working." }],
+      question: {
+        seq: 4,
+        text: "Go on?",
+        asked_at: "2026-11-19T00:00:00Z",
+        kind: "permission",
+        options: ["Allow", "Deny"],
+      },
+      transcript: [message],
     })
     const runs = await transport.callTool("farm_list_schedule_runs", { schedule_id: created.ref.id })
     expect(runs.ok && (runs.value.items as { waiting_input: boolean }[])[0]?.waiting_input).toBe(true)
-    expect((await transport.callTool("farm_answer_task", { task_id: run.ref.id, answer: "Yes", seq: 4 })).ok).toBe(true)
+    expect((await transport.callTool("farm_answer_task", { task_id: run.ref.id, answer: "Allow", seq: 4 })).ok).toBe(
+      true,
+    )
     const transcript = await transport.callTool("farm_get_task_transcript", { task_id: run.ref.id })
-    expect(transcript.ok && transcript.value.items).toEqual([{ seq: 1, role: "assistant", text: "Working." }])
+    expect(transcript.ok && transcript.value.messages).toEqual([message])
     expect((await transport.callTool("farm_mark_task_viewed", { task_id: run.ref.id })).ok).toBe(true)
     expect(farm.state.tasks.get(run.ref.id)?.viewed).toBe(true)
     expect((await transport.callTool("farm_cancel_task", { task_id: run.ref.id })).ok).toBe(true)
