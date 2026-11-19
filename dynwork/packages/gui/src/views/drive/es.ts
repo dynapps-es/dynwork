@@ -199,6 +199,7 @@ export default {
   "drive.share.agent": "Este documento lo hizo el agente de DynWork: a quien invites o cambies aquí se comparte desde DynWork, en tu nombre.",
   "drive.share.remove": "Quitar acceso",
   "drive.share.nobody": "Nadie con ese nombre o email",
+  "drive.share.searching": "Buscando…",
   "drive.bubble": "Comentarios aquí: {{count}}",
   "drive.panel.title": "Artifacts",
   "drive.panel.add": "Añadir desde el Drive",
