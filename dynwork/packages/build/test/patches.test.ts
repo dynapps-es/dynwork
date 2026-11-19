@@ -23,12 +23,12 @@ const lines = (count: number, prefix = "line") => Array.from({ length: count }, 
 
 const table = (files: string[]) => files.map((file) => `| \`${file}\` | why | risk |`).join("\n")
 
-const patchesFile = (files: string[], budget = "Budget: 250 lines") =>
-  `# Upstream patches\n\n${budget}\n\n| File | Why | Risk |\n| --- | --- | --- |\n${table(files)}\n`
+const patchesFile = (files: string[]) =>
+  `# Upstream patches\n\n| File | Why | Risk |\n| --- | --- | --- |\n${table(files)}\n`
 
 // An upstream tag `v1.0.0` with `src/a.ts` (10 lines), `src/b.ts` and `src/gone.ts`, then a DynWork commit on top.
 // `change` edits the working tree for that commit.
-const fixture = async (change: (root: string) => Promise<void>, listed: string[], budget?: string) => {
+const fixture = async (change: (root: string) => Promise<void>, listed: string[]) => {
   const root = await mkdtemp(path.join(tmpdir(), "dynwork-patches-"))
   roots.push(root)
   await git(root, "init", "-q", "-b", "main")
@@ -41,7 +41,7 @@ const fixture = async (change: (root: string) => Promise<void>, listed: string[]
   await git(root, "commit", "-q", "-m", "upstream release")
   await git(root, "tag", "v1.0.0")
   await write(root, "dynwork/UPSTREAM", "v1.0.0\n")
-  await write(root, "dynwork/PATCHES.md", patchesFile(listed, budget))
+  await write(root, "dynwork/PATCHES.md", patchesFile(listed))
   await write(root, "dynwork/packages/x/index.ts", "export {}\n")
   await write(root, "plans/active/plan.md", "local\n")
   await change(root)
@@ -144,30 +144,33 @@ describe("patch guard", () => {
     expect(result.problems).toEqual(["PATCHES.md lists src/a.ts but it does not differ from v1.0.0"])
   })
 
-  test("fails when added plus removed lines of modified upstream files exceed the budget", async () => {
-    // 6 added + 4 removed on src/a.ts and 3 added on src/b.ts is 13 lines.
+  test("counts the added plus removed lines of modified upstream files, and never fails on how many", async () => {
+    // 6 added + 4 removed on src/a.ts and 3 added on src/b.ts is 13 lines; then 1,000 more on src/b.ts.
     const change = async (root: string) => {
       await write(root, "src/a.ts", lines(6) + lines(6, "new"))
       await write(root, "src/b.ts", lines(10, "b") + lines(3, "more"))
     }
+    const large = async (root: string) => {
+      await change(root)
+      await write(root, "src/b.ts", lines(10, "b") + lines(1003, "more"))
+    }
 
-    const over = await Patches.check(await fixture(change, ["src/a.ts", "src/b.ts"], "Budget: 12 lines"))
-    const at = await Patches.check(await fixture(change, ["src/a.ts", "src/b.ts"], "Budget: 13 lines"))
+    const some = await Patches.check(await fixture(change, ["src/a.ts", "src/b.ts"]))
+    const many = await Patches.check(await fixture(large, ["src/a.ts", "src/b.ts"]))
 
-    expect(over.used).toBe(13)
-    expect(over.problems).toEqual(["Modified upstream files change 13 lines, over the budget of 12"])
-    expect(at.used).toBe(13)
-    expect(at.problems).toEqual([])
+    expect(some.used).toBe(13)
+    expect(some.problems).toEqual([])
+    expect(many.used).toBe(1013)
+    expect(many.problems).toEqual([])
   })
 
-  test("does not count new files toward the budget, but still requires their row", async () => {
+  test("does not count new files, but still requires their row", async () => {
     const root = await fixture(
       async (root) => {
         await write(root, "src/a.ts", lines(10) + "extra\n")
         await write(root, ".github/workflows/dynwork.yml", lines(100, "step"))
       },
       ["src/a.ts", ".github/workflows/dynwork.yml"],
-      "Budget: 5 lines",
     )
 
     const result = await Patches.check(root)
@@ -176,13 +179,12 @@ describe("patch guard", () => {
     expect(result.problems).toEqual([])
   })
 
-  test("does not count the regenerated lockfile toward the budget, but still requires its row", async () => {
+  test("does not count the regenerated lockfile, but still requires its row", async () => {
     const root = await fixture(
       async (root) => {
         await write(root, "bun.lock", lines(40, "relocked"))
       },
       ["bun.lock"],
-      "Budget: 5 lines",
     )
 
     const result = await Patches.check(root)
@@ -198,7 +200,7 @@ describe("patch guard", () => {
     }
 
     const unlisted = await Patches.check(await fixture(link, []))
-    const listed = await Patches.check(await fixture(link, ["src/themes/deep.json"], "Budget: 0 lines"))
+    const listed = await Patches.check(await fixture(link, ["src/themes/deep.json"]))
 
     expect(unlisted.problems).toEqual(["src/themes/deep.json differs from v1.0.0 but PATCHES.md does not list it"])
     expect(listed.problems).toEqual([])
@@ -236,13 +238,6 @@ describe("patch guard", () => {
     expect(result.stale).toEqual(["src/a.ts"])
   })
 
-  test("throws when PATCHES.md has no budget line", async () => {
-    const root = await fixture(async () => {}, [])
-    await write(root, "dynwork/PATCHES.md", "| File | Why |\n| --- | --- |\n")
-
-    await expect(Patches.check(root)).rejects.toThrow("no `Budget: <n> lines` line")
-  })
-
   test("throws when the base tag is not in the clone", async () => {
     const root = await fixture(async () => {}, [])
     await write(root, "dynwork/UPSTREAM", "v9.9.9\n")
@@ -265,7 +260,7 @@ describe("patch guard", () => {
     expect(output).toContainEqual(expect.stringMatching(/^src\/a\.ts\s+M\s+1\s+0\s+yes$/))
     expect(output).toContainEqual(expect.stringMatching(/^src\/b\.ts\s+M\s+1\s+0\s+NO$/))
     expect(output).toContainEqual(expect.stringMatching(/^src\/gone\.ts\s+-\s+-\s+-\s+stale$/))
-    expect(output).toContainEqual("Base v1.0.0: 2 upstream files differ, 2 of 250 budgeted lines used.")
+    expect(output).toContainEqual("Base v1.0.0: 2 upstream files differ, the modified ones by 2 lines.")
     expect(output.filter((line) => line.startsWith("FAIL "))).toHaveLength(2)
   })
 })

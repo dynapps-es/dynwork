@@ -1,14 +1,13 @@
 # Upstream patches
 
 Every upstream file DynWork modifies. Keep this list short: each row is a potential conflict on every upstream
-release. New files under `dynwork/` are not listed.
-
-Budget: 250 lines
+release. Touch an upstream file only when no DynWork seam reaches, with the smallest diff. New files under `dynwork/`
+are not listed.
 
 `bun dynwork/script/patches.ts` fails when an upstream file differs from the tag in `dynwork/UPSTREAM` and has no row
-below, when a row lists a file that does not differ, or when the added plus removed lines of the modified upstream files
-pass the budget above. Files DynWork adds and `bun.lock` need a row but do not count toward the budget: new files
-cannot conflict on a rebase, and the lockfile is regenerated rather than merged.
+below, or when a row lists a file that does not differ. It reports the added plus removed lines of the modified upstream
+files, without a limit: upstream merges resolve the conflicts they bring. Files DynWork adds and `bun.lock` need a row
+but are not counted: new files cannot conflict on a merge, and the lockfile is regenerated rather than merged.
 
 | File                                                                                           | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Risk on upstream updates                                                                                                                                                                                                                                                                                                            |
 | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
