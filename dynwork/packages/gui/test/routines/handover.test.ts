@@ -50,27 +50,13 @@ describe("the farm handover markers", () => {
     expect(without.map((marker) => `${marker.file}:${marker.line}`)).toEqual([])
   })
 
-  test("the skeleton marks every method of Backend", async () => {
+  // The catalogue and the routines themselves are written; the runs are what is left to write.
+  test("the farm backend marks every method of Backend that is not written yet, and none that is", async () => {
     const text = await Bun.file(path.join(src, "routines/farm/backend.ts")).text()
-    const methods = [
-      "capabilities",
-      "options",
-      "validate",
-      "list",
-      "get",
-      "create",
-      "update",
-      "remove",
-      "pause",
-      "resume",
-      "start",
-      "cancel",
-      "runs",
-      "transcript",
-      "viewed",
-      "watch",
-    ]
-    const missing = methods.filter((method) => !new RegExp(`// JESÚS: \`${method}\\(`).test(text))
-    expect(missing).toEqual([])
+    const marked = (method: string) => new RegExp(`// JESÚS: \`${method}\\(`).test(text)
+    const pending = ["cancel", "runs", "transcript", "viewed", "watch"]
+    const written = ["capabilities", "options", "validate", "list", "get", "create", "update", "remove", "pause"]
+    expect(pending.filter((method) => !marked(method))).toEqual([])
+    expect([...written, "resume", "start"].filter(marked)).toEqual([])
   })
 })
