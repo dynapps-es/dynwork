@@ -270,7 +270,7 @@ export function remote(options: Remote): Backend {
           owner: access.owner,
           access: access.my_access,
           grants: access.grants.map(grant),
-          inherited: access.inherited.map(grant),
+          inherited: (access.inherited ?? []).map(grant),
         }),
       ),
     agentCap: (target) =>

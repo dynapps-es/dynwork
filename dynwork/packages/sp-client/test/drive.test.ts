@@ -194,6 +194,8 @@ describe("reading", () => {
     const created = await upload("a.html", html)
     const shared = await run(SpDrive.access(fake.url, state.jwt, created.id))
     expect(shared).toMatchObject({ my_access: "own", grants: [], agent_cap: { cap: "edit" } })
+    // Nothing inherited: the instance leaves the key out, and the answer still reads.
+    expect(shared.inherited).toBeUndefined()
     const target = await folder("Projects")
     const reading = await run(SpDrive.agentCap(fake.url, state.jwt, { kind: "folder", id: target.id }))
     expect(reading.agent_cap).toBe("suggest")

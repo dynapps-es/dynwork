@@ -632,7 +632,7 @@ export function startFake() {
           owner: user,
           my_access: "own",
           grants: [],
-          inherited: [],
+          // 0.83 leaves out an empty `inherited`, as it does the history and the requests.
           agent_cap: {
             cap: "edit",
             policy_cap: "edit",

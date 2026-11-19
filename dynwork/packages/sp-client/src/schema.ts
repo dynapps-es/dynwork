@@ -358,7 +358,8 @@ export const DriveAccess = Schema.Struct({
   owner: Schema.String,
   my_access: Schema.String,
   grants: Schema.Array(DriveGrant),
-  inherited: Schema.Array(DriveGrant),
+  // 0.83 leaves it out when no folder above grants anything (`skip_serializing_if = "Vec::is_empty"`)
+  inherited: Schema.optional(Schema.Array(DriveGrant)),
   agent_cap: Schema.optional(
     Schema.Struct({ cap: Schema.String, policy_cap: Schema.String, reason: Nullable(Schema.String) }),
   ),
