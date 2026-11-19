@@ -39,13 +39,20 @@ const thread = (id: string, node: string, quote?: string, open = true): Thread =
 const body = (srcdoc: string) => new DOMParser().parseFromString(srcdoc, "text/html")
 
 describe("comments marked on an HTML page", () => {
-  test("a quote is marked inside its node, across the page's own tags and spaces, with the comment as its title", () => {
+  test("a quote is marked inside its node, across the page's own tags and spaces, by its thread alone", () => {
     const frame = frameOf(page, { marks: { nodes, threads: [thread("t1", "n2", "total del trimestre sube")] } })
     const marks = [...body(frame.srcdoc).querySelectorAll("mark[data-dynwork-comment='t1']")]
     expect(marks.map((mark) => mark.textContent)).toEqual(["total del ", "trimestre", "   sube"])
     expect(marks[0]?.id).toBe(markId("t1"))
     expect(marks.slice(1).map((mark) => mark.id)).toEqual(["", ""])
-    expect(marks[0]?.getAttribute("title")).toBe("Revisar este punto t1")
+    // Nothing of the comment reaches the page: its scripts may reach the network.
+    expect(marks.every((mark) => !mark.hasAttribute("title"))).toBe(true)
+    expect(frame.srcdoc).not.toContain("Revisar")
+    expect(marks.map((mark) => [...mark.attributes].map((attribute) => attribute.name).toSorted())).toEqual([
+      ["data-dynwork-comment", "id"],
+      ["data-dynwork-comment"],
+      ["data-dynwork-comment"],
+    ])
     expect(frame.marks).toEqual({ t1: markId("t1") })
     // The paragraph reads as it did.
     expect(body(frame.srcdoc).querySelector("p")?.textContent).toBe("El total del trimestre   sube un 4 %.")

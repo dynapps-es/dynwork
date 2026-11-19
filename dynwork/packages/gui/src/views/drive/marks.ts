@@ -4,8 +4,9 @@ import { matchNodes, type Thread } from "./model"
 // optional quote inside it; the page is read into an inert document (`anchorPage`), its blocks are matched to the
 // document's nodes by their text, in reading order (`matchNodes`, as the Markdown marks do), and the quote of each open
 // thread is wrapped in a `<mark>` inside its block, or the block's text when the thread has no quote. The marks work
-// without scripts: the browser's own `mark` look, a `title` with the comment's start, and an id a jump navigates to.
-// Main's observer (`drive/frames.ts`) reports a click on one.
+// without scripts: the browser's own `mark` look and an id a jump navigates to. A mark carries the thread's id and
+// nothing of the comment: the page's scripts may reach the network, so the text stays in the app, where a click on the
+// mark opens it (main's observer, `drive/frames.ts`, reports the click).
 
 /** The id of a thread's first mark in the page, which a jump navigates to. */
 export const markId = (thread: string) => `dynwork-comment-${thread}`
@@ -28,7 +29,7 @@ const look =
 export function markPage(
   page: Document,
   nodes: Parameters<typeof matchNodes>[0],
-  threads: readonly Pick<Thread, "id" | "node" | "quote" | "open" | "messages">[],
+  threads: readonly Pick<Thread, "id" | "node" | "quote" | "open">[],
 ) {
   const elements = [...page.body.querySelectorAll(blocks)]
   const matched = matchNodes(nodes, elements.map(ownText))
@@ -107,19 +108,12 @@ function quoted(element: Element, quote: string): Piece[] {
 }
 
 /** Wraps a piece of text in a thread's mark. */
-function wrap(page: Document, piece: Piece, thread: Pick<Thread, "id" | "messages">) {
+function wrap(page: Document, piece: Piece, thread: Pick<Thread, "id">) {
   const middle = piece.from > 0 ? piece.text.splitText(piece.from) : piece.text
   if (piece.to - piece.from < middle.data.length) middle.splitText(piece.to - piece.from)
   const mark = page.createElement("mark")
   mark.setAttribute("data-dynwork-comment", thread.id)
-  mark.title = titleOf(thread)
   middle.parentNode?.insertBefore(mark, middle)
   mark.append(middle)
   return mark
-}
-
-/** A thread's comment in a line, as a mark's tooltip shows it. */
-function titleOf(thread: Pick<Thread, "messages">) {
-  const text = (thread.messages[0]?.text ?? "").replace(/\s+/g, " ").trim()
-  return text.length > 120 ? `${text.slice(0, 119)}…` : text
 }

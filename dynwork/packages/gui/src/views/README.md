@@ -150,9 +150,10 @@ in-memory Drive for the tests.
     back whole with the policy first in its head; the index jumps by navigating the frame to `about:srcdoc#<id>`, a
     same-document navigation that main's frame guard lets through. At the head, while the marks show, the open
     comments are marked there too (`marks.ts`): blocks matched to nodes by their text, the quote (or the block's text)
-    wrapped in `<mark data-dynwork-comment>` with the comment's start as its title and a style under the page's policy
-    (the browser's own `mark` look when it keeps inline styles out); a quote or node the page does not show marks
-    nothing. A comment added or resolved writes a new `srcdoc`, and the frame goes back to the heading being read.
+    wrapped in `<mark data-dynwork-comment>` with a style under the page's policy (the browser's own `mark` look when
+    it keeps inline styles out); a quote or node the page does not show marks nothing. A mark carries the thread's id
+    and nothing of the comment: the page's scripts may reach the network, so the text stays in the app, where a click
+    on the mark opens it. A comment added or resolved writes a new `srcdoc`, and the frame goes back to the heading being read.
   - Markdown from its source (`/content`, at the tab's version), drawn by the app's own renderer (`ctx.ui.Markdown`),
     as the timeline draws a message.
   - PDF in DynWork's own viewer (`pdf-viewer.tsx` over pdf.js, `pdf.ts` for its arithmetic and options), loaded with
