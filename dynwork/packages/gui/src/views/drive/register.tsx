@@ -1,5 +1,6 @@
-import { LinkHandler, MenuItem, Panel, type PanelTab, type SetupContext } from "@opencode/plugin/gui"
-import { createEffect, createMemo, createSignal, Show, untrack } from "solid-js"
+import { LinkHandler, MenuItem, Panel, Slot, type PanelTab, type SetupContext } from "@opencode/plugin/gui"
+import { createEffect, createMemo, createSignal, lazy, Show, Suspense, untrack } from "solid-js"
+import { isServer } from "solid-js/web"
 import type definition from "../../accounts/index"
 import { connection } from "../../accounts/renderer"
 import { DriveClient } from "../../drive/client"
@@ -12,9 +13,13 @@ import { registerShares } from "./share"
 import { drive, follow } from "./store"
 import "./drive.css"
 
+// The chat header's artifacts button, on the client only: Kobalte's tooltip runs browser-only code when it loads, and
+// the tests load the views with Solid's server build.
+const ArtifactsCount = lazy(() => import("./count"))
+
 // The Drive in the window: the `dynwork.drive` Ipc for the view and the panels, and beside a chat one side panel with a
-// tab for the chat's artifacts and a tab per document, several at once (D6); the + menu's "Drive" item; and the link of
-// the Drive's composer chips, which opens the document's tab again.
+// tab for the chat's artifacts and a tab per document, several at once (D6); the chat header's count of its artifacts;
+// the + menu's "Drive" item; and the link of the Drive's composer chips, which opens the document's tab again.
 export function registerDrive(ctx: SetupContext<typeof definition>) {
   DriveClient.attach(ctx.use(Drive))
   // The agent's shares wait for the user on a card in their conversation.
@@ -127,6 +132,19 @@ export function registerDrive(ctx: SetupContext<typeof definition>) {
       },
     }),
   )
+
+  // In every chat's header while an account has a Drive, before the context ring (order 10).
+  ctx.add(Slot, {
+    at: "session.header",
+    order: 5,
+    render: (input) => (
+      <Show when={!isServer && drive.status() !== "none"}>
+        <Suspense>
+          <ArtifactsCount session={input.session} />
+        </Suspense>
+      </Show>
+    ),
+  })
 
   ctx.add(LinkHandler, {
     match: (link) => link.origin === origin && link.href.startsWith(`${listKey}.`),

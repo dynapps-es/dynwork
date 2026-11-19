@@ -1,12 +1,12 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test"
 import { randomUUID } from "node:crypto"
-import { LinkHandler, MenuItem, Panel } from "@opencode/plugin/gui"
+import { LinkHandler, MenuItem, Panel, Slot } from "@opencode/plugin/gui"
 import { createRoot } from "solid-js"
 import { fail, DriveBackend } from "../../../src/drive/backend"
 import { isFailure, type Document } from "../../../src/drive/contract"
 import { DriveFrames } from "../../../src/drive/frames"
 import { DriveIpc } from "../../../src/drive/ipc"
-import { askAgent, docKey, listKey } from "../../../src/views/drive/chat"
+import { askAgent, docKey, listKey, openArtifacts } from "../../../src/views/drive/chat"
 import { registerDrive } from "../../../src/views/drive/register"
 import { isPdf } from "../../../src/views/drive/model"
 import { frameOf, load } from "../../../src/views/drive/viewer"
@@ -262,10 +262,11 @@ describe("the side panel's tabs", () => {
     const panel = (added.get(Panel) as () => Panel)()
     const item = (added.get(MenuItem) as () => MenuItem)()
     const links = added.get(LinkHandler) as LinkHandler
+    const header = added.get(Slot) as Slot
     const list = (open: readonly string[]) =>
       // SAFETY: `list` reads only `open`.
       panel.list({ open } as unknown as Parameters<Panel["list"]>[0])
-    return { view, panel, item, links, list, opened, session }
+    return { view, ctx, panel, item, links, header, list, opened, session }
   }
 
   test("several documents open beside a chat at once, each its own tab, in the strip's order", async () => {
@@ -329,6 +330,17 @@ describe("the side panel's tabs", () => {
     expect([item.menu, item.title]).toEqual(["session.panel", "drive.title"])
     item.run()
     expect(opened).toEqual([{ key: listKey, session, options: { tab: "open" } }])
+  })
+
+  // The button itself loads only in the window (Kobalte's tooltip needs a browser); it calls `openArtifacts`.
+  test("the chat header counts the chat's artifacts before the context ring, and opens its Artifacts tab", async () => {
+    const { ctx, header, opened, session } = await registered()
+    // The context ring is at 10.
+    expect(header.at).toBe("session.header")
+    expect(header.order).toBeLessThan(10)
+    // SAFETY: `openArtifacts` reads only `layout.open`, and the session as the header passes it on.
+    openArtifacts(ctx as never, session as never)
+    expect(opened).toEqual([{ key: listKey, session, options: { tab: "select" } }])
   })
 
   test("a link to a document from the Drive opens its tab in the link's chat", async () => {

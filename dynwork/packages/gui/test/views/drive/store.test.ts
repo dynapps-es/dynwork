@@ -209,6 +209,37 @@ describe("writing to the Drive", () => {
   })
 })
 
+describe("a chat's artifacts", () => {
+  // What the chat header counts and the Artifacts tab lists. The tests run Solid's server build, where nothing reruns,
+  // so the count is read again each time; in the window the Ipc's state is a signal main sets on every push.
+  async function counted() {
+    const pushes = { count: 0 }
+    const view = await stand({ changed: () => void pushes.count++ })
+    return { ...view, pushes }
+  }
+
+  test("a chat with no documents has none", async () => {
+    const { store } = await counted()
+    expect(store.artifactsOf(chat.id)).toEqual([])
+  })
+
+  test("one per document the chat made, changed or attached, pushed to the windows as each arrives", async () => {
+    const { store, id, pushes } = await counted()
+    const report = id("VAT rounding report.docx")
+    const analysis = id("Credit note analysis.xlsx")
+    const before = pushes.count
+    expect(await store.link(chat.id, report, "created")).toBeUndefined()
+    expect(pushes.count).toBeGreaterThan(before)
+    expect(store.artifactsOf(chat.id)).toHaveLength(1)
+    expect(await store.link(chat.id, analysis, "attached")).toBeUndefined()
+    // The same document edited again stays one artifact, and another chat's is not this chat's.
+    expect(await store.link(chat.id, report, "edited")).toBeUndefined()
+    expect(await store.link("ses_other", id("Acme proposal 2027.pptx"), "created")).toBeUndefined()
+    // The links of one test may share a millisecond, so which act is the latest is `latest`'s test (agent.test.ts).
+    expect(store.artifactsOf(chat.id).map((link) => link.document).toSorted()).toEqual([report, analysis].toSorted())
+  })
+})
+
 describe("an open document", () => {
   test("reads its details, versions, proposals, access and what DynWork may do; its viewer reads the page", async () => {
     const { store, client, fake, id } = await stand()

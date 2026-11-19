@@ -18,6 +18,7 @@ import {
   type Revision,
 } from "../../drive/contract"
 import {
+  latest,
   mimeOf,
   sorts,
   threadsOf,
@@ -203,6 +204,8 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     mentionOf: (comment: string) => remote()?.mentions.find((entry) => entry.comment === comment),
     /** What one conversation did, newest first. */
     linksOf: (conversation: string) => links().filter((link) => link.conversation === conversation),
+    /** A conversation's artifacts: one link per document, its latest. */
+    artifactsOf: (conversation: string) => latest(links().filter((link) => link.conversation === conversation)),
     /** A document's comment threads, newest first. */
     threadsOf: (id: string) => threadsOf(state.discussion[id]?.comments ?? []),
     thread: (id: string) =>

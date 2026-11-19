@@ -57,6 +57,7 @@ export function createTipToasts() {
   const tips: Tip[] = [
     {
       id: "browse",
+      end: 0, // DynWork: OpenCode's browser extension is not offered
       title: "tips.browse.title",
       description: "tips.browse.description",
       when: () =>

@@ -36,6 +36,14 @@ export function conversationOf(ctx: Pick<Context, "sessions" | "t">, session: Se
 }
 
 /**
+ * Opens the chat's Artifacts tab and selects it, adding it to the strip when it is not there, and shows the side panel.
+ * A document's preview tab stays.
+ */
+export function openArtifacts(ctx: Pick<Context, "layout">, session: SessionRef) {
+  ctx.layout.open(listKey, session, { tab: "select" })
+}
+
+/**
  * Opens a document as a tab beside the chat, without attaching it, and answers that chat. Without a chat tab open it
  * says so.
  */

@@ -115,8 +115,10 @@ in-memory Drive for the tests.
   the last chat's side panel. What the Drive keeps to the person (sharing, restoring, accepting proposals, renaming,
   moving, trashing) opens the document in Governance while `personActions` is off; Export as PDF and Copy link work
   here.
-- **Beside a chat** (`panel.tsx`, `register.tsx`): the + menu's Drive opens the Artifacts tab, with the documents the
-  chat made, changed or attached, newest first; Add from the Drive attaches one, and Upload to the Drive sends a file
+- **Beside a chat** (`panel.tsx`, `register.tsx`): the chat header's button (`count.tsx`, in the `session.header` slot
+  before the context ring) shows how many documents the chat has in its Artifacts tab, none at 0, while an account has
+  a Drive, and opens that tab; it loads on the client only (Kobalte's tooltip). The + menu's Drive opens the Artifacts
+  tab, with the documents the chat made, changed or attached, newest first; Add from the Drive attaches one, and Upload to the Drive sends a file
   the chat made to the Drive's root with the conversation's name and `x-context-id` (D2, D3). Each document opens in a
   side panel tab of its own (`dynwork:drive.<id>`), several at once (D6), with its viewer and a version picker (the
   head unless the tab picks another). Use in a chat attaches a document to the routed chat (a

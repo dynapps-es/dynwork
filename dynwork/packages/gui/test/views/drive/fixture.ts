@@ -43,6 +43,8 @@ export interface Options {
   backend?: (backend: Backend) => Backend
   /** No connection to main: the store's client is undefined. */
   disconnected?: boolean
+  /** Called when the service pushes a new state to the windows. */
+  changed?: () => void
 }
 
 /** A store over the service over a seeded Drive, and handles on each layer. */
@@ -79,7 +81,7 @@ export async function setup(options: Options = {}) {
     account: () => account,
     backend: () => options.backend?.(spied) ?? spied,
     store: storage(DriveIpc.Saved, DriveIpc.initial),
-    changed: () => {},
+    changed: () => options.changed?.(),
     capabilities: () => options.capabilities ?? {},
     timers,
   })
