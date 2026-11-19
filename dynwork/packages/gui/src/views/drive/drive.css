@@ -1032,6 +1032,13 @@
       background: var(--v2-overlay-simple-overlay-pressed);
       color: var(--v2-text-text-base);
     }
+
+    /* The heading being read. */
+    &[data-state="active"] {
+      background: var(--v2-overlay-simple-overlay-pressed);
+      color: var(--v2-text-text-base);
+      font-weight: 550;
+    }
   }
 }
 
@@ -1211,6 +1218,45 @@
     display: flex;
     flex-direction: column;
   }
+}
+
+/* Present: the document alone, full screen, on its reading surface, with Exit over it. */
+[data-slot="drive-canvas"]:fullscreen,
+[data-slot="drive-panel-content"]:fullscreen {
+  background: var(--v2-background-bg-base);
+}
+
+[data-slot="drive-present-exit"] {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 2;
+}
+
+/* Show or hide the comments marked on the document, with how many threads are open. */
+[data-slot="drive-marks-toggle"] {
+  display: inline-flex;
+  align-items: center;
+
+  [data-slot="drive-count"] {
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-02);
+    color: var(--v2-text-text-faint);
+    font-size: 10.5px;
+    line-height: 16px;
+  }
+}
+
+/* A thread or the sharing of a document beside a chat, in a dialog. */
+[data-component="drive-dialog"] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 20px 20px;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
 }
 
 [data-slot="drive-frame"] {

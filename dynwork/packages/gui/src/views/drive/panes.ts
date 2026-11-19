@@ -2,17 +2,20 @@ import type { Persisted } from "@opencode/plugin/gui"
 import { Schema } from "effect"
 import { createRoot, createSignal } from "solid-js"
 
-// How the user lays out an open document in the Drive view, kept in the window's storage (`drive.panes`, opened by the
-// window entry): whether the index at the left and the drawer at the right show, and the drawer's width.
+// How the user lays out an open document, kept in the window's storage (`drive.panes`, opened by the window entry):
+// whether the index at the left and the drawer at the right of the Drive view show, the drawer's width, and whether the
+// comments are marked on the document, in the Drive view and beside a chat.
 
 export const Panes = Schema.Struct({
   outline: Schema.Boolean,
   drawer: Schema.Boolean,
   width: Schema.Number,
+  /** Absent in what was kept before the marks existed: shown. */
+  marks: Schema.optional(Schema.Boolean),
 })
 export type Panes = typeof Panes.Type
 
-export const initial: Panes = { outline: true, drawer: true, width: 400 }
+export const initial: Panes = { outline: true, drawer: true, width: 400, marks: true }
 
 /** How narrow and how wide the drawer may get: its tabs fit at the minimum, and the document keeps room at the maximum. */
 export const drawerWidth = { min: 320, max: 720 }
@@ -29,9 +32,10 @@ export function createPanes(stored: () => Persisted<Panes> | undefined) {
   return {
     outline: () => value().outline,
     drawer: () => value().drawer,
+    marks: () => value().marks ?? true,
     width: () => dragged() ?? clamp(value().width),
-    toggle(pane: "outline" | "drawer") {
-      const shown = value()[pane]
+    toggle(pane: "outline" | "drawer" | "marks") {
+      const shown = value()[pane] ?? true
       stored()?.update((draft) => {
         draft[pane] = !shown
       })

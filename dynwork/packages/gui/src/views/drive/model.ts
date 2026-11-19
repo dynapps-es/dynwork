@@ -303,6 +303,9 @@ export function anchorsOf(doc: Pick<Document, "format" | "mime">, capabilities: 
   }
 }
 
+/** Whether a document shows its comments marked on it: an HTML page and Markdown, which DynWork draws itself. */
+export const marked = (doc: Pick<Document, "format">) => doc.format === "html" || doc.format === "markdown"
+
 /**
  * A translated sentence with its `{{name}}` values marked to show in bold: the template is split where each value goes,
  * so every language keeps its own word order (the share card's sentence).

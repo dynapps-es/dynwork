@@ -114,9 +114,14 @@ in-memory Drive for the tests.
   Info, Versions (numbered, with their "… by DynWork" message), Proposals and Share, on the selected tab's background.
   Back returns where it was opened from (`store.ts` keeps it when it opens): the chat whose side panel opened it (its
   tab, opened again when it was closed), else the browser's scope, folder and search as they were, else Home. The
-  index (`outline.ts`) lists the headings of an HTML page, a Markdown document or a Word preview, and jumps to one; a
-  sheet, a slide deck or a PDF has none and shows no column. The bar shows and hides the index and the drawer, and the
-  drawer's edge resizes it (`@opencode/ui/resize-handle`), all kept in the window's storage (`panes.ts`). Every
+  index (`outline.ts`) lists the headings of an HTML page, a Markdown document or a Word preview, jumps to one, and
+  marks the one being read (the last whose top has passed the upper third of the document's area, else the first),
+  kept in sight in a long index; a sheet, a slide deck or a PDF has none and shows no column. In an HTML frame the
+  heading being read comes from main's observer (`../drive/README.md`, "The viewer's frames"). The bar shows and hides
+  the index, the drawer and the comments marked on the document (with how many threads are open), and the drawer's
+  edge resizes it (`@opencode/ui/resize-handle`), all kept in the window's storage (`panes.ts`). Present shows the
+  document alone, full screen (the Fullscreen API on the canvas, which takes the window with it); Escape or Exit
+  returns to the view as it was. Every
   icon-only button carries a tooltip. Ask the agent opens the document beside the last chat with a composer chip. What
   the Drive keeps to the person (sharing, restoring, accepting proposals, renaming, moving, trashing) opens the
   document in Governance while `personActions` is off; Export as PDF and Copy link work here.
@@ -126,7 +131,9 @@ in-memory Drive for the tests.
   tab, with the documents the chat made, changed or attached, newest first; Add from the Drive attaches one, and Upload to the Drive sends a file
   the chat made to the Drive's root with the conversation's name and `x-context-id` (D2, D3). Each document opens in a
   side panel tab of its own (`dynwork:drive.<id>`), several at once (D6), with its viewer and a version picker (the
-  head unless the tab picks another). Use in a chat attaches a document to the routed chat (a
+  head unless the tab picks another). Its header shows and hides the comments marked on the document, opens Share (the
+  drawer's Share tab, in a dialog), Presents the document and opens it in the Drive; a click on a comment's mark opens
+  its thread in a dialog, to read, reply and resolve. Use in a chat attaches a document to the routed chat (a
   composer chip and its tab) and records it in the index; opening the chip routes its link (`origin: dynwork-drive`)
   back to the document's tab. A restored tab whose document the window has not read yet stays hidden until the Drive
   answers, and shows as missing, so it can be closed, when the Drive no longer has it.
@@ -140,7 +147,11 @@ in-memory Drive for the tests.
     `allow-same-origin`, `allow-top-navigation*` or `allow-popups-to-escape-sandbox`, whatever the instance sends.
     The page is read into an inert document (`DOMParser`: nothing runs or loads) to give each heading an id, and written
     back whole with the policy first in its head; the index jumps by navigating the frame to `about:srcdoc#<id>`, a
-    same-document navigation that main's frame guard lets through.
+    same-document navigation that main's frame guard lets through. At the head, while the marks show, the open
+    comments are marked there too (`marks.ts`): blocks matched to nodes by their text, the quote (or the block's text)
+    wrapped in `<mark data-dynwork-comment>` with the comment's start as its title and a style under the page's policy
+    (the browser's own `mark` look when it keeps inline styles out); a quote or node the page does not show marks
+    nothing. A comment added or resolved writes a new `srcdoc`, and the frame goes back to the heading being read.
   - Markdown from its source (`/content`, at the tab's version), drawn by the app's own renderer (`ctx.ui.Markdown`),
     as the timeline draws a message.
   - PDF in DynWork's own viewer (`pdf-viewer.tsx` over pdf.js, `pdf.ts` for its arithmetic and options), loaded with
@@ -162,7 +173,8 @@ in-memory Drive for the tests.
   comment to a node and a quote inside it, read from the `text` view (every node, blank ones too). A Markdown document is
   drawn by the app, so `CommentMarks` matches its blocks to the nodes by their text, marks the commented ones and offers
   Comment on a selection. A page in a frame (HTML, Word, Excel, PowerPoint) has an opaque origin the app cannot read, so
-  the tab lists its nodes to pick from. A quote is only sent when it is in the node's own text (Markdown syntax
+  the tab lists its nodes to pick from; an HTML page shows its marks (above), and a click on one opens its thread. Picking
+  a thread in the tab brings its mark into view. The previews of Word, Excel and PowerPoint, and a PDF, show no marks. A quote is only sent when it is in the node's own text (Markdown syntax
   included); otherwise the comment anchors to the node. A cell range is offered only with `rangeComments`; a PDF takes
   no comment (D22). An author no grant names reads "Someone", unless the instance names people by id (`peopleByRest`).
 

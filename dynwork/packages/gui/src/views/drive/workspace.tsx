@@ -4,12 +4,22 @@ import { Icon } from "@opencode/ui/icon"
 import { ResizeHandle } from "@opencode/ui/resize-handle"
 import { Tabs } from "@opencode/ui/tabs"
 import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js"
-import type { Document } from "../../drive/contract"
+import type { Access, AgentCap, Document } from "../../drive/contract"
 import { askAgent, back, sessionOf, titleOf } from "./chat"
-import { CommentMarks, CommentsTab } from "./comments"
+import { CommentMarks, CommentsTab, MarksToggle } from "./comments"
 import { DocMenu } from "./menus"
 import { drawerWidth, panes } from "./panes"
-import { Avatar, FormatGlyph, Level, openGovernance, Tag, useNames } from "./parts"
+import {
+  Avatar,
+  createPresent,
+  FormatGlyph,
+  Level,
+  openGovernance,
+  PresentButton,
+  PresentExit,
+  Tag,
+  useNames,
+} from "./parts"
 import { account, drive, governance, type DocTab } from "./store"
 import { Viewer, type Outline } from "./viewer"
 
@@ -17,14 +27,27 @@ import { Viewer, type Outline } from "./viewer"
 const tabs: readonly DocTab[] = ["details", "comments", "versions", "proposals", "share"]
 
 /**
- * A document open in the Drive: its bar, the edition banner, its index, its viewer and the drawer. The index and the
- * drawer show or hide from the bar, and the drawer takes the width its edge is dragged to (`panes`).
+ * A document open in the Drive: its bar, the edition banner, its index, its viewer and the drawer. The index, the
+ * drawer and the comments marked on the document show or hide from the bar, and the drawer takes the width its edge is
+ * dragged to (`panes`). The index marks the heading being read; Present shows the document alone, full screen.
  */
 export function Workspace(props: { doc: Document }) {
   const ctx = usePlugin()
   const names = useNames()
   const [outline, setOutline] = createSignal<Outline>()
   const headings = () => outline()?.headings ?? []
+  let canvas: HTMLDivElement | undefined
+  let rail: HTMLElement | undefined
+  const present = createPresent(() => canvas)
+  // The heading being read stays in sight in a long index.
+  createEffect(() => {
+    const index = outline()?.active()
+    const item = index === undefined ? undefined : rail?.querySelectorAll<HTMLElement>("button")[index]
+    if (!rail || !item) return
+    if (item.offsetTop < rail.scrollTop) rail.scrollTop = item.offsetTop
+    if (item.offsetTop + item.offsetHeight > rail.scrollTop + rail.clientHeight)
+      rail.scrollTop = item.offsetTop + item.offsetHeight - rail.clientHeight
+  })
   // The index's levels from the document's top one, three at most.
   const depth = (level: number) => Math.min(3, level - Math.min(...headings().map((heading) => heading.level)) + 1)
   const backLabel = () => ctx.t(drive.state.from && "chat" in drive.state.from ? "drive.back.chat" : "drive.back.drive")
@@ -76,6 +99,8 @@ export function Workspace(props: { doc: Document }) {
           {names.ago(props.doc.updated)}
         </span>
         <span data-slot="drive-grow" />
+        <MarksToggle doc={props.doc} />
+        <PresentButton present={present} />
         <ctx.ui.Tooltip value={ctx.t(panes.drawer() ? "drive.drawer.hide" : "drive.drawer.show")} placement="bottom">
           <ctx.ui.IconButton
             variant="ghost"
@@ -106,13 +131,15 @@ export function Workspace(props: { doc: Document }) {
 
       <div data-slot="drive-ws-body">
         <Show when={panes.outline() && headings().length}>
-          <nav data-slot="drive-rail" aria-label={ctx.t("drive.outline")}>
+          <nav ref={rail} data-slot="drive-rail" aria-label={ctx.t("drive.outline")}>
             <div data-slot="drive-rail-title">{ctx.t("drive.outline")}</div>
             <For each={headings()}>
               {(heading, index) => (
                 <button
                   type="button"
                   data-level={depth(heading.level)}
+                  data-state={outline()?.active() === index() ? "active" : undefined}
+                  aria-current={outline()?.active() === index() ? "location" : undefined}
                   title={heading.text}
                   onClick={() => outline()?.go(index())}
                 >
@@ -122,11 +149,12 @@ export function Workspace(props: { doc: Document }) {
             </For>
           </nav>
         </Show>
-        <div data-slot="drive-canvas">
-          <Viewer doc={props.doc} onOutline={setOutline} />
+        <div ref={canvas} data-slot="drive-canvas">
+          <Viewer doc={props.doc} onOutline={setOutline} onMark={(thread) => drive.focusThread(thread)} />
           <Show when={props.doc.format === "markdown"}>
             <CommentMarks doc={props.doc} />
           </Show>
+          <PresentExit present={present} />
         </div>
         <Show when={panes.drawer()}>
           <aside data-slot="drive-drawer" style={{ width: `${panes.width()}px` }}>
@@ -161,7 +189,7 @@ export function Workspace(props: { doc: Document }) {
             <div data-slot="drive-drawer-body">
               <Switch>
                 <Match when={drive.state.doc.tab === "comments"}>
-                  <CommentsTab doc={props.doc} />
+                  <CommentsTab doc={props.doc} onReveal={(thread) => outline()?.reveal(thread)} />
                 </Match>
                 <Match when={drive.state.doc.tab === "versions"}>
                   <Versions doc={props.doc} />
@@ -170,7 +198,7 @@ export function Workspace(props: { doc: Document }) {
                   <Proposals doc={props.doc} />
                 </Match>
                 <Match when={drive.state.doc.tab === "share"}>
-                  <Sharing doc={props.doc} />
+                  <Sharing doc={props.doc} access={drive.state.opened.access} cap={drive.state.opened.cap} />
                 </Match>
                 <Match when={true}>
                   <Details doc={props.doc} />
@@ -401,12 +429,15 @@ function Proposals(props: { doc: Document }) {
   )
 }
 
-/** Who can see the document and what agents may do with it; sharing happens in Governance (P1). */
-function Sharing(props: { doc: Document }) {
+/**
+ * Who can see the document and what agents may do with it, as the Drive answered (`access`, `cap`); sharing happens in
+ * Governance (P1). The drawer's Share tab, and the Share dialog beside a chat.
+ */
+export function Sharing(props: { doc: Document; access?: Access; cap?: AgentCap }) {
   const ctx = usePlugin()
   const names = useNames()
-  const access = () => drive.state.opened.access
-  const cap = () => drive.state.opened.cap
+  const access = () => props.access
+  const cap = () => props.cap
   return (
     <>
       <div data-slot="drive-person">

@@ -1,11 +1,34 @@
-import { usePlugin } from "@opencode/plugin/gui"
-import { createEffect, createMemo, createResource, lazy, Match, onCleanup, Switch } from "solid-js"
+import { usePlugin, type IpcClient, type Live } from "@opencode/plugin/gui"
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  lazy,
+  Match,
+  on,
+  onCleanup,
+  onMount,
+  Switch,
+  untrack,
+  type Accessor,
+} from "solid-js"
 import { isServer } from "solid-js/web"
 import type { DriveClient } from "../../drive/client"
-import { isFailure, type Content, type Document, type Failure, type Page } from "../../drive/contract"
+import {
+  isFailure,
+  type Content,
+  type Document,
+  type Failure,
+  type Frames,
+  type Page,
+  type Seen,
+} from "../../drive/contract"
 import { DriveFrames } from "../../drive/frames"
-import { isPdf } from "./model"
+import { markPage } from "./marks"
+import { isPdf, type Node, type Thread } from "./model"
 import { anchorPage, markdownHeadings, renderedHeading, type Heading } from "./outline"
+import { panes } from "./panes"
 import { failureText } from "./parts"
 import { drive } from "./store"
 
@@ -19,7 +42,10 @@ import { drive } from "./store"
 //   policy keeps without scripts.
 // The account's JWT stays in main: a frame gets only the page, never DynWork's origin, cookies, token or Ipc.
 // Nothing that comes out of a frame is trusted (G11): an agent writes these pages, so the viewer listens to no
-// `message` event and reads no `postMessage`. A feature that wants one validates its origin and shape as untrusted input.
+// `message` event and reads no `postMessage`. What the viewer learns of an HTML frame, the heading being read and a
+// comment mark clicked, comes from main's observer in an isolated world of the frame (`drive/frames.ts`,
+// `drive/watch.ts`), as ids the viewer checks against the ones it gave the page (`fromFrame`).
+// The open comments of an HTML document at its head are marked on the page (`marks.ts`) while the user shows them.
 
 // pdf.js and the viewer load on the client only, when a PDF opens; the tests render with Solid's server build.
 const PdfViewer = lazy(() => import("./pdf-viewer"))
@@ -55,10 +81,53 @@ export async function load(
   return isFailure(page) ? page : { kind: "page", page }
 }
 
-/** What a viewer tells of its document's outline: its headings, and a jump to one of them. */
+/**
+ * What a viewer tells of its document: its headings, the one being read, a jump to one of them, and to a comment's
+ * mark.
+ */
 export interface Outline {
   readonly headings: readonly Heading[]
+  /** The heading being read, by index; undefined until the viewer knows. */
+  active(): number | undefined
   go(index: number): void
+  /** Brings a thread's mark into view; nothing when the document shows none for it. */
+  reveal(thread: string): void
+}
+
+// The window's observer of its frames, handed over by the window entry as the Drive's client is (`register.tsx`).
+type FramesClient = IpcClient<(typeof Frames)["spec"]>
+const [watching, setWatching] = createSignal<Accessor<Live<FramesClient>>>()
+
+/** Makes `live` the frames' observer until the current owner is disposed. */
+export function attachFrames(live: Accessor<Live<FramesClient>>) {
+  setWatching(() => live)
+  onCleanup(() => {
+    if (watching() === live) setWatching(undefined)
+  })
+}
+
+const observer = () => {
+  const live = watching()?.()
+  return live?.status === "active" ? live.value : undefined
+}
+
+/**
+ * What a report of main's observer means for the frame shown: a heading of its index, or a thread it marked. Anything
+ * else is dropped: another frame's report, an id the viewer did not give this page.
+ */
+export function fromFrame(
+  seen: Seen,
+  shown: {
+    readonly name: string
+    readonly headings: readonly Heading[]
+    readonly marks: Readonly<Record<string, string>>
+  },
+) {
+  if (seen.frame !== shown.name) return undefined
+  if (seen.kind === "mark")
+    return Object.hasOwn(shown.marks, seen.id) ? { kind: "mark" as const, thread: seen.id } : undefined
+  const index = shown.headings.findIndex((heading) => heading.id === seen.id)
+  return index < 0 ? undefined : { kind: "heading" as const, index }
 }
 
 // The formats whose headings make an index: an HTML page, Markdown, and Word as the Drive previews it. A sheet's or a
@@ -67,12 +136,14 @@ const outlined = ["html", "markdown", "docx"]
 
 /**
  * A document's viewer. It reads again when the document gets a new head, or when the tab picks another version. With
- * `onOutline` it tells the outline of what it shows, and undefined when it shows nothing that has one.
+ * `onOutline` it tells the outline of what it shows, and undefined when it shows nothing that has one; with `onMark`,
+ * which thread's mark the user clicked on an HTML page.
  */
 export function Viewer(props: {
   doc: Document
   revision?: string
   onOutline?: (outline: Outline | undefined) => void
+  onMark?: (thread: string) => void
 }) {
   const ctx = usePlugin()
   // A snapshot or a listing hands over a new document object for the same document: only these fields read again.
@@ -123,6 +194,11 @@ export function Viewer(props: {
     return answer?.kind === "pdf" ? answer.pdf : undefined
   }
   const onOutline = () => (outlined.includes(props.doc.format) ? props.onOutline : undefined)
+  // An HTML document's head shows its open comments, while the user shows them: an older version has other nodes.
+  const marks = () => {
+    if (props.revision !== undefined || props.doc.format !== "html" || !panes.marks()) return undefined
+    return { nodes: drive.nodesOf(props.doc.id), threads: drive.threadsOf(props.doc.id) }
+  }
   return (
     <Switch fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
       <Match when={failed()}>
@@ -133,67 +209,170 @@ export function Viewer(props: {
         )}
       </Match>
       <Match when={page()}>
-        {(found) => <PageFrame page={found()} title={props.doc.name} onOutline={onOutline()} />}
+        {(found) => (
+          <PageFrame
+            page={found()}
+            title={props.doc.name}
+            marks={marks()}
+            onOutline={onOutline()}
+            onMark={props.onMark}
+          />
+        )}
       </Match>
-      <Match when={markdown()}>{(found) => <MarkdownDoc text={found().text} onOutline={onOutline()} />}</Match>
+      <Match when={markdown()}>
+        {(found) => <MarkdownDoc doc={props.doc.id} text={found().text} onOutline={onOutline()} />}
+      </Match>
       <Match when={!isServer && pdf()}>{(found) => <PdfViewer doc={props.doc} bytes={found().bytes} />}</Match>
     </Switch>
   )
 }
 
-/** A Markdown document, drawn by the app's renderer; its outline scrolls to a heading as rendered. */
-function MarkdownDoc(props: { text: string; onOutline?: (outline: Outline | undefined) => void }) {
+/**
+ * A Markdown document, drawn by the app's renderer. Its outline scrolls to a heading as rendered, follows the heading
+ * being read as the document scrolls, and brings a comment's block into view (`CommentMarks` names each block's node).
+ */
+function MarkdownDoc(props: { doc: string; text: string; onOutline?: (outline: Outline | undefined) => void }) {
   const ctx = usePlugin()
   let element: HTMLDivElement | undefined
+  const headings = createMemo(() => markdownHeadings(props.text))
+  const [active, setActive] = createSignal<number>()
+  // The rendered element of each heading of the source, where the renderer drew one.
+  const rendered = (list: readonly Heading[]) => {
+    const drawn = [...(element?.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6") ?? [])].map((heading) => ({
+      text: heading.textContent ?? "",
+      element: heading,
+    }))
+    return list.map((_, index) => renderedHeading(drawn, list, index))
+  }
+  const measure = () => {
+    frame.id = 0
+    if (!element) return
+    const top = element.getBoundingClientRect().top
+    const index = DriveFrames.reading(
+      rendered(headings()).map((heading) => (heading ? heading.getBoundingClientRect().top - top : Infinity)),
+      element.clientHeight,
+    )
+    setActive(index < 0 ? undefined : index)
+  }
+  const frame = { id: 0 }
+  const later = () => {
+    if (!frame.id) frame.id = requestAnimationFrame(measure)
+  }
+  onMount(() => {
+    if (!element) return
+    // The renderer draws after the document is read, and may draw again.
+    const drawn = new MutationObserver(later)
+    drawn.observe(element, { childList: true, subtree: true })
+    later()
+    onCleanup(() => {
+      drawn.disconnect()
+      cancelAnimationFrame(frame.id)
+    })
+  })
   createEffect(() => {
-    const headings = markdownHeadings(props.text)
+    const list = headings()
     props.onOutline?.({
-      headings,
-      go: (index) => {
-        const rendered = [...(element?.querySelectorAll<HTMLElement>("h1, h2, h3, h4, h5, h6") ?? [])]
-        renderedHeading(
-          rendered.map((heading) => ({ text: heading.textContent ?? "", element: heading })),
-          headings,
-          index,
-        )?.scrollIntoView({ block: "start", behavior: "smooth" })
+      headings: list,
+      active,
+      go: (index) => rendered(list)[index]?.scrollIntoView({ block: "start", behavior: "smooth" }),
+      reveal: (thread) => {
+        const node = drive.threadsOf(props.doc).find((item) => item.id === thread)?.node
+        if (node === undefined) return
+        element
+          ?.querySelector(`[data-node="${CSS.escape(node)}"]`)
+          ?.scrollIntoView({ block: "center", behavior: "smooth" })
       },
     })
   })
   onCleanup(() => props.onOutline?.(undefined))
   return (
-    <div ref={element} data-slot="drive-markdown">
+    <div ref={element} data-slot="drive-markdown" onScroll={later}>
       <ctx.ui.Markdown text={props.text} />
     </div>
   )
 }
 
-/** A page in a frame with the sandbox and the policy `frameOf` gives it; its outline jumps to a heading's id. */
-function PageFrame(props: { page: Page; title: string; onOutline?: (outline: Outline | undefined) => void }) {
-  const frame = createMemo(() => frameOf(props.page))
+// Each frame of the window has a name of its own, which main's observer reports it by.
+const named = { count: 0 }
+
+/**
+ * A page in a frame with the sandbox and the policy `frameOf` gives it. Its outline jumps to a heading's id and to a
+ * comment's mark, and, while main observes the frame (`dynwork.drive.frames`), follows the heading being read; a click
+ * on a mark goes to `onMark`.
+ */
+function PageFrame(props: {
+  page: Page
+  title: string
+  marks?: Marks
+  onOutline?: (outline: Outline | undefined) => void
+  onMark?: (thread: string) => void
+}) {
+  const name = `${DriveFrames.name}:${++named.count}`
+  const frame = createMemo(() => frameOf(props.page, { name, marks: props.marks }))
+  // The same page reads the same: a new list of the same comments loads nothing.
+  const srcdoc = createMemo(() => frame().srcdoc)
+  const [active, setActive] = createSignal<number>()
   let element: HTMLIFrameElement | undefined
-  createEffect(() => {
-    const headings = frame().headings
-    props.onOutline?.({
-      headings,
-      // The frame's own URL with the heading as its fragment: the page scrolls there and nothing loads.
-      go: (index) => {
-        const id = headings[index]?.id
-        const view = element?.contentWindow
-        if (id && view) view.location.href = `about:srcdoc#${encodeURIComponent(id)}`
+  // The frame's own URL with a fragment: the page scrolls there and nothing loads.
+  const jump = (id: string | undefined) => {
+    const view = element?.contentWindow
+    if (id && view) view.location.href = `about:srcdoc#${encodeURIComponent(id)}`
+  }
+  // Another srcdoc (a comment added or resolved, the marks shown or hidden) loads the page again from its top: it goes
+  // back to the heading the reader was at once it has loaded.
+  const back = { id: undefined as string | undefined }
+  createEffect(
+    on(
+      srcdoc,
+      () => {
+        back.id = untrack(() => frame().headings[active() ?? -1]?.id)
       },
+      { defer: true },
+    ),
+  )
+  createEffect(() => {
+    const shown = frame()
+    props.onOutline?.({
+      headings: shown.headings,
+      active,
+      go: (index) => jump(shown.headings[index]?.id),
+      reveal: (thread) => jump(Object.hasOwn(shown.marks, thread) ? shown.marks[thread] : undefined),
     })
   })
   onCleanup(() => props.onOutline?.(undefined))
+  // What main's observer saw in this frame, while someone listens.
+  createEffect(() => {
+    const client = observer()
+    if (!client || (!props.onOutline && !props.onMark)) return
+    const held = new AbortController()
+    void client.watch({ frame: name }, { signal: held.signal }).catch(() => undefined)
+    client.on("seen", (seen) => {
+      const found = fromFrame(seen, untrack(frame))
+      if (found?.kind === "heading") setActive(found.index)
+      if (found?.kind === "mark") props.onMark?.(found.thread)
+    })
+    onCleanup(() => held.abort())
+  })
   return (
     <iframe
       ref={element}
       data-slot="drive-frame"
-      name={frame().name}
+      name={name}
       sandbox={frame().sandbox}
       title={props.title}
-      srcdoc={frame().srcdoc}
+      srcdoc={srcdoc()}
+      onLoad={() => {
+        jump(back.id)
+        back.id = undefined
+      }}
     />
   )
+}
+
+/** The comments to mark on a page: the document's nodes and its threads. */
+export interface Marks {
+  readonly nodes: readonly Node[]
+  readonly threads: readonly Thread[]
 }
 
 // The sandbox flags a page may keep from the instance's `sandbox` directive. Never `allow-same-origin` (DynWork's
@@ -204,9 +383,10 @@ const flags = ["allow-scripts", "allow-forms", "allow-modals", "allow-popups", "
  * The frame for a page: the sandbox flags its policy's `sandbox` directive grants, out of `flags` (none without the
  * directive, so no scripts), and the page under that policy as a meta tag, first in its head, less the directives
  * only a response header can carry. Never more than the instance allowed; no policy at all is `default-src 'none'`.
- * The page is read into an inert document (`anchorPage`) to give its headings ids, and written back whole.
+ * The page is read into an inert document (`anchorPage`) to give its headings ids, its open comments are marked there
+ * when `marks` names them (`markPage`), and it is written back whole.
  */
-export function frameOf(page: Page) {
+export function frameOf(page: Page, options: { name?: string; marks?: Marks } = {}) {
   const directives = (page.csp ?? "default-src 'none'")
     .split(";")
     .map((directive) => directive.trim())
@@ -236,13 +416,16 @@ export function frameOf(page: Page) {
     attributes.forEach(([key, value]) => meta.setAttribute(key, value))
     return meta
   })
+  const marked = options.marks ? markPage(anchored.page, options.marks.nodes, options.marks.threads) : {}
   anchored.page.head.prepend(...tags)
   return {
-    // Main keeps a frame with this name on its srcdoc (`drive/frames.ts`).
-    name: DriveFrames.name,
+    // Main keeps a frame with a viewer's name on its srcdoc, and observes it (`drive/frames.ts`).
+    name: options.name ?? DriveFrames.name,
     sandbox: flags.filter((flag) => granted.includes(flag)).join(" "),
     srcdoc: `<!doctype html>${anchored.page.documentElement.outerHTML}`,
     /** The page's headings, each with the id a jump navigates the frame to. */
     headings: anchored.headings,
+    /** The id of each marked thread's first mark, which a jump navigates the frame to. */
+    marks: marked,
   }
 }

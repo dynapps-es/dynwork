@@ -10,7 +10,7 @@ import { askAgent, docKey, listKey, openArtifacts } from "../../../src/views/dri
 import { registerDrive } from "../../../src/views/drive/register"
 import { isPdf } from "../../../src/views/drive/model"
 import { initial, Panes } from "../../../src/views/drive/panes"
-import { frameOf, load } from "../../../src/views/drive/viewer"
+import { frameOf, fromFrame, load } from "../../../src/views/drive/viewer"
 import { startFake } from "../../../../sp-client/test/fake"
 import { storage } from "../../routines/fixture"
 import { connect, flush } from "../../drive/wire"
@@ -381,5 +381,39 @@ describe("the side panel's tabs", () => {
     askAgent(ctx as unknown as Parameters<typeof askAgent>[0], doc)
     expect(opened).toEqual([docKey(doc.id)])
     expect(attached.map((item) => [item.origin, item.href])).toEqual([["dynwork-drive", docKey(doc.id)]])
+  })
+})
+
+describe("what the viewer takes from main's observer of a frame", () => {
+  const shown = {
+    name: `${DriveFrames.name}:4`,
+    headings: [
+      { level: 1, text: "Intro", id: "intro" },
+      { level: 2, text: "Ventas", id: "ventas" },
+    ],
+    marks: { t1: "dynwork-comment-t1" },
+  }
+  const seen = (kind: "heading" | "mark", id: string, frame = shown.name) => ({ frame, kind, id })
+
+  test("a heading of the page's index, by its place, and a thread the page marks", () => {
+    expect(fromFrame(seen("heading", "ventas"), shown)).toEqual({ kind: "heading", index: 1 })
+    expect(fromFrame(seen("mark", "t1"), shown)).toEqual({ kind: "mark", thread: "t1" })
+  })
+
+  test("nothing from another frame, nor an id the viewer did not give the page", () => {
+    expect(fromFrame(seen("heading", "ventas", `${DriveFrames.name}:5`), shown)).toBeUndefined()
+    expect(fromFrame(seen("heading", "added-by-a-script"), shown)).toBeUndefined()
+    expect(fromFrame(seen("mark", "t2"), shown)).toBeUndefined()
+    // What every object has is not a thread the page marks.
+    expect(fromFrame(seen("mark", "constructor"), shown)).toBeUndefined()
+    expect(fromFrame(seen("mark", "__proto__"), shown)).toBeUndefined()
+    // A mark's id is not a heading, nor a heading's a thread.
+    expect(fromFrame(seen("heading", "dynwork-comment-t1"), shown)).toBeUndefined()
+    expect(fromFrame(seen("mark", "intro"), shown)).toBeUndefined()
+  })
+
+  test("each frame gets the name it is given, and the guard's when none is", () => {
+    expect(frameOf({ html: "<p>x</p>" }, { name: shown.name }).name).toBe(shown.name)
+    expect(DriveFrames.isViewer(frameOf({ html: "<p>x</p>" }).name)).toBe(true)
   })
 })

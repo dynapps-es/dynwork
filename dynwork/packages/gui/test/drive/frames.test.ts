@@ -99,3 +99,110 @@ describe("the guard in main", () => {
     expect(app.listenerCount("web-contents-created")).toBe(0)
   })
 })
+
+describe("the viewer's frames, by name", () => {
+  test("each frame of a window has a name of its own, and every one is guarded", () => {
+    expect(DriveFrames.isViewer(DriveFrames.name)).toBe(true)
+    expect(DriveFrames.isViewer(`${DriveFrames.name}:12`)).toBe(true)
+    expect(DriveFrames.isViewer(`${DriveFrames.name}-12`)).toBe(false)
+    expect(DriveFrames.isViewer("preview")).toBe(false)
+    expect(
+      DriveFrames.allows({
+        name: `${DriveFrames.name}:3`,
+        known: false,
+        url: "https://evil.example/",
+        sameDocument: false,
+      }),
+    ).toBe(false)
+  })
+})
+
+describe("the heading a reader is at", () => {
+  test("the last one whose top has passed the upper third of the visible area", () => {
+    // 600 high: the line is at 200.
+    expect(DriveFrames.reading([-900, -300, 150, 420], 600)).toBe(2)
+    expect(DriveFrames.reading([-900, -300, 201, 420], 600)).toBe(1)
+    expect(DriveFrames.reading([-900, -300, 200, 420], 600)).toBe(2)
+  })
+
+  test("at the top of the document, the first; without headings, none", () => {
+    expect(DriveFrames.reading([320, 900], 600)).toBe(0)
+    expect(DriveFrames.reading([Infinity, Infinity], 600)).toBe(0)
+    expect(DriveFrames.reading([], 600)).toBe(-1)
+  })
+})
+
+// The observer as main evaluates it in the frame's isolated world, here over a document of its own: the world's
+// globals it reads are handed in, and the binding records what it reports.
+function observe(html: string) {
+  const document = new DOMParser().parseFromString(html, "text/html")
+  const reported: unknown[] = []
+  const world = new EventTarget()
+  const frames: Array<() => void> = []
+  const scope = {
+    globalThis: { [DriveFrames.binding]: (payload: string) => reported.push(JSON.parse(payload)) },
+    document,
+    addEventListener: world.addEventListener.bind(world),
+    requestAnimationFrame: (run: () => void) => frames.push(run),
+    innerHeight: 600,
+    Element,
+  }
+  new Function(...Object.keys(scope), DriveFrames.observer)(...Object.values(scope))
+  const flush = () => frames.splice(0).forEach((run) => run())
+  // Places each heading at a top, as the frame's layout would.
+  const place = (tops: number[]) =>
+    [...document.querySelectorAll("[id]")].forEach((heading, index) =>
+      Object.assign(heading, { getBoundingClientRect: () => ({ top: tops[index] ?? 0 }) }),
+    )
+  return { document, reported, world, flush, place }
+}
+
+describe("main's observer in a frame", () => {
+  test("reports the heading being read as the page scrolls, once each time it changes", () => {
+    const frame = observe(`<h1 id="intro">Intro</h1><h2 id="ventas">Ventas</h2><h2 id="riesgos">Riesgos</h2>`)
+    frame.place([10, 700, 1400])
+    frame.flush()
+    expect(frame.reported).toEqual([{ kind: "heading", id: "intro" }])
+    frame.place([-700, 0, 700])
+    frame.world.dispatchEvent(new Event("scroll"))
+    frame.world.dispatchEvent(new Event("scroll"))
+    frame.flush()
+    frame.world.dispatchEvent(new Event("scroll"))
+    frame.flush()
+    expect(frame.reported).toEqual([
+      { kind: "heading", id: "intro" },
+      { kind: "heading", id: "ventas" },
+    ])
+  })
+
+  test("reports a mark the user clicked, by its thread, and nothing for a click a script made", () => {
+    const frame = observe(`<p>El <mark data-dynwork-comment="t1"><b>total</b></mark> sube</p>`)
+    frame.flush()
+    const bold = frame.document.querySelector("b")
+    bold?.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    expect(frame.reported).toEqual([])
+    // happy-dom cannot dispatch a trusted event: the user's click is one that says so.
+    const user = new MouseEvent("click", { bubbles: true })
+    Object.defineProperty(user, "isTrusted", { value: true })
+    bold?.dispatchEvent(user)
+    const elsewhere = new MouseEvent("click", { bubbles: true })
+    Object.defineProperty(elsewhere, "isTrusted", { value: true })
+    frame.document.querySelector("p")?.dispatchEvent(elsewhere)
+    expect(frame.reported).toEqual([{ kind: "mark", id: "t1" }])
+  })
+
+  test("does nothing in a world without main's binding", () => {
+    const document = new DOMParser().parseFromString(`<h1 id="a">A</h1>`, "text/html")
+    const listen = { calls: 0 }
+    const scope = {
+      globalThis: {},
+      document,
+      addEventListener: () => void listen.calls++,
+      requestAnimationFrame: () => 0,
+      innerHeight: 600,
+      Element,
+    }
+    new Function(...Object.keys(scope), DriveFrames.observer)(...Object.values(scope))
+    expect(listen.calls).toBe(0)
+  })
+})

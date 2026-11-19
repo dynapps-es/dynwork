@@ -54,3 +54,26 @@ describe("how an open document is laid out", () => {
     expect(panes.width()).toBe(drawerWidth.max)
   })
 })
+
+describe("the comments marked on a document", () => {
+  test("show until the user hides them, and stay as they left them", () => {
+    expect(stand().panes.marks()).toBe(true)
+    const saved = storage(Panes, initial)
+    const { panes } = stand(saved)
+    expect(panes.marks()).toBe(true)
+    panes.toggle("marks")
+    expect(panes.marks()).toBe(false)
+    expect(saved.value.marks).toBe(false)
+    expect(stand(saved).panes.marks()).toBe(false)
+    panes.toggle("marks")
+    expect(saved.value.marks).toBe(true)
+  })
+
+  test("a layout kept before the marks existed shows them, and keeps the rest", () => {
+    const saved = storage(Panes, { outline: false, drawer: true, width: 500 })
+    const { panes } = stand(saved)
+    expect([panes.marks(), panes.outline(), panes.width()]).toEqual([true, false, 500])
+    panes.toggle("marks")
+    expect(saved.value).toEqual({ outline: false, drawer: true, width: 500, marks: false })
+  })
+})
