@@ -1,5 +1,6 @@
 export * as SpClient from "./client"
 export * as SpConsumer from "./consumer"
 export * as SpPlugins from "./plugins"
+export * as SpDrive from "./drive"
 export type { Catalog, Manifest, Profile, Publication, Whoami } from "./schema"
 export * as SpMobile from "./mobile"

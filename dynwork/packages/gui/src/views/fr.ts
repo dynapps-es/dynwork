@@ -1,12 +1,14 @@
 import routines from "../routines/i18n/fr"
 import agents from "./agents/fr"
 import brain from "./brain/fr"
+import drive from "./drive/fr"
 import type en from "./en"
 import runs from "./runs/fr"
 
 // The views' strings in French (`./en`), merged into the `dynwork` built-in's `fr` table.
 export default {
   "views.nav.agents": "Planifiées",
+  "views.nav.drive": "Drive",
   "views.nav.brain": "Brain",
   "views.device.macos": "Ce Mac",
   "views.device.macos.inline": "ce Mac",
@@ -24,6 +26,7 @@ export default {
   "views.subnav": "Sections",
   ...agents,
   ...brain,
+  ...drive,
   ...runs,
   ...routines,
 } satisfies Record<keyof typeof en, string>

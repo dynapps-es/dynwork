@@ -1,0 +1,22 @@
+export * as DriveClient from "./client"
+
+import { createSignal, onCleanup, type Accessor } from "solid-js"
+import type { IpcClient, Live } from "@opencode/plugin/gui"
+import type { Drive } from "./contract"
+
+export type Client = IpcClient<(typeof Drive)["spec"]>
+
+// The Drive views render outside the plugin host's setup, so they cannot `ctx.use` the Ipc themselves. The window
+// entry hands over the live client: `connection()` is the Ipc's `Live` state while this window's entry runs, else
+// undefined.
+const [current, setCurrent] = createSignal<Accessor<Live<Client>>>()
+
+export const connection = () => current()?.()
+
+/** Makes `live` the connection until the current owner is disposed. */
+export function attach(live: Accessor<Live<Client>>) {
+  setCurrent(() => live)
+  onCleanup(() => {
+    if (current() === live) setCurrent(undefined)
+  })
+}

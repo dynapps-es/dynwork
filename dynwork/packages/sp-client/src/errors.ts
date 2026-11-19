@@ -57,4 +57,50 @@ export class Protocol extends Schema.TaggedError<Protocol>("SpClient.Protocol")(
   errorKey: Schema.optional(Schema.String),
 }) {}
 
-export type SpError = Unauthorized | RateLimited | Unreachable | SignatureInvalid | KeyChanged | Incompatible | Protocol
+// The Drive's refusals, answered as data. They carry the instance's `error_key` and nothing else it said.
+
+// The document or folder does not exist, was deleted, or is hidden from this user.
+export class NotFound extends Schema.TaggedError<NotFound>("SpClient.NotFound")("NotFound", {
+  ...Request,
+  errorKey: Schema.optional(Schema.String),
+}) {}
+
+// The user has no access to what was asked: a share they lack, a lock held by someone else.
+export class Forbidden extends Schema.TaggedError<Forbidden>("SpClient.Forbidden")("Forbidden", {
+  ...Request,
+  errorKey: Schema.optional(Schema.String),
+}) {}
+
+// The instance refused DynWork because it acts as an agent. `capability` is what the action needed and the agent did
+// not have: `edit` when the folder or document caps agents at `suggest` (write with `mode: propose` instead), `person`
+// when the action is reserved to a person (sharing, replacing content, restoring). It is absent for an `agent_*` key
+// this client does not know.
+export class AgentRefused extends Schema.TaggedError<AgentRefused>("SpClient.AgentRefused")("AgentRefused", {
+  ...Request,
+  errorKey: Schema.String,
+  capability: Schema.optional(Schema.Literals(["edit", "person"])),
+}) {}
+
+// `409`: the document moved on or the request clashes with what is there (an anchor whose node is gone, an upload with
+// parts missing). `headRevisionId`, `headContentSha256` and `baseRevisionId` come from the body when the instance
+// reports the head the write lost to.
+export class Conflict extends Schema.TaggedError<Conflict>("SpClient.Conflict")("Conflict", {
+  ...Request,
+  errorKey: Schema.optional(Schema.String),
+  headRevisionId: Schema.optional(Schema.String),
+  headContentSha256: Schema.optional(Schema.String),
+  baseRevisionId: Schema.optional(Schema.String),
+}) {}
+
+export type SpError =
+  | Unauthorized
+  | RateLimited
+  | Unreachable
+  | SignatureInvalid
+  | KeyChanged
+  | Incompatible
+  | Protocol
+  | NotFound
+  | Forbidden
+  | AgentRefused
+  | Conflict
