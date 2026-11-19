@@ -100,14 +100,14 @@ describe("the Drive capabilities", () => {
   })
 
   test("mcpFolders: the agent's files are filed by DynWork over REST while off, and by the agent when on", () => {
-    expect(DriveCapabilities.agentFiling(DriveCapabilities.none, "markdown")).toBe("rest")
-    expect(DriveCapabilities.agentFiling(on("mcpFolders"), "markdown")).toBe("mcp")
+    expect(DriveCapabilities.agentFiling(DriveCapabilities.none)).toBe("rest")
+    expect(DriveCapabilities.agentFiling(on("mcpFolders"))).toBe("mcp")
   })
 
-  test("rawHtmlByMcp: an agent's HTML is imported by DynWork, keeping its scripts, until the MCP writes it raw", () => {
-    expect(DriveCapabilities.agentFiling(on("mcpFolders"), "html")).toBe("rest")
-    expect(DriveCapabilities.agentFiling(on("mcpFolders", "rawHtmlByMcp"), "html")).toBe("mcp")
-    // Raw HTML alone does not file it: the conversation's folder still needs the MCP's folders.
-    expect(DriveCapabilities.agentFiling(on("rawHtmlByMcp"), "html")).toBe("rest")
+  test("mcpFolders: an agent's HTML is imported by DynWork until the agent imports it, which keeps its scripts (0.84)", () => {
+    expect(DriveCapabilities.agentFiling(DriveCapabilities.none)).toBe("rest")
+    expect(DriveCapabilities.agentFiling(on("mcpFolders"))).toBe("mcp")
+    // Raw HTML alone does not file it: it is about changing a page, and the import still needs the MCP's.
+    expect(DriveCapabilities.agentFiling(on("rawHtmlByMcp"))).toBe("rest")
   })
 })

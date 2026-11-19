@@ -16,11 +16,15 @@ export const Capabilities = Schema.Struct({
   /** P10: comments on a cell range (0.85). A PDF takes none: the core does not read PDF (D22). */
   rangeComments: Schema.Boolean,
   /**
-   * P13: the agent rewrites HTML with scripts through the MCP (`content_blob_ref`, 0.84). Off: DynWork imports the HTML
-   * it uploaded, and refuses the agent's edits by ops of an HTML document, which strip its scripts (D21).
+   * P13: the agent rewrites HTML with scripts through the MCP (`documents_edit {content_blob_ref}`, 0.84). Off: DynWork
+   * refuses the agent's edits by ops of an HTML document, which strip its scripts (D21), and the agent uploads the whole
+   * page again as a new document.
    */
   rawHtmlByMcp: Schema.Boolean,
-  /** P4: the agent makes folders and imports what it uploaded through the MCP. Off: DynWork does both by REST. */
+  /**
+   * P4: the agent imports what it uploaded (`documents_import`, scripts kept) and makes folders (`documents_folder`)
+   * through the MCP, 0.84. Off: DynWork imports an uploaded page and makes the conversation's folder by REST.
+   */
   mcpFolders: Schema.Boolean,
   /** P5: an MCP write carries the conversation. Off: DynWork records it in its local index. */
   contextByMcp: Schema.Boolean,
@@ -107,11 +111,10 @@ export function indexed(capabilities: Capabilities, via: "rest" | "mcp") {
 
 /**
  * How a file the agent made reaches the conversation's folder (`Artifacts/<project>/<conversation>`, D8): `rest`,
- * DynWork makes the folder and imports the agent's `blob_ref`; `mcp`, the agent does it itself. HTML also needs the MCP
- * to keep its scripts (`rawHtmlByMcp`): until then an HTML file is imported, which keeps them (C7).
+ * DynWork makes the folder and imports the agent's `blob_ref`; `mcp`, the agent does it itself. `documents_import`
+ * stores a page byte for byte, scripts kept (0.84), so HTML needs nothing more than any other format: it is the agent's
+ * to import once `mcpFolders` is on. `rawHtmlByMcp` is about changing a page, not about bringing one in.
  */
-export function agentFiling(capabilities: Capabilities, format: string) {
-  if (!capabilities.mcpFolders) return "rest" as const
-  if (format === "html" && !capabilities.rawHtmlByMcp) return "rest" as const
-  return "mcp" as const
+export function agentFiling(capabilities: Capabilities) {
+  return capabilities.mcpFolders ? ("mcp" as const) : ("rest" as const)
 }

@@ -235,6 +235,67 @@ describe("an edit of an HTML page (D21)", () => {
   })
 })
 
+describe("the 0.84 way of working with a page (mcpFolders, rawHtmlByMcp)", () => {
+  const page = `<h1>Report</h1><script>document.title = "live"</script>`
+
+  test("an import is given the conversation's folder like a creation", async () => {
+    const { asked, paths, folderAt } = stand()
+    const answer = await asked("call_1", "ses_q3", "import")
+    expect(await paths()).toEqual(["Artifacts", "Artifacts/Billing", "Artifacts/Billing/Q3 report"])
+    expect(answer?.folder).toBe(await folderAt("Artifacts/Billing/Q3 report"))
+  })
+
+  test("mcpFolders on: the import is still filed by DynWork, which makes the folder once for the conversation", async () => {
+    const subject = stand({ capabilities: { mcpFolders: true } })
+    const first = await subject.asked("call_1", "ses_q3", "import")
+    const second = await subject.asked("call_2", "ses_q3", "import")
+    expect(first?.folder).toBe(await subject.folderAt("Artifacts/Billing/Q3 report"))
+    expect(second?.folder).toBe(first?.folder)
+    expect(subject.fake.calls.createFolder).toBe(3)
+    // A creation is left to the agent, as before.
+    expect((await subject.asked("call_3", "ses_q3", "create"))?.folder).toBeUndefined()
+  })
+
+  test("what the agent imported enters the conversation's index as created, by the MCP, and is not imported again", async () => {
+    const subject = stand({ capabilities: { mcpFolders: true } })
+    const blob = subject.fake.stage(text(page), "text/html")
+    await subject.agent.touched(
+      subject.touch({ verb: "upload", input: { name: "report.html" }, output: { blob_ref: blob, mime: "text/html" } }),
+    )
+    await subject.agent.touched(
+      subject.touch({
+        verb: "import",
+        input: { name: "report.html" },
+        output: { document_id: "doc-9", revision_id: "rev-1", format: "html", name: "report.html" },
+      }),
+    )
+    expect(subject.fake.calls.importBlob).toBeUndefined()
+    expect(subject.links()).toMatchObject([{ document: "doc-9", act: "created", revision: "rev-1", via: "mcp" }])
+  })
+
+  test("a page rewritten whole is an edit of that document, in the index at the new revision", async () => {
+    const subject = stand({ capabilities: { rawHtmlByMcp: true } })
+    await subject.agent.touched(
+      subject.touch({
+        verb: "edit",
+        input: { document_id: "doc-1" },
+        output: { document_id: "doc-1", revision_id: "rev-2" },
+      }),
+    )
+    expect(subject.links()).toMatchObject([{ document: "doc-1", act: "edited", revision: "rev-2", via: "mcp" }])
+  })
+
+  test("the rewrite passes the HTML guard with rawHtmlByMcp on or off, and an edit by ops passes only with it on", async () => {
+    const off = stand()
+    const document = (await ok(off.fake.upload({ name: "r.html", bytes: text(page), mime: "text/html" }))).document.id
+    expect((await off.asked("call_1", "ses_q3", "edit", { document, replace: true }))?.refuse).toBeUndefined()
+    expect((await off.asked("call_2", "ses_q3", "edit", { document }))?.refuse).toBe(DriveAgent.htmlRefused)
+    const on = stand({ capabilities: { rawHtmlByMcp: true } })
+    expect((await on.asked("call_3", "ses_q3", "edit", { document, replace: true }))?.refuse).toBeUndefined()
+    expect((await on.asked("call_4", "ses_q3", "edit", { document }))?.refuse).toBeUndefined()
+  })
+})
+
 describe("a folder made meanwhile (G05)", () => {
   test("0.84 refuses a second folder of a name as name_taken: the one already there is used", async () => {
     // The Drive's root was read before `Artifacts` was made elsewhere (the web, another computer)
@@ -397,14 +458,14 @@ describe("an uploaded page", () => {
     expect(subject.links()).toEqual([])
   })
 
-  test("is the agent's own to import once the MCP makes folders and keeps scripts", async () => {
-    const filing = stand({ capabilities: { mcpFolders: true, rawHtmlByMcp: true } })
+  test("is the agent's own to import once the MCP imports (mcpFolders), which keeps the scripts too", async () => {
+    const filing = stand({ capabilities: { mcpFolders: true } })
     await upload(filing)
     expect(filing.fake.calls.importBlob).toBeUndefined()
-    // With folders but not scripts, the page still has to be imported to keep them.
-    const folders = stand({ capabilities: { mcpFolders: true } })
-    await upload(folders)
-    expect(folders.fake.calls.importBlob).toBe(1)
+    // The page is rewritten whole through `documents_edit`, which is no reason to stop importing a new one.
+    const raw = stand({ capabilities: { rawHtmlByMcp: true } })
+    await upload(raw)
+    expect(raw.fake.calls.importBlob).toBe(1)
   })
 
   test("without a known conversation lands in the Drive's root, still signed by its id", async () => {

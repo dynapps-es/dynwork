@@ -17,8 +17,11 @@ export const id = "dynwork.documents"
 /** The MCP server's name as `DynWorkMapping` slugs it; OpenCode names its tool `documents_<tool>` after it. */
 export const server = "documents"
 
-/** The writes main hears of. Reading, listing, searching, commenting and sharing change no document's content. */
-const verbs = ["create", "edit", "upload", "update", "copy"] as const
+/**
+ * The writes main hears of. Reading, listing, searching, commenting and sharing change no document's content.
+ * `import` (0.84) makes a document from a blob the agent uploaded.
+ */
+const verbs = ["create", "edit", "upload", "update", "copy", "import"] as const
 export type Verb = (typeof verbs)[number]
 
 // `<server>_<tool>`: the server `documents` and the tool `documents_create` make `documents_documents_create`.
@@ -116,7 +119,7 @@ export function touch(event: Executed): Touch | undefined {
   )
 }
 
-/** What main is asked about a write about to run: the writes it adds to or may refuse, a creation and an edit. */
+/** What main is asked about a write about to run: the writes it adds to or may refuse, a creation, an import and an edit. */
 export function asking(event: {
   readonly tool: string
   readonly sessionID: string
@@ -124,7 +127,7 @@ export function asking(event: {
   readonly input: unknown
 }): Ask | undefined {
   const write = verb(event.tool)
-  if (write !== "create" && write !== "edit") return undefined
+  if (write !== "create" && write !== "edit" && write !== "import") return undefined
   const given = Option.getOrUndefined(decodeInput(event.input))
   return {
     id: event.id,
@@ -170,14 +173,17 @@ export function answer(input: Answer) {
 
 /**
  * The input of a write with what main added: the folder only for a new document the agent left unplaced (a folder the
- * agent chose stays), and the message after the agent's own, so the revision says which conversation wrote it.
+ * agent chose stays), and the message after the agent's own, so the revision says which conversation wrote it. An import
+ * takes the folder alone: `documents_import` has no message to carry (0.84).
  */
 export function apply(write: Verb, input: unknown, answered: Answer) {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return input
   const given = decodeInput(input)
   if (Option.isNone(given)) return input
-  const message = answered.message === undefined ? undefined : joined(given.value.message, answered.message)
-  const folder = write === "create" && given.value.folder_id === undefined ? answered.folder : undefined
+  const message =
+    answered.message === undefined || write === "import" ? undefined : joined(given.value.message, answered.message)
+  const placed = write === "create" || write === "import"
+  const folder = placed && given.value.folder_id === undefined ? answered.folder : undefined
   return {
     ...input,
     ...(folder === undefined ? {} : { folder_id: folder }),
@@ -401,22 +407,90 @@ export function shares(): Shares {
   return { shares: [...asked.values()].map((item) => item.share) }
 }
 
-/** The rules the plugin adds to the instance's own when the `documents` server is among its MCP servers. */
-export function rules(servers: ReadonlyArray<string>): ReadonlyArray<DynWorkSync.Manifest["rules"][number]> {
-  if (!servers.includes(server)) return []
-  return [{ id: "dynwork-documents", name: "Documents in Dynwork", instructions, hosts: ["opencode"] }]
+/**
+ * What the instance delivers of 0.84, as far as the agent's rules change with it: the same two switches the Drive's
+ * capabilities have (`rawHtmlByMcp`, `mcpFolders`, `DriveCapabilities` in the app). Both off is the 0.83 instance, and
+ * the only one the plugin knows today: the capabilities live in main and are not sent here yet.
+ */
+export interface Switches {
+  /** `documents_edit {content_blob_ref}` rewrites a page whole, scripts kept. */
+  readonly rawHtmlByMcp?: boolean
+  /** `documents_import` makes a document of an uploaded blob, scripts kept, and `documents_folder` makes folders. */
+  readonly mcpFolders?: boolean
 }
 
-const instructions = [
-  "The `documents` tools write to the user's Drive in Governance. Dynwork files every document you create in a folder",
-  "of this conversation (Artifacts/<project>/<conversation>) and lists it in the conversation's panel: leave out",
-  "`folder_id` in documents_create unless the user names a folder.",
-  "",
-  "An HTML page with scripts, charts or animations loses its scripts through documents_create and set_html, and Dynwork",
-  "refuses documents_edit on an HTML document for that reason. Upload the whole page with documents_upload (mime",
-  "text/html, a name ending in .html): Dynwork imports it as a document of this conversation, scripts kept. To change",
-  "the page, upload it again under a new name.",
-  "A file you upload to put inside another document (an image for a Word file) is not imported as a document.",
-  "Before every documents_share the user allows or rejects it on a card in this conversation: call it without asking",
-  "first, and when the user rejects it, do not try again unless they ask.",
-].join("\n")
+/** The rules the plugin adds to the instance's own when the `documents` server is among its MCP servers. */
+export function rules(
+  servers: ReadonlyArray<string>,
+  switches: Switches = {},
+): ReadonlyArray<DynWorkSync.Manifest["rules"][number]> {
+  if (!servers.includes(server)) return []
+  return [
+    {
+      id: "dynwork-documents",
+      name: "Documents in Dynwork",
+      instructions: instructions(switches),
+      hosts: ["opencode"],
+    },
+  ]
+}
+
+/**
+ * The agent's rules for the Drive, in English and short: the model may be a small one. The work goes to the Drive, not
+ * to local files (the model had been writing the page to disk, serving it, and offering the file), and a page goes up
+ * from one program, without the disk. Two things change with the instance: how an uploaded page becomes a document,
+ * and how a page is changed.
+ */
+export function instructions(switches: Switches = {}) {
+  const folder = switches.mcpFolders
+    ? [
+        "Dynwork files what you import in a folder of this conversation (Artifacts/<project>/<conversation>) and lists it in",
+        "the conversation's panel: leave out `folder_id` in documents_import. In documents_create use the folder the user names.",
+      ]
+    : [
+        "Dynwork files every document you create in a folder of this conversation (Artifacts/<project>/<conversation>) and",
+        "lists it in the conversation's panel: leave out `folder_id` in documents_create unless the user names a folder.",
+      ]
+  const upload = [
+    "HTML page (an artifact, a report, anything with styles, scripts or charts): write the whole page inside one Code Mode",
+    "call, encode it there (TextEncoder, then btoa over chunks) and send it with documents_upload (mime text/html, a name",
+    "ending in .html). Never write it to a file first, never start a local server, never fetch a file to read it back.",
+  ]
+  const filed = switches.mcpFolders
+    ? [
+        "Then call documents_import once with the returned blob_ref and the same name, and leave out folder_id: Dynwork puts",
+        "it in this conversation's folder, scripts kept, and opens it in the panel. Do not open it in a browser.",
+      ]
+    : [
+        "Dynwork imports that upload as a document of this conversation, scripts kept, and opens it in the panel: do not look",
+        "for it, do not import it yourself and do not open it in a browser.",
+      ]
+  const change = switches.rawHtmlByMcp
+    ? [
+        "To change a page, upload the whole changed page with documents_upload, then call documents_edit with document_id,",
+        "content_blob_ref and base_revision (the head revision from documents_read): the same document, scripts kept.",
+        "Edits by ops on a page with scripts or styles (str_replace, set_html) are refused.",
+      ]
+    : [
+        "documents_create, set_html and str_replace strip a page's scripts and styles, and Dynwork",
+        "refuses documents_edit on an HTML document for that reason. To change a page, upload the whole changed page again",
+        "under a new name: it becomes a new document next to the old one, and you tell the user so in one line.",
+      ]
+  return [
+    "Documents, pages, reports, presentations and artifacts you make for the user go in their Drive with the `documents`",
+    "tools, not in local files. Write a local file only when the user asks for one; code and the project's files stay",
+    "local, as always.",
+    "",
+    ...folder,
+    "",
+    ...upload,
+    ...filed,
+    ...change,
+    "Styles and scripts are kept in the page, but documents_read (model, outline) and documents_export (preview) show",
+    "text only: never judge how a page looks from them.",
+    "",
+    "A file you upload to put inside another document (an image for a Word file) is not imported as a document.",
+    "Before every documents_share the user allows or rejects it on a card in this conversation: call it without asking",
+    "first, and when the user rejects it, do not try again unless they ask.",
+  ].join("\n")
+}

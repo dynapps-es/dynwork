@@ -18,12 +18,12 @@ const done = (tool: string, input: unknown, output: unknown) => ({
 })
 
 describe("which calls are writes", () => {
-  test("the five writes of the server, as OpenCode names a server's tool", () => {
+  test("the six writes of the server, as OpenCode names a server's tool", () => {
     expect(
-      ["create", "edit", "upload", "update", "copy"].map((tool) =>
+      ["create", "edit", "upload", "update", "copy", "import"].map((tool) =>
         DynWorkDocuments.verb(`documents_documents_${tool}`),
       ),
-    ).toEqual(["create", "edit", "upload", "update", "copy"])
+    ).toEqual(["create", "edit", "upload", "update", "copy", "import"])
   })
 
   test("not a read, a comment, another server's tool, or a tool that only ends the same way", () => {
@@ -74,6 +74,40 @@ describe("what a completed write touched", () => {
     ).toMatchObject({ verb: "upload", input: { name: "a.html", mime: "text/html" }, output: { blob_ref: "abc" } })
   })
 
+  test("an import (0.84) names the document it made, like a creation", () => {
+    expect(
+      DynWorkDocuments.touch(
+        done(
+          "documents_documents_import",
+          { blob_ref: "abc", name: "report.html", folder_id: "f1" },
+          { document_id: "doc-2", revision_id: "rev-1", format: "html", name: "report.html", written: ["l1| x"] },
+        ),
+      ),
+    ).toEqual({
+      session: "ses_q3",
+      call: "call_1",
+      verb: "import",
+      input: { name: "report.html", folder_id: "f1" },
+      output: { document_id: "doc-2", revision_id: "rev-1", format: "html", name: "report.html" },
+    })
+  })
+
+  test("a page rewritten whole (0.84) is an edit that names its document and the blob it was written from", () => {
+    expect(
+      DynWorkDocuments.touch(
+        done(
+          "documents_documents_edit",
+          { document_id: "d", content_blob_ref: "blob-1", base_revision: "rev-1" },
+          { document_id: "d", revision_id: "rev-2" },
+        ),
+      ),
+    ).toMatchObject({
+      verb: "edit",
+      input: { document_id: "d", content_blob_ref: "blob-1" },
+      output: { document_id: "d", revision_id: "rev-2" },
+    })
+  })
+
   test("a proposal says so, through the id of its proposal", () => {
     expect(
       DynWorkDocuments.touch(
@@ -107,6 +141,13 @@ describe("what main is asked before a write", () => {
     expect(
       DynWorkDocuments.asking(call("documents_documents_edit", { document_id: "d", content_blob_ref: "blob-1" })),
     ).toEqual({ id: "call_1", session: "ses_q3", verb: "edit", document: "d", replace: true })
+  })
+
+  test("an import is asked about, so main can give it the conversation's folder; an upload still is not", () => {
+    expect(
+      DynWorkDocuments.asking(call("documents_documents_import", { blob_ref: "abc", name: "report.html" })),
+    ).toEqual({ id: "call_1", session: "ses_q3", verb: "import" })
+    expect(DynWorkDocuments.asking(call("documents_documents_upload", { name: "a.html" }))).toBeUndefined()
   })
 
   test("an edit main cannot read the document of is still asked, and other calls are not asked about", () => {
@@ -167,6 +208,20 @@ describe("what main adds before a write", () => {
     expect(DynWorkDocuments.apply("edit", { document_id: "d" }, answer)).toEqual({
       document_id: "d",
       message: "Q3 by DynWork",
+    })
+  })
+
+  test("an import takes the folder and no message: documents_import has none to carry", () => {
+    const answer = { id: "x", folder: "f1", message: "Q3 by DynWork" }
+    expect(DynWorkDocuments.apply("import", { blob_ref: "abc", name: "a.html" }, answer)).toEqual({
+      blob_ref: "abc",
+      name: "a.html",
+      folder_id: "f1",
+    })
+    expect(DynWorkDocuments.apply("import", { blob_ref: "abc", name: "a.html", folder_id: "mine" }, answer)).toEqual({
+      blob_ref: "abc",
+      name: "a.html",
+      folder_id: "mine",
     })
   })
 
@@ -427,6 +482,9 @@ describe("waiting for the user's decision on a share", () => {
 })
 
 describe("the rules about the server", () => {
+  // The text is wrapped for the file; what the agent reads is the words.
+  const flat = (text: string) => text.replace(/\s+/g, " ")
+
   const documents = (url = "http://127.0.0.1:18101/api/v1/mcp/documents/mcp") => ({
     ...alpha,
     managed_mcp_servers: [{ id: "documents", name: "documents", url }],
@@ -463,10 +521,67 @@ describe("the rules about the server", () => {
     expect(text).toContain("documents_upload")
   })
 
+  test("send the work to the Drive, not to local files, and a page up from one program without the disk", () => {
+    const text = flat(DynWorkDocuments.instructions())
+    expect(text).toContain("not in local files")
+    expect(text).toContain("only when the user asks for one")
+    expect(text).toContain("inside one Code Mode call")
+    expect(text).toContain("TextEncoder, then btoa over chunks")
+    expect(text).toContain("Never write it to a file first, never start a local server, never fetch a file")
+    expect(text).toContain("do not open it in a browser")
+    // The managed block carries the same text.
+    expect(flat(DynWorkDocuments.rules(["documents"])[0]?.instructions ?? "")).toBe(text)
+  })
+
+  test("do not let the agent judge a page's look from the text views", () => {
+    const text = flat(DynWorkDocuments.instructions())
+    expect(text).toContain("documents_read (model, outline) and documents_export (preview) show")
+    expect(text).toContain("never judge how a page looks from them")
+  })
+
+  test("today's instance (0.83): a changed page is uploaded again as a new document, and the user is told", () => {
+    for (const text of [flat(DynWorkDocuments.instructions()), flat(DynWorkDocuments.instructions({}))]) {
+      expect(text).toContain("upload the whole changed page again under a new name")
+      expect(text).toContain("you tell the user so in one line")
+      expect(text).toContain("Dynwork imports that upload as a document of this conversation")
+      expect(text).not.toContain("content_blob_ref")
+      expect(text).not.toContain("documents_import")
+      expect(text).not.toContain("documents_folder")
+    }
+  })
+
+  test("rawHtmlByMcp (0.84): a page is changed in the same document with the blob it uploaded", () => {
+    const text = flat(DynWorkDocuments.instructions({ rawHtmlByMcp: true }))
+    expect(text).toContain("documents_edit with document_id, content_blob_ref and base_revision")
+    expect(text).toContain("the same document, scripts kept")
+    expect(text).not.toContain("as a new document next to the old one")
+    // Only the way to change a page moved: a new page still waits for DynWork's import.
+    expect(text).toContain("Dynwork imports that upload as a document of this conversation")
+  })
+
+  test("mcpFolders (0.84): the agent imports the upload itself, once, into the folder DynWork chooses", () => {
+    const text = flat(DynWorkDocuments.instructions({ mcpFolders: true }))
+    expect(text).toContain("call documents_import once with the returned blob_ref")
+    expect(text).toContain("leave out `folder_id` in documents_import")
+    expect(text).not.toContain("do not import it yourself")
+    expect(text).not.toContain("content_blob_ref")
+  })
+
+  test("both switches on read as both changes, and the rules carry them to the managed block", () => {
+    const both = { rawHtmlByMcp: true, mcpFolders: true }
+    const text = flat(DynWorkDocuments.instructions(both))
+    expect(text).toContain("documents_import")
+    expect(text).toContain("content_blob_ref")
+    expect(flat(DynWorkDocuments.rules(["documents"], both)[0]?.instructions ?? "")).toBe(text)
+    expect(DynWorkDocuments.rules(["other"], both)).toEqual([])
+    for (const variant of [{}, { rawHtmlByMcp: true }, { mcpFolders: true }, both])
+      expect(
+        DynWorkInstructions.overBudget(DynWorkInstructions.block(DynWorkDocuments.rules(["documents"], variant))),
+      ).toBeUndefined()
+  })
+
   test("name no product the user does not know", () => {
-    const text = DynWorkDocuments.rules(["documents"])
-      .map((rule) => rule.instructions)
-      .join("\n")
-    expect(text).not.toMatch(/systemprompt|agent farm|routine/i)
+    for (const variant of [{}, { rawHtmlByMcp: true }, { mcpFolders: true }, { rawHtmlByMcp: true, mcpFolders: true }])
+      expect(DynWorkDocuments.instructions(variant)).not.toMatch(/systemprompt|agent farm|routine/i)
   })
 })

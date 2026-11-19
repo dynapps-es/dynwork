@@ -14,7 +14,9 @@ import type { DriveIpc } from "./ipc"
 // watches the tools' calls (`@dynwork/server-plugin/documents`) and tells main: before a write, so that a new document
 // lands in the conversation's folder and its revision names the conversation, and so that an edit by ops of an HTML
 // page, which would strip its scripts, is refused (D21); after one, so that the document enters the conversation's
-// index and a page the agent uploaded is imported with its scripts (C7).
+// index and a page the agent uploaded is imported with its scripts (C7). With `mcpFolders` (0.84) the agent imports the
+// page itself with `documents_import`, which the `ask` files like a creation; with `rawHtmlByMcp` it rewrites a page
+// whole with `documents_edit {content_blob_ref}`, which is an edit of that document like any other.
 
 /** The conversation as the Drive's folders name it. */
 export interface Session {
@@ -71,7 +73,8 @@ export function make(options: Options) {
     if (!session) return {}
     const conversation = { id: request.session, name: clean(session.title) ?? options.untitled }
     const filed =
-      request.verb === "create" && DriveCapabilities.agentFiling(service.capabilities(), "markdown") === "rest"
+      request.verb === "import" ||
+      (request.verb === "create" && DriveCapabilities.agentFiling(service.capabilities()) === "rest")
     const answer = await service.using(async (backend, account) => {
       const message = service.message(account, conversation)
       if (!filed) return { message }
@@ -131,15 +134,15 @@ export function make(options: Options) {
   /** What a write the agent made touched: its document enters the conversation's index, and an uploaded page is imported. */
   async function touched(touch: DynWorkDocuments.Touch) {
     if (touch.verb === "upload") return upload(touch)
-    const document =
-      touch.verb === "create" || touch.verb === "copy" ? touch.output.document_id : touch.input.document_id
+    const made = touch.verb === "create" || touch.verb === "copy" || touch.verb === "import"
+    const document = made ? touch.output.document_id : touch.input.document_id
     if (document === undefined) return
     const proposed = touch.verb === "edit" && (touch.output.proposal_id !== undefined || touch.input.mode === "propose")
     await service.changing(async (_, account) => {
       service.record(account.id, {
         conversation: touch.session,
         document,
-        act: touch.verb === "create" || touch.verb === "copy" ? "created" : proposed ? "proposed" : "edited",
+        act: made ? "created" : proposed ? "proposed" : "edited",
         revision: touch.output.revision_id ?? touch.output.head_revision_id,
         via: "mcp",
       })
@@ -154,7 +157,7 @@ export function make(options: Options) {
     const name = touch.input.name
     const mime = touch.output.mime ?? touch.input.mime
     if (blob === undefined || name === undefined || !isHtml(mime)) return
-    if (DriveCapabilities.agentFiling(service.capabilities(), "html") !== "rest") return
+    if (DriveCapabilities.agentFiling(service.capabilities()) !== "rest") return
     if (imported.has(`${touch.session}:${blob}`)) return
     imported.add(`${touch.session}:${blob}`)
     const session = await options.session(touch.session)
