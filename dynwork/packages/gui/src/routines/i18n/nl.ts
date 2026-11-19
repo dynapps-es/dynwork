@@ -53,6 +53,8 @@ export default {
   "routines.fail.order": "Het einde moet na het begin komen.",
   "routines.fail.max": "De limiet van uitvoeringen is minstens 1.",
   "routines.fail.onePlace": "Taken draaien hier op één plek.",
+  "routines.fail.inPlace": "Taken gaan hier door in hun eigen gesprek.",
+  "routines.fail.noQuestions": "Taken stellen hier geen vragen.",
   "routines.fail.noAnswer": "De plek waar de taak draait, heeft niet geantwoord.",
   "routines.fail.offline": "De service van Dynwork draait niet.",
   "routines.fail.otherComputers": "Deze computer kan geen taken van andere computers uitvoeren.",

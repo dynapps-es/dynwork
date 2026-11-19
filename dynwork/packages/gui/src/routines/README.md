@@ -50,6 +50,20 @@ machine `reason` and a `conversation` that says where to read it: `session` (a l
 anchor session), `transcript` (read through `transcript(run)`: the farm's result and log, read only), `external` or
 `none`. A finished run is `unread` until `viewed(run)`; a `Routine` carries the count and its newest run in `last`.
 
+A run that asks the user something stays `running` with the reason `question` and a `question` (`id`, `text`, `choices`,
+and `expires` where it lapses); it is `unread` meanwhile. `answerQuestion({ run, question, choice })` answers it with one
+of its choices: `invalid` for a choice it does not offer, `conflict` when the run waits on no such question (answered
+already, or expired), and the run goes on with `question` and the reason gone. The views read `running` + `question` as
+"Waiting for your answer", beside "Waiting for your permission" (`reason: "permission"`).
+
+`reply({ run, text })` continues a finished run where `actions.reply` is `resume`: the answer is a new `Run` of the same
+routine (the farm's `POST /tasks` with `session_ref`). `conflict` for a run still going, `invalid` for blank text, and
+`unsupported` where the conversation continues in place (`in-place`) or never (`none`). Both methods are optional on
+`Backend`; the Ipc answers `unsupported` for a backend without them.
+
+A `Definition` may carry `template` (`id`, `revision`): the template the routine was activated from. A backend keeps it
+as it comes, through `get` and `update`.
+
 ## Failures are data
 
 A backend never rejects: it answers a `Failure` (`signed-out`, `unreachable`, `invalid` with a message per field,
@@ -68,6 +82,8 @@ fails: a backend that cannot serve says so in `status`.
   open, each backend's own `watch` is subscribed once, and a backend that registers meanwhile is subscribed too.
 - `move`: makes this device the one that runs a routine of another device; a backend without owners (the optional
   `Backend.move`) answers `unsupported`.
+- `reply` and `answerQuestion`: see "Runs"; a backend without the optional `Backend.reply` / `Backend.answerQuestion`
+  answers `unsupported`.
 - Every other method names its `backend` and answers the backend's own answer.
 
 ## Backends
@@ -79,7 +95,8 @@ the farm's demo only with `DYNWORK_ROUTINES_FARM=1`). The demos are added after 
 only the farm's, unless that switch is on.
 
 A backend is done when `test/routines/conformance.ts` passes against it: create, list, read back, edit (in place or
-replacing), pause, resume, start, finish, unread and viewed, paging, cancel, remove, `not-found` everywhere, `invalid` with
+replacing), the template link, pause, resume, start, finish, unread and viewed, reply and questions (for a backend that
+resumes, and one that can be made to ask), paging, cancel, remove, `not-found` everywhere, `invalid` with
 its fields, watch, quota, transcripts, and everything surviving the Ipc's wire. `test/routines/fake.test.ts` shows how to
 run it; `test/routines/wire.ts` is a window's client over a registry, with every value crossing as the bridge makes it
 cross, for the views' tests.
@@ -314,4 +331,5 @@ they matter. The same conversation, or any other, then manages the user's tasks 
 
 It reads no cron: a scheduled, enabled routine's `next` is a day after its last change. Runs start only through `start`
 and finish when the clock passes their duration and `settle()` runs (`main.ts` calls it every few seconds). Nothing is
-persisted, and nothing syncs.
+persisted, and nothing syncs. A run waits on a question only when `ask(run, question)` puts it there (the remote demo has
+one seeded), and such a run does not finish by itself.

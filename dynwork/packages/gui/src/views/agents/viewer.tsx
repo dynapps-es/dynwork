@@ -1,9 +1,10 @@
 import { usePlugin } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
-import { Show } from "solid-js"
+import { Textarea } from "@opencode/ui/textarea"
+import { createSignal, For, Show } from "solid-js"
 import { duration, fromMain, money, reasonText, runWhen } from "./format"
-import type { AgentsModel, Viewer } from "./model"
+import { refKey, type AgentsModel, type Viewer } from "./model"
 import { Tag } from "./parts"
 import { isLive, runTone, stateKey, waiting } from "./routine"
 
@@ -27,6 +28,14 @@ export function RunViewer(props: { viewer: Viewer; model: AgentsModel }) {
       .filter(Boolean)
       .join(" · ")
   }
+  const [text, setText] = createSignal("")
+  const sending = () => props.model.busy(`reply/${refKey(run().ref)}`)
+  const answering = () => props.model.busy(`answer/${refKey(run().ref)}`)
+  const send = async () => {
+    await props.model.reply(text())
+    // A reply that went through opened the new run: the box is for the next one. A refused one keeps the words.
+    if (!props.model.state.failure) setText("")
+  }
   const save = () => {
     const log = props.viewer.transcript?.log
     if (!log) return
@@ -48,10 +57,29 @@ export function RunViewer(props: { viewer: Viewer; model: AgentsModel }) {
       <div data-slot="agents-detail-chips">
         <Tag tone={runTone(run().state, run().reason)}>
           {ctx.t(stateKey(run()))}
-          <Show when={waiting(run()) ? undefined : run().reason}>{(reason) => ` · ${reasonText(ctx.t, reason())}`}</Show>
+          <Show when={waiting(run()) ? undefined : run().reason}>
+            {(reason) => ` · ${reasonText(ctx.t, reason())}`}
+          </Show>
         </Tag>
         <Show when={facts()}>{(text) => <span>{text()}</span>}</Show>
       </div>
+      <Show when={run().question}>
+        {(question) => (
+          <section data-slot="agents-viewer-question" role="group" aria-label={ctx.t("agents.viewer.question")}>
+            <h2 data-slot="agents-section-title">{ctx.t("agents.viewer.question")}</h2>
+            <p>{question().text}</p>
+            <div data-slot="agents-viewer-choices">
+              <For each={question().choices}>
+                {(choice) => (
+                  <Button variant="contrast" disabled={answering()} onClick={() => void props.model.answer(choice)}>
+                    {choice}
+                  </Button>
+                )}
+              </For>
+            </div>
+          </section>
+        )}
+      </Show>
       <Show when={!props.viewer.loading} fallback={<p data-slot="agents-empty">{ctx.t("agents.viewer.loading")}</p>}>
         <Show when={props.viewer.failure}>
           {(failure) => (
@@ -100,14 +128,22 @@ export function RunViewer(props: { viewer: Viewer; model: AgentsModel }) {
           )}
         </Show>
       </Show>
-      <Show when={capabilities()?.actions.reply === "resume"}>
+      <Show when={capabilities()?.actions.reply === "resume" && !isLive(run())}>
         <div data-slot="agents-viewer-foot">
           <span data-slot="agents-hint">{ctx.t("agents.viewer.continueHint")}</span>
-          {/* JESÚS: Continue is the farm's `Capabilities.actions.reply` `resume`: a farm task with `session_ref` of
-              this run (`resumable`), which comes back as a new `Run` of the routine. The contract has no method for
-              it yet: add one (for example `reply({ backend, run, text })`, as phase 04 does for local runs) and call
-              it here. */}
-          <Button variant="contrast" icon="outline-video" disabled title={ctx.t("agents.reason.soon")}>
+          <Textarea
+            aria-label={ctx.t("agents.viewer.reply")}
+            rows={3}
+            value={text()}
+            placeholder={ctx.t("agents.viewer.replyHint")}
+            onInput={(event) => setText(event.currentTarget.value)}
+          />
+          <Button
+            variant="contrast"
+            icon="outline-video"
+            disabled={!text().trim() || sending()}
+            onClick={() => void send()}
+          >
             {ctx.t("agents.viewer.continue")}
           </Button>
         </div>

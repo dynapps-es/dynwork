@@ -36,6 +36,17 @@ export interface Backend {
   move?(id: string): Promise<Failure | undefined>
   /** `conflict` for a run that already finished; `unsupported` where `actions.cancel` is false. */
   cancel(run: string): Promise<Failure | undefined>
+  /**
+   * Continues a finished run with the user's words, as a new run of the same routine (`actions.reply` is `resume`: the
+   * farm's `POST /tasks` with `session_ref`). `conflict` for a run still going, `invalid` for no words. A backend that
+   * continues in place, or never, has none, or answers `unsupported`.
+   */
+  reply?(input: { run: string; text: string }): Promise<Run | Failure>
+  /**
+   * Answers the question a run waits on (`Run.question`) with one of its choices, and the run goes on. `conflict` when
+   * the run is not waiting on that question, `invalid` for a choice it does not offer. Only a backend whose runs ask.
+   */
+  answerQuestion?(input: { run: string; question: string; choice: string }): Promise<Failure | undefined>
   /** Newest first. Without `routine`: every run the backend knows ("Activity"). */
   runs(input: { routine?: string; cursor?: string }): Promise<RunPage | Failure>
   /** The read-only conversation of a run whose `conversation` is `transcript`; `unsupported` for any other. */

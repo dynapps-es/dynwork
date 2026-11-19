@@ -120,6 +120,7 @@ export default {
   "agents.run.queued": "En file d'attente",
   "agents.run.running": "En cours",
   "agents.run.waiting": "En attente de votre autorisation",
+  "agents.run.asking": "En attente de votre réponse",
   "agents.run.ok": "Terminée",
   "agents.run.late": "En retard",
   "agents.run.failed": "Échouée",
@@ -291,6 +292,9 @@ export default {
   "agents.viewer.turns": "{{turns}} tours",
   "agents.viewer.continue": "Continuer",
   "agents.viewer.continueHint": "La session est conservée : continuer lance une nouvelle exécution de cette tâche.",
+  "agents.viewer.question": "La tâche pose une question",
+  "agents.viewer.reply": "Votre message",
+  "agents.viewer.replyHint": "Indiquez ce qu'il faut faire ensuite",
   "agents.viewer.loading": "Chargement de l'exécution…",
 
   "agents.notify.finished": "{{name}} a terminé",

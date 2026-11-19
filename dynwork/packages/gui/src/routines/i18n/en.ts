@@ -52,6 +52,8 @@ export default {
   "routines.fail.order": "The end must come after the start.",
   "routines.fail.max": "The limit of runs is at least 1.",
   "routines.fail.onePlace": "Tasks here run in one place.",
+  "routines.fail.inPlace": "Tasks here continue in their own conversation.",
+  "routines.fail.noQuestions": "Tasks here do not ask questions.",
   "routines.fail.noAnswer": "Where the task runs did not answer.",
   "routines.fail.offline": "Dynwork's service is not running.",
   "routines.fail.otherComputers": "This computer cannot run tasks of other computers.",

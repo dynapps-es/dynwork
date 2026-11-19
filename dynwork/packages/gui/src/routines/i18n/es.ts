@@ -52,6 +52,8 @@ export default {
   "routines.fail.order": "El fin tiene que ser posterior al inicio.",
   "routines.fail.max": "El límite de ejecuciones es como mínimo 1.",
   "routines.fail.onePlace": "Aquí las tareas se ejecutan en un solo sitio.",
+  "routines.fail.inPlace": "Aquí las tareas continúan en su propia conversación.",
+  "routines.fail.noQuestions": "Aquí las tareas no hacen preguntas.",
   "routines.fail.noAnswer": "No ha respondido el sitio donde se ejecuta la tarea.",
   "routines.fail.offline": "El servicio de Dynwork no está en marcha.",
   "routines.fail.otherComputers": "Este equipo no puede ejecutar tareas de otros equipos.",

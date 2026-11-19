@@ -157,6 +157,18 @@ export function implementation(
         backend.move ? backend.move(input.id) : fail("unsupported", "Tasks here run in one place."),
       ),
     cancel: (input) => changing(input.backend, (backend) => backend.cancel(input.run)),
+    reply: (input) =>
+      changing(input.backend, async (backend) =>
+        backend.reply
+          ? backend.reply({ run: input.run, text: input.text })
+          : fail("unsupported", "Tasks here continue in their own conversation."),
+      ),
+    answerQuestion: (input) =>
+      changing(input.backend, async (backend) =>
+        backend.answerQuestion
+          ? backend.answerQuestion({ run: input.run, question: input.question, choice: input.choice })
+          : fail("unsupported", "Tasks here do not ask questions."),
+      ),
     runs: (input) => on(input.backend, (backend) => backend.runs({ routine: input.routine, cursor: input.cursor })),
     transcript: (input) => on(input.backend, (backend) => backend.transcript(input.run)),
     viewed: async (input) => {
