@@ -366,6 +366,9 @@ export const DriveAccess = Schema.Struct({
 })
 export type DriveAccess = typeof DriveAccess.Type
 
+// A grant the instance made or changed (`POST /documents/{id}/grants`): its id is what revoking it takes
+export const DriveGrantMade = Schema.Struct({ id: Schema.String, subject_kind: Schema.String, subject_value: Schema.String })
+
 const CapSource = Schema.Struct({ kind: Schema.String, policy: Schema.optional(Schema.String) })
 const CapReading = Schema.Struct({
   agent_cap: Schema.String,

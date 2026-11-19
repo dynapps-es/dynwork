@@ -5,18 +5,23 @@ import { IconButton } from "@opencode/ui/icon-button"
 import { Popover } from "@opencode/ui/popover"
 import { TextInput } from "@opencode/ui/text-input"
 import { createResource, createSignal, For, Show } from "solid-js"
-import { isFailure, type Document } from "../../drive/contract"
-import { sharing } from "./model"
-import { Avatar, capText, Level, levelText, openGovernance, Tag, useNames } from "./parts"
+import type { DriveClient } from "../../drive/client"
+import { isFailure, type Access, type Document, type Failure } from "../../drive/contract"
+import { afterShare, madeByAgent, sharing } from "./model"
+import { Avatar, capText, failureText, Level, levelText, openGovernance, Tag, useNames } from "./parts"
 import { drive, governance } from "./store"
 
 // The Share popover of a document, under its Share button: beside a chat and in the Drive's own view. It reads who has
-// access when it opens. What the user may change is the instance's to say (`sharing`): on 0.83 every change goes to
-// Governance, so the controls are there, shut, with the reason and the way there. Loaded on the client only, as the
+// access when it opens. What the user may change here is the instance's to say (`sharing`): a document DynWork's agent
+// made, where the Dynapps extension (from 0.85) lets an attended agent share; every other change goes to Governance, so
+// its controls are there, shut, with the reason and the way there. Loaded on the client only, as the
 // Drive's menus are (`menus.tsx`): Kobalte's popover runs browser-only code when it loads.
 
 /** The levels a grant can have; `own` is the owner's alone. */
 const levels = ["view", "comment", "edit", "share"]
+
+/** The level select's last choice, on a document whose sharing is live: takes the grant away. */
+const remove = "remove"
 
 /** The Share button and its popover. `label` shows the button's name beside its icon. */
 export default function SharePopover(props: { doc: Document; label?: boolean }) {
@@ -44,28 +49,71 @@ export default function SharePopover(props: { doc: Document; label?: boolean }) 
   )
 }
 
-/** Invite, the people with access and the agents, the reason nothing changes here, and Copy link. */
+/**
+ * Invite, the people with access and the agents, Copy link and Open in Governance. On a document DynWork's agent made,
+ * invite, a level and remove are live (`sharing`), each the user's own act; elsewhere they are shut and say why. What
+ * the instance refuses shows beside the list, which stays as it was (`afterShare`).
+ */
 function ShareBody(props: { doc: Document }) {
   const ctx = usePlugin()
   const names = useNames()
   const [read] = createResource(
     () => drive.client(),
     async (client) => {
-      const [access, cap] = await Promise.all([
+      const [access, cap, revisions] = await Promise.all([
         client.access({ id: props.doc.id }),
         client.agentCap({ kind: "document", id: props.doc.id }),
+        client.revisions({ id: props.doc.id }),
       ])
-      return { access: isFailure(access) ? undefined : access, cap: isFailure(cap) ? undefined : cap }
+      return {
+        access: isFailure(access) ? undefined : access,
+        cap: isFailure(cap) ? undefined : cap,
+        made: !isFailure(revisions) && madeByAgent(props.doc, revisions),
+      }
     },
   )
-  const access = () => read()?.access?.access ?? props.doc.access
-  const offer = () => sharing({ access: access(), link: governance(props.doc.id) })
+  // Who has access as the instance last answered: what it read, then each change it took.
+  const [shown, setShown] = createSignal<Access>()
+  const [refusal, setRefusal] = createSignal<Failure>()
+  const [busy, setBusy] = createSignal(false)
+  const [query, setQuery] = createSignal("")
+  const list = () => shown() ?? read()?.access
+  const access = () => list()?.access ?? props.doc.access
+  const offer = () =>
+    sharing({ access: access(), link: governance(props.doc.id), made: read()?.made, cap: read()?.cap?.cap })
+  const live = () => offer().change === "live" && !busy()
   const reason = () =>
-    offer().change === "governance"
-      ? ctx.t("drive.share.person")
-      : ctx.t("drive.share.level", { level: levelText(ctx.t, access() ?? "") })
+    offer().change === "level"
+      ? ctx.t("drive.share.level", { level: levelText(ctx.t, access() ?? "") })
+      : offer().change === "live"
+        ? ctx.t("drive.share.agent")
+        : ctx.t("drive.share.person")
+  // People for the invite, as the user types: the instance's directory by name or email.
+  const [found] = createResource(
+    () => (offer().change === "live" && query().trim().length >= 2 ? query().trim() : undefined),
+    async (text) => {
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      if (text !== query().trim()) return []
+      const answer = await drive.client()?.findPeople({ query: text, limit: 6 })
+      return !answer || isFailure(answer) ? [] : answer
+    },
+  )
+  const change = async (call: (client: DriveClient.Client) => Promise<Access | Failure>) => {
+    const client = drive.client()
+    const now = list()
+    if (!client || !now) return
+    setBusy(true)
+    const after = afterShare(now, await call(client))
+    setBusy(false)
+    setShown(after.access)
+    setRefusal(after.refusal)
+  }
+  const invite = (user: string) => {
+    setQuery("")
+    void change((client) => client.share({ id: props.doc.id, kind: "user", value: user, level: "view" }))
+  }
   const owner = () => {
-    const id = read()?.access?.owner
+    const id = list()?.owner
     return props.doc.mine ? ctx.t("drive.you") : ((id && drive.nameOf(id)) ?? names.owner(props.doc))
   }
   const copy = async () => {
@@ -76,15 +124,48 @@ function ShareBody(props: { doc: Document }) {
   }
   return (
     <div data-slot="drive-share">
-      <ctx.ui.Tooltip value={reason()} placement="bottom">
+      <Show
+        when={offer().change === "live"}
+        fallback={
+          <ctx.ui.Tooltip value={reason()} placement="bottom">
+            <TextInput
+              disabled
+              appearance="base"
+              leadingIcon={<Icon name="plus" size="small" />}
+              placeholder={ctx.t("drive.share.invite")}
+              aria-label={ctx.t("drive.share.invite")}
+            />
+          </ctx.ui.Tooltip>
+        }
+      >
         <TextInput
-          disabled
           appearance="base"
           leadingIcon={<Icon name="plus" size="small" />}
           placeholder={ctx.t("drive.share.invite")}
           aria-label={ctx.t("drive.share.invite")}
+          value={query()}
+          disabled={busy()}
+          onInput={(event) => setQuery(event.currentTarget.value)}
         />
-      </ctx.ui.Tooltip>
+        <Show when={query().trim().length >= 2}>
+          <div data-slot="drive-share-found">
+            <For
+              each={found() ?? []}
+              fallback={<p data-slot="drive-note">{ctx.t(found.loading ? "drive.loading" : "drive.share.nobody")}</p>}
+            >
+              {(person) => (
+                <button type="button" data-slot="drive-person" onClick={() => invite(person.id)}>
+                  <Avatar name={person.name} size="small" />
+                  <span data-slot="drive-person-name">
+                    {person.name}
+                    <Show when={person.email}>{(email) => <span data-slot="drive-faint">{email()}</span>}</Show>
+                  </span>
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
+      </Show>
       <div data-slot="drive-share-title">{ctx.t("drive.share.people")}</div>
       <Show when={!read.loading} fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
         <div data-slot="drive-share-people">
@@ -93,7 +174,7 @@ function ShareBody(props: { doc: Document }) {
             <div data-slot="drive-person-name">{owner()}</div>
             <Tag>{ctx.t("drive.level.own")}</Tag>
           </div>
-          <For each={read()?.access?.grants ?? []}>
+          <For each={list()?.grants ?? []}>
             {(grant) => (
               <div data-slot="drive-person">
                 <Avatar name={grant.name ?? grant.value} size="small" />
@@ -106,20 +187,29 @@ function ShareBody(props: { doc: Document }) {
                 <ctx.ui.Tooltip value={reason()} placement="left">
                   <ctx.ui.Select
                     label={ctx.t("drive.share.levelOf", { name: grant.name ?? grant.value })}
-                    options={(levels.includes(grant.level) ? levels : [...levels, grant.level]).map((level) => ({
-                      value: level,
-                      label: levelText(ctx.t, level),
-                    }))}
+                    options={[
+                      ...(levels.includes(grant.level) ? levels : [...levels, grant.level]).map((level) => ({
+                        value: level,
+                        label: levelText(ctx.t, level),
+                      })),
+                      ...(offer().change === "live" ? [{ value: remove, label: ctx.t("drive.share.remove") }] : []),
+                    ]}
                     value={grant.level}
-                    onChange={() => {}}
-                    disabled
+                    onChange={(level) =>
+                      void change((client) =>
+                        level === remove
+                          ? client.unshare({ id: props.doc.id, grant: grant.id })
+                          : client.share({ id: props.doc.id, kind: grant.subject, value: grant.value, level }),
+                      )
+                    }
+                    disabled={!live()}
                   />
                 </ctx.ui.Tooltip>
               </div>
             )}
           </For>
           {/* What a folder grants is changed on the folder: shown, never changed here. */}
-          <For each={read()?.access?.inherited ?? []}>
+          <For each={list()?.inherited ?? []}>
             {(grant) => (
               <div data-slot="drive-person" data-inherited="">
                 <Avatar name={grant.name ?? grant.value} size="small" />
@@ -135,6 +225,7 @@ function ShareBody(props: { doc: Document }) {
               </div>
             )}
           </For>
+          {/* The agents' cap is the owner's to set, in Governance: the instance keeps `own` from agents. */}
           <Show when={read()?.cap}>
             {(cap) => (
               <div data-slot="drive-person">
@@ -153,7 +244,13 @@ function ShareBody(props: { doc: Document }) {
           </Show>
         </div>
       </Show>
-      <p data-slot="drive-note">{reason()}</p>
+      <Show when={refusal()} fallback={<p data-slot="drive-note">{reason()}</p>}>
+        {(failure) => (
+          <p data-slot="drive-note" data-tone="warning">
+            {failureText(ctx, failure())}
+          </p>
+        )}
+      </Show>
       <div data-slot="drive-share-foot">
         <Button variant="ghost" size="small" icon="copy" disabled={!offer().copy} onClick={() => void copy()}>
           {ctx.t("drive.share.copy")}

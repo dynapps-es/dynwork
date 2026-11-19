@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { fail, type Backend } from "./backend"
 import {
   isFailure,
+  type Access,
   type Comment,
   type Document,
   type Failure,
@@ -30,6 +31,11 @@ export interface Fake extends Backend {
   down(failure: Failure | undefined): void
   /** Caps agents at `suggest`: a write that does not propose answers `suggest`. */
   suggestOnly(on: boolean): void
+  /**
+   * Lets the attended agent share the documents it made, as the Dynapps extension does from 0.85; off (the start), a
+   * share or a revocation answers `person`, as 0.83 does. Every document of the fake is the agent's.
+   */
+  agentShare(on: boolean): void
   /** Holds bytes as the instance holds what the agent's `documents_upload` sent, and answers the `blob_ref` to import. */
   stage(bytes: Uint8Array, mime: string): string
   /** Says to every open `stream` that someone was mentioned, as the instance does for a comment that mentions. */
@@ -61,7 +67,18 @@ export function make(options: Options = {}): Fake {
   const now = options.now ?? Date.now
   const folders = new Map<string, Folder>()
   const entries = new Map<string, Entry>()
-  const switches: { down?: Failure; suggestOnly: boolean } = { suggestOnly: false }
+  const switches: { down?: Failure; suggestOnly: boolean; agentShare: boolean } = {
+    suggestOnly: false,
+    agentShare: false,
+  }
+  // The grants of each document, by document id.
+  const grants = new Map<string, Access["grants"][number][]>()
+  const shareable = (id: string) => {
+    const entry = found(id)
+    if (!("document" in entry)) return entry
+    if (!switches.agentShare) return fail("person", "Governance keeps this to a person: do it in Governance.")
+    return undefined
+  }
   const calls: Record<string, number> = {}
   const blobs = new Map<string, { bytes: Uint8Array; mime: string }>()
   const contexts = new Map<string, string>()
@@ -99,6 +116,11 @@ export function make(options: Options = {}): Fake {
     return revision
   }
   const found = (id: string) => entries.get(id) ?? fail("not-found", "It is not in the Drive.")
+  const accessOf = (id: string): Access | Failure => {
+    const entry = found(id)
+    if (!("document" in entry)) return entry
+    return { owner: entry.document.owner, access: "own", grants: [...(grants.get(id) ?? [])], inherited: [] }
+  }
   const nodes = (entry: Entry) =>
     new TextDecoder()
       .decode(entry.bytes)
@@ -253,10 +275,28 @@ export function make(options: Options = {}): Fake {
       const entry = found(id)
       return "document" in entry ? [...entry.comments] : entry
     }),
-    access: method("access", (id) => {
-      const entry = found(id)
-      if (!("document" in entry)) return entry
-      return { owner: entry.document.owner, access: "own", grants: [], inherited: [] }
+    access: method("access", (id) => accessOf(id)),
+    share: method("share", (id: string, input: { kind: string; value: string; level: string }) => {
+      const refused = shareable(id)
+      if (refused) return refused
+      const name = input.kind === "user" ? options.people?.[input.value] : input.value
+      if (name === undefined) return fail("invalid", "No such person.")
+      const list = grants.get(id) ?? []
+      const kept = list.find((grant) => grant.subject === input.kind && grant.value === input.value)
+      const made = { id: kept?.id ?? randomUUID(), subject: input.kind, value: input.value, name, level: input.level }
+      grants.set(id, [...list.filter((grant) => grant !== kept), made])
+      return accessOf(id)
+    }),
+    unshare: method("unshare", (id: string, grant: string) => {
+      const refused = shareable(id)
+      if (refused) return refused
+      const list = grants.get(id) ?? []
+      if (!list.some((item) => item.id === grant)) return fail("not-found", "No such grant.")
+      grants.set(
+        id,
+        list.filter((item) => item.id !== grant),
+      )
+      return accessOf(id)
     }),
     agentCap: method("agentCap", (target) => {
       const known = target.kind === "document" ? entries.has(target.id) : folders.has(target.id)
@@ -440,6 +480,9 @@ export function make(options: Options = {}): Fake {
     },
     suggestOnly: (on) => {
       switches.suggestOnly = on
+    },
+    agentShare: (on) => {
+      switches.agentShare = on
     },
     stage: (bytes, mime) => {
       const ref = createHash("sha256").update(bytes).digest("hex")

@@ -238,6 +238,18 @@ documents_share ──execute.before──► plugin: confirm ──event──�
   ("Dynwork could not ask the user to confirm this share…"). It fails closed: never shared unseen, never left waiting
   for nobody.
 
+## Sharing from the window (phase 17)
+
+The Share popover (`views/drive/share-popover.tsx`) changes who has access with the window's own Ipc calls, `share`
+(an upsert: `POST /documents/{id}/grants`, kind, value, level) and `unshare` (`DELETE …/grants?grant_id=`), each
+answering who has access then; `findPeople` searches the directory to invite (the `documents` MCP's
+`documents_people`). They are the user's acts, not the agent's: no card, no plugin RPC. The instance decides each with
+DynWork's credential, an attended agent's: the Dynapps extension lets it share a document that agent created from 0.85
+(`created_by_agent`, Direct channel, cap `edit`); anything else, and every share on 0.83, is `person`. The popover
+offers them live only where that should hold (`madeByAgent`, `sharing`) and shows a refusal beside the list it keeps.
+`created_by_agent` is not in any answer of the instance, so another agent of the user's writing through the API looks
+the same, and is refused.
+
 ## The viewer's frames (phase 16)
 
 The viewer shows an HTML page (and the Drive's previews) in a sandboxed `srcdoc` frame without `allow-same-origin`,

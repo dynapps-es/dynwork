@@ -182,6 +182,8 @@ export const Comment = Schema.Struct({
 export type Comment = typeof Comment.Type
 
 const Grant = Schema.Struct({
+  /** What revoking it takes. */
+  id: Schema.String,
   subject: Schema.String,
   value: Schema.String,
   name: Schema.optional(Schema.String),
@@ -190,7 +192,10 @@ const Grant = Schema.Struct({
   from: Schema.optional(Schema.Struct({ folder: Schema.String, name: Schema.String })),
 })
 
-/** Who can see a document. Granting is the person's: DynWork reads it and sends the user to Governance to change it. */
+/**
+ * Who can see a document. Changing it is the person's, except on a document DynWork's own agent made, where an
+ * instance whose agent policy allows it (the Dynapps extension from 0.85) lets the attended agent share (`share`).
+ */
 export const Access = Schema.Struct({
   owner: Schema.String,
   access: Schema.String,
@@ -411,6 +416,25 @@ export const Drive = Ipc.define({
      * names people by id (`peopleByRest`); an id it does not know is left out.
      */
     people: { input: Schema.Struct({ ids: Schema.Array(Schema.String) }), output: Outcome(Schema.Array(Person)) },
+    /**
+     * The people whose name or email starts with `query`, to invite: the `documents` MCP server's `documents_people`
+     * (0.83 matches no id).
+     */
+    findPeople: {
+      input: Schema.Struct({ query: Schema.String, limit: Schema.optional(Schema.Number) }),
+      output: Outcome(Schema.Array(Person)),
+    },
+    /**
+     * Gives a subject (`kind` `user` and a user id, or a role) a level on a document, or changes the level it has, as the
+     * user's own act in the window; answers who has access then. The instance decides: `person` when its agent policy
+     * does not let DynWork share the document.
+     */
+    share: {
+      input: Schema.Struct({ ...OnDocument, kind: Schema.String, value: Schema.String, level: Schema.String }),
+      output: Outcome(Access),
+    },
+    /** Takes one grant of a document away, by its id; answers who has access then. `person` as for `share`. */
+    unshare: { input: Schema.Struct({ ...OnDocument, grant: Schema.String }), output: Outcome(Access) },
     /** There is no reopen: the instance has no route for it (G12). */
     resolve: { input: Schema.Struct({ ...OnDocument, comment: Schema.String }), output: Outcome(Comment) },
     /**

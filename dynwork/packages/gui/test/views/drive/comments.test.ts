@@ -416,12 +416,19 @@ describe("comments in the store", () => {
           return {
             ...answer,
             grants: [
-              { subject: "user", value: "u-ben", name: "Ben", level: "comment" },
-              { subject: "role", value: "sales", name: "Sales", level: "view" },
+              { id: "g-ben", subject: "user", value: "u-ben", name: "Ben", level: "comment" },
+              { id: "g-sales", subject: "role", value: "sales", name: "Sales", level: "view" },
             ],
             inherited: [
-              { subject: "user", value: "u-eva", name: "Eva", level: "edit", from: { folder: "f", name: "Team" } },
-              { subject: "user", value: "u-no-name", level: "view" },
+              {
+                id: "g-eva",
+                subject: "user",
+                value: "u-eva",
+                name: "Eva",
+                level: "edit",
+                from: { folder: "f", name: "Team" },
+              },
+              { id: "g-no-name", subject: "user", value: "u-no-name", level: "view" },
             ],
           }
         },

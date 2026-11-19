@@ -8,6 +8,8 @@ import {
   known,
   mimeOf,
   pathOf,
+  afterShare,
+  madeByAgent,
   sharing,
   size,
   visibleDocs,
@@ -223,22 +225,67 @@ describe("the comments' bubbles beside a document", () => {
 describe("what the Share popover offers", () => {
   const link = "https://governance.example/drive/d1"
 
-  test("who may share a document is sent to Governance to do it: nothing changes from here", () => {
-    expect(sharing({ access: "own", link })).toEqual({ change: "governance", copy: true, governance: true })
-    expect(sharing({ access: "share", link })).toEqual({ change: "governance", copy: true, governance: true })
+  test("live on a document DynWork's agent made, for whom may share it, under the agents' edit cap", () => {
+    expect(sharing({ access: "own", link, made: true, cap: "edit" })).toEqual({
+      change: "live",
+      copy: true,
+      governance: true,
+    })
+    expect(sharing({ access: "share", link, made: true, cap: "edit" }).change).toBe("live")
   })
 
-  test("who may not share it is told so, with no way to Governance for it", () => {
-    expect(["edit", "comment", "view"].map((access) => sharing({ access, link }))).toEqual(
-      Array(3).fill({ change: "level", copy: true, governance: false }),
-    )
+  test("shut and sent to Governance on any other document the user may share", () => {
+    // Not the agent's, a lower agents' cap, or nothing read about either.
+    const shut = [
+      sharing({ access: "own", link, made: false, cap: "edit" }),
+      sharing({ access: "own", link, made: true, cap: "suggest" }),
+      sharing({ access: "own", link }),
+      sharing({ access: undefined, link, made: true, cap: "edit" }),
+    ]
+    expect(shut).toEqual(Array(4).fill({ change: "governance", copy: true, governance: true }))
   })
 
-  test("an access not read is taken as one that may share", () => {
-    expect(sharing({ access: undefined, link })).toEqual({ change: "governance", copy: true, governance: true })
+  test("who may not share it is told so, with no way to Governance for it, the agent's or not", () => {
+    expect(
+      ["edit", "comment", "view"].flatMap((access) => [
+        sharing({ access, link }),
+        sharing({ access, link, made: true, cap: "edit" }),
+      ]),
+    ).toEqual(Array(6).fill({ change: "level", copy: true, governance: false }))
   })
 
   test("without the document's page in Governance there is no link to copy or open", () => {
     expect(sharing({ access: "own", link: undefined })).toEqual({ change: "governance", copy: false, governance: false })
+  })
+})
+
+describe("which documents DynWork's agent made", () => {
+  const head = { actor: "human", origin: "web_session" }
+  test("the user's document whose first revision an agent wrote through the API or the documents MCP", () => {
+    expect(madeByAgent({ mine: true }, [head, { actor: "agent", origin: "api" }])).toBe(true)
+    expect(madeByAgent({ mine: true }, [{ actor: "agent", origin: "mcp_execution" }])).toBe(true)
+  })
+
+  test("not one a person started, the bridge synced, someone else owns, or with no revisions read", () => {
+    expect(madeByAgent({ mine: true }, [{ actor: "agent", origin: "api" }, head])).toBe(false)
+    expect(madeByAgent({ mine: true }, [{ actor: "agent", origin: "bridge_device" }])).toBe(false)
+    expect(madeByAgent({ mine: false }, [{ actor: "agent", origin: "api" }])).toBe(false)
+    expect(madeByAgent({ mine: true }, [])).toBe(false)
+  })
+})
+
+describe("who has access after a change asked from the popover", () => {
+  const before = { owner: "u-1", access: "own", grants: [], inherited: [] }
+  test("the instance's answer replaces the list", () => {
+    const after = {
+      ...before,
+      grants: [{ id: "g1", subject: "user", value: "u-2", name: "Ana", level: "view" }],
+    }
+    expect(afterShare(before, after)).toEqual({ access: after, refusal: undefined })
+  })
+
+  test("a refusal keeps the list as it was, and says why", () => {
+    const refused = { code: "person" as const, message: "Governance keeps this to a person.", retryable: false }
+    expect(afterShare(before, refused)).toEqual({ access: before, refusal: refused })
   })
 })

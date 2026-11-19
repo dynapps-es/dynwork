@@ -1236,6 +1236,34 @@
   font-weight: 550;
 }
 
+/* The people an invite finds, under the field: each a row to pick. */
+[data-slot="drive-share-found"] {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow: auto;
+
+  button[data-slot="drive-person"] {
+    width: 100%;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--v2-overlay-simple-overlay-hover);
+    }
+
+    [data-slot="drive-faint"] {
+      display: block;
+    }
+  }
+}
+
 [data-slot="drive-share-people"] {
   max-height: min(50vh, 300px);
   overflow: auto;

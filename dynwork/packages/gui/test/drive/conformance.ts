@@ -27,6 +27,10 @@ export interface Subject {
   suggestOnly(on: boolean): void
   /** Holds bytes where the instance holds what the agent's `documents_upload` sent, and answers the `blob_ref`. */
   stage(bytes: Uint8Array, mime: string): string
+  /** Lets the attended agent share what it made (the Dynapps extension from 0.85), or refuses it as 0.83 does. */
+  agentShare(on: boolean): void
+  /** A person of the instance, by user id, to share with. */
+  readonly invitee: string
 }
 
 const text = (value: string) => new TextEncoder().encode(value)
@@ -389,6 +393,35 @@ export function conformance(name: string, make: () => Subject) {
       const cap = crossing(AgentCap, await ok(backend.agentCap({ kind: "document", id: created.document.id })))
       expect(["none", "read", "suggest", "edit"]).toContain(cap.cap)
       expect(["none", "read", "suggest", "edit"]).toContain(cap.unattended)
+    })
+
+    test("sharing what the agent made: a grant, its level changed in place, then taken away", async () => {
+      const subject = make()
+      const { backend } = subject
+      subject.agentShare(true)
+      const created = await ok(backend.upload({ name: "team.md", bytes: text("# Team"), mime: "text/markdown" }))
+      const id = created.document.id
+      const granted = crossing(Access, await ok(backend.share(id, { kind: "user", value: subject.invitee, level: "view" })))
+      expect(granted.grants).toMatchObject([{ subject: "user", value: subject.invitee, level: "view" }])
+      const grant = granted.grants[0]?.id ?? ""
+      const changed = await ok(backend.share(id, { kind: "user", value: subject.invitee, level: "edit" }))
+      expect(changed.grants).toMatchObject([{ id: grant, value: subject.invitee, level: "edit" }])
+      const removed = await ok(backend.unshare(id, grant))
+      expect(removed.grants).toEqual([])
+      subject.agentShare(false)
+    })
+
+    test("where the instance keeps sharing to a person, a share and a revocation are refused and change nothing", async () => {
+      const subject = make()
+      const { backend } = subject
+      subject.agentShare(true)
+      const created = await ok(backend.upload({ name: "kept.md", bytes: text("# Kept"), mime: "text/markdown" }))
+      const id = created.document.id
+      const before = await ok(backend.share(id, { kind: "user", value: subject.invitee, level: "comment" }))
+      subject.agentShare(false)
+      expectFailure(await backend.share(id, { kind: "user", value: subject.invitee, level: "edit" }), "person")
+      expectFailure(await backend.unshare(id, before.grants[0]?.id ?? ""), "person")
+      expect((await ok(backend.access(id))).grants).toEqual(before.grants)
     })
 
     test("an unknown document is not-found, as data, for every read", async () => {

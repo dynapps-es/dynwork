@@ -12,6 +12,7 @@ import {
   DriveDetail,
   DriveErrorBody,
   DriveFolder,
+  DriveGrantMade,
   DriveLanded,
   DriveListing,
   DriveOutline,
@@ -281,6 +282,47 @@ export const access = Effect.fn("SpDrive.access")(function* (baseUrl: string, jw
     endpoint: "GET /api/v1/documents/{id}/access",
     baseUrl,
     jwt,
+    limit: 1024 * 1024,
+  })
+})
+
+/**
+ * Gives `value` (a user id for kind `user`) `level` on a document, or changes the level they have: the instance keeps
+ * one grant per subject (an upsert). DynWork's credential acts as an attended agent: the instance refuses it
+ * (`AgentRefused`, `person`) unless the agent policy lets an attended agent share the document, as the Dynapps extension
+ * does from 0.85 for a document that agent created. Answers the grant's id.
+ */
+export const share = Effect.fn("SpDrive.share")(function* (
+  baseUrl: string,
+  jwt: string,
+  id: string,
+  grant: { readonly kind: string; readonly value: string; readonly level: string },
+) {
+  return (yield* json(
+    DriveGrantMade,
+    {
+      method: "POST",
+      path: `${documents}/${encodeURIComponent(id)}/grants`,
+      endpoint: "POST /api/v1/documents/{id}/grants",
+      baseUrl,
+      jwt,
+      body: { subject_kind: grant.kind, subject_value: grant.value, level: grant.level },
+      limit: 1024 * 1024,
+    },
+    [201],
+  )).id
+})
+
+/** Takes one grant of a document away, by its id; refused to DynWork as `share` is. */
+export const revoke = Effect.fn("SpDrive.revoke")(function* (baseUrl: string, jwt: string, id: string, grant: string) {
+  yield* send({
+    method: "DELETE",
+    path: `${documents}/${encodeURIComponent(id)}/grants`,
+    query: new URLSearchParams({ grant_id: grant }),
+    endpoint: "DELETE /api/v1/documents/{id}/grants",
+    baseUrl,
+    jwt,
+    expect: [204],
     limit: 1024 * 1024,
   })
 })
@@ -824,7 +866,7 @@ function context(contextId: string | undefined) {
 }
 
 type Request = {
-  readonly method: "GET" | "POST" | "PUT"
+  readonly method: "GET" | "POST" | "PUT" | "DELETE"
   readonly path: string
   readonly query?: URLSearchParams
   // Method and path template only, never ids, a query or a credential

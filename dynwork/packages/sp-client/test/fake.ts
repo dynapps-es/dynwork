@@ -59,6 +59,11 @@ export function startDrive() {
     csp: "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; form-action 'none'; frame-ancestors 'self'",
     // Every write is refused as an agent capped at `suggest` (what an unattended token gets), unless it proposes
     suggestOnly: false,
+    // The grants of each document, by document id
+    grants: new Map<string, Array<{ id: string; kind: string; value: string; name: string; level: string }>>(),
+    // The Dynapps extension 0.85 lets an attended agent share what it created (every document here is the agent's);
+    // before it, every share and revocation of the agent is refused (0.83)
+    agentShare: false,
     // Size of each upload part the instance asks for
     partSize: 8 * 1024 * 1024,
     // The conversations registered with `POST /api/v1/core/contexts`: name by `context_id`
@@ -631,7 +636,15 @@ export function startFake() {
           document_id: entry.id,
           owner: user,
           my_access: "own",
-          grants: [],
+          grants: (drive.grants.get(entry.id) ?? []).map((grant) => ({
+            grant_id: grant.id,
+            subject_kind: grant.kind,
+            subject_value: grant.value,
+            display_name: grant.name,
+            level: grant.level,
+            granted_by: user,
+            granted_at: now(),
+          })),
           // 0.83 leaves out an empty `inherited`, as it does the history and the requests.
           agent_cap: {
             cap: "edit",
@@ -639,6 +652,52 @@ export function startFake() {
             reason: "the dynapps-document-classes agent policy caps agents at edit",
           },
         })
+      if ((route.startsWith("POST") || route.startsWith("DELETE")) && rest === "grants" && !drive.agentShare)
+        return refuse(
+          403,
+          "agent_forbidden",
+          "agents may not share documents, whatever their access; ask the user to do it themselves",
+        )
+      if (route.startsWith("POST") && rest === "grants") {
+        const input = json() as { subject_kind: string; subject_value: string; level: string }
+        const known = state.drive.people.get(input.subject_value)
+        if (input.subject_kind === "user" && !known)
+          return refuse(422, "unknown_subject", `no user ${input.subject_value}`)
+        const grants = drive.grants.get(entry.id) ?? []
+        const kept = grants.find((grant) => grant.kind === input.subject_kind && grant.value === input.subject_value)
+        const made = {
+          id: kept?.id ?? crypto.randomUUID(),
+          kind: input.subject_kind,
+          value: input.subject_value,
+          name: known?.name ?? input.subject_value,
+          level: input.level,
+        }
+        drive.grants.set(entry.id, [...grants.filter((grant) => grant !== kept), made])
+        return Response.json(
+          {
+            id: made.id,
+            document_id: entry.id,
+            subject_kind: made.kind,
+            subject_value: made.value,
+            display_name: made.name,
+            access_level: made.level,
+            granted_by: user,
+            valid_until: null,
+            created_at: now(),
+          },
+          { status: 201 },
+        )
+      }
+      if (route.startsWith("DELETE") && rest === "grants") {
+        const id = url.searchParams.get("grant_id")
+        const grants = drive.grants.get(entry.id) ?? []
+        if (!grants.some((grant) => grant.id === id)) return refuse(404, "not_found", "no such grant")
+        drive.grants.set(
+          entry.id,
+          grants.filter((grant) => grant.id !== id),
+        )
+        return new Response(null, { status: 204 })
+      }
       if (route.startsWith("GET") && rest === "grants")
         return refuse(
           403,

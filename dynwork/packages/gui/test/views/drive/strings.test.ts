@@ -39,6 +39,17 @@ describe("the Drive's strings", () => {
     expect(drift).toEqual([])
   })
 
+  test("every string the Share popover names is in every language", async () => {
+    const source = await Bun.file(new URL("../../../src/views/drive/share-popover.tsx", import.meta.url)).text()
+    const keys = [...new Set([...source.matchAll(/"(drive\.[\w.]+)"/g)].map((match) => match[1] ?? ""))]
+    expect(keys).toContain("drive.share.remove")
+    expect(
+      Object.entries(locales).flatMap(([locale, table]) =>
+        keys.filter((key) => !table[key]).map((key) => `${locale} ${key}`),
+      ),
+    ).toEqual([])
+  })
+
   test("every string the comments view names is in every language", async () => {
     const source = await Bun.file(new URL("../../../src/views/drive/comments.tsx", import.meta.url)).text()
     const keys = [...new Set([...source.matchAll(/"(drive\.[\w.]+)"/g)].map((match) => match[1]))]

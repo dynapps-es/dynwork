@@ -191,16 +191,26 @@ in-memory Drive for the tests.
   included); otherwise the comment anchors to the node. A cell range is offered only with `rangeComments`; a PDF takes
   no comment (D22). An author no grant names reads "Someone", unless the instance names people by id (`peopleByRest`).
 
-- **Share** (`share-popover.tsx`, the decision in `model.ts`, `sharing`): a popover under the Share button
-  (`@opencode/ui/popover`), the same beside a chat and in the Drive's bar, which replaces the drawer's Share tab. It
-  reads who has access when it opens: the document's title and a close, Invite by name or email, the people with access
-  (the owner; each grant with its level in a select; what a folder grants in grey, never changed here; the agents' cap,
-  attended and unattended), the reason nothing changes here, Copy link (the document's page in Governance) and Open in
-  Governance. The list scrolls inside the popover. On 0.83 the instance refuses DynWork's credential every change of
-  access (a share, a revocation, the agents' cap: hard rules no policy of the Dynapps extension opens, and the core
-  has no agent as a grant subject), so invite and the levels are shut, with a tooltip that says why: the user does it
-  in Governance when their access lets them share, and otherwise its owner can. 0.83 has no access for everyone and no
-  public link, so the popover has no General access section.
+- **Share** (`share-popover.tsx`, the decisions in `model.ts`: `madeByAgent`, `sharing`, `afterShare`): a popover
+  under the Share button (`@opencode/ui/popover`), the same beside a chat and in the Drive's bar, which replaces the
+  drawer's Share tab. It reads who has access, the agents' cap and the revisions when it opens: the document's title
+  and a close, Invite by name or email, the people with access (the owner; each grant with its level in a select;
+  what a folder grants in grey, never changed here; the agents' cap, attended and unattended, never changed here: it
+  needs `own`, which the instance keeps from agents), a note, Copy link (the document's page in Governance) and Open in
+  Governance. The list scrolls inside the popover; 0.83 has no access for everyone and no public link, so there is no
+  General access section.
+  - **Live on a document DynWork's agent made.** The Dynapps extension 0.85 lets an attended agent share a document
+    that agent created (`created_by_agent`, Direct channel, cap `edit`). The instance does not show
+    `created_by_agent`, so the popover takes a document of the user's whose first revision an agent wrote through the
+    API or the `documents` MCP (`madeByAgent`), with the user's access `own` or `share` (the instance takes nothing
+    less for a share) and the agents' cap `edit`.
+  - **What can be done there.** Invite (the directory by name or email, `findPeople`, at `view`), change a level and
+    remove (the select's last choice): each is the user's own act in the window (`dynwork.drive` `share`, `unshare`),
+    sent with DynWork's credential, never the agent's tool or its card.
+  - **When the instance refuses.** An older extension, or another agent of the user's that made the document, answers
+    `person`: the popover keeps the list as it was and says why beside it, with Open in Governance.
+  - **Every other document.** Invite and the levels are shut, with a tooltip that says why: the user does it in
+    Governance when their access lets them share, and otherwise its owner can.
 
 The menus and the Share popover load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does.
 
