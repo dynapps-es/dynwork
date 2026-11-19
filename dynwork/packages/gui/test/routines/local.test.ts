@@ -78,6 +78,22 @@ describe("the local backend's permissions field", () => {
 })
 
 describe("the local backend", () => {
+  test("two starts at once launch one run: the second answers conflict", async () => {
+    const { backend, service, time } = setup()
+    const routine = await ok(backend.create(prompt()))
+    const answers = await Promise.all([backend.start(routine.ref.id), backend.start(routine.ref.id)])
+    expect(answers.filter((answer) => !isFailure(answer))).toHaveLength(1)
+    expect(answers.filter((answer) => isFailure(answer))).toMatchObject([
+      { code: "conflict", message: "A run of this task is still going." },
+    ])
+    expect(backend.running()).toBe(1)
+    // Neither start left the routine marked: once the run ends, it starts again.
+    time.advance(5 * MINUTE)
+    service.finish()
+    await until(() => backend.running() === 0)
+    await ok(backend.start(routine.ref.id))
+  })
+
   test("start creates the anchor once, then a child session per run with the routine's fields", async () => {
     const { backend, service, time } = setup()
     const routine = await ok(

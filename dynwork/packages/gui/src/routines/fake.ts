@@ -198,7 +198,7 @@ export function make(options: Options): Fake {
       if (isFailure(routine)) return routine
       const overlap = routine.definition.options.overlap === "allow"
       if (!overlap && runs.some((run) => run.routine?.id === id && (run.state === "running" || run.state === "queued")))
-        return fail("conflict", "A run of this routine is still going.")
+        return fail("conflict", "A run of this task is still going.")
       const ref = { backend: options.id, id: nextId("run") }
       const run: Run = {
         ref,

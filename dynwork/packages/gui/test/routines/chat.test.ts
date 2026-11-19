@@ -92,9 +92,7 @@ describe("a proposal", () => {
     expect(await subject.names()).toEqual([...before, "Daily cluster check"])
     expect(subject.answers).toHaveLength(1)
     expect(subject.answers[0]).toMatchObject({ id: "call_1", error: false })
-    expect(subject.answers[0]?.text).toMatch(
-      /- local:\S+ · Daily cluster check · Demo MacBook · Every day at 08:00 \(Europe\/Madrid\)/,
-    )
+    expect(subject.answers[0]?.text).toMatch(/- local:\S+ · Daily cluster check · Demo MacBook · Every day at 08:00 \(Europe\/Madrid\)/)
   })
 
   test("Cancel creates nothing and tells the agent", async () => {
@@ -200,9 +198,7 @@ describe("the list", () => {
     expect(subject.answers[0]?.error).toBe(false)
     // Each line carries the id the other tools take, the permissions, the next run and the last run with its reason.
     const tests = lines.find((line) => line.includes("Nightly test run")) ?? ""
-    expect(tests).toStartWith(
-      "- local:tests · Nightly test run · Demo MacBook · Weekdays at 23:00 (Europe/Madrid) · active",
-    )
+    expect(tests).toStartWith("- local:tests · Nightly test run · Demo MacBook · Weekdays at 23:00 (Europe/Madrid) · active")
     expect(tests).toContain("permissions: Don't ask")
     expect(tests).toContain("next run: ")
     expect(tests).toMatch(/last run: (Failed|Done|Late|Missed|Blocked)/)
@@ -230,10 +226,7 @@ describe("an update", () => {
     expect((await subject.routine("tickets")).definition).toEqual(before.definition)
 
     expect(await subject.chat.decide("call_rename", true)).toBeUndefined()
-    expect((await subject.routine("tickets")).definition).toEqual({
-      ...before.definition,
-      name: "es-prod-01 health check",
-    })
+    expect((await subject.routine("tickets")).definition).toEqual({ ...before.definition, name: "es-prod-01 health check" })
     expect(subject.answers[0]).toMatchObject({ id: "call_rename", error: false })
     expect(subject.answers[0]?.text).toBe(
       'Changed "es-prod-01 health check" (local:tickets) on Demo MacBook:\n- Task: Weekly ticket summary → es-prod-01 health check',

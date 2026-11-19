@@ -111,7 +111,9 @@ describe("the detail's facts, the same layout for both kinds", () => {
       ["Recover missed runs", "If recent"],
       ["Within (hours)", "6"],
     ])
-    expect(grouped.permissions.map((fact) => [fact.label, fact.value])).toEqual([["Permissions", "Don't ask"]])
+    expect(grouped.permissions.map((fact) => [fact.label, fact.value])).toEqual([
+      ["Permissions", "Don't ask"],
+    ])
     expect(grouped.notifications.map((fact) => fact.value)).toEqual(["Only when something fails"])
     expect(grouped.options.map((fact) => [fact.label, fact.value])).toEqual([["Connectors", "all"]])
   })
@@ -152,11 +154,11 @@ describe("the detail's facts, the same layout for both kinds", () => {
 describe("a run waiting for a permission", () => {
   test("is a running run with the reason `permission`: its own words, in the warning tone, and nothing else is", () => {
     const asking = { state: "running", reason: "permission" } as const
-    expect([
-      waiting(asking),
-      waiting({ state: "running" }),
-      waiting({ state: "failed", reason: "permission" }),
-    ]).toEqual([true, false, false])
+    expect([waiting(asking), waiting({ state: "running" }), waiting({ state: "failed", reason: "permission" })]).toEqual([
+      true,
+      false,
+      false,
+    ])
     expect(t(stateKey(asking))).toBe("Waiting for your permission")
     expect(t(stateKey({ state: "running" }))).toBe("Running")
     expect([runTone("running", "permission"), runTone("running"), runTone("failed", "permission")]).toEqual([

@@ -57,9 +57,7 @@ export function RunViewer(props: { viewer: Viewer; model: AgentsModel }) {
       <div data-slot="agents-detail-chips">
         <Tag tone={runTone(run().state, run().reason)}>
           {ctx.t(stateKey(run()))}
-          <Show when={waiting(run()) ? undefined : run().reason}>
-            {(reason) => ` · ${reasonText(ctx.t, reason())}`}
-          </Show>
+          <Show when={waiting(run()) ? undefined : run().reason}>{(reason) => ` · ${reasonText(ctx.t, reason())}`}</Show>
         </Tag>
         <Show when={facts()}>{(text) => <span>{text()}</span>}</Show>
       </div>
