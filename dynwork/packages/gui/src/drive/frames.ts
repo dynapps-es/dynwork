@@ -56,17 +56,23 @@ export function guard(host: Host) {
   }
 }
 
-// What the viewer learns from its HTML frame (`watch.ts`): which heading the reader is at, for the index, and which
-// comment mark they clicked. The frame is sandboxed without DynWork's origin, so the app cannot read it, and the page
+// What the viewer learns from its HTML frame (`watch.ts`): which heading the reader is at, for the index, which comment
+// mark they clicked, and where each thread's first mark sits, for the comments' bubbles beside the frame. The frame is sandboxed without DynWork's origin, so the app cannot read it, and the page
 // may be an agent's, with scripts: nothing of DynWork is exposed to it. Main runs `observer` in an isolated world of the
 // frame, which the page's scripts can neither see nor reach, and it reports through a binding that exists only in that
-// world. The report is two ids at most, each checked by the viewer against the ones it gave the page.
+// world. The report is ids and numbers, each id checked by the viewer against the ones it gave the page.
 
 /** The isolated world main's observer runs in. */
 export const world = "dynwork-drive"
 
 /** The function main's observer reports through: it exists in `world` only. */
 export const binding = "dynworkDriveFrame"
+
+/** How many marks a report places at most: the first ones of the page. */
+export const maxMarks = 100
+
+/** How far from the visible area a report places a mark, in pixels either way: farther is as far. */
+export const farthest = 1_000_000
 
 /**
  * The heading a reader is at, out of the headings' tops from the top of the visible area: the last one whose top has
@@ -82,23 +88,36 @@ export function reading(tops: readonly number[], height: number) {
 
 /**
  * The observer, as the source main evaluates in `world` at the start of each document of a viewer frame. It reports
- * the id of the heading being read when it changes, and the comment of a mark the user clicked: only a trusted click,
- * so the page's scripts cannot click one for the user.
+ * the id of the heading being read when it changes, where the first mark of each thread sits from the top of the
+ * visible area (rounded pixels, `maxMarks` at most) when that changes, and the comment of a mark the user clicked: only
+ * a trusted click, so the page's scripts cannot click one for the user.
  */
 export const observer = `(() => {
   const send = globalThis[${JSON.stringify(binding)}]
   if (typeof send !== "function") return
   const reading = ${reading.toString()}
   const report = (kind, id) => send(JSON.stringify({ kind, id }))
-  const state = { last: undefined, frame: 0 }
+  const state = { last: undefined, marks: "[]", frame: 0 }
   const read = () => {
     state.frame = 0
     const headings = [...document.querySelectorAll("h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]")]
     const index = reading(headings.map((heading) => heading.getBoundingClientRect().top), innerHeight)
     const id = index < 0 ? undefined : headings[index].id
-    if (id === undefined || id === state.last) return
-    state.last = id
-    report("heading", id)
+    if (id !== undefined && id !== state.last) {
+      state.last = id
+      report("heading", id)
+    }
+    const items = [...document.querySelectorAll("mark[data-dynwork-comment][id]")]
+      .map((mark) => ({
+        id: mark.getAttribute("data-dynwork-comment"),
+        top: Math.max(-${farthest}, Math.min(${farthest}, Math.round(mark.getBoundingClientRect().top))),
+      }))
+      .filter((item) => item.id && item.id.length <= 256)
+      .slice(0, ${maxMarks})
+    const marks = JSON.stringify(items)
+    if (marks === state.marks) return
+    state.marks = marks
+    send(JSON.stringify({ kind: "marks", items }))
   }
   const later = () => {
     if (!state.frame) state.frame = requestAnimationFrame(read)

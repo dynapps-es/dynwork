@@ -109,6 +109,13 @@ export interface Backend {
    * `documents_people` (0.83: its description says "or id", but 0.83.0 does not match ids).
    */
   findPeople(query: string, limit?: number): Promise<readonly Person[] | Failure>
+  /**
+   * Gives a subject (`user` and a user id, or a role) `level` on a document, or changes the level it has (one grant per
+   * subject), and answers who has access then. `person` when the instance's agent policy does not let DynWork share it.
+   */
+  share(id: string, input: { kind: string; value: string; level: string }): Promise<Access | Failure>
+  /** Takes one grant away, by its id, and answers who has access then. `person` as for `share`. */
+  unshare(id: string, grant: string): Promise<Access | Failure>
   /** The documents written with `contextId`, newest first: only where the instance lists by conversation (P3). */
   byContext?(contextId: string): Promise<readonly Document[] | Failure>
   /**
@@ -201,6 +208,17 @@ export function remote(options: Remote): Backend {
       all,
     )
   }
+  // Who has access, read again after a share or a revocation so the window shows what the instance keeps.
+  const access = (id: string) =>
+    call(
+      (jwt) => SpDrive.access(url, jwt, id),
+      (read): Access => ({
+        owner: read.owner,
+        access: read.my_access,
+        grants: read.grants.map(grant),
+        inherited: (read.inherited ?? []).map(grant),
+      }),
+    )
   return {
     list: (query) =>
       call(
@@ -263,16 +281,7 @@ export function remote(options: Remote): Backend {
         (jwt) => SpDrive.comments(url, jwt, id),
         (list) => list.map(comment),
       ),
-    access: (id) =>
-      call(
-        (jwt) => SpDrive.access(url, jwt, id),
-        (access) => ({
-          owner: access.owner,
-          access: access.my_access,
-          grants: access.grants.map(grant),
-          inherited: access.inherited.map(grant),
-        }),
-      ),
+    access,
     agentCap: (target) =>
       call(
         (jwt) => SpDrive.agentCap(url, jwt, target),
@@ -377,6 +386,16 @@ export function remote(options: Remote): Backend {
         (jwt) => SpDrive.people(url, jwt, ids),
         (list) => list.flatMap(personOf),
       ),
+    share: (id, input) =>
+      call(
+        (jwt) => SpDrive.share(url, jwt, id, input),
+        () => undefined,
+      ).then((done) => done ?? access(id)),
+    unshare: (id, grant) =>
+      call(
+        (jwt) => SpDrive.revoke(url, jwt, id, grant),
+        () => undefined,
+      ).then((done) => done ?? access(id)),
     findPeople: (query, limit) =>
       call(
         (jwt) => SpDrive.lookupPeople(url, jwt, query, limit),
@@ -442,6 +461,7 @@ function proposal(wire: SpDriveProposal): Proposal {
 
 function grant(wire: SpDriveGrant) {
   return {
+    id: wire.grant_id,
     subject: wire.subject_kind,
     value: wire.subject_value,
     name: wire.display_name ?? undefined,

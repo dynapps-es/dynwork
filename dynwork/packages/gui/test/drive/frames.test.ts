@@ -191,6 +191,65 @@ describe("main's observer in a frame", () => {
     expect(frame.reported).toEqual([{ kind: "mark", id: "t1" }])
   })
 
+  test("reports where each thread's first mark sits when that changes, and nothing for a page without marks", () => {
+    const frame = observe(
+      `<p><mark data-dynwork-comment="t1" id="dynwork-comment-t1">El total</mark> sube</p>` +
+        `<p><mark data-dynwork-comment="t1">y sigue</mark></p>` +
+        `<p><mark data-dynwork-comment="t2" id="dynwork-comment-t2">Riesgos</mark></p>` +
+        // A mark with no thread is not one to place.
+        `<p><mark data-dynwork-comment="" id="dynwork-comment-">x</mark></p>`,
+    )
+    const tops = (values: number[]) =>
+      [...frame.document.querySelectorAll("mark[id]")].forEach((mark, index) =>
+        Object.assign(mark, { getBoundingClientRect: () => ({ top: values[index] ?? 0 }) }),
+      )
+    tops([120.4, 2_000_000, 50])
+    frame.flush()
+    expect(frame.reported).toEqual([
+      {
+        kind: "marks",
+        items: [
+          { id: "t1", top: 120 },
+          { id: "t2", top: DriveFrames.farthest },
+        ],
+      },
+    ])
+    // The page did not move: nothing more.
+    frame.world.dispatchEvent(new Event("scroll"))
+    frame.flush()
+    expect(frame.reported).toHaveLength(1)
+    tops([-30, 400, 50])
+    frame.world.dispatchEvent(new Event("scroll"))
+    frame.flush()
+    expect(frame.reported.at(-1)).toEqual({
+      kind: "marks",
+      items: [
+        { id: "t1", top: -30 },
+        { id: "t2", top: 400 },
+      ],
+    })
+
+    const plain = observe(`<h1 id="intro">Intro</h1><p>Sin comentarios</p>`)
+    plain.flush()
+    expect(plain.reported).toEqual([{ kind: "heading", id: "intro" }])
+  })
+
+  test("places the first marks of the page only, as many as main takes", () => {
+    const frame = observe(
+      Array.from(
+        { length: DriveFrames.maxMarks + 5 },
+        (_, index) => `<p><mark data-dynwork-comment="t${index}" id="dynwork-comment-t${index}">x</mark></p>`,
+      ).join(""),
+    )
+    frame.document
+      .querySelectorAll("mark")
+      .forEach((mark) => Object.assign(mark, { getBoundingClientRect: () => ({ top: 0 }) }))
+    frame.flush()
+    const report = frame.reported[0] as { items: Array<{ id: string }> }
+    expect(report.items).toHaveLength(DriveFrames.maxMarks)
+    expect(report.items[0]?.id).toBe("t0")
+  })
+
   test("does nothing in a world without main's binding", () => {
     const document = new DOMParser().parseFromString(`<h1 id="a">A</h1>`, "text/html")
     const listen = { calls: 0 }

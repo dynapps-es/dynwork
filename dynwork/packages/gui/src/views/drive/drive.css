@@ -1197,6 +1197,85 @@
   min-width: 0;
 }
 
+/* Who has access through a folder: shown, changed only on the folder. */
+[data-slot="drive-person"][data-inherited] {
+  color: var(--v2-text-text-faint);
+}
+
+/* The Share popover: invite, the people with access in a list that scrolls, the reason and Copy link. */
+[data-component="popover-content"].drive-share {
+  width: 360px;
+  max-width: calc(100vw - 24px);
+}
+
+[data-slot="drive-share"] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 18px;
+
+  [data-slot="drive-note"] {
+    margin: 0;
+  }
+
+  /* Invite takes the popover's width, inside the tooltip that says why it is shut. */
+  > [data-component="tooltip-v2-trigger"] {
+    display: flex;
+
+    > * {
+      flex: 1;
+    }
+  }
+}
+
+[data-slot="drive-share-title"] {
+  color: var(--v2-text-text-muted);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+/* The people an invite finds, under the field: each a row to pick. */
+[data-slot="drive-share-found"] {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow: auto;
+
+  button[data-slot="drive-person"] {
+    width: 100%;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--v2-overlay-simple-overlay-hover);
+    }
+
+    [data-slot="drive-faint"] {
+      display: block;
+    }
+  }
+}
+
+[data-slot="drive-share-people"] {
+  max-height: min(50vh, 300px);
+  overflow: auto;
+}
+
+[data-slot="drive-share-foot"] {
+  display: flex;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid var(--v2-border-border-muted);
+}
+
 [data-slot="drive-invite"] {
   display: flex;
   gap: 6px;
@@ -1230,10 +1309,21 @@
   }
 }
 
-/* Present: the document alone, full screen, on its reading surface, with Exit over it. */
-[data-slot="drive-canvas"]:fullscreen,
-[data-slot="drive-panel-content"]:fullscreen {
+/* Present: the document alone over the whole window, which main holds full screen, with Exit over it. It is a manual
+   popover meanwhile, in the top layer: the app's panels contain their content, which would hold a fixed element. */
+[data-slot="drive-canvas"][data-presenting],
+[data-slot="drive-panel-content"][data-presenting] {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
   background: var(--v2-background-bg-base);
+  color: inherit;
 }
 
 [data-slot="drive-present-exit"] {
@@ -1243,19 +1333,61 @@
   z-index: 2;
 }
 
-/* Show or hide the comments marked on the document, with how many threads are open. */
+/* Show or hide the comments marked on the document: one button, its icon and how many threads are open inside it. */
 [data-slot="drive-marks-toggle"] {
+  flex: none;
+  padding: 0 6px;
+}
+
+/* The document and, beside it, the column of its comments' bubbles. */
+[data-slot="drive-sheet"] {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+
+  > :first-child {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+[data-slot="drive-bubbles"] {
+  position: relative;
+  flex: none;
+  width: 44px;
+  overflow: hidden;
+  border-left: 1px solid var(--v2-border-border-muted);
+  background: var(--v2-background-bg-base);
+}
+
+[data-slot="drive-bubble"] {
+  position: absolute;
+  left: 6px;
   display: inline-flex;
   align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 0;
+  border-radius: 12px 12px 12px 3px;
+  background: var(--v2-background-bg-layer-02);
+  color: var(--v2-text-text-muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
 
-  [data-slot="drive-count"] {
-    padding: 0 5px;
-    border-radius: 8px;
-    background: var(--v2-background-bg-layer-02);
-    color: var(--v2-text-text-faint);
-    font-size: 10.5px;
-    line-height: 16px;
+  &:hover {
+    background: var(--v2-overlay-simple-overlay-hover);
   }
+
+  [data-slot="drive-avatar"] {
+    box-shadow: 0 0 0 1.5px var(--v2-background-bg-layer-02);
+  }
+}
+
+[data-slot="drive-bubble-more"] {
+  padding-right: 2px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* A thread or the sharing of a document beside a chat, in a dialog. */

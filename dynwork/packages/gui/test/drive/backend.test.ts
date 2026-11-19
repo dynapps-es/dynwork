@@ -24,9 +24,12 @@ function issued() {
   return jwt
 }
 
+const invitee = "u-invitee"
+instance.state.drive.people.set(invitee, { user_id: invitee, name: "Ana Ruiz", email: "ana@example.com" })
+
 conformance("fake", () => {
-  const backend = DriveFake.make({ user })
-  return { backend, user, suggestOnly: backend.suggestOnly, stage: backend.stage }
+  const backend = DriveFake.make({ user, people: { [invitee]: "Ana Ruiz" } })
+  return { backend, user, suggestOnly: backend.suggestOnly, stage: backend.stage, agentShare: backend.agentShare, invitee }
 })
 
 conformance("Governance, over sp-client", () => ({
@@ -41,6 +44,10 @@ conformance("Governance, over sp-client", () => ({
     instance.state.drive.blobs.set(ref, { bytes, mime })
     return ref
   },
+  agentShare: (on) => {
+    instance.state.drive.agentShare = on
+  },
+  invitee,
 }))
 
 describe("the Governance backend", () => {
@@ -161,9 +168,11 @@ describe("the Governance backend", () => {
     }
     const access = await ok(backend.access(created.document.id))
     instance.state.override = undefined
-    expect(access.grants).toEqual([{ subject: "user", value: "u-2", name: "Ben", level: "comment", from: undefined }])
+    expect(access.grants).toEqual([
+      { id: grant.grant_id, subject: "user", value: "u-2", name: "Ben", level: "comment", from: undefined },
+    ])
     expect(access.inherited).toEqual([
-      { subject: "user", value: "u-2", name: undefined, level: "comment", from: { folder: "f1", name: "Team" } },
+      { id: "g2", subject: "user", value: "u-2", name: undefined, level: "comment", from: { folder: "f1", name: "Team" } },
     ])
   })
 

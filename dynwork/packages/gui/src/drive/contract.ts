@@ -182,6 +182,8 @@ export const Comment = Schema.Struct({
 export type Comment = typeof Comment.Type
 
 const Grant = Schema.Struct({
+  /** What revoking it takes. */
+  id: Schema.String,
   subject: Schema.String,
   value: Schema.String,
   name: Schema.optional(Schema.String),
@@ -190,7 +192,10 @@ const Grant = Schema.Struct({
   from: Schema.optional(Schema.Struct({ folder: Schema.String, name: Schema.String })),
 })
 
-/** Who can see a document. Granting is the person's: DynWork reads it and sends the user to Governance to change it. */
+/**
+ * Who can see a document. Changing it is the person's, except on a document DynWork's own agent made, where an
+ * instance whose agent policy allows it (the Dynapps extension from 0.85) lets the attended agent share (`share`).
+ */
 export const Access = Schema.Struct({
   owner: Schema.String,
   access: Schema.String,
@@ -411,6 +416,25 @@ export const Drive = Ipc.define({
      * names people by id (`peopleByRest`); an id it does not know is left out.
      */
     people: { input: Schema.Struct({ ids: Schema.Array(Schema.String) }), output: Outcome(Schema.Array(Person)) },
+    /**
+     * The people whose name or email starts with `query`, to invite: the `documents` MCP server's `documents_people`
+     * (0.83 matches no id).
+     */
+    findPeople: {
+      input: Schema.Struct({ query: Schema.String, limit: Schema.optional(Schema.Number) }),
+      output: Outcome(Schema.Array(Person)),
+    },
+    /**
+     * Gives a subject (`kind` `user` and a user id, or a role) a level on a document, or changes the level it has, as the
+     * user's own act in the window; answers who has access then. The instance decides: `person` when its agent policy
+     * does not let DynWork share the document.
+     */
+    share: {
+      input: Schema.Struct({ ...OnDocument, kind: Schema.String, value: Schema.String, level: Schema.String }),
+      output: Outcome(Access),
+    },
+    /** Takes one grant of a document away, by its id; answers who has access then. `person` as for `share`. */
+    unshare: { input: Schema.Struct({ ...OnDocument, grant: Schema.String }), output: Outcome(Access) },
     /** There is no reopen: the instance has no route for it (G12). */
     resolve: { input: Schema.Struct({ ...OnDocument, comment: Schema.String }), output: Outcome(Comment) },
     /**
@@ -480,22 +504,35 @@ export const Shares = Ipc.define({
 })
 
 /**
- * What a viewer frame was seen doing (`frames.ts`): the heading the reader is at, or the comment mark they clicked, by
- * the id the viewer gave it in the page. `frame` is the frame's name. Nothing else ever comes out of a frame.
+ * What a viewer frame was seen doing (`frames.ts`), by the ids the viewer gave the page: the heading the reader is at,
+ * the comment mark they clicked, or where the first mark of each thread sits, in pixels from the top of the frame's
+ * visible area (`marks`), for the comments' bubbles beside it. `frame` is the frame's name. Nothing else ever comes out
+ * of a frame.
  */
-export const Seen = Schema.Struct({
-  frame: Schema.String,
-  kind: Schema.Literals(["heading", "mark"]),
-  id: Schema.String,
-})
+export const Seen = Schema.Union([
+  Schema.Struct({ frame: Schema.String, kind: Schema.Literals(["heading", "mark"]), id: Schema.String }),
+  Schema.Struct({
+    frame: Schema.String,
+    kind: Schema.Literal("marks"),
+    items: Schema.Array(Schema.Struct({ id: Schema.String, top: Schema.Number })),
+  }),
+])
 export type Seen = typeof Seen.Type
 
-/** The window's HTML frames, observed by main in an isolated world of each (`watch.ts`). */
+/**
+ * The window's document viewer: its HTML frames, observed by main in an isolated world of each (`watch.ts`), and Present,
+ * the window full screen for a document alone (`present.ts`).
+ */
 export const Frames = Ipc.define({
   id: "dynwork.drive.frames",
   methods: {
     /** Holds until the window aborts the call; while one is held, main reports what the frame named `frame` is at. */
     watch: { input: Schema.Struct({ frame: Schema.String }) },
+    /**
+     * Holds while the window presents a document: main takes the window full screen, and back when the window aborts
+     * the call. It returns early when the presentation ends in main: Escape, or the window leaving full screen.
+     */
+    present: {},
   },
   events: { seen: Seen },
 })

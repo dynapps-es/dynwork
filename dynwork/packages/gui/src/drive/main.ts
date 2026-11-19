@@ -9,6 +9,7 @@ import { Drive, Frames } from "./contract"
 import { DriveFrames } from "./frames"
 import { DriveIpc } from "./ipc"
 import { DriveMentions } from "./mentions"
+import { DrivePresent } from "./present"
 import { DriveShare } from "./share"
 import { DriveWatch } from "./watch"
 
@@ -17,8 +18,9 @@ export interface Options {
   capabilities?: DriveIpc.Options["capabilities"]
   timers?: DriveIpc.Timers
   /**
-   * Electron's app and windows, to keep the viewer's HTML frame on its page (`frames.ts`) and to observe it for the
-   * window (`watch.ts`, the `dynwork.drive.frames` Ipc); the main entry passes them.
+   * Electron's app and windows, to keep the viewer's HTML frame on its page (`frames.ts`), to observe it for the window
+   * (`watch.ts`) and to present a document full screen (`present.ts`), the `dynwork.drive.frames` Ipc; the main entry
+   * passes them.
    */
   frames?: DriveFrames.Host
   /** DynWork's service, where the agent's `documents` tools run: its writes are followed (`DriveAgent`). Absent, none is. */
@@ -66,8 +68,10 @@ export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, opti
       seen: (window, seen) => frames.emit("seen", seen, window),
     })
     ctx.onCleanup(watch.dispose)
+    const present = DrivePresent.make({ window: (window) => ctx.windows.get(window) })
     const frames = ctx.provide(Frames, {
       watch: (input, caller) => watch.watch(caller.window, input.frame, caller.signal),
+      present: (_, caller) => present.present(caller.window, caller.signal),
     })
   }
   if (options.client) {

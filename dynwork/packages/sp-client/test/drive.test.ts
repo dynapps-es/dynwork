@@ -190,10 +190,44 @@ describe("reading", () => {
     )
   })
 
+  test("sharing a document the agent made: a grant, its level changed in place, then taken away", async () => {
+    fake.state.drive.agentShare = true
+    fake.state.drive.people.set("u-ana", { user_id: "u-ana", name: "Ana Ruiz", email: "ana@example.com" })
+    const created = await upload("shared.html", html)
+    const granted = await run(SpDrive.share(fake.url, state.jwt, created.id, { kind: "user", value: "u-ana", level: "view" }))
+    expect(JSON.parse(sent(`/api/v1/documents/${created.id}/grants`, "POST")[0]?.body ?? "")).toEqual({
+      subject_kind: "user",
+      subject_value: "u-ana",
+      level: "view",
+    })
+    // The same subject again changes the grant it has: one grant, the same id.
+    const changed = await run(
+      SpDrive.share(fake.url, state.jwt, created.id, { kind: "user", value: "u-ana", level: "edit" }),
+    )
+    expect(changed).toBe(granted)
+    const access = await run(SpDrive.access(fake.url, state.jwt, created.id))
+    expect(access.grants).toMatchObject([{ grant_id: granted, subject_value: "u-ana", level: "edit" }])
+    await run(SpDrive.revoke(fake.url, state.jwt, created.id, granted))
+    const revoked = sent(`/api/v1/documents/${created.id}/grants`, "DELETE")[0]
+    expect(revoked?.query).toBe(`?grant_id=${granted}`)
+    expect((await run(SpDrive.access(fake.url, state.jwt, created.id))).grants).toEqual([])
+  })
+
+  test("before the extension lets an attended agent share (0.83), a share and a revocation are the person's", async () => {
+    const created = await upload("kept.html", html)
+    const refused = await fail(
+      SpDrive.share(fake.url, state.jwt, created.id, { kind: "user", value: "u-ana", level: "view" }),
+    )
+    expect(refused).toMatchObject({ _tag: "AgentRefused", errorKey: "agent_forbidden", capability: "person" })
+    expect(await fail(SpDrive.revoke(fake.url, state.jwt, created.id, "g-1"))).toMatchObject({ _tag: "AgentRefused" })
+  })
+
   test("access and the agent cap tell what DynWork may do as an attended agent", async () => {
     const created = await upload("a.html", html)
     const shared = await run(SpDrive.access(fake.url, state.jwt, created.id))
     expect(shared).toMatchObject({ my_access: "own", grants: [], agent_cap: { cap: "edit" } })
+    // Nothing inherited: the instance leaves the key out, and the answer still reads.
+    expect(shared.inherited).toBeUndefined()
     const target = await folder("Projects")
     const reading = await run(SpDrive.agentCap(fake.url, state.jwt, { kind: "folder", id: target.id }))
     expect(reading.agent_cap).toBe("suggest")

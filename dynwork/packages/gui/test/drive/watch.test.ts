@@ -109,6 +109,43 @@ describe("main's observer of the viewer's frames", () => {
     expect(DriveWatch.report(JSON.stringify({ kind: "mark", id: 7 }))).toBeUndefined()
   })
 
+  test("where marks sit is ids and whole pixels, bounded in number and distance", () => {
+    const marks = (items: unknown) => DriveWatch.report(JSON.stringify({ kind: "marks", items }))
+    expect(marks([{ id: "t1", top: 120 }, { id: "t2", top: -40 }])).toEqual({
+      kind: "marks",
+      items: [
+        { id: "t1", top: 120 },
+        { id: "t2", top: -40 },
+      ],
+    })
+    expect(marks([])).toEqual({ kind: "marks", items: [] })
+    const most = Array.from({ length: DriveFrames.maxMarks }, (_, index) => ({ id: `t${index}`, top: index }))
+    expect(marks(most)?.kind).toBe("marks")
+    // More marks than that, an id empty or too long, a top that is not a whole number within reach, more than an id
+    // and a top: the whole report is dropped.
+    expect(marks([...most, { id: "one-more", top: 0 }])).toBeUndefined()
+    expect(marks([{ id: "", top: 0 }])).toBeUndefined()
+    expect(marks([{ id: "x".repeat(257), top: 0 }])).toBeUndefined()
+    expect(marks([{ id: "t1", top: 1.5 }])).toBeUndefined()
+    expect(marks([{ id: "t1", top: DriveFrames.farthest + 1 }])).toBeUndefined()
+    expect(marks([{ id: "t1", top: "120" }])).toBeUndefined()
+    expect(marks([{ id: "t1", top: 0, name: "Ana", picture: "https://evil.example/a.png" }])).toBeUndefined()
+    expect(marks({ id: "t1", top: 0 })).toBeUndefined()
+    expect(DriveWatch.report(JSON.stringify({ kind: "marks", items: [], text: "hola" }))).toBeUndefined()
+    expect(DriveWatch.report(JSON.stringify({ kind: "marks", id: "t1" }))).toBeUndefined()
+  })
+
+  test("sends the window where its frame's marks sit", async () => {
+    const main = stand()
+    const held = new AbortController()
+    void main.watch.watch(1, viewer, held.signal)
+    await main.frame("s1", viewer)
+    main.call("s1", JSON.stringify({ kind: "marks", items: [{ id: "t1", top: 88 }] }))
+    main.call("s1", "x".repeat(40 * 1024))
+    expect(main.seen).toEqual([{ window: 1, seen: { frame: viewer, kind: "marks", items: [{ id: "t1", top: 88 }] } }])
+    held.abort()
+  })
+
   test("detaches when the window's last frame stops watching, and observes nothing then", async () => {
     const main = stand()
     const first = new AbortController()

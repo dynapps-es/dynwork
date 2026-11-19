@@ -9,6 +9,7 @@ import {
   on,
   onCleanup,
   onMount,
+  Show,
   Switch,
   untrack,
   type Accessor,
@@ -25,8 +26,9 @@ import {
   type Seen,
 } from "../../drive/contract"
 import { DriveFrames } from "../../drive/frames"
+import { CommentBubbles } from "./comments"
 import { markPage } from "./marks"
-import { isPdf, type Node, type Thread } from "./model"
+import { isPdf, marked, type Node, type Placed, type Thread } from "./model"
 import { anchorPage, markdownHeadings, renderedHeading, type Heading } from "./outline"
 import { panes } from "./panes"
 import { failureText } from "./parts"
@@ -42,10 +44,12 @@ import { drive } from "./store"
 //   policy keeps without scripts.
 // The account's JWT stays in main: a frame gets only the page, never DynWork's origin, cookies, token or Ipc.
 // Nothing that comes out of a frame is trusted (G11): an agent writes these pages, so the viewer listens to no
-// `message` event and reads no `postMessage`. What the viewer learns of an HTML frame, the heading being read and a
-// comment mark clicked, comes from main's observer in an isolated world of the frame (`drive/frames.ts`,
-// `drive/watch.ts`), as ids the viewer checks against the ones it gave the page (`fromFrame`).
-// The open comments of an HTML document at its head are marked on the page (`marks.ts`) while the user shows them.
+// `message` event and reads no `postMessage`. What the viewer learns of an HTML frame, the heading being read, a
+// comment mark clicked and where the marks sit, comes from main's observer in an isolated world of the frame
+// (`drive/frames.ts`, `drive/watch.ts`), as ids the viewer checks against the ones it gave the page (`fromFrame`).
+// The open comments of an HTML document at its head are marked on the page (`marks.ts`) while the user shows them, and
+// of Markdown by `CommentMarks`; either way a bubble beside the document names who wrote each, in a column of the app's
+// own, outside the frame (`CommentBubbles`): no name, picture or text of a comment ever goes into the page.
 
 // pdf.js and the viewer load on the client only, when a PDF opens; the tests render with Solid's server build.
 const PdfViewer = lazy(() => import("./pdf-viewer"))
@@ -112,8 +116,67 @@ const observer = () => {
 }
 
 /**
- * What a report of main's observer means for the frame shown: a heading of its index, or a thread it marked. Anything
- * else is dropped: another frame's report, an id the viewer did not give this page.
+ * Present: a document alone, with the window full screen. The view puts `target`, the element that holds the viewer,
+ * over the whole window (`data-presenting`, in the top layer) while main holds the window full screen
+ * (`Frames.present`): a page cannot take its window full screen itself (`drive/present.ts`). Exit over the document, Escape anywhere in the window, or the
+ * window leaving full screen brings the view back as it was.
+ */
+export function createPresent(target: () => HTMLElement | undefined) {
+  const [on, setOn] = createSignal(false)
+  const held = { call: undefined as AbortController | undefined }
+  const stop = () => {
+    held.call?.abort()
+    held.call = undefined
+    setOn(false)
+  }
+  // The element goes to the top layer (a manual popover): over the whole window whatever contains it, and still in its
+  // place in the page, so a frame inside does not load again.
+  createEffect(() => {
+    const element = target()
+    if (!element) return
+    element.toggleAttribute("data-presenting", on())
+    if (on()) {
+      element.setAttribute("popover", "manual")
+      return element.showPopover()
+    }
+    if (element.matches(":popover-open")) element.hidePopover()
+    element.removeAttribute("popover")
+  })
+  // Main ends it on Escape before any page sees the key; this also ends it for a key the window alone receives.
+  createEffect(() => {
+    if (!on()) return
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") stop()
+    }
+    document.addEventListener("keydown", key)
+    onCleanup(() => document.removeEventListener("keydown", key))
+  })
+  onCleanup(stop)
+  return {
+    on,
+    start: () => {
+      const client = observer()
+      if (!client || held.call) return
+      const call = new AbortController()
+      held.call = call
+      setOn(true)
+      void client
+        .present({ signal: call.signal })
+        .catch(() => undefined)
+        .finally(() => {
+          if (held.call !== call) return
+          held.call = undefined
+          setOn(false)
+        })
+    },
+    stop,
+  }
+}
+export type Present = ReturnType<typeof createPresent>
+
+/**
+ * What a report of main's observer means for the frame shown: a heading of its index, a thread it marked, or where its
+ * marked threads sit. Anything else is dropped: another frame's report, an id the viewer did not give this page.
  */
 export function fromFrame(
   seen: Seen,
@@ -124,6 +187,13 @@ export function fromFrame(
   },
 ) {
   if (seen.frame !== shown.name) return undefined
+  if (seen.kind === "marks")
+    return {
+      kind: "marks" as const,
+      placed: seen.items
+        .filter((item) => Object.hasOwn(shown.marks, item.id))
+        .map((item): Placed => ({ thread: item.id, top: item.top })),
+    }
   if (seen.kind === "mark")
     return Object.hasOwn(shown.marks, seen.id) ? { kind: "mark" as const, thread: seen.id } : undefined
   const index = shown.headings.findIndex((heading) => heading.id === seen.id)
@@ -199,39 +269,61 @@ export function Viewer(props: {
     if (props.revision !== undefined || props.doc.format !== "html" || !panes.marks()) return undefined
     return { nodes: drive.nodesOf(props.doc.id), threads: drive.threadsOf(props.doc.id) }
   }
+  // Where the open threads' marks sit, as the frame's observer or the Markdown's layout tells; bubbles beside them while
+  // the marks show, at the head.
+  const [placed, setPlaced] = createSignal<readonly Placed[]>([])
+  const bubbles = () =>
+    props.revision === undefined &&
+    marked(props.doc) &&
+    panes.marks() &&
+    drive.threadsOf(props.doc.id).some((thread) => thread.open)
   return (
-    <Switch fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
-      <Match when={failed()}>
-        {(failure) => (
-          <p data-slot="drive-note">
-            {ctx.t("drive.preview.failed")} {failureText(ctx, failure())}
-          </p>
-        )}
-      </Match>
-      <Match when={page()}>
-        {(found) => (
-          <PageFrame
-            page={found()}
-            title={props.doc.name}
-            marks={marks()}
-            onOutline={onOutline()}
-            onMark={props.onMark}
-          />
-        )}
-      </Match>
-      <Match when={markdown()}>
-        {(found) => <MarkdownDoc doc={props.doc.id} text={found().text} onOutline={onOutline()} />}
-      </Match>
-      <Match when={!isServer && pdf()}>{(found) => <PdfViewer doc={props.doc} bytes={found().bytes} />}</Match>
-    </Switch>
+    <div data-slot="drive-sheet">
+      <Switch fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
+        <Match when={failed()}>
+          {(failure) => (
+            <p data-slot="drive-note">
+              {ctx.t("drive.preview.failed")} {failureText(ctx, failure())}
+            </p>
+          )}
+        </Match>
+        <Match when={page()}>
+          {(found) => (
+            <PageFrame
+              page={found()}
+              title={props.doc.name}
+              marks={marks()}
+              onOutline={onOutline()}
+              onMark={props.onMark}
+              onPlaced={setPlaced}
+            />
+          )}
+        </Match>
+        <Match when={markdown()}>
+          {(found) => (
+            <MarkdownDoc doc={props.doc.id} text={found().text} onOutline={onOutline()} onPlaced={setPlaced} />
+          )}
+        </Match>
+        <Match when={!isServer && pdf()}>{(found) => <PdfViewer doc={props.doc} bytes={found().bytes} />}</Match>
+      </Switch>
+      <Show when={bubbles()}>
+        <CommentBubbles doc={props.doc} placed={placed()} onThread={(thread) => props.onMark?.(thread)} />
+      </Show>
+    </div>
   )
 }
 
 /**
  * A Markdown document, drawn by the app's renderer. Its outline scrolls to a heading as rendered, follows the heading
- * being read as the document scrolls, and brings a comment's block into view (`CommentMarks` names each block's node).
+ * being read as the document scrolls, and brings a comment's block into view (`CommentMarks` names each block's node);
+ * `onPlaced` hears where each open thread's block sits, as the document scrolls.
  */
-function MarkdownDoc(props: { doc: string; text: string; onOutline?: (outline: Outline | undefined) => void }) {
+function MarkdownDoc(props: {
+  doc: string
+  text: string
+  onOutline?: (outline: Outline | undefined) => void
+  onPlaced?: (placed: readonly Placed[]) => void
+}) {
   const ctx = usePlugin()
   let element: HTMLDivElement | undefined
   const headings = createMemo(() => markdownHeadings(props.text))
@@ -253,16 +345,30 @@ function MarkdownDoc(props: { doc: string; text: string; onOutline?: (outline: O
       element.clientHeight,
     )
     setActive(index < 0 ? undefined : index)
+    props.onPlaced?.(
+      drive
+        .threadsOf(props.doc)
+        .filter((thread) => thread.open)
+        .flatMap((thread) => {
+          const block = element?.querySelector(`[data-node="${CSS.escape(thread.node)}"]`)
+          return block ? [{ thread: thread.id, top: Math.round(block.getBoundingClientRect().top - top) }] : []
+        }),
+    )
   }
   const frame = { id: 0 }
   const later = () => {
     if (!frame.id) frame.id = requestAnimationFrame(measure)
   }
+  // Other threads sit elsewhere.
+  createEffect(() => {
+    drive.threadsOf(props.doc)
+    later()
+  })
   onMount(() => {
     if (!element) return
-    // The renderer draws after the document is read, and may draw again.
+    // The renderer draws after the document is read, and may draw again; `CommentMarks` names the blocks after it.
     const drawn = new MutationObserver(later)
-    drawn.observe(element, { childList: true, subtree: true })
+    drawn.observe(element, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-node"] })
     later()
     onCleanup(() => {
       drawn.disconnect()
@@ -298,7 +404,7 @@ const named = { count: 0 }
 /**
  * A page in a frame with the sandbox and the policy `frameOf` gives it. Its outline jumps to a heading's id and to a
  * comment's mark, and, while main observes the frame (`dynwork.drive.frames`), follows the heading being read; a click
- * on a mark goes to `onMark`.
+ * on a mark goes to `onMark`, and where the marks sit to `onPlaced`.
  */
 function PageFrame(props: {
   page: Page
@@ -306,6 +412,7 @@ function PageFrame(props: {
   marks?: Marks
   onOutline?: (outline: Outline | undefined) => void
   onMark?: (thread: string) => void
+  onPlaced?: (placed: readonly Placed[]) => void
 }) {
   const name = `${DriveFrames.name}:${++named.count}`
   const frame = createMemo(() => frameOf(props.page, { name, marks: props.marks }))
@@ -326,6 +433,8 @@ function PageFrame(props: {
       srcdoc,
       () => {
         back.id = untrack(() => frame().headings[active() ?? -1]?.id)
+        // The new page's marks are placed once its observer reports them.
+        props.onPlaced?.([])
       },
       { defer: true },
     ),
@@ -350,6 +459,7 @@ function PageFrame(props: {
       const found = fromFrame(seen, untrack(frame))
       if (found?.kind === "heading") setActive(found.index)
       if (found?.kind === "mark") props.onMark?.(found.thread)
+      if (found?.kind === "marks") props.onPlaced?.(found.placed)
     })
     onCleanup(() => held.abort())
   })

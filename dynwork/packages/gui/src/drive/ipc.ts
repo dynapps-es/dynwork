@@ -326,6 +326,10 @@ export function make<A extends Account>(options: Options<A>) {
     proposals: (input) => on((backend) => backend.proposals(input.id)),
     comments: (input) => on((backend) => backend.comments(input.id)),
     access: (input) => on((backend) => backend.access(input.id)),
+    // A change of who has access is the user's own, from the window; the instance's agent policy decides (`share`).
+    share: (input) => on((backend) => backend.share(input.id, { kind: input.kind, value: input.value, level: input.level })),
+    unshare: (input) => on((backend) => backend.unshare(input.id, input.grant)),
+    findPeople: (input) => on((backend) => backend.findPeople(input.query, input.limit)),
     agentCap: (input) => on((backend) => backend.agentCap(input)),
     createFolder: (input) => changing((backend) => backend.createFolder(input)),
     upload: (input) =>

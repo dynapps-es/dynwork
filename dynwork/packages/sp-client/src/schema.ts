@@ -358,12 +358,16 @@ export const DriveAccess = Schema.Struct({
   owner: Schema.String,
   my_access: Schema.String,
   grants: Schema.Array(DriveGrant),
-  inherited: Schema.Array(DriveGrant),
+  // 0.83 leaves it out when no folder above grants anything (`skip_serializing_if = "Vec::is_empty"`)
+  inherited: Schema.optional(Schema.Array(DriveGrant)),
   agent_cap: Schema.optional(
     Schema.Struct({ cap: Schema.String, policy_cap: Schema.String, reason: Nullable(Schema.String) }),
   ),
 })
 export type DriveAccess = typeof DriveAccess.Type
+
+// A grant the instance made or changed (`POST /documents/{id}/grants`): its id is what revoking it takes
+export const DriveGrantMade = Schema.Struct({ id: Schema.String, subject_kind: Schema.String, subject_value: Schema.String })
 
 const CapSource = Schema.Struct({ kind: Schema.String, policy: Schema.optional(Schema.String) })
 const CapReading = Schema.Struct({

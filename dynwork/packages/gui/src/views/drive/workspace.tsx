@@ -4,33 +4,23 @@ import { Icon } from "@opencode/ui/icon"
 import { ResizeHandle } from "@opencode/ui/resize-handle"
 import { Tabs } from "@opencode/ui/tabs"
 import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js"
-import type { Access, AgentCap, Document } from "../../drive/contract"
+import type { Document } from "../../drive/contract"
 import { askAgent, back, sessionOf, titleOf } from "./chat"
 import { CommentMarks, CommentsTab, MarksToggle } from "./comments"
-import { DocMenu } from "./menus"
+import { DocMenu, SharePopover } from "./menus"
 import { drawerWidth, outlineWidth, panes } from "./panes"
-import {
-  Avatar,
-  createPresent,
-  FormatGlyph,
-  Level,
-  openGovernance,
-  PresentButton,
-  PresentExit,
-  Tag,
-  useNames,
-} from "./parts"
+import { Avatar, capText, FormatGlyph, Level, openGovernance, PresentButton, PresentExit, Tag, useNames } from "./parts"
 import { account, drive, governance, type DocTab } from "./store"
-import { Viewer, type Outline } from "./viewer"
+import { createPresent, Viewer, type Outline } from "./viewer"
 
-// The drawer's tabs.
-const tabs: readonly DocTab[] = ["details", "comments", "versions", "proposals", "share"]
+// The drawer's tabs. Sharing is the Share button's popover in the bar, as beside a chat.
+const tabs: readonly DocTab[] = ["details", "comments", "versions", "proposals"]
 
 /**
  * A document open in the Drive: its bar, the edition banner, its index, its viewer and the drawer. The index, the
  * drawer and the comments marked on the document show or hide from the bar, and the index and the drawer take the
  * width their inner edge is dragged to (`panes`). The index marks the heading being read; Present shows the document
- * alone, full screen.
+ * alone, full screen; Share opens who has access under its button.
  */
 export function Workspace(props: { doc: Document }) {
   const ctx = usePlugin()
@@ -102,6 +92,9 @@ export function Workspace(props: { doc: Document }) {
         <span data-slot="drive-grow" />
         <MarksToggle doc={props.doc} />
         <PresentButton present={present} />
+        <Show when={governance(props.doc.id)}>
+          <SharePopover doc={props.doc} label />
+        </Show>
         <ctx.ui.Tooltip value={ctx.t(panes.drawer() ? "drive.drawer.hide" : "drive.drawer.show")} placement="bottom">
           <ctx.ui.IconButton
             variant="ghost"
@@ -211,9 +204,6 @@ export function Workspace(props: { doc: Document }) {
                 <Match when={drive.state.doc.tab === "proposals"}>
                   <Proposals doc={props.doc} />
                 </Match>
-                <Match when={drive.state.doc.tab === "share"}>
-                  <Sharing doc={props.doc} access={drive.state.opened.access} cap={drive.state.opened.cap} />
-                </Match>
                 <Match when={true}>
                   <Details doc={props.doc} />
                 </Match>
@@ -272,11 +262,6 @@ function Banner() {
       </div>
     </Show>
   )
-}
-
-/** What an agent may do, in words: `none`, `read`, `suggest`, `edit`, or the instance's own word. */
-function capText(t: (key: string) => string, cap: string) {
-  return ["none", "read", "suggest", "edit"].includes(cap) ? t(`drive.cap.${cap}`) : cap
 }
 
 /** The conversations that made, changed or used a document, from the local index, each with what it did. */
@@ -440,71 +425,5 @@ function Proposals(props: { doc: Document }) {
         )}
       </For>
     </Show>
-  )
-}
-
-/**
- * Who can see the document and what agents may do with it, as the Drive answered (`access`, `cap`); sharing happens in
- * Governance (P1). The drawer's Share tab, and the Share dialog beside a chat.
- */
-export function Sharing(props: { doc: Document; access?: Access; cap?: AgentCap }) {
-  const ctx = usePlugin()
-  const names = useNames()
-  const access = () => props.access
-  const cap = () => props.cap
-  return (
-    <>
-      <div data-slot="drive-person">
-        <Avatar name={names.owner(props.doc)} />
-        <div data-slot="drive-person-name">{names.owner(props.doc)}</div>
-        <Tag>{ctx.t("drive.level.own")}</Tag>
-      </div>
-      <For each={[...(access()?.grants ?? []), ...(access()?.inherited ?? [])]}>
-        {(grant) => (
-          <div data-slot="drive-person">
-            <Avatar name={grant.name ?? grant.value} />
-            <div data-slot="drive-person-name">
-              {grant.name ?? grant.value}
-              <Show when={grant.from}>
-                {(from) => <div data-slot="drive-faint">{ctx.t("drive.share.from", { folder: from().name })}</div>}
-              </Show>
-            </div>
-            <Tag>
-              <Level level={grant.level} />
-            </Tag>
-          </div>
-        )}
-      </For>
-      <Show when={cap()}>
-        {(found) => (
-          <div data-slot="drive-person">
-            <Avatar name={ctx.t("drive.share.agents")} agent />
-            <div data-slot="drive-person-name">
-              {ctx.t("drive.share.agents")}
-              <div data-slot="drive-faint">
-                {ctx.t("drive.banner.cap", {
-                  attended: capText(ctx.t, found().cap),
-                  unattended: capText(ctx.t, found().unattended),
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-      </Show>
-      <div data-slot="drive-row-actions">
-        <Button
-          variant="outline"
-          size="small"
-          icon="share"
-          disabled={!governance(props.doc.id)}
-          onClick={() => openGovernance(ctx, props.doc)}
-        >
-          {ctx.t("drive.share.governance")}
-        </Button>
-      </div>
-      <p data-slot="drive-note" data-tone={drive.person() ? undefined : "warning"}>
-        {ctx.t(drive.person() ? "drive.share.levels" : "drive.share.mvp")}
-      </p>
-    </>
   )
 }

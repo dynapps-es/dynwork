@@ -1,5 +1,5 @@
 import { DriveCapabilities } from "../../drive/capabilities"
-import type { Comment, Document, Folder, Link, Outline } from "../../drive/contract"
+import { isFailure, type Comment, type Document, type Failure, type Folder, type Link, type Outline, type Revision } from "../../drive/contract"
 
 // Pure reads of the Drive's data, as the `dynwork.drive` Ipc answers it: what the browser lists, folder paths, the
 // conversations' documents, sizes and times; and the anchors the comments layer draws.
@@ -329,4 +329,72 @@ export function shareSubject(subject: { kind: string; value: string; name?: stri
   const named =
     subject.name === undefined ? subject.value : subject.email ? `${subject.name} (${subject.email})` : subject.name
   return subject.kind === "user" ? named : `${named} (${subject.kind})`
+}
+
+/** A thread placed beside a document: its first mark's top, in pixels from the top of the document's visible area. */
+export interface Placed {
+  readonly thread: string
+  readonly top: number
+}
+
+/**
+ * The comments' bubbles beside a document, top to bottom: a thread joins the bubble above while its top is closer than
+ * `size` to that bubble's, so threads at one height share a bubble.
+ */
+export function bubbleRows(placed: readonly Placed[], size = 28) {
+  return placed
+    .toSorted((a, b) => a.top - b.top)
+    .reduce<{ top: number; threads: string[] }[]>((rows, item) => {
+      const last = rows.at(-1)
+      if (last && item.top - last.top < size) last.threads.push(item.thread)
+      else rows.push({ top: item.top, threads: [item.thread] })
+      return rows
+    }, [])
+}
+
+/**
+ * Whether DynWork's own agent made a document: its first revision (the last of a newest-first list) is an agent's,
+ * written through the API or the `documents` MCP server, on a document of the user's. That is the document the Dynapps
+ * extension lets an attended agent share from 0.85 (`created_by_agent`, which the instance does not show: another agent
+ * of the user's, writing through the API, reads the same, and the instance refuses it). A file the bridge synced is
+ * written by the user's device, not by DynWork.
+ */
+export function madeByAgent(doc: Pick<Document, "mine">, revisions: readonly Pick<Revision, "actor" | "origin">[]) {
+  const first = revisions.at(-1)
+  return doc.mine && first?.actor === "agent" && (first.origin === "api" || first.origin === "mcp_execution")
+}
+
+/**
+ * What the Share popover offers on a document. `change` says whether invite, a level and remove are live here and,
+ * when not, why:
+ * - `live`: DynWork's agent made it (`made`), the user may share it (`own` or `share`: the instance takes nothing less
+ *   for a share) and the agents' cap is `edit`: the policy that lets an attended agent share (Dynapps from 0.85). The
+ *   instance still decides each call; a refusal shows inline (`afterShare`).
+ * - `governance`: the user may share it, in Governance: a document DynWork's agent did not make, or under a lower cap.
+ * - `level`: the user's access does not let them share it at all.
+ * An access not read counts as `governance`. `copy` and `governance` offer the document's page in Governance, when the
+ * account's instance is known: to copy, and to open it where the user can share. What a folder grants and the agents'
+ * cap are never changed here (the cap needs `own`, which the instance keeps from agents).
+ */
+export function sharing(input: {
+  access: string | undefined
+  link: string | undefined
+  made?: boolean
+  cap?: string
+}) {
+  const shares = input.access === undefined || input.access === "own" || input.access === "share"
+  const live = input.made === true && (input.access === "own" || input.access === "share") && input.cap === "edit"
+  return {
+    change: live ? ("live" as const) : shares ? ("governance" as const) : ("level" as const),
+    copy: input.link !== undefined,
+    governance: shares && input.link !== undefined,
+  }
+}
+
+/**
+ * Who has access after a share or a revocation the popover asked for: the instance's answer, or, when it refused, the
+ * list as it was and the refusal to show beside it.
+ */
+export function afterShare<A>(shown: A, answer: A | Failure) {
+  return isFailure(answer) ? { access: shown, refusal: answer } : { access: answer, refusal: undefined }
 }

@@ -22,6 +22,7 @@ window                                main process
 | `share.ts`        | The agent's shares: each `documents_share` call waits on a card in its conversation for the user's decision (D24)                |
 | `frames.ts`       | The viewer's HTML frames: main's navigation guard, and the observer main runs in their isolated world                            |
 | `watch.ts`        | Main's observer of a window's viewer frames over the DevTools protocol (`dynwork.drive.frames`)                                  |
+| `present.ts`      | Present: main holds a window full screen for a document alone (`dynwork.drive.frames`, `present`)                                |
 | `main.ts`         | The main-process setup over the accounts, from `accounts/main.ts`                                                                |
 | `client.ts`       | The window's live Ipc client, handed over by the window entry for the views to read                                              |
 
@@ -237,12 +238,25 @@ documents_share ──execute.before──► plugin: confirm ──event──�
   ("Dynwork could not ask the user to confirm this share…"). It fails closed: never shared unseen, never left waiting
   for nobody.
 
+## Sharing from the window (phase 17)
+
+The Share popover (`views/drive/share-popover.tsx`) changes who has access with the window's own Ipc calls, `share`
+(an upsert: `POST /documents/{id}/grants`, kind, value, level) and `unshare` (`DELETE …/grants?grant_id=`), each
+answering who has access then; `findPeople` searches the directory to invite (the `documents` MCP's
+`documents_people`). They are the user's acts, not the agent's: no card, no plugin RPC. The instance decides each with
+DynWork's credential, an attended agent's: the Dynapps extension lets it share a document that agent created from 0.85
+(`created_by_agent`, Direct channel, cap `edit`); anything else, and every share on 0.83, is `person`. The popover
+offers them live only where that should hold (`madeByAgent`, `sharing`) and shows a refusal beside the list it keeps.
+`created_by_agent` is not in any answer of the instance, so another agent of the user's writing through the API looks
+the same, and is refused.
+
 ## The viewer's frames (phase 16)
 
 The viewer shows an HTML page (and the Drive's previews) in a sandboxed `srcdoc` frame without `allow-same-origin`,
 under the policy the instance served it with (D5); its scripts may run, and an agent may have written it (G11). The app
-cannot read it, but the index follows the heading being read and a click on a comment's mark opens its thread. What
-the window learns of the frame is two ids at most, and nothing of DynWork reaches the page:
+cannot read it, but the index follows the heading being read, a click on a comment's mark opens its thread, and the
+comments' bubbles sit beside their marks. What the window learns of the frame is ids it gave the page and numbers, and
+nothing of DynWork reaches the page:
 
 - **Where it runs.** Electron 44 runs a sandboxed frame out of process, so the window's `webFrame` cannot reach it.
   `WebFrameMain.executeJavaScript` runs in the page's own world, where its scripts see and can replace what runs, and
@@ -256,14 +270,21 @@ the window learns of the frame is two ids at most, and nothing of DynWork reache
   runs in frames with no scripts and `default-src 'none'`, survives a new `srcdoc`, and a page's own
   `window.dynworkDriveFrame` is not the binding.
 - **What it reports** (`DriveFrames.observer`): the id of the heading being read when it changes (`DriveFrames.reading`:
-  the last heading whose top has passed the upper third of the frame, else the first), and the comment of a mark the
-  user clicked, only for a trusted click, so the page's scripts cannot click one for the user. Nothing else.
-- **What main takes.** A binding call from a viewer frame's session whose name a call of that window watches, parsed as
-  `{ kind: "heading" | "mark", id }` with an id of 1 to 256 characters (`DriveWatch.report`); anything else is dropped.
-  It goes to that window alone, as the `seen` event of `dynwork.drive.frames`.
+  the last heading whose top has passed the upper third of the frame, else the first); where the first mark of each
+  thread sits when that changes (on scroll, resize and load: the thread's id and its top in whole pixels from the top
+  of the frame's visible area, clamped to `DriveFrames.farthest`, the first `DriveFrames.maxMarks` of the page); and the
+  comment of a mark the user clicked, only for a trusted click, so the page's scripts cannot click one for the user.
+  Nothing else.
+- **What main takes.** A binding call from a viewer frame's session whose name a call of that window watches, at most
+  32 KB, parsed as `{ kind: "heading" | "mark", id }` with an id of 1 to 256 characters, or as
+  `{ kind: "marks", items: [{ id, top }] }` with at most `maxMarks` items, each such an id and a whole number within
+  `farthest`, and not a key more (`DriveWatch.report`); anything else is dropped whole. It goes to that window alone,
+  as the `seen` event of `dynwork.drive.frames`.
 - **What the window takes** (`views/drive/viewer.tsx`, `fromFrame`): a report for its own frame's name whose id is a
-  heading id or a mark it gave that page. A page that forges a report can at most move the index to one of its own
-  headings, or open one of its own threads.
+  heading id or a mark it gave that page; of a `marks` report, the items whose id is a thread it marked there. A page
+  that forges a report can at most move the index to one of its own headings, open one of its own threads, or move
+  the bubble of one of its own threads. The bubbles' names and initials are drawn by the window, beside the frame:
+  nothing of a comment goes into the page, nor comes out of it.
 - **When it stops.** When the window's last frame stops watching, main detaches if it attached; if another client had
   attached first (the force-focus helper), main leaves it attached and lets its own sessions go. If another client
   detaches while the window watches, main attaches again. Each frame of a window has its own name
@@ -271,6 +292,18 @@ the window learns of the frame is two ids at most, and nothing of DynWork reache
 - **Limits.** A frame that runs in its window's process (no site isolation) is not reached: the index then does not
   follow the reading and a mark opens nothing, and the rest works. A page may rename its frame (`window.name`) before
   main reads it: it is then not observed.
+
+## Present
+
+A page cannot take its window full screen: the app's windows give a page no `fullscreen` permission
+(`packages/desktop/src/main/windows/security.ts` grants only clipboard writes and notifications), so
+`requestFullscreen` is refused there, which is why Present did nothing in phase 16. The window asks main instead,
+with the `present` method of `dynwork.drive.frames`, and holds the call while it presents (`DrivePresent`,
+`present.ts`): main takes the caller's window full screen (`BrowserWindow.setFullScreen`) and back when the call is
+let go, and ends it itself, before the page sees the key, on Escape anywhere in the window (`before-input-event`: the
+document's frame included), when the window leaves full screen another way, or when it closes. A window the user had
+full screen stays so. The view meanwhile shows the document alone over the window (`data-presenting`, a manual popover
+in the top layer), and also ends it on an Escape the window itself receives.
 
 ## Capabilities
 

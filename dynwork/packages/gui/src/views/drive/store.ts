@@ -30,7 +30,7 @@ import {
   type TypeFilter,
 } from "./model"
 
-export type DocTab = "details" | "comments" | "versions" | "proposals" | "share"
+export type DocTab = "details" | "comments" | "versions" | "proposals"
 
 /** The chat a document was opened from, beside it: where its Back returns. */
 export interface FromChat {
