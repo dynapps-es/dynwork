@@ -14,8 +14,8 @@ import { setup, type Fake } from "../accounts/fixture"
  * Each tool answers what the farm's tool answers: the REST body as `structuredContent` (and the same JSON as text), or
  * `isError` with the farm's `{ error: { code, message, retryable, details } }`. The shapes follow the farm's
  * `docs/farm-api.md`: schedules with `name`, `metadata`, an optional `recurrence` (manual routines), `PATCH` semantics
- * (a field sent replaces the stored one; `null` clears `name`, resets `metadata`, makes `recurrence` manual), tasks
- * with `model`, `permission_mode` under the tenant's and the agent's ceiling, `gateway_identity: user` that needs the
+ * (a field sent replaces the stored one; `null` clears `name`, resets `metadata`, makes `recurrence` manual), a quota
+ * that counts only schedules with a recurrence, tasks with `model`, `permission_mode` under the tenant's and the agent's ceiling, `gateway_identity: user` that needs the
  * caller's `gateway_pat`, the caller's quotas in `whoami`, tasks marked `viewed`, a paged `transcript`, and questions
  * answered with `farm_answer_task`.
  *
@@ -174,10 +174,22 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
   const mine = <A extends { owner: string }>(item: A | undefined) =>
     item !== undefined && (item.owner === state.subject || state.admin) ? item : undefined
 
+  // The quota counts the schedules that recur: one that runs only by hand uses nothing until it is fired.
   const live = (owner?: string) =>
     [...state.schedules.values()].filter(
-      (schedule) => schedule.state !== "finished" && (owner === undefined || schedule.owner === owner),
+      (schedule) =>
+        schedule.state !== "finished" &&
+        schedule.recurrence !== null &&
+        (owner === undefined || schedule.owner === owner),
     ).length
+
+  const quotaProblem = () => {
+    if (state.maxPerUser !== null && live(state.subject) >= state.maxPerUser)
+      return error("quota_exceeded", `You already have ${state.maxPerUser} schedules.`, { limit: "max_per_user" })
+    if (live() >= state.maxTenant)
+      return error("quota_exceeded", `The team already has ${state.maxTenant} schedules.`, { limit: "max_tenant" })
+    return undefined
+  }
 
   // An hour after its last change: stable between reads, which is all the backend needs of it.
   const nextFire = (schedule: Schedule) =>
@@ -373,10 +385,9 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
       if (problem) return problem
       if (args.name !== undefined && (typeof args.name !== "string" || args.name.trim() === ""))
         return error("name_invalid", "A name is plain text.")
-      if (state.maxPerUser !== null && live(state.subject) >= state.maxPerUser)
-        return error("quota_exceeded", `You already have ${state.maxPerUser} schedules.`, { limit: "max_per_user" })
-      if (live() >= state.maxTenant)
-        return error("quota_exceeded", `The team already has ${state.maxTenant} schedules.`, { limit: "max_tenant" })
+      // Only a schedule with a recurrence takes a place in the quota.
+      const full = args.recurrence === undefined || args.recurrence === null ? undefined : quotaProblem()
+      if (full) return full
       const schedule: Schedule = {
         schedule_id: randomUUID(),
         owner: state.subject,
@@ -408,6 +419,11 @@ export function fakeFarm(input: { authorize?: (bearer: string) => boolean; now?:
       if ("recurrence" in changes && schedule.state === "finished")
         return error("schedule_finished", "A finished schedule cannot change its recurrence.")
       if ("overlap" in changes && changes.overlap === null) return error("overlap_invalid", "Overlap cannot be null.")
+      // Adding a recurrence to a routine that runs by hand takes a place in the quota; removing it gives the place back.
+      if (schedule.recurrence === null && changes.recurrence !== undefined && changes.recurrence !== null) {
+        const full = schedule.state === "finished" ? undefined : quotaProblem()
+        if (full) return full
+      }
       if ("task" in changes) schedule.task = structuredClone(changes.task as Json)
       if ("name" in changes) schedule.name = (changes.name as string | null) ?? null
       if ("metadata" in changes) schedule.metadata = structuredClone((changes.metadata as Json | null) ?? {})

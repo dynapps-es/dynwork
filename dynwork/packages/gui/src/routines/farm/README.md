@@ -230,10 +230,11 @@ what only the farm knows.
 2. **The schedule of a task.** A task does not say which schedule fired it, and a reply belongs to none: `list()` reads
    each routine's runs and the user's recent tasks, one call per routine. A `schedule_id` on every task, kept by a
    reply, would make it one call.
-3. **Manual routines and the quota.** The farm counts a routine with no schedule against the schedule quota, so a user
-   at the limit cannot add one to run by hand; the contract expects they can.
-4. **Overlap on a manual start.** `overlap: skip` (the default) refuses a start while a run is going
-   (`schedule_overlap`, `conflict`); the contract expects a start to run whatever the schedule says.
+3. **Manual routines and the quota.** The farm's schedule quota counts only schedules with a recurrence: a routine that
+   runs only by hand uses no place, and an edit that adds or removes the recurrence moves it in or out of the count. The
+   fake farm follows that rule; until the farm does, a user at the limit cannot add a manual routine.
+4. **Overlap on a manual start.** `start` answers `conflict` (`schedule_overlap`) while a run of the routine is going,
+   unless the routine's overlap is `allow`, and never moves the schedule. This is the contract's rule.
 
 ## 8. Checklist for the PR
 

@@ -378,6 +378,25 @@ describe("the farm backend's routines", () => {
     expect(isFailure(refused) ? refused.fields : undefined).toHaveProperty("model")
   })
 
+  test("the quota counts only routines with a schedule, also when an edit adds or removes it", async () => {
+    const { backend } = await cloud()
+    farm.state.maxPerUser = 1
+    const manual = await ok(backend.create(definition("Manual", { schedule: undefined })))
+    await ok(backend.create(definition("Another manual", { schedule: undefined })))
+    expect((await backend.capabilities()).quota).toMatchObject({ max: 1, used: 0 })
+    const scheduled = await ok(backend.create(definition("Scheduled")))
+    expect((await backend.capabilities()).quota).toMatchObject({ max: 1, used: 1 })
+    // At the limit: a manual routine is still created, a scheduled one and a manual one given a schedule are not.
+    await ok(backend.create(definition("Third manual", { schedule: undefined })))
+    expect(await backend.create(definition("Second"))).toMatchObject({ code: "quota" })
+    expect(await backend.update(manual.ref.id, definition("Manual"))).toMatchObject({ code: "quota" })
+    // Taking the schedule away gives the place back.
+    await ok(backend.update(scheduled.ref.id, definition("Scheduled", { schedule: undefined })))
+    expect((await backend.capabilities()).quota).toMatchObject({ used: 0 })
+    await ok(backend.update(manual.ref.id, definition("Manual")))
+    expect((await backend.capabilities()).quota).toMatchObject({ used: 1 })
+  })
+
   test("a farm without the user's PAT gets it again and the routine is created once", async () => {
     const { backend, pat } = await cloud()
     farm.state.userCredential = false
