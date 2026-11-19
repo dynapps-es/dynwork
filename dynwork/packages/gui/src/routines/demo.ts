@@ -369,6 +369,19 @@ export function remote(now: () => number) {
       finished: t - 5 * DAY + 2 * MINUTE,
       summary: "Started from the chat, outside Dynwork.",
     }),
+    run("chat-2", undefined, {
+      state: "running",
+      reason: "question",
+      trigger: "manual",
+      title: "Wed 11 Nov, 10:30",
+      started: t - 5 * DAY - HOUR,
+      unread: true,
+      question: {
+        id: "q-1",
+        text: "The branch feature/old-sync has no open merge request. Delete it?",
+        choices: ["Yes, delete it", "No, keep it"],
+      },
+    }),
     run("crm-3", "crm", {
       state: "failed",
       reason: "credential_error",
@@ -396,6 +409,10 @@ export function remote(now: () => number) {
       result: "The run stopped before it started: authentication was rejected for the stored access `crm-git`.",
       log: "07:30:02 Cloning git.example.com/crm/sync (main)\n07:30:09 ERROR authentication rejected for crm-git\n07:30:09 Task finished: failed (credential_error)",
       usage: { cost: cost(0.01), duration: MINUTE },
+    },
+    "chat-2": {
+      log: "10:30:02 Started\n10:34:31 Found 3 stale branches in odoo/odoo-modules\n10:36:10 Waiting for your answer",
+      usage: { cost: cost(0.03) },
     },
     "chat-1": {
       result: "Checked the three open branches: none has conflicts with `main`.",

@@ -95,6 +95,7 @@ describe("tabs and Activity", () => {
       "crm-1",
       "notes-1",
       "chat-1",
+      "chat-2",
       "crm-3",
       "tickets-2",
       "tickets-3",
@@ -109,6 +110,7 @@ describe("tabs and Activity", () => {
       "crm-1",
       "notes-1",
       "chat-1",
+      "chat-2",
       "crm-3",
     ])
     view.model.setWhere("local")
@@ -134,7 +136,7 @@ describe("tabs and Activity", () => {
     expect(view.model.activity().length).toBe(6 + 20)
     await view.model.loadActivity(true)
     expect(view.model.activityPage().more).toBe(false)
-    expect(view.model.activity().length).toBe(6 + 28)
+    expect(view.model.activity().length).toBe(6 + 29)
   })
 
   test("the selected tab is the model's", async () => {
@@ -250,6 +252,56 @@ describe("the run viewer", () => {
     expect(view.model.state.viewer?.run.state).toBe("running")
     expect(view.model.state.viewer?.transcript?.result).toBeUndefined()
     expect(view.model.state.viewer?.transcript?.log).toContain("Reading 41 new opportunities")
+  })
+
+  test("a run that waits on a question shows it, and answering clears it in the viewer and in Activity", async () => {
+    const view = await setup()
+    await view.model.loadActivity()
+    const waiting = view.model.activity().find((run) => run.question)!
+    expect(await view.model.open(waiting)).toBe("transcript")
+    const question = view.model.state.viewer?.run.question
+    expect(question?.choices.length).toBeGreaterThan(1)
+
+    await view.model.answer(question?.choices[0] ?? "")
+    expect(view.model.state.failure).toBeUndefined()
+    expect(view.model.state.viewer?.run.question).toBeUndefined()
+    expect(view.model.state.viewer?.run.reason).toBeUndefined()
+    expect(view.model.activity().find((run) => run.ref.id === waiting.ref.id)?.question).toBeUndefined()
+  })
+
+  test("an answer that is not one of the choices is the backend's to refuse, and its failure stays on screen", async () => {
+    const view = await setup()
+    await view.model.loadActivity()
+    await view.model.open(view.model.activity().find((run) => run.question)!)
+    await view.model.answer("Perhaps")
+    expect(view.model.state.failure?.code).toBe("invalid")
+    expect(view.model.state.viewer?.run.question).toBeDefined()
+  })
+
+  test("Continue sends the user's words as a reply: the new run opens in the viewer and joins the history", async () => {
+    const view = await setup()
+    await view.model.loadActivity()
+    const finished = view.model.activity().find((run) => run.ref.id === "crm-1")!
+    await view.model.open(finished)
+    await view.model.loadHistory(finished.routine!)
+
+    await view.model.reply("Do the same for the other repository.")
+    const viewer = view.model.state.viewer
+    expect(viewer?.run.ref.id).not.toBe("crm-1")
+    expect(viewer?.run.routine).toEqual(finished.routine)
+    expect(viewer?.run.state).toBe("running")
+    expect(view.model.history(finished.routine!).runs[0]?.ref).toEqual(viewer?.run.ref)
+    expect(view.model.activity()[0]?.ref).toEqual(viewer?.run.ref)
+  })
+
+  test("Continue with nothing written does nothing", async () => {
+    const view = await setup()
+    await view.model.loadActivity()
+    const finished = view.model.activity().find((run) => run.ref.id === "crm-1")!
+    await view.model.open(finished)
+    await view.model.reply("   ")
+    expect(view.model.state.viewer?.run.ref.id).toBe("crm-1")
+    expect(view.model.state.failure).toBeUndefined()
   })
 
   test("a local run is not opened in the viewer: it belongs to its session", async () => {

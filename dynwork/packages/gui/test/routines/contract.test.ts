@@ -17,6 +17,7 @@ describe("the routines contract", () => {
     expect(Object.keys(Routines.spec.methods).sort()).toEqual(
       [
         "cancel",
+        "answerQuestion",
         "create",
         "get",
         "list",
@@ -25,6 +26,7 @@ describe("the routines contract", () => {
         "pause",
         "refresh",
         "remove",
+        "reply",
         "resume",
         "runs",
         "start",
@@ -104,5 +106,28 @@ describe("the routines contract", () => {
     expect(isFailure(null)).toBe(false)
     expect(isFailure("failed")).toBe(false)
     expect(isFailure([])).toBe(false)
+  })
+  test("a run may carry the question it waits on, with choices and an optional expiry, and nothing half-written", () => {
+    const question = { id: "q1", text: "Delete the branch?", choices: ["Yes", "No"] }
+    const waiting = Schema.decodeUnknownSync(Run)({ ...run, state: "running", reason: "question", question })
+    expect(waiting.question).toEqual(question)
+    const expiring = Schema.decodeUnknownSync(Run)({ ...run, question: { ...question, expires: 1_800_000_000_000 } })
+    expect(expiring.question?.expires).toBe(1_800_000_000_000)
+    expect(Schema.decodeUnknownSync(Run)(run).question).toBeUndefined()
+    expect(() => Schema.decodeUnknownSync(Run)({ ...run, question: { id: "q1", text: "x" } })).toThrow()
+    expect(() => Schema.decodeUnknownSync(Run)({ ...run, question: { ...question, choices: [1] } })).toThrow()
+  })
+
+  test("a definition may name the template it follows, by id and revision, and no field is required for it", () => {
+    const base = { name: "N", enabled: true, options: {}, instructions: { kind: "prompt", text: "x" } }
+    expect(Schema.decodeUnknownSync(Definition)(base).template).toBeUndefined()
+    expect(Schema.decodeUnknownSync(Definition)({ ...base, template: { id: "weekly", revision: 3 } }).template).toEqual(
+      {
+        id: "weekly",
+        revision: 3,
+      },
+    )
+    expect(() => Schema.decodeUnknownSync(Definition)({ ...base, template: { id: "weekly", revision: "3" } })).toThrow()
+    expect(() => Schema.decodeUnknownSync(Definition)({ ...base, template: { id: "weekly" } })).toThrow()
   })
 })
