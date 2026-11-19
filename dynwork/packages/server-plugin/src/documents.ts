@@ -1,6 +1,6 @@
 export * as DynWorkDocuments from "./documents"
 
-import { Effect, Option, Schema } from "effect"
+import { type Duration, Effect, Option, Schema } from "effect"
 import type { DynWorkSync } from "./contract"
 
 // What the agent does with the instance's `documents` MCP server, as DynWork's main process needs to hear it. The
@@ -221,11 +221,20 @@ export const Share = Schema.Struct({
   kind: Schema.Literals(["grant", "transfer", "revoke"]),
   document: Schema.optional(Schema.String),
   folder: Schema.optional(Schema.String),
-  subject: Schema.optional(Schema.Struct({ kind: Schema.String, value: Schema.String })),
+  /** Whom: as the agent named it in `value`, and the `name` and `email` a `documents_people` call of the conversation gave. */
+  subject: Schema.optional(
+    Schema.Struct({
+      kind: Schema.String,
+      value: Schema.String,
+      name: Schema.optional(Schema.String),
+      email: Schema.optional(Schema.String),
+    }),
+  ),
   level: Schema.optional(Schema.String),
   until: Schema.optional(Schema.String),
 })
 export type Share = typeof Share.Type
+export type Subject = NonNullable<Share["subject"]>
 
 /** The user's decision on a share: `allow` runs the call, otherwise it fails with what the user declined. */
 export const Decision = Schema.Struct({ id: Schema.String, allow: Schema.Boolean })
@@ -233,6 +242,7 @@ export type Decision = typeof Decision.Type
 export const Shares = Schema.Struct({ shares: Schema.Array(Share) })
 export type Shares = typeof Shares.Type
 export const Withdrawn = Schema.Struct({ id: Schema.String })
+export const Shown = Schema.Struct({ id: Schema.String })
 
 /** The share a call is about to make, or undefined for any other call. */
 export function sharing(event: {
@@ -250,7 +260,7 @@ export function sharing(event: {
       ...base,
       kind: "transfer",
       ...(given.document_id === undefined ? {} : { document: given.document_id }),
-      subject: { kind: "user", value: given.transfer_to },
+      subject: person(event.sessionID, { kind: "user", value: given.transfer_to }),
     }
   if (given?.revoke_all === true)
     return { ...base, kind: "revoke", ...(given.document_id === undefined ? {} : { document: given.document_id }) }
@@ -261,10 +271,44 @@ export function sharing(event: {
     ...(given?.folder_id === undefined ? {} : { folder: given.folder_id }),
     ...(given?.subject_kind === undefined || given.subject_value === undefined
       ? {}
-      : { subject: { kind: given.subject_kind, value: given.subject_value } }),
+      : { subject: person(event.sessionID, { kind: given.subject_kind, value: given.subject_value }) }),
     ...(given?.level === undefined ? {} : { level: given.level }),
     ...(given?.valid_until === undefined ? {} : { until: given.valid_until }),
   }
+}
+
+// The people the agent looked up with `documents_people`, by conversation and user id: the instance names nobody by id
+// over REST before 0.84 (`peopleByRest`), and the agent passes a person to `documents_share` as the id it got there, which
+// would leave the card with a UUID. One process-wide slot, as for the asks; only the most recent conversations are kept.
+const peopleTool = `${server}_${server}_people`
+const People = Schema.Struct({
+  people: Schema.Array(Schema.Struct({ user_id: Schema.String, name: Schema.String, email: Text })),
+})
+const decodePeople = Schema.decodeUnknownOption(People)
+interface Known {
+  readonly name: string
+  readonly email?: string
+}
+const peopleSlot = globalThis as typeof globalThis & { __dynworkPeople?: Map<string, Map<string, Known>> }
+const seen: Map<string, Map<string, Known>> = (peopleSlot.__dynworkPeople ??= new Map())
+
+/** Keeps the people a completed `documents_people` call of the conversation answered; any other call is ignored. */
+export function heard(event: Executed) {
+  if (event.tool !== peopleTool || event.status !== "completed") return
+  const found = Option.getOrUndefined(decodePeople(event.result?.output))
+  if (!found) return
+  const known = seen.get(event.sessionID) ?? new Map<string, Known>()
+  seen.delete(event.sessionID)
+  seen.set(event.sessionID, known)
+  if (seen.size > 256) seen.delete(seen.keys().next().value ?? "")
+  for (const item of found.people)
+    known.set(item.user_id, { name: item.name, ...(item.email === undefined ? {} : { email: item.email }) })
+}
+
+// A user the conversation looked up gets their name and email; anything else stays as the agent wrote it.
+function person(session: string, subject: { kind: string; value: string }): Subject {
+  const known = subject.kind === "user" ? seen.get(session)?.get(subject.value) : undefined
+  return known ? { ...subject, ...known } : subject
 }
 
 // A scheduled task's run: OpenCode's automation runs and DynWork's own carry this prefix (`Automation.isRunSession` in
@@ -290,6 +334,13 @@ export function declined(share: Share) {
   return `The user declined to share ${target} with ${subject}${level}: nothing was shared. ${after}`
 }
 
+/** What the agent reads when no Dynwork window heard the share: nobody could be asked, so it is refused. */
+export const unheard =
+  "Dynwork could not ask the user to confirm this share, so nothing was shared. Ask the user to share it themselves, or try again with Dynwork open."
+
+/** How long main has to say it shows the card (`shown`) before the share is refused as unheard. */
+export const heardWithin = "10 seconds"
+
 export interface Confirmer {
   readonly confirm: (share: Share) => Effect.Effect<void>
   readonly withdraw: (id: string) => Effect.Effect<void>
@@ -297,7 +348,9 @@ export interface Confirmer {
 
 interface Asked {
   readonly share: Share
-  readonly resolve: (allow: boolean) => void
+  /** Main said it shows the card. */
+  shown: boolean
+  resolve: (allow: boolean) => void
 }
 
 // Like the asks: one process-wide slot, as main decides on whichever Location takes the call.
@@ -305,15 +358,33 @@ const shareSlot = globalThis as typeof globalThis & { __dynworkShares?: Map<stri
 const asked: Map<string, Asked> = (shareSlot.__dynworkShares ??= new Map())
 
 /**
- * Publishes the share and waits for the user's decision, with no time limit: nothing is shared without it. A main that
- * connects later reads it with `shares`. An interrupted wait (the user stopped the step) withdraws the card.
+ * Publishes the share and waits for the user's decision: `allow` or `reject`. Main says within `within` that it shows
+ * the card (`shown`); when it does not (the app closed, no window), the share is `unheard` and refused, never left
+ * waiting for nobody. Once shown it waits as long as the user takes, like a permission prompt. An interrupted wait (the
+ * user stopped the step) withdraws the card.
  */
-export function confirm(confirmer: Confirmer, share: Share) {
-  return Effect.callback<boolean>((resume) => {
-    asked.set(share.id, { share, resolve: (allow) => resume(Effect.succeed(allow)) })
-    Effect.runFork(confirmer.confirm(share))
-    return Effect.suspend(() => (asked.delete(share.id) ? confirmer.withdraw(share.id) : Effect.void))
+export function confirm(confirmer: Confirmer, share: Share, within: Duration.Input = heardWithin) {
+  return Effect.suspend(() => {
+    const entry: Asked = { share, shown: false, resolve: () => {} }
+    const decided = Effect.callback<"allow" | "reject">((resume) => {
+      entry.resolve = (allow) => resume(Effect.succeed(allow ? "allow" : "reject"))
+      asked.set(share.id, entry)
+      Effect.runFork(confirmer.confirm(share))
+      return Effect.suspend(() => (asked.delete(share.id) ? confirmer.withdraw(share.id) : Effect.void))
+    })
+    const nobody = Effect.sleep(within).pipe(
+      Effect.andThen(Effect.suspend(() => (entry.shown ? Effect.never : Effect.succeed("unheard" as const)))),
+    )
+    return Effect.race(decided, nobody)
   })
+}
+
+/** Main's `shown`: it shows the share's card, so the share waits for the user. False when nothing waits for it. */
+export function shown(input: { readonly id: string }) {
+  const found = asked.get(input.id)
+  if (!found) return { accepted: false }
+  found.shown = true
+  return { accepted: true }
 }
 
 /** Main's `decide`: settles the share it names; false when nothing waits for it (withdrawn, or decided before). */

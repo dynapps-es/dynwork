@@ -450,7 +450,12 @@ export const ShareCard = Schema.Struct({
     }),
   ),
   subject: Schema.optional(
-    Schema.Struct({ kind: Schema.String, value: Schema.String, name: Schema.optional(Schema.String) }),
+    Schema.Struct({
+      kind: Schema.String,
+      value: Schema.String,
+      name: Schema.optional(Schema.String),
+      email: Schema.optional(Schema.String),
+    }),
   ),
   level: Schema.optional(Schema.String),
   until: Schema.optional(Schema.String),

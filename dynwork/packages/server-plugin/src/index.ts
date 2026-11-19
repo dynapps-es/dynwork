@@ -80,13 +80,17 @@ export const RoutinesDefinition = Rpc.define({
 })
 
 // What the agent does with the `documents` MCP server (`./documents`): main adds a write's folder and message, hears
-// what each write touched, and shows each share on a card for the user to decide (`decide`, and `shares` after it
-// reconnects).
+// what each write touched, and shows each share on a card for the user to decide (`shown` once the card is up, `decide`,
+// and `shares` after it reconnects).
 export const DocumentsDefinition = Rpc.define({
   id: DynWorkDocuments.id,
   methods: {
     answer: {
       input: Schema.toStandardSchemaV1(DynWorkDocuments.Answer),
+      output: Schema.toStandardSchemaV1(DynWorkDocuments.Accepted),
+    },
+    shown: {
+      input: Schema.toStandardSchemaV1(DynWorkDocuments.Shown),
       output: Schema.toStandardSchemaV1(DynWorkDocuments.Accepted),
     },
     decide: {
@@ -611,6 +615,7 @@ export default Plugin.define({
     const documentsRpc = yield* ctx.rpc
       .register(DocumentsDefinition, {
         answer: (input) => Effect.sync(() => DynWorkDocuments.answer(input)),
+        shown: (input) => Effect.sync(() => DynWorkDocuments.shown(input)),
         decide: (input) => Effect.sync(() => DynWorkDocuments.decide(input)),
         shares: () => Effect.sync(DynWorkDocuments.shares),
       })
@@ -628,8 +633,9 @@ export default Plugin.define({
         if (share) {
           if (DynWorkDocuments.unattended(share.session))
             return yield* new Tool.Error({ message: DynWorkDocuments.nobody })
-          if (!(yield* DynWorkDocuments.confirm(confirmer, share)))
-            return yield* new Tool.Error({ message: DynWorkDocuments.declined(share) })
+          const outcome = yield* DynWorkDocuments.confirm(confirmer, share)
+          if (outcome === "unheard") return yield* new Tool.Error({ message: DynWorkDocuments.unheard })
+          if (outcome === "reject") return yield* new Tool.Error({ message: DynWorkDocuments.declined(share) })
           return
         }
         const request = DynWorkDocuments.asking(event)
@@ -644,6 +650,7 @@ export default Plugin.define({
       }),
     )
     yield* ctx.tool.hook("execute.after", (event) => {
+      DynWorkDocuments.heard(event)
       const touched = DynWorkDocuments.touch(event)
       return touched ? documentsRpc.events.emit("touch", touched).pipe(Effect.ignore) : Effect.void
     })

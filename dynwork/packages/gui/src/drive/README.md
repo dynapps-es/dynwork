@@ -172,8 +172,10 @@ Governance ──/v1/bridge/stream──► Backend.stream ────► Drive
 
 Before every `documents_share` call (a grant, a `transfer_to` or a `revoke_all`) the server plugin stops the call and
 publishes it (`DynWorkDocuments.confirm`, `confirm` event of `dynwork.documents`); main shows it on a card in the
-conversation and sends back the user's decision (`decide`). Nothing is shared without it: the call waits as long as it
-takes, and a main that connects later reads the shares still waiting (`shares`). Stopping the step withdraws the card.
+conversation, tells the plugin the card is up (`shown`) and sends back the user's decision (`decide`). Nothing is shared
+without it: once the card is up the call waits as long as the user takes, like a permission prompt; a share no card was
+shown for within 10 seconds is refused (below). A main that reconnects reads the shares still waiting (`shares`).
+Stopping the step withdraws the card.
 
 ```
 documents_share ──execute.before──► plugin: confirm ──event──► DriveShare (share.ts) ──Ipc dynwork.drive.shares──► card
@@ -184,8 +186,11 @@ documents_share ──execute.before──► plugin: confirm ──event──�
 
 - **The card.** `views/drive/share.tsx`, in the `session.composer.dock` slot, drawn as OpenCode's permission dock. It
   says what, with whom and at which level («Share _Q3 report.md_ with _Luis Martín_ · Edit»); a transfer and a revocation
-  have their own words. Names come from the Drive (the document, a folder as last read, a person while `peopleByRest` is
-  on); what it cannot name shows as the agent gave it, an email or an id.
+  have their own words. The document comes by name from the Drive, a folder from the Drive as last read. A person: the
+  agent passes the user id it got from `documents_people`, so the plugin keeps what each `documents_people` call of the
+  conversation answered (`DynWorkDocuments.heard`, user id → name and email) and the card says «Name (email)», the email
+  telling two people of one name apart; failing that, while `peopleByRest` is on (0.84), the name is read by id;
+  otherwise the value shows as the agent gave it, an email or an id never seen.
 - **Allow in this conversation.** Kept in main, per conversation and kind of share (grant, transfer, revoke), while the
   app runs: the next share of that kind there is allowed with no card, and the cards of that kind already waiting there
   go too. Another conversation asks again; a restart asks again. A subagent's share shows in, and counts for, the
@@ -203,7 +208,10 @@ documents_share ──execute.before──► plugin: confirm ──event──�
   waits for the user until the run's time limit, and "Don't ask" allows everything. A share does neither: in a run's
   conversation (`ses_aut_`, OpenCode's automations and DynWork's runs) it is refused at once, with no card, and the agent
   reads why. The instance's policy also denies sharing to unattended agents.
-- **Main closed.** The call waits; it is decided once the app is back, or withdrawn when the user stops the step.
+- **Nobody to ask.** Main closed, or no window open (`attended` in `DriveMain.setup`): main does not say `shown`, and
+  after 10 seconds (`DynWorkDocuments.heardWithin`) the plugin refuses the share with a `Tool.Error` the agent reads
+  ("Dynwork could not ask the user to confirm this share…"). It fails closed: never shared unseen, never left waiting
+  for nobody.
 
 ## Capabilities
 

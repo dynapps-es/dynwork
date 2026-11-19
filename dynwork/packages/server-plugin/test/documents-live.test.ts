@@ -41,15 +41,22 @@ const instance = Bun.serve({
         })
       if (call.method === "tools/list")
         return rpcResult(call.id, {
-          tools: ["documents_create", "documents_edit", "documents_upload", "documents_share"].map((name) => ({
-            name,
-            description: `The ${name} tool.`,
-            inputSchema: { type: "object", properties: {}, additionalProperties: true },
-          })),
+          tools: ["documents_create", "documents_edit", "documents_upload", "documents_share", "documents_people"].map(
+            (name) => ({
+              name,
+              description: `The ${name} tool.`,
+              inputSchema: { type: "object", properties: {}, additionalProperties: true },
+            }),
+          ),
         })
       if (call.method === "tools/call") {
         if (call.params?.arguments?.name === "missing.md")
           return rpcResult(call.id, { isError: true, content: [{ type: "text", text: "no such folder" }] })
+        if (call.params?.name === "documents_people")
+          return rpcResult(call.id, {
+            content: [{ type: "text", text: "1 people" }],
+            structuredContent: { people: [{ user_id: "e51c808f-1", name: "Jesús Pérez", email: "jesus@dynapps.es" }] },
+          })
         const output =
           call.params?.name === "documents_upload"
             ? { mode: "inline", blob_ref: "blob-1", mime: "text/html" }
@@ -142,7 +149,7 @@ const models = [
 const asks: DynWorkDocuments.Ask[] = []
 const touches: DynWorkDocuments.Touch[] = []
 const confirms: DynWorkDocuments.Share[] = []
-const decision = { allow: false }
+const decision = { allow: false, listening: true }
 const listening = new AbortController()
 
 afterAll(async () => {
@@ -188,6 +195,13 @@ beforeAll(async () => {
         if (event.type.endsWith(".confirm")) {
           const share: DynWorkDocuments.Share = event.data
           confirms.push(share)
+          // Main gone: nothing says the card is up, and nothing decides.
+          if (!decision.listening) continue
+          await fetch(`${service.url}/api/rpc/${DynWorkDocuments.id}/shown`, {
+            method: "POST",
+            headers: { ...service.headers, "content-type": "application/json" },
+            body: JSON.stringify({ input: { id: share.id } }),
+          })
           await fetch(`${service.url}/api/rpc/${DynWorkDocuments.id}/decide`, {
             method: "POST",
             headers: { ...service.headers, "content-type": "application/json" },
@@ -343,4 +357,26 @@ test("a share in a scheduled task's run is refused at once, with no card", async
   expect(confirms.length).toBe(confirmed)
   expect(shared().length).toBe(before)
   expect(gateway.at(-1)?.messages).toContain("nobody is there to answer in a scheduled task")
+}, 60_000)
+
+test("a person the program looked up shows on the card by name and email", async () => {
+  decision.allow = false
+  await run(
+    `await tools.documents.documents_people({ query: "jes" }); try { return await tools.documents.documents_share({ document_id: "d1", subject_kind: "user", subject_value: "e51c808f-1", level: "view" }) } catch (error) { return "threw" }`,
+  )
+  expect(confirms.at(-1)?.subject).toEqual({
+    kind: "user",
+    value: "e51c808f-1",
+    name: "Jesús Pérez",
+    email: "jesus@dynapps.es",
+  })
+}, 60_000)
+
+test("a share nobody in Dynwork hears is refused, not left waiting", async () => {
+  decision.listening = false
+  const before = shared().length
+  await run(caught)
+  decision.listening = true
+  expect(shared().length).toBe(before)
+  expect(gateway.at(-1)?.messages).toContain("Dynwork could not ask the user to confirm this share")
 }, 60_000)

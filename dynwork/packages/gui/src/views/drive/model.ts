@@ -316,3 +316,14 @@ export function emphasized(template: string, values: Record<string, string>) {
       return key === undefined ? { text: part, strong: false } : { text: values[key] ?? "", strong: true }
     })
 }
+
+/**
+ * Whom a share names, as its card says it: "Name (email)" for a person the conversation looked up (the email tells two
+ * people of one name apart), the value the agent gave otherwise (an email, or an id never seen), and a group or role
+ * with its kind.
+ */
+export function shareSubject(subject: { kind: string; value: string; name?: string; email?: string }) {
+  const named =
+    subject.name === undefined ? subject.value : subject.email ? `${subject.name} (${subject.email})` : subject.name
+  return subject.kind === "user" ? named : `${named} (${subject.kind})`
+}

@@ -5,7 +5,7 @@ import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { createSignal, For, Show } from "solid-js"
 import type definition from "../../accounts/index"
-import { emphasized } from "./model"
+import { emphasized, shareSubject } from "./model"
 import { Shares, type Failure, type ShareCard, type ShareDecision } from "../../drive/contract"
 
 // The agent's shares (D24): before a `documents_share` call runs, its card takes the composer's place in the
@@ -63,9 +63,7 @@ function ShareDock(props: {
   const target = () => props.card.target?.name ?? props.card.target?.id ?? missing()
   const subject = () => {
     const given = props.card.subject
-    if (!given) return missing()
-    const shown = given.name ?? given.value
-    return given.kind === "user" ? shown : `${shown} (${given.kind})`
+    return given ? shareSubject(given) : missing()
   }
   const level = () => {
     const given = props.card.level

@@ -20,6 +20,8 @@ interface Standing {
   capabilities?: Partial<DriveCapabilities.Capabilities>
   sessions?: Record<string, DriveShare.Session>
   around?: (fake: DriveFake.Fake) => Partial<Backend>
+  /** No window open to show a card. */
+  windowless?: boolean
 }
 
 async function stand(options: Standing = {}) {
@@ -38,14 +40,17 @@ async function stand(options: Standing = {}) {
   await flush()
   const sessions = options.sessions ?? {}
   const decisions: DynWorkDocuments.Decision[] = []
+  const shown: string[] = []
   const changes = { count: 0 }
   const logic = DriveShare.make({
     service,
     session: async (id) => sessions[id] ?? {},
     decide: async (decision) => void decisions.push(decision),
+    shown: async (id) => void shown.push(id),
+    attended: () => !options.windowless,
     changed: () => void changes.count++,
   })
-  return { logic, decisions, changes, document: document.id, folder: folder.id }
+  return { logic, decisions, shown, changes, document: document.id, folder: folder.id }
 }
 
 const grant = (id: string, session: string, document: string): DynWorkDocuments.Share => ({
@@ -73,6 +78,35 @@ describe("the card", () => {
     ])
     expect(at.changes.count).toBe(1)
     expect(at.decisions).toEqual([])
+    // The plugin hears the card is up, so the share waits for the user.
+    expect(at.shown).toEqual(["call_1"])
+  })
+
+  test("with no window to show it, a share is not taken: the plugin refuses it as unheard", async () => {
+    const at = await stand({ windowless: true })
+    await at.logic.request(grant("call_1", "ses_q3", at.document))
+    expect(at.logic.cards()).toEqual([])
+    expect(at.shown).toEqual([])
+    expect(at.decisions).toEqual([])
+  })
+
+  test("a person the conversation looked up shows by name and email; an email or an unseen id as given", async () => {
+    const at = await stand({ capabilities: { peopleByRest: true } })
+    const looked = { kind: "user", value: "e51c808f-1", name: "Jesús Pérez", email: "jesus.perez@dynapps.es" }
+    await at.logic.request({ ...grant("call_1", "ses_q3", at.document), subject: looked })
+    await at.logic.request({
+      ...grant("call_2", "ses_q3", at.document),
+      subject: { kind: "user", value: "luis@dynapps.es" },
+    })
+    await at.logic.request({
+      ...grant("call_3", "ses_q3", at.document),
+      subject: { kind: "user", value: "e51c808f-9" },
+    })
+    expect(at.logic.cards().map((card) => card.subject)).toEqual([
+      looked,
+      { kind: "user", value: "luis@dynapps.es" },
+      { kind: "user", value: "e51c808f-9" },
+    ])
   })
 
   test("what the Drive cannot name keeps the value the agent gave; a folder is named from the Drive as read", async () => {

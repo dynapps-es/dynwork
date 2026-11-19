@@ -1,6 +1,15 @@
 import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { homedir, hostname } from "node:os"
-import { app, Notification, powerMonitor, powerSaveBlocker, safeStorage, shell, webContents } from "electron"
+import {
+  app,
+  BrowserWindow,
+  Notification,
+  powerMonitor,
+  powerSaveBlocker,
+  safeStorage,
+  shell,
+  webContents,
+} from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
 import { DriveMain } from "../drive/main"
 import { RemoteMain } from "../remote/main"
@@ -148,6 +157,8 @@ const setup: Plugin.MainSetup = (ctx) => {
   drive.account = DriveMain.setup(ctx, accounts, {
     frames: { app, contents: () => webContents.getAllWebContents() },
     client: routinesMain.client,
+    // The agent's shares wait on a card only while a window can show it; otherwise they are refused at once.
+    attended: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed()),
   }).account
   // Another computer changed a routine: Governance's hint arrives over the relay while remote control is connected.
   // Without it the sync still reads the feed every few minutes.

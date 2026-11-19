@@ -10,9 +10,11 @@ import type { DriveIpc } from "./ipc"
 
 // The agent's shares, main's side (D24). Before a `documents_share` call runs, the server plugin publishes it and waits
 // (`DynWorkDocuments.confirm`); main shows it on a card in its conversation, with the names of the document and the
-// person where the Drive gives them, and sends back the user's decision. "Allow in this conversation" is kept here, per
-// conversation and kind of share, for as long as the app runs: the next share of that kind in that conversation is
-// allowed without a card, one in another conversation shows its own. Nothing is saved, so a restart asks again.
+// person (from the conversation's `documents_people`, or the Drive), says so (`shown`), and sends back the user's
+// decision. With no window to show it, main takes no share and the plugin refuses it. "Allow in this conversation" is
+// kept here, per conversation and kind of share, for as long as the app runs: the next share of that kind in that
+// conversation is allowed without a card, one in another conversation shows its own. Nothing is saved, so a restart asks
+// again.
 
 /** A session as far as the card's conversation is read from it. */
 export interface Session {
@@ -28,6 +30,10 @@ export interface Options {
   session: (id: string) => Promise<Session | undefined>
   /** Sends the plugin the user's decision. */
   decide: (decision: DynWorkDocuments.Decision) => Promise<unknown>
+  /** Tells the plugin the card is up, so the share waits for the user; without it the plugin refuses the share. */
+  shown: (id: string) => Promise<unknown>
+  /** Whether a window is open to show the card. Without one, the share is not taken and the plugin refuses it. */
+  attended: () => boolean
   /** The cards changed. */
   changed: () => void
 }
@@ -52,6 +58,12 @@ export function make(options: Options) {
       await options.decide({ id: share.id, allow: true }).catch(() => undefined)
       return
     }
+    // Nobody to ask: the share is left unanswered, and the plugin refuses it (`DynWorkDocuments.unheard`).
+    if (!options.attended()) {
+      known.delete(share.id)
+      return
+    }
+    void options.shown(share.id).catch(() => undefined)
     const shown = await card(share, session)
     // Withdrawn while the names were read.
     if (!known.has(share.id)) return
@@ -83,7 +95,7 @@ export function make(options: Options) {
       session,
       kind: share.kind,
       ...(target ? { target } : {}),
-      ...(share.subject ? { subject: { ...share.subject, ...named(await personName(share.subject)) } } : {}),
+      ...(share.subject ? { subject: await person(share.subject) } : {}),
       ...(share.level === undefined ? {} : { level: share.level }),
       ...(share.until === undefined ? {} : { until: share.until }),
     }
@@ -99,12 +111,15 @@ export function make(options: Options) {
     return options.service.folders().find((folder) => folder.id === id)?.name
   }
 
-  // A person by user id only while the instance names people by id (`peopleByRest`); otherwise the card shows the value
-  // the agent gave, an email or an id.
-  async function personName(subject: { kind: string; value: string }) {
-    if (subject.kind !== "user" || !options.service.capabilities().peopleByRest) return undefined
+  // The name and email the conversation's `documents_people` call gave come with the share (0.83). Otherwise, while the
+  // instance names people by id (`peopleByRest`, 0.84), the name is read; failing both, the card shows the value the
+  // agent gave, an email or an id.
+  async function person(subject: DynWorkDocuments.Subject) {
+    if (subject.name !== undefined || subject.kind !== "user" || !options.service.capabilities().peopleByRest)
+      return subject
     const people = await options.service.using((backend) => backend.people([subject.value]))
-    return isFailure(people) ? undefined : people.find((person) => person.id === subject.value)?.name
+    const name = isFailure(people) ? undefined : people.find((item) => item.id === subject.value)?.name
+    return { ...subject, ...named(name) }
   }
 
   function withdraw(id: string) {
@@ -167,7 +182,7 @@ const decodeShares = Schema.decodeUnknownOption(DynWorkDocuments.Shares)
  */
 export function setup(
   ctx: Pick<MainContext, "onCleanup" | "provide">,
-  input: { service: Options["service"]; client: () => OpenCodeClient | undefined },
+  input: { service: Options["service"]; client: () => OpenCodeClient | undefined; attended: () => boolean },
 ) {
   const call = async (method: string, value: unknown) => {
     const client = input.client()
@@ -182,6 +197,8 @@ export function setup(
       return found && { parentID: found.parentID, conversation: found.metadata?.conversation === true }
     },
     decide: (decision) => call("decide", decision),
+    shown: (id) => call("shown", { id }),
+    attended: input.attended,
     changed: () => provider.changed(),
   })
   const ipc = ctx.provide(Shares, {

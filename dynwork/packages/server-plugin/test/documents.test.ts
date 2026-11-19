@@ -222,6 +222,58 @@ describe("what the user confirms before the agent shares", () => {
     })
   })
 
+  test("a person the conversation looked up with documents_people shows by name and email", () => {
+    DynWorkDocuments.heard({
+      tool: "documents_documents_people",
+      sessionID: "ses_people",
+      id: "call_p",
+      input: { query: "jes" },
+      status: "completed",
+      result: {
+        output: {
+          people: [
+            { user_id: "e51c808f-1", name: "Jesús Pérez", email: "jesus.perez@dynapps.es", access: "view" },
+            { user_id: "e51c808f-2", name: "Jesús Gil" },
+          ],
+        },
+      },
+    })
+    const grant = (value: string, session = "ses_people") =>
+      DynWorkDocuments.sharing(
+        call({ document_id: "d1", subject_kind: "user", subject_value: value, level: "view" }, session),
+      )?.subject
+    expect(grant("e51c808f-1")).toEqual({
+      kind: "user",
+      value: "e51c808f-1",
+      name: "Jesús Pérez",
+      email: "jesus.perez@dynapps.es",
+    })
+    expect(grant("e51c808f-2")).toEqual({ kind: "user", value: "e51c808f-2", name: "Jesús Gil" })
+    expect(
+      DynWorkDocuments.sharing(call({ document_id: "d1", transfer_to: "e51c808f-1" }, "ses_people"))?.subject,
+    ).toMatchObject({
+      name: "Jesús Pérez",
+    })
+    // An email is shown as it is; an id never seen, or seen in another conversation, stays the raw id.
+    expect(grant("luis@dynapps.es")).toEqual({ kind: "user", value: "luis@dynapps.es" })
+    expect(grant("e51c808f-9")).toEqual({ kind: "user", value: "e51c808f-9" })
+    expect(grant("e51c808f-1", "ses_other")).toEqual({ kind: "user", value: "e51c808f-1" })
+  })
+
+  test("only a completed documents_people answer is kept", () => {
+    const people = { people: [{ user_id: "u-x", name: "Xavi" }] }
+    for (const event of [
+      { tool: "documents_documents_people", status: "error" as const, result: { output: people } },
+      { tool: "documents_documents_access", status: "completed" as const, result: { output: people } },
+      { tool: "documents_documents_people", status: "completed" as const, result: { output: "3 people" } },
+    ])
+      DynWorkDocuments.heard({ ...event, sessionID: "ses_px", id: "c", input: {} })
+    expect(DynWorkDocuments.sharing(call({ subject_kind: "user", subject_value: "u-x" }, "ses_px"))?.subject).toEqual({
+      kind: "user",
+      value: "u-x",
+    })
+  })
+
   test("a transfer and a revoke_all are asked about too, each as what it is", () => {
     expect(DynWorkDocuments.sharing(call({ document_id: "d1", transfer_to: "user-luis" }))).toEqual({
       id: "call_s",
@@ -334,12 +386,33 @@ describe("waiting for the user's decision on a share", () => {
     expect(shown.at(-1)).toEqual(share("call_x"))
     expect(DynWorkDocuments.shares().shares).toContainEqual(share("call_x"))
     expect(DynWorkDocuments.decide({ id: "call_x", allow: true })).toEqual({ accepted: true })
-    expect(await running).toBe(true)
+    expect(await running).toBe("allow")
     expect(DynWorkDocuments.shares().shares).not.toContainEqual(share("call_x"))
     const refused = Effect.runPromise(DynWorkDocuments.confirm(confirmer, share("call_y")))
     await settle()
     DynWorkDocuments.decide({ id: "call_y", allow: false })
-    expect(await refused).toBe(false)
+    expect(await refused).toBe("reject")
+  })
+
+  test("nobody hearing the share refuses it, instead of leaving it waiting for nobody", async () => {
+    const outcome = await Effect.runPromise(DynWorkDocuments.confirm(confirmer, share("call_unheard"), "30 millis"))
+    expect(outcome).toBe("unheard")
+    // The card that never showed is withdrawn, and a decision after it changes nothing.
+    expect(withdrawn).toContain("call_unheard")
+    expect(DynWorkDocuments.decide({ id: "call_unheard", allow: true })).toEqual({ accepted: false })
+    expect(DynWorkDocuments.unheard).toContain("could not ask the user")
+    expect(DynWorkDocuments.unheard).toContain("nothing was shared")
+  })
+
+  test("a card main shows waits for the user past that window, as long as it takes", async () => {
+    const running = Effect.runPromise(DynWorkDocuments.confirm(confirmer, share("call_shown"), "30 millis"))
+    await settle()
+    expect(DynWorkDocuments.shown({ id: "call_shown" })).toEqual({ accepted: true })
+    await new Promise((resolve) => setTimeout(resolve, 120))
+    expect(DynWorkDocuments.shares().shares).toContainEqual(share("call_shown"))
+    DynWorkDocuments.decide({ id: "call_shown", allow: true })
+    expect(await running).toBe("allow")
+    expect(DynWorkDocuments.shown({ id: "call_shown" })).toEqual({ accepted: false })
   })
 
   test("a stopped call withdraws its card, and a decision for nothing that waits is not accepted", async () => {

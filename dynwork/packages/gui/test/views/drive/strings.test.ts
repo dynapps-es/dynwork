@@ -4,7 +4,7 @@ import en from "../../../src/views/drive/en"
 import es from "../../../src/views/drive/es"
 import fr from "../../../src/views/drive/fr"
 import nl from "../../../src/views/drive/nl"
-import { emphasized, formats, scopes, sorts, typeFilters } from "../../../src/views/drive/model"
+import { emphasized, formats, scopes, shareSubject, sorts, typeFilters } from "../../../src/views/drive/model"
 
 const locales: Record<string, Record<string, string>> = { en, es, fr, nl }
 
@@ -82,6 +82,16 @@ describe("the Drive's strings", () => {
       { text: "Share ", strong: false },
       { text: "", strong: true },
     ])
+  })
+
+  test("the share card names a person looked up by name and email, and anyone else as the agent gave them", () => {
+    expect(shareSubject({ kind: "user", value: "e51c808f-1", name: "Jesús Pérez", email: "jesus@dynapps.es" })).toBe(
+      "Jesús Pérez (jesus@dynapps.es)",
+    )
+    expect(shareSubject({ kind: "user", value: "e51c808f-2", name: "Jesús Gil" })).toBe("Jesús Gil")
+    expect(shareSubject({ kind: "user", value: "luis@dynapps.es" })).toBe("luis@dynapps.es")
+    expect(shareSubject({ kind: "user", value: "e51c808f-9" })).toBe("e51c808f-9")
+    expect(shareSubject({ kind: "group", value: "sales" })).toBe("sales (group)")
   })
 
   // The platform and the other products behind Governance are never named on screen.

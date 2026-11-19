@@ -19,6 +19,8 @@ export interface Options {
   frames?: DriveFrames.Host
   /** DynWork's service, where the agent's `documents` tools run: its writes are followed (`DriveAgent`). Absent, none is. */
   client?: () => OpenCodeClient | undefined
+  /** Whether a window is open to show a share's card (`DriveShare`); absent, none is, and the agent's shares are refused. */
+  attended?: () => boolean
 }
 
 // The Drive's main side, set up by the `dynwork` built-in's main entry next to the routines: the `dynwork.drive` Ipc
@@ -57,7 +59,7 @@ export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, opti
   if (options.client) {
     DriveAgent.setup(ctx, { service, client: options.client, untitled: ctx.t("drive.chat.untitled") })
     DriveMentions.setup(ctx, { service, client: options.client })
-    DriveShare.setup(ctx, { service, client: options.client })
+    DriveShare.setup(ctx, { service, client: options.client, attended: options.attended ?? (() => false) })
   }
   const ipc = ctx.provide(Drive, service.ipc)
   provider.changed = () => ipc.changed()
