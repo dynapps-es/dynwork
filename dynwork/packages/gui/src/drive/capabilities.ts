@@ -13,11 +13,12 @@ export const Capabilities = Schema.Struct({
   personActions: Schema.Boolean,
   /** P11: Governance names the conversation of a write. Off: the revision message names it. */
   conversationLabel: Schema.Boolean,
-  /** P10: comments on a cell range. */
+  /** P10: comments on a cell range (0.85). A PDF takes none: the core does not read PDF (D22). */
   rangeComments: Schema.Boolean,
-  /** P10: comments on a point of a PDF. */
-  pdfComments: Schema.Boolean,
-  /** P13: the agent writes HTML with scripts through the MCP. Off: DynWork imports the HTML it uploaded. */
+  /**
+   * P13: the agent rewrites HTML with scripts through the MCP (`content_blob_ref`, 0.84). Off: DynWork imports the HTML
+   * it uploaded, and refuses the agent's edits by ops of an HTML document, which strip its scripts (D21).
+   */
   rawHtmlByMcp: Schema.Boolean,
   /** P4: the agent makes folders and imports what it uploaded through the MCP. Off: DynWork does both by REST. */
   mcpFolders: Schema.Boolean,
@@ -25,8 +26,10 @@ export const Capabilities = Schema.Struct({
   contextByMcp: Schema.Boolean,
   /** P3: the Drive lists the documents of a conversation. Off: only the local index knows. */
   docsByContext: Schema.Boolean,
-  /** P6: the instance tells DynWork of changes. Off: DynWork polls. */
+  /** P6: the instance tells DynWork of changes (`document.drive.changed`, 0.84). Off: DynWork polls. */
   pushChanges: Schema.Boolean,
+  /** G13: the instance names people by id (`/api/v1/documents/people`, 0.84). Off: only the grants of a document do. */
+  peopleByRest: Schema.Boolean,
 })
 export type Capabilities = typeof Capabilities.Type
 export type Key = keyof Capabilities
@@ -36,12 +39,12 @@ export const none: Capabilities = {
   personActions: false,
   conversationLabel: false,
   rangeComments: false,
-  pdfComments: false,
   rawHtmlByMcp: false,
   mcpFolders: false,
   contextByMcp: false,
   docsByContext: false,
   pushChanges: false,
+  peopleByRest: false,
 }
 
 /** How often the Drive is read for changes. */
@@ -51,13 +54,14 @@ export const WATCHED = 20_000
 
 /**
  * Who a write is attributed to (D2): the instance names the agent from the signed token, so DynWork says the rest in
- * the revision message, and gives a conversation's writes its `x-context-id`.
+ * the revision message, and gives a conversation's writes its `x-context-id` (the instance's id for it, D20; none while
+ * it is not registered).
  * - From a conversation: "<conversation> by DynWork", until the instance shows the conversation itself (`conversationLabel`).
  * - Direct: "<user> by DynWork", until DynWork acts as the person (`personActions`), when it needs no message.
  */
 export function attribution(
   capabilities: Capabilities,
-  author: { user: string; conversation?: { name: string; context: string } },
+  author: { user: string; conversation?: { name: string; context?: string } },
 ) {
   if (author.conversation)
     return {
@@ -67,11 +71,19 @@ export function attribution(
   return { contextId: undefined, message: capabilities.personActions ? undefined : `${author.user} by DynWork` }
 }
 
-/** Whether a comment may be anchored there: a node always; a cell range and a point on a PDF only once delivered. */
+/** Whether a comment may be anchored there: a node always; a cell range only once delivered. */
 export function anchorable(capabilities: Capabilities, anchor: Anchor) {
   if (anchor.kind === "range") return capabilities.rangeComments
-  if (anchor.kind === "page") return capabilities.pdfComments
   return true
+}
+
+/**
+ * Whether the agent's `documents_edit` may go to the instance (D21). An edit by ops of an HTML document strips its
+ * scripts and styles until the instance keeps the page whole (`rawHtmlByMcp`): DynWork refuses it and the agent uploads
+ * the whole page again. Replacing the content with an uploaded blob (`content_blob_ref`) keeps it, and goes.
+ */
+export function agentEdits(capabilities: Capabilities, edit: { format: string; replace: boolean }) {
+  return edit.replace || edit.format !== "html" || capabilities.rawHtmlByMcp
 }
 
 /**

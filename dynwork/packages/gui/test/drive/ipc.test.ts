@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, jest, test } from "bun:test"
-import type { Backend } from "../../src/drive/backend"
+import { fail, type Backend } from "../../src/drive/backend"
 import type { DriveCapabilities } from "../../src/drive/capabilities"
 import { DriveFake } from "../../src/drive/fake"
 import { DriveIpc } from "../../src/drive/ipc"
@@ -312,21 +312,160 @@ describe("attribution", () => {
     expect((await ok(client.resolve({ id: created.document.id, comment: first.id }))).resolved).toBeNumber()
   })
 
-  test("a conversation keeps one context, a UUID v4, per account, kept on this computer", async () => {
+  test("a conversation keeps one context, the instance's, per account, kept on this computer", async () => {
     const store = storage(DriveIpc.Saved, DriveIpc.initial)
-    const { client, service, active, seen } = stand({ store })
+    const { client, service, active, seen, fake } = stand({ store })
     await ok(client.upload({ name: "1.md", bytes: text("x"), conversation: chat }))
     await ok(client.upload({ name: "2.md", bytes: text("x"), conversation: chat }))
     await ok(client.upload({ name: "3.md", bytes: text("x"), conversation: { id: "ses_other", name: "Other" } }))
     const contexts = seen.map((entry) => (entry.input as { contextId?: string }).contextId)
     expect(contexts[0]).toBe(contexts[1])
     expect(contexts[2]).not.toBe(contexts[0])
-    expect(store.value.accounts[ana.id]?.contexts[chat.id]).toBe(contexts[0])
+    expect(fake().contexts.get(contexts[0] ?? "")).toBe("Q3 report")
+    expect(store.value.accounts[ana.id]?.contexts[chat.id]).toEqual({ id: contexts[0], name: "Q3 report" })
     active.account = ben
     service.account()
     expect(service.context(chat.id)).not.toBe(contexts[0])
     // Main starting again reads the same one back.
     expect(stand({ store }).service.context(chat.id)).toBe(contexts[0])
+  })
+})
+
+describe("the conversation's context (D20)", () => {
+  test("the first write registers the conversation under its title; the next ones carry the same id", async () => {
+    const { client, fake, seen, service } = stand()
+    expect(service.context(chat.id)).toBeUndefined()
+    await ok(client.upload({ name: "1.md", bytes: text("x"), conversation: chat }))
+    await ok(client.upload({ name: "2.md", bytes: text("x"), conversation: chat }))
+    expect(fake().calls.createContext).toBe(1)
+    expect([...fake().contexts.values()]).toEqual(["Q3 report"])
+    const id = service.context(chat.id)
+    expect(fake().contexts.has(id ?? "")).toBe(true)
+    expect(seen.map((entry) => (entry.input as { contextId?: string }).contextId)).toEqual([id, id])
+  })
+
+  test("a direct write registers nothing", async () => {
+    const { client, fake } = stand()
+    await ok(client.upload({ name: "d.md", bytes: text("x") }))
+    expect(fake().calls.createContext).toBeUndefined()
+  })
+
+  test("writes of one conversation made together register it once", async () => {
+    const { client, fake, seen } = stand()
+    await Promise.all(
+      ["1", "2", "3"].map((name) => ok(client.upload({ name: `${name}.md`, bytes: text("x"), conversation: chat }))),
+    )
+    expect(fake().calls.createContext).toBe(1)
+    expect(new Set(seen.map((entry) => (entry.input as { contextId?: string }).contextId)).size).toBe(1)
+  })
+
+  test("a renamed conversation renames its context on its next write, and keeps its id", async () => {
+    const { client, fake, service, store } = stand()
+    await ok(client.upload({ name: "1.md", bytes: text("x"), conversation: chat }))
+    const id = service.context(chat.id)
+    await ok(client.upload({ name: "2.md", bytes: text("x"), conversation: { ...chat, name: "Q3 closing" } }))
+    expect(service.context(chat.id)).toBe(id)
+    expect(fake().contexts.get(id ?? "")).toBe("Q3 closing")
+    expect(fake().calls.renameContext).toBe(1)
+    expect(store.value.accounts[ana.id]?.contexts[chat.id]).toEqual({ id, name: "Q3 closing" })
+  })
+
+  test("a context the instance no longer knows is registered again; any other failure keeps it", async () => {
+    const answer = { rename: fail("not-found", "No such conversation.") }
+    const { client, fake, service } = stand({
+      backend: (fake) => ({ ...fake, renameContext: async () => answer.rename }),
+    })
+    await ok(client.upload({ name: "1.md", bytes: text("x"), conversation: chat }))
+    const first = service.context(chat.id)
+    answer.rename = fail("unreachable", "away")
+    await ok(client.upload({ name: "2.md", bytes: text("x"), conversation: { ...chat, name: "Renamed" } }))
+    expect(service.context(chat.id)).toBe(first)
+    answer.rename = fail("not-found", "No such conversation.")
+    await ok(client.upload({ name: "3.md", bytes: text("x"), conversation: { ...chat, name: "Renamed" } }))
+    expect(service.context(chat.id)).not.toBe(first)
+    expect(fake().contexts.get(service.context(chat.id) ?? "")).toBe("Renamed")
+  })
+
+  test("without an answer the write goes without a context, and the next write registers it", async () => {
+    const down = { on: true }
+    const { client, seen, service } = stand({
+      backend: (fake) => ({
+        ...fake,
+        upload: (input) => (seen.push({ method: "upload", input }), fake.upload(input)),
+        createContext: (name) =>
+          down.on ? Promise.resolve(fail("unreachable", "Governance did not answer.")) : fake.createContext(name),
+      }),
+    })
+    await ok(client.upload({ name: "1.md", bytes: text("x"), conversation: chat }))
+    expect(seen[0]?.input).toMatchObject({ contextId: undefined, message: "Q3 report by DynWork" })
+    expect(service.context(chat.id)).toBeUndefined()
+    down.on = false
+    await ok(client.upload({ name: "2.md", bytes: text("x"), conversation: chat }))
+    expect(seen[1]?.input).toMatchObject({ contextId: service.context(chat.id) })
+    expect(service.context(chat.id)).toMatch(uuid)
+  })
+
+  test("a context an earlier version made up is never sent: the next write registers one, and the links stay", async () => {
+    const store = storage(DriveIpc.Saved, DriveIpc.initial)
+    const legacy = "8f9a3c52-7d1e-4b6a-9c0d-2e5f7a8b1c3d"
+    const kept = { conversation: chat.id, document: "doc-old", act: "created" as const, via: "rest" as const, at: 1 }
+    store.update((draft) => {
+      draft.accounts[ana.id] = { contexts: { [chat.id]: legacy }, links: [kept] }
+    })
+    const { client, service, seen, fake } = stand({ store })
+    expect(service.context(chat.id)).toBeUndefined()
+    await ok(client.upload({ name: "new.md", bytes: text("x"), conversation: chat }))
+    const sent = (seen[0]?.input as { contextId?: string }).contextId
+    expect(sent).not.toBe(legacy)
+    expect(fake().contexts.get(sent ?? "")).toBe("Q3 report")
+    expect(store.value.accounts[ana.id]?.contexts[chat.id]).toEqual({ id: sent, name: "Q3 report" })
+    expect((await ok(client.documentsOf({ conversation: chat.id }))).map((link) => link.document)).toContain("doc-old")
+  })
+})
+
+describe("changes the stream announces (G09)", () => {
+  test("pushChanges on: a change reads the account's Drive at once; a burst makes at most one more read", async () => {
+    const { service, fake, client } = stand({ capabilities: { pushChanges: true } })
+    await flush()
+    const reads = fake().calls.list ?? 0
+    await fake().upload({ name: "web.md", bytes: text("x"), mime: "text/markdown" })
+    service.reread(ana.id)
+    service.reread(ana.id)
+    service.reread(ana.id)
+    await flush()
+    expect(fake().calls.list).toBe(reads + 2)
+    expect(client.state().documents.map((document) => document.name)).toEqual(["web.md"])
+  })
+
+  test("pushChanges off, or another account's change: nothing is read", async () => {
+    const off = stand()
+    await flush()
+    const reads = off.fake().calls.list
+    off.service.reread(ana.id)
+    await flush()
+    expect(off.fake().calls.list).toBe(reads)
+    const other = stand({ capabilities: { pushChanges: true } })
+    await flush()
+    const before = other.fake().calls.list
+    other.service.reread(ben.id)
+    await flush()
+    expect(other.fake().calls.list).toBe(before)
+  })
+})
+
+describe("people by id (G13)", () => {
+  test("peopleByRest off: unsupported, without a call; on, the instance names whom it knows", async () => {
+    const people = { "user-bob": "Bob Martín" }
+    const off = stand()
+    expectFailure(await off.client.people({ ids: ["user-bob"] }), "unsupported")
+    expect(off.fake().calls.people).toBeUndefined()
+    const on = stand({
+      capabilities: { peopleByRest: true },
+      backend: () => DriveFake.make({ user: "user-account-ana", people }),
+    })
+    expect(await ok(on.client.people({ ids: ["user-bob", "user-gone"] }))).toEqual([
+      { id: "user-bob", name: "Bob Martín" },
+    ])
   })
 })
 
@@ -410,13 +549,10 @@ describe("comment anchors", () => {
     expect(on.seen.map((entry) => entry.method)).toEqual(["comment"])
   })
 
-  test("pdfComments off: a point on a PDF is refused without reaching the Drive; on, it reaches it", async () => {
-    const anchor = { kind: "page" as const, page: 1, x: 0.2, y: 0.4 }
-    const off = stand()
-    expectFailure(await off.client.comment({ id: "doc", body: "?", anchor }), "unsupported")
-    expect(off.seen).toEqual([])
-    const on = stand({ capabilities: { pdfComments: true } })
-    await on.client.comment({ id: "doc", body: "?", anchor })
-    expect(on.seen.map((entry) => entry.method)).toEqual(["comment"])
+  test("a point on a PDF is no anchor at all: it does not cross to main (D22)", async () => {
+    const { client, seen } = stand()
+    const page = { kind: "page", page: 1, x: 0.2, y: 0.4 } as unknown as { kind: "node"; node: string }
+    await expect(client.comment({ id: "doc", body: "?", anchor: page })).rejects.toThrow()
+    expect(seen).toEqual([])
   })
 })

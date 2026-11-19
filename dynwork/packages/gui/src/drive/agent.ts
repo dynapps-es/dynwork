@@ -12,8 +12,9 @@ import type { DriveIpc } from "./ipc"
 
 // What the agent does with the instance's `documents` MCP server, on the Drive's side (D4, D8). The server plugin
 // watches the tools' calls (`@dynwork/server-plugin/documents`) and tells main: before a write, so that a new document
-// lands in the conversation's folder and its revision names the conversation; after one, so that the document enters
-// the conversation's index and a page the agent uploaded is imported with its scripts (C7).
+// lands in the conversation's folder and its revision names the conversation, and so that an edit by ops of an HTML
+// page, which would strip its scripts, is refused (D21); after one, so that the document enters the conversation's
+// index and a page the agent uploaded is imported with its scripts (C7).
 
 /** The conversation as the Drive's folders name it. */
 export interface Session {
@@ -23,8 +24,8 @@ export interface Session {
 }
 
 export interface Options {
-  /** The service's `using`, `changing`, `record`, `folder`, `author` and `capabilities`. */
-  service: Pick<DriveIpc.Service, "using" | "changing" | "record" | "folder" | "author" | "capabilities">
+  /** The service's `using`, `changing`, `record`, `folder`, `author`, `message` and `capabilities`. */
+  service: Pick<DriveIpc.Service, "using" | "changing" | "record" | "folder" | "author" | "message" | "capabilities">
   /** A conversation's session, or undefined when the service does not know it. */
   session: (id: string) => Promise<Session | undefined>
   /** What a conversation without a title is called. */
@@ -38,6 +39,13 @@ export const root = "Artifacts"
 
 /** How many names an import tries when the folder already holds the page's own. */
 const attempts = 9
+
+/** What the agent is told when DynWork refuses its edit of an HTML page (D21). */
+export const htmlRefused = [
+  "Dynwork did not send this edit: the document is an HTML page, and an edit by ops would strip its scripts and styles.",
+  "Upload the whole changed page with documents_upload (mime text/html, a name ending in .html) instead: Dynwork",
+  "imports it as a document of this conversation, scripts kept.",
+].join(" ")
 
 export function make(options: Options) {
   const service = options.service
@@ -57,19 +65,35 @@ export function make(options: Options) {
     await options.answer({ id: request.id, ...answer })
   }
 
-  async function answered(request: DynWorkDocuments.Ask) {
+  async function answered(request: DynWorkDocuments.Ask): Promise<Omit<DynWorkDocuments.Answer, "id">> {
+    if (await refused(request)) return { refuse: htmlRefused }
     const session = await options.session(request.session)
     if (!session) return {}
     const conversation = { id: request.session, name: clean(session.title) ?? options.untitled }
     const filed =
       request.verb === "create" && DriveCapabilities.agentFiling(service.capabilities(), "markdown") === "rest"
     const answer = await service.using(async (backend, account) => {
-      const message = service.author(account, conversation).message
+      const message = service.message(account, conversation)
       if (!filed) return { message }
       const folder = await serial(() => place(backend, account.id, conversation, session))
       return { message, folder: isFailure(folder) ? undefined : folder }
     })
     return isFailure(answer) ? {} : answer
+  }
+
+  /**
+   * Whether an edit must not reach the instance: one by ops of an HTML document (`DriveCapabilities.agentEdits`). The
+   * document's format is read only when it decides; when it cannot be read, the edit goes and the instance answers it.
+   */
+  async function refused(request: DynWorkDocuments.Ask) {
+    const document = request.document
+    const replace = request.replace === true
+    if (request.verb !== "edit" || document === undefined) return false
+    // Allowed whatever the format: no need to read it.
+    if (DriveCapabilities.agentEdits(service.capabilities(), { format: "html", replace })) return false
+    const detail = await service.using((backend) => backend.get(document))
+    if (isFailure(detail)) return false
+    return !DriveCapabilities.agentEdits(service.capabilities(), { format: detail.document.format, replace })
   }
 
   /** The conversation's folder: kept from its first use; made under `Artifacts/<project>` when there is none. */
@@ -139,7 +163,7 @@ export function make(options: Options) {
       const folder = session ? await serial(() => place(backend, account.id, conversation, session)) : undefined
       if (folder !== undefined && isFailure(folder)) return folder
       const created = await importing(backend, {
-        ...service.author(account, conversation),
+        ...(await service.author(backend, account, conversation)),
         blob,
         name,
         folder,
@@ -161,11 +185,14 @@ export function make(options: Options) {
 
 export type Agent = ReturnType<typeof make>
 
-// A folder named `name` under `parent` (a root when none), made when it is not there.
+// A folder named `name` under `parent` (a root when none), made when it is not there. A folder of that name made
+// meanwhile (in Governance, or by another of the user's computers) is refused as `name_taken` (409, 0.84): it is the one.
 async function folderIn(backend: Backend, parent: string | undefined, name: string) {
   const found = await find(backend, parent, name)
   if (isFailure(found) || found) return found
-  return backend.createFolder({ name, parent })
+  const made = await backend.createFolder({ name, parent })
+  if (!isFailure(made) || made.code !== "conflict") return made
+  return (await find(backend, parent, name)) ?? made
 }
 
 // The folder named `name` directly under `parent` (a root when none). The instance lists a folder's own folders, not its

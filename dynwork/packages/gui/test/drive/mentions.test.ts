@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { OpenCodeClient } from "@opencode/client/promise"
+import type { DriveCapabilities } from "../../src/drive/capabilities"
 import { DriveFake } from "../../src/drive/fake"
 import { DriveIpc } from "../../src/drive/ipc"
 import { DriveMentions } from "../../src/drive/mentions"
@@ -25,6 +26,7 @@ interface Standing {
   /** The Drives of an earlier run of the app: what the accounts hold stays where it is. */
   backends?: Record<string, DriveFake.Fake>
   account?: typeof ana | typeof bob | { id: string; user: string; url: string }
+  capabilities?: Partial<DriveCapabilities.Capabilities>
 }
 
 function stand(options: Standing = {}) {
@@ -41,6 +43,7 @@ function stand(options: Standing = {}) {
     store,
     changed: () => {},
     timers: manualTimers(),
+    capabilities: () => options.capabilities ?? {},
     // Each write is a moment later than the one before, so that "the last" is not a tie
     now: () => (clock.value += 1),
   })
@@ -356,7 +359,7 @@ describe("following the stream", () => {
     const id = await subject.document()
     const life = new AbortController()
     void subject.mentions.follow(life.signal, quick)
-    await until(() => (subject.backends[ana.id].calls.mentions ?? 0) === 1)
+    await until(() => (subject.backends[ana.id].calls.stream ?? 0) === 1)
     // Written straight to the Drive, not through the service: only the stream can tell
     const created = await ok(
       subject.backends[ana.id].comment(id, { body: "@[Ana](user:user-ana) from the web", anchor: node, agent: true }),
@@ -370,7 +373,7 @@ describe("following the stream", () => {
     const subject = stand()
     const life = new AbortController()
     void subject.mentions.follow(life.signal, { ...quick, lifetime: 20 })
-    await until(() => (subject.backends[ana.id].calls.mentions ?? 0) >= 3)
+    await until(() => (subject.backends[ana.id].calls.stream ?? 0) >= 3)
     life.abort()
   })
 
@@ -378,11 +381,43 @@ describe("following the stream", () => {
     const subject = stand()
     const life = new AbortController()
     void subject.mentions.follow(life.signal, quick)
-    await until(() => (subject.backends[ana.id].calls.mentions ?? 0) === 1)
+    await until(() => (subject.backends[ana.id].calls.stream ?? 0) === 1)
     subject.active.value = bob
     subject.service.account()
-    await until(() => (subject.backends[bob.id].calls.mentions ?? 0) === 1)
-    expect(subject.backends[ana.id].calls.mentions).toBe(1)
+    await until(() => (subject.backends[bob.id].calls.stream ?? 0) === 1)
+    expect(subject.backends[ana.id].calls.stream).toBe(1)
+    life.abort()
+  })
+
+  test("pushChanges on: a change of the Drive the stream announces reads the account's Drive again (G09)", async () => {
+    const subject = stand({ capabilities: { pushChanges: true } })
+    await flush()
+    const life = new AbortController()
+    void subject.mentions.follow(life.signal, quick)
+    await until(() => (subject.backends[ana.id].calls.stream ?? 0) === 1)
+    const reads = subject.backends[ana.id].calls.list ?? 0
+    // Written straight to the Drive, as from the web: only the change says so
+    await subject.backends[ana.id].upload({ name: "web.md", bytes: text("x"), mime: "text/markdown" })
+    subject.backends[ana.id].changed()
+    await until(() => subject.state().documents.some((document) => document.name === "web.md"))
+    expect(subject.backends[ana.id].calls.list).toBe(reads + 1)
+    expect(subject.woken).toEqual([])
+    life.abort()
+  })
+
+  test("pushChanges off: a change is heard and nothing is read; the mentions after it are still attended", async () => {
+    const subject = stand()
+    const id = await subject.document()
+    await flush()
+    const life = new AbortController()
+    void subject.mentions.follow(life.signal, quick)
+    await until(() => (subject.backends[ana.id].calls.stream ?? 0) === 1)
+    const reads = subject.backends[ana.id].calls.list ?? 0
+    subject.backends[ana.id].changed()
+    // The stream keeps its order: once the mention after the change is attended, the change was heard
+    await ok(subject.backends[ana.id].comment(id, { body: "@[Ana](user:user-ana) then", anchor: node, agent: true }))
+    await until(() => subject.woken.length === 1)
+    expect(subject.backends[ana.id].calls.list).toBe(reads)
     life.abort()
   })
 
@@ -392,7 +427,7 @@ describe("following the stream", () => {
     void subject.mentions.follow(life.signal, quick)
     await new Promise((resolve) => setTimeout(resolve, 30))
     life.abort()
-    expect(subject.backends[ana.id].calls.mentions).toBeUndefined()
+    expect(subject.backends[ana.id].calls.stream).toBeUndefined()
   })
 })
 

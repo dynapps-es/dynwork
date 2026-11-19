@@ -7,6 +7,7 @@ import {
   DriveBlob,
   DriveComment,
   DriveComments,
+  DriveContext,
   DriveCreated,
   DriveDetail,
   DriveErrorBody,
@@ -14,6 +15,7 @@ import {
   DriveLanded,
   DriveListing,
   DriveOutline,
+  DrivePeople,
   DriveProposals,
   DriveProposed,
   DriveRevisions,
@@ -301,6 +303,90 @@ export const agentCap = Effect.fn("SpDrive.agentCap")(function* (
     limit: 1024 * 1024,
   })
 })
+
+/**
+ * Registers a conversation in the instance (`POST /api/v1/core/contexts`) under `name`, its title, and answers its
+ * `context_id`: the `x-context-id` its writes carry. 0.84 refuses an `x-context-id` the instance did not issue to the
+ * user (`422 unknown_context`), so a conversation's id is the instance's, not one DynWork makes up.
+ */
+export const createContext = Effect.fn("SpDrive.createContext")(function* (baseUrl: string, jwt: string, name: string) {
+  return (yield* json(
+    DriveContext,
+    {
+      method: "POST",
+      path: "/api/v1/core/contexts",
+      endpoint: "POST /api/v1/core/contexts",
+      baseUrl,
+      jwt,
+      body: { name },
+      limit: 1024 * 1024,
+    },
+    [201],
+  )).data.context_id
+})
+
+/** Gives a registered conversation its new title (`PUT /api/v1/core/contexts/{id}`). One the user does not own is `NotFound`. */
+export const renameContext = Effect.fn("SpDrive.renameContext")(function* (
+  baseUrl: string,
+  jwt: string,
+  id: string,
+  name: string,
+) {
+  yield* json(DriveContext, {
+    method: "PUT",
+    path: `/api/v1/core/contexts/${encodeURIComponent(id)}`,
+    endpoint: "PUT /api/v1/core/contexts/{id}",
+    baseUrl,
+    jwt,
+    body: { name },
+    limit: 1024 * 1024,
+  })
+})
+
+/** How many user ids `people` asks the instance for in one call: its own limit. */
+export const peoplePerCall = 20
+
+/**
+ * The people of `ids` (`GET /api/v1/documents/people?ids=`, 0.84), `peoplePerCall` at a time, in one list. The instance
+ * leaves out the ids it does not know and the people who are no longer active.
+ */
+export const people = Effect.fn("SpDrive.people")(function* (baseUrl: string, jwt: string, ids: ReadonlyArray<string>) {
+  const unique = [...new Set(ids)]
+  const calls = Array.from({ length: Math.ceil(unique.length / peoplePerCall) }, (_, index) =>
+    unique.slice(index * peoplePerCall, (index + 1) * peoplePerCall),
+  )
+  const found = yield* Effect.forEach(calls, (chunk) =>
+    findPeople(baseUrl, jwt, new URLSearchParams({ ids: chunk.join(",") })),
+  )
+  return found.flat()
+})
+
+/**
+ * The active people whose name, email or id starts with `query` (`GET /api/v1/documents/people?query=`, 0.84): who
+ * can be mentioned. With `document`, each says the access they hold on it.
+ */
+export const searchPeople = Effect.fn("SpDrive.searchPeople")(function* (
+  baseUrl: string,
+  jwt: string,
+  query: string,
+  options?: { readonly limit?: number; readonly document?: string },
+) {
+  const search = new URLSearchParams({ query })
+  if (options?.limit !== undefined) search.set("limit", String(options.limit))
+  if (options?.document !== undefined) search.set("document_id", options.document)
+  return yield* findPeople(baseUrl, jwt, search)
+})
+
+const findPeople = (baseUrl: string, jwt: string, query: URLSearchParams) =>
+  json(DrivePeople, {
+    method: "GET",
+    path: `${documents}/people`,
+    query,
+    endpoint: "GET /api/v1/documents/people",
+    baseUrl,
+    jwt,
+    limit: 1024 * 1024,
+  }).pipe(Effect.map((answer) => answer.people))
 
 /** Where a write is attributed: the revision `message` ("... by DynWork") and the conversation (`x-context-id`). */
 export type Attribution = {
@@ -834,6 +920,7 @@ const base = Effect.fnUntraced(function* (baseUrl: string) {
 
 /** A mention of the signed-in user in someone's comment, as the bridge stream announces it. */
 export type Mentioned = {
+  readonly kind: "mentioned"
   readonly document: string
   readonly comment: string
   /** The user who was mentioned. */
@@ -843,13 +930,22 @@ export type Mentioned = {
 }
 
 /**
- * Opens the bridge stream (`GET /v1/bridge/stream`, server-sent events) and answers the `document.comment.mentioned`
- * events it carries, until it ends or `signal` aborts. The event says who was mentioned and by whom, not with which
- * attention (0.83), and the stream keeps no history: a mention made while it was closed is not replayed. It rejects, before
- * answering, with `Unauthorized` or `Unreachable`, so that a caller can mint again and retry; a stream that breaks later
- * just ends.
+ * Something the user can see in the Drive changed (`document.drive.changed`, 0.84): the event names no document, so the
+ * Drive is read again. The instance coalesces it per document, and sends none when it cannot tell who may see one.
  */
-export async function mentions(baseUrl: string, jwt: string, signal: AbortSignal): Promise<AsyncGenerator<Mentioned>> {
+export type Changed = { readonly kind: "changed" }
+
+/** What the bridge stream says about the Drive. */
+export type Heard = Mentioned | Changed
+
+/**
+ * Opens the bridge stream (`GET /v1/bridge/stream`, server-sent events) and answers the Drive's events it carries
+ * (`document.comment.mentioned`, and from 0.84 `document.drive.changed`), until it ends or `signal` aborts. A mention says
+ * who was mentioned and by whom, not with which attention (0.83), and the stream keeps no history: what happened while
+ * it was closed is not replayed. It rejects, before answering, with `Unauthorized` or `Unreachable`, so that a caller can
+ * mint again and retry; a stream that breaks later just ends.
+ */
+export async function stream(baseUrl: string, jwt: string, signal: AbortSignal): Promise<AsyncGenerator<Heard>> {
   const endpoint = "GET /v1/bridge/stream"
   const root = await Effect.runPromise(base(baseUrl))
   const response = await fetch(`${root}/v1/bridge/stream`, {
@@ -865,7 +961,7 @@ export async function mentions(baseUrl: string, jwt: string, signal: AbortSignal
   return heard(response.body)
 }
 
-async function* heard(body: ReadableStream<Uint8Array>): AsyncGenerator<Mentioned> {
+async function* heard(body: ReadableStream<Uint8Array>): AsyncGenerator<Heard> {
   const decoder = new TextDecoder()
   const text = { pending: "" }
   const reader = body.getReader()
@@ -878,7 +974,7 @@ async function* heard(body: ReadableStream<Uint8Array>): AsyncGenerator<Mentione
       text.pending = frames.pop() ?? ""
       // A frame the instance sends and this client does not know is skipped, never an error
       for (const frame of frames) {
-        const found = mention(frame)
+        const found = event(frame)
         if (found !== undefined) yield found
       }
     }
@@ -887,30 +983,36 @@ async function* heard(body: ReadableStream<Uint8Array>): AsyncGenerator<Mentione
   }
 }
 
-const Heard = Schema.Struct({
-  name: Schema.Literal("document.comment.mentioned"),
-  value: Schema.Struct({
-    document_id: Schema.String,
-    comment_id: Schema.String,
-    mentioned_user_id: Schema.String,
-    author_id: Schema.String,
+const Frame = Schema.Union([
+  Schema.Struct({
+    name: Schema.Literal("document.comment.mentioned"),
+    value: Schema.Struct({
+      document_id: Schema.String,
+      comment_id: Schema.String,
+      mentioned_user_id: Schema.String,
+      author_id: Schema.String,
+    }),
   }),
-})
+  // `{v: 1}` and no ids: a later version of the event is still a change
+  Schema.Struct({ name: Schema.Literal("document.drive.changed") }),
+])
 
-// The event of one frame (its `data:` lines are an AG-UI custom event), when it is a mention.
-function mention(frame: string): Mentioned | undefined {
+// The event of one frame (its `data:` lines are an AG-UI custom event), when it is one of the Drive's.
+function event(frame: string): Heard | undefined {
   const data = frame
     .split(/\r?\n/)
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice(5).trimStart())
     .join("\n")
-  const decoded = Schema.decodeUnknownOption(Schema.fromJsonString(Heard))(data)
+  const decoded = Schema.decodeUnknownOption(Schema.fromJsonString(Frame))(data)
   if (decoded._tag === "None") return undefined
-  const value = decoded.value.value
+  const found = decoded.value
+  if (found.name === "document.drive.changed") return { kind: "changed" }
   return {
-    document: value.document_id,
-    comment: value.comment_id,
-    user: value.mentioned_user_id,
-    author: value.author_id,
+    kind: "mentioned",
+    document: found.value.document_id,
+    comment: found.value.comment_id,
+    user: found.value.mentioned_user_id,
+    author: found.value.author_id,
   }
 }

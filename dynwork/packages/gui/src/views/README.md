@@ -153,8 +153,8 @@ in-memory Drive for the tests.
   drawn by the app, so `CommentMarks` matches its blocks to the nodes by their text, marks the commented ones and offers
   Comment on a selection. A page in a frame (HTML, Word, Excel, PowerPoint) has an opaque origin the app cannot read, so
   the tab lists its nodes to pick from. A quote is only sent when it is in the node's own text (Markdown syntax
-  included); otherwise the comment anchors to the node. A cell range and a PDF point are offered only with
-  `rangeComments` and `pdfComments`.
+  included); otherwise the comment anchors to the node. A cell range is offered only with `rangeComments`; a PDF takes
+  no comment (D22). An author no grant names reads "Someone", unless the instance names people by id (`peopleByRest`).
 
 The menus load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does.
 

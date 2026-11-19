@@ -259,7 +259,7 @@ export function conformance(name: string, make: () => Subject) {
       const node = (await ok(backend.outline(created.document.id))).nodes[0]
       if (!node) throw new Error("the outline has no node")
       const stop = new AbortController()
-      const events = await backend.mentions?.(stop.signal)
+      const events = await backend.stream?.(stop.signal)
       if (events === undefined || isFailure(events)) throw new Error("the backend does not announce mentions")
       const asked = await ok(
         backend.comment(created.document.id, {
@@ -275,6 +275,7 @@ export function conformance(name: string, make: () => Subject) {
       expect(reply).toMatchObject({ body: "@Agent and this", agent: true })
       const heard = events[Symbol.asyncIterator]()
       expect((await heard.next()).value).toEqual({
+        kind: "mentioned",
         document: created.document.id,
         comment: asked.id,
         user,
@@ -318,7 +319,7 @@ export function conformance(name: string, make: () => Subject) {
       )
     })
 
-    test("a comment on a cell range or a PDF point is unsupported", async () => {
+    test("a comment on a cell range is unsupported", async () => {
       const { backend } = make()
       const created = await ok(backend.upload({ name: "sheet.md", bytes: text("# Hola"), mime: "text/markdown" }))
       expectFailure(
@@ -328,10 +329,19 @@ export function conformance(name: string, make: () => Subject) {
         }),
         "unsupported",
       )
-      expectFailure(
-        await backend.comment(created.document.id, { body: "?", anchor: { kind: "page", page: 1, x: 0.5, y: 0.5 } }),
-        "unsupported",
+    })
+
+    test("a conversation is registered under its title and renamed; one the instance does not know is not-found", async () => {
+      const { backend } = make()
+      const id = await ok(backend.createContext(`Q3 report ${randomUUID()}`))
+      expect(id).toMatch(/^[0-9a-f-]{36}$/)
+      const created = await ok(
+        backend.upload({ name: `in-${id}.md`, bytes: text("# Q3"), mime: "text/markdown", contextId: id }),
       )
+      expect(created.document.name).toBe(`in-${id}.md`)
+      expect(await backend.renameContext(id, "Q3 closing")).toBeUndefined()
+      expectFailure(await backend.renameContext(randomUUID(), "Gone"), "not-found")
+      expect(isFailure(await backend.createContext(""))).toBe(true)
     })
 
     test("an HTML document renders as designed with the policy it came with; any document previews", async () => {

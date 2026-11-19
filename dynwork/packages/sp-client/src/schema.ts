@@ -422,6 +422,26 @@ export const DriveBlob = Schema.Struct({
 })
 export type DriveBlob = typeof DriveBlob.Type
 
+// A conversation registered in the instance (`/api/v1/core/contexts`), inside the platform's `data` envelope, as
+// sp-local 0.83 answers it. Its id is what a write's `x-context-id` names.
+export const DriveContext = Schema.Struct({
+  data: Schema.Struct({ context_id: Schema.String, name: Schema.String }),
+})
+
+// The people of `GET /api/v1/documents/people` (0.84, the `documents_people` tool's fields): `access` only when the
+// search named a document.
+export const DrivePeople = Schema.Struct({
+  people: Schema.Array(
+    Schema.Struct({
+      user_id: Schema.String,
+      name: Nullable(Schema.String),
+      email: Nullable(Schema.String),
+      access: Nullable(Schema.String),
+    }),
+  ),
+})
+export type DrivePerson = (typeof DrivePeople.Type)["people"][number]
+
 // The Drive's error body: the platform envelope, plus the head the instance reports on a `409`
 export const DriveErrorBody = Schema.Struct({
   message: Schema.optional(Schema.String),

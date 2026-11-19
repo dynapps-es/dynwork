@@ -1,4 +1,4 @@
-import { Plugin, Rpc } from "@opencode/plugin/effect"
+import { Plugin, Rpc, Tool } from "@opencode/plugin/effect"
 import { Effect, Exit, Schema, Stream } from "effect"
 import { DynWorkBundles } from "./bundles"
 import { DynWorkConfig } from "./config"
@@ -601,13 +601,15 @@ export default Plugin.define({
       .pipe(Effect.orDie)
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
-        const write = DynWorkDocuments.verb(event.tool)
-        if (write !== "create" && write !== "edit") return
+        const request = DynWorkDocuments.asking(event)
+        if (!request) return
         const answered = yield* DynWorkDocuments.ask(
           { ask: (ask) => documentsRpc.events.emit("ask", ask).pipe(Effect.ignore) },
-          { id: event.id, session: event.sessionID, verb: write },
+          request,
         )
-        if (answered) event.input = DynWorkDocuments.apply(write, event.input, answered)
+        // A refused write never reaches the instance: the agent reads why as the call's error (D21).
+        if (answered?.refuse !== undefined) return yield* new Tool.Error({ message: answered.refuse })
+        if (answered) event.input = DynWorkDocuments.apply(request.verb, event.input, answered)
       }),
     )
     yield* ctx.tool.hook("execute.after", (event) => {

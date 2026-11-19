@@ -20,6 +20,7 @@ import type {
   Outline,
   Page,
   Pdf,
+  Person,
   Proposal,
   Query,
   Content,
@@ -94,13 +95,22 @@ export interface Backend {
     input: { body: string; parent: string; contextId?: string; agent?: boolean },
   ): Promise<Comment | Failure>
   resolve(id: string, comment: string): Promise<Comment | Failure>
+  /**
+   * Registers a conversation under `name`, its title, and answers the id its writes carry as `x-context-id` (D20): the
+   * instance's own, which it shows with the title and, from 0.84, is the only kind it accepts.
+   */
+  createContext(name: string): Promise<string | Failure>
+  /** Gives a registered conversation its new title; `not-found` when the instance does not know the id. */
+  renameContext(id: string, name: string): Promise<undefined | Failure>
+  /** The people of `ids`, as the instance names them (0.84, `peopleByRest`); an id it does not know is left out. */
+  people(ids: readonly string[]): Promise<readonly Person[] | Failure>
   /** The documents written with `contextId`, newest first: only where the instance lists by conversation (P3). */
   byContext?(contextId: string): Promise<readonly Document[] | Failure>
   /**
-   * The mentions of the user, as the instance announces them while the stream is open, until `signal` aborts. The stream
-   * keeps no history: what was mentioned while it was closed is not delivered.
+   * The bridge stream: the mentions of the user and, from 0.84, that the Drive changed, as the instance announces them
+   * while it is open, until `signal` aborts. It keeps no history: what happened while it was closed is not delivered.
    */
-  mentions?(signal: AbortSignal): Promise<AsyncIterable<DriveMentions.Heard> | Failure>
+  stream?(signal: AbortSignal): Promise<AsyncIterable<DriveMentions.Streamed> | Failure>
 }
 
 /** A failure. It is retryable only when `unreachable`, the one code that clears up by itself. */
@@ -347,8 +357,28 @@ export function remote(options: Remote): Backend {
       )
     },
     resolve: (id, target) => call((jwt) => SpDrive.resolveComment(url, jwt, id, target), comment),
+    createContext: (name) =>
+      call(
+        (jwt) => SpDrive.createContext(url, jwt, name),
+        (id) => id,
+      ),
+    renameContext: (id, name) =>
+      call(
+        (jwt) => SpDrive.renameContext(url, jwt, id, name),
+        () => undefined,
+      ),
+    // Someone without a name is named by their email; someone with neither is left unnamed.
+    people: (ids) =>
+      call(
+        (jwt) => SpDrive.people(url, jwt, ids),
+        (list) =>
+          list.flatMap((person) => {
+            const name = person.name || person.email
+            return name ? [{ id: person.user_id, name }] : []
+          }),
+      ),
     // The stream is opened with a JWT the account mints again when the instance refuses it; a stream that breaks later just ends.
-    mentions: (signal) => options.withJwt((jwt) => SpDrive.mentions(url, jwt, signal)).catch(failure),
+    stream: (signal) => options.withJwt((jwt) => SpDrive.stream(url, jwt, signal)).catch(failure),
   }
 }
 

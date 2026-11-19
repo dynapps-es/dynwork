@@ -41,14 +41,26 @@ every write, on `refresh`, and polled: every 5 minutes, every 20 s while a windo
 a document tab). A read that fails keeps the last folders and documents and says why in `status`. A read that answers
 for an account that already left is dropped. Listings, searches and pages of a folder are read live with `list`.
 
+From 0.84 the bridge stream says `document.drive.changed` (`{v: 1}`, no ids) to everyone who can see a document that
+got a revision. `DriveMentions` follows that one stream for mentions already, and hands each change to the service's
+`reread(account)`: with `pushChanges` on, the account's Drive is read at once (a burst of changes makes at most one more
+read) and the poll slows to 5 minutes; off, the event changes nothing and the poll stays as it is. 0.83 sends no such
+event.
+
 ## Who wrote it (D2)
 
 The instance names the agent from the signed token, never from the request, and DynWork's JWT acts as an attended
 agent. So the service says the rest:
 
 - A write from a conversation carries the revision message "`<conversation>` by DynWork" and the conversation's
-  `x-context-id`: a UUID v4 the service gives each conversation (by session id) once, kept per account in the plugin's
-  storage (`DriveIpc.Saved`).
+  `x-context-id`: the id the instance gives the conversation when the service registers it as a context
+  (`POST /api/v1/core/contexts {name}`, D20) on its first write, under its title. The id is kept per account and session
+  in the plugin's storage (`DriveIpc.Saved.contexts`, `{id, name}`); when the title changes, the next write renames the
+  context (`PUT /api/v1/core/contexts/{id}`), and one the instance no longer knows is registered again. Writes of a
+  conversation made together share one registration. When the instance does not answer, the write goes without an
+  `x-context-id` (never blocked) and the next one tries again. 0.84 refuses an `x-context-id` it did not issue
+  (`422 unknown_context`): a context saved as a plain string is a UUID an earlier version made up, never sent again,
+  and replaced at the conversation's next write (the index keys conversations by session id, so no link is lost).
 - A direct write carries "`<user>` by DynWork", the user's email or name.
 - A comment carries no message (the instance has no field for one), only the conversation's `x-context-id`.
 - 0.83 records no message on a document it creates from a file; the message is sent anyway.
@@ -96,6 +108,15 @@ OpenCode service                                       main process
   cannot. A name the folder already holds becomes `name (2).html`. Other uploads (an image for a Word file) are left
   alone. The agent learns this from a rule the plugin adds to the instance's own when the `documents` server is among
   its MCP servers (`DynWorkDocuments.rules`).
+- **No edit by ops of a page (D21).** Until `rawHtmlByMcp`, every op on an HTML document (`str_replace`, `set_html`,
+  ...) strips its scripts and styles (0.83). The plugin's `ask` for a `documents_edit` names the document and whether it
+  replaces the content from a blob (`content_blob_ref`, 0.84); main reads the document's format and, for an edit by ops
+  of an HTML one, answers `refuse` (`DriveCapabilities.agentEdits`). The plugin then fails the call in `execute.before`
+  with a `Tool.Error`, the hook's own way to reject a call, so it never reaches the instance and the agent reads that it
+  should upload the whole page again. A format that cannot be read lets the edit go.
+- **A folder made meanwhile (G05).** From 0.84 a folder whose name a sibling has is refused as `name_taken` (409,
+  `conflict` here). Making `Artifacts`, the project or the conversation's folder looks for the sibling of that name when
+  the instance answers so, and uses it. 0.83 never answers it.
 - **Switching a capability on.** `mcpFolders` makes `DriveAgent` leave the folder to the agent (no `ask` folder, no
   import of what it uploaded, unless it is HTML without `rawHtmlByMcp`); `conversationLabel` takes the message away;
   `contextByMcp` and `docsByContext` take the index's entry away (`DriveCapabilities.indexed`). The plugin's rule names
@@ -115,13 +136,13 @@ account that does not know its user's id keeps the text as typed and wakes nothi
 window ──comment "@Agent …"──► DriveIpc ──► Governance (mention of oneself, attention agent)
                                  │  asked ─────────────────────────────┐
                                  │                                     ▼
-Governance ──/v1/bridge/stream──► Backend.mentions ──► DriveMentions.attend ──► session.prompt ──► the conversation
+Governance ──/v1/bridge/stream──► Backend.stream ────► DriveMentions.attend ──► session.prompt ──► the conversation
                                                          (once per comment)        │
                                        documents_comment (the agent's own MCP tool) ◄┘ answers in the thread
 ```
 
 - **Two sources, one handler.** The service tells `DriveMentions` about each comment it writes with `@Agent`, and
-  `Backend.mentions` (the bridge stream, `SpDrive.mentions`) says every `document.comment.mentioned` of the user. The stream
+  `Backend.stream` (the bridge stream, `SpDrive.stream`) says every `document.comment.mentioned` of the user. The stream
   is what reaches a comment written elsewhere (the web); the write's own call does not wait for it. Both end in `attend`,
   which reads the comment back from the instance and takes it only when it is the user's own and mentions the user: the
   stream's word is not taken for it.
@@ -153,20 +174,24 @@ Each is a switch per account, off today, with its decisions in `capabilities.ts`
 or an announcement in the manifest, is decided when the first one arrives; until then `DriveMain.setup` takes them as an
 option.
 
-| Capability          | Gap | Off (today)                                                                              | On                                                                       |
-| ------------------- | --- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `personActions`     | G01 | A direct write is "`<user>` by DynWork"; person actions go to Governance                 | A direct write is the person's own, with no message                      |
-| `conversationLabel` | G02 | The message names the conversation                                                       | Only the `x-context-id`; Governance shows the conversation               |
-| `rangeComments`     | G08 | A comment on a cell range answers `unsupported` without a call                           | It reaches the backend                                                   |
-| `pdfComments`       | G08 | A comment on a PDF point answers `unsupported` without a call                            | It reaches the backend                                                   |
-| `rawHtmlByMcp`      | G04 | The agent's HTML is imported by DynWork from its `blob_ref`, keeping its scripts         | The agent writes it through the MCP (with `mcpFolders`)                  |
-| `mcpFolders`        | G05 | DynWork makes `Artifacts/<project>/<conversation>` and imports the agent's files by REST | The agent does it through the MCP                                        |
-| `contextByMcp`      | G06 | An MCP write enters the local index                                                      | Left to the Drive, once it also lists by conversation                    |
-| `docsByContext`     | G07 | `documentsOf` reads the local index only                                                 | REST writes are left to the Drive, which adds its list by `x-context-id` |
-| `pushChanges`       | G09 | 20 s poll while watched, 5 min otherwise                                                 | 5 min only, as the net for a missed push                                 |
+| Capability          | Gap | Off (today)                                                                               | On                                                                       |
+| ------------------- | --- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `personActions`     | G01 | A direct write is "`<user>` by DynWork"; person actions go to Governance                  | A direct write is the person's own, with no message                      |
+| `conversationLabel` | G02 | The message names the conversation                                                        | Only the `x-context-id`; Governance shows the conversation               |
+| `rangeComments`     | G08 | A comment on a cell range answers `unsupported` without a call                            | It reaches the backend                                                   |
+| `rawHtmlByMcp`      | G04 | The agent's HTML is imported by DynWork; its edits by ops of an HTML document are refused | The agent writes it through the MCP (with `mcpFolders`); edits go        |
+| `mcpFolders`        | G05 | DynWork makes `Artifacts/<project>/<conversation>` and imports the agent's files by REST  | The agent does it through the MCP                                        |
+| `contextByMcp`      | G06 | An MCP write enters the local index                                                       | Left to the Drive, once it also lists by conversation                    |
+| `docsByContext`     | G07 | `documentsOf` reads the local index only                                                  | REST writes are left to the Drive, which adds its list by `x-context-id` |
+| `pushChanges`       | G09 | 20 s poll while watched, 5 min otherwise; `document.drive.changed` is ignored             | Each change reads the Drive; 5 min poll only, as the net for a miss      |
+| `peopleByRest`      | G13 | `people` answers `unsupported`; authors no grant names read "Someone"                     | The window asks the instance for those authors' names by id (20 a call)  |
 
-`agentFiling(capabilities, format)` is the decision phase 07 reads for `rawHtmlByMcp` and `mcpFolders`. The real backend
-has no `byContext` yet: with `docsByContext` on and no route, `documentsOf` still answers the index.
+`agentFiling(capabilities, format)` is the decision phase 07 reads for `rawHtmlByMcp` and `mcpFolders`, and
+`agentEdits(capabilities, edit)` the one the edit guard reads. The real backend has no `byContext` yet: with
+`docsByContext` on and no route, `documentsOf` still answers the index (and only for a registered conversation).
+
+A PDF takes no comment, and there is no capability for it: the core does not read PDF and refuses an anchor it cannot
+check (D22). `Anchor` has no `page` kind.
 
 ## Failures
 

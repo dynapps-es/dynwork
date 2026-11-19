@@ -148,8 +148,8 @@ export const Proposal = Schema.Struct({
 export type Proposal = typeof Proposal.Type
 
 /**
- * What a comment points at. The instance anchors to a node and an optional quote inside it; a cell `range` and a point
- * on a PDF `page` have no node yet (P10) and are refused while `rangeComments` and `pdfComments` are off.
+ * What a comment points at. The instance anchors to a node and an optional quote inside it; a cell `range` has no node
+ * yet (P10, 0.85) and is refused while `rangeComments` is off. A PDF takes no comment: the core does not read PDF (D22).
  */
 export const Anchor = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("node"), node: Schema.String, find: Schema.optional(Schema.String) }),
@@ -159,7 +159,6 @@ export const Anchor = Schema.Union([
     from: Schema.String,
     to: Schema.String,
   }),
-  Schema.Struct({ kind: Schema.Literal("page"), page: Schema.Number, x: Schema.Number, y: Schema.Number }),
 ])
 export type Anchor = typeof Anchor.Type
 
@@ -199,6 +198,10 @@ export const Access = Schema.Struct({
   inherited: Schema.Array(Grant),
 })
 export type Access = typeof Access.Type
+
+/** Someone of the instance, as it names them by id (`peopleByRest`). */
+export const Person = Schema.Struct({ id: Schema.String, name: Schema.String })
+export type Person = typeof Person.Type
 
 /** What DynWork, an attended agent, may do on a document or folder: `none`, `read`, `suggest` or `edit`. */
 export const AgentCap = Schema.Struct({
@@ -320,7 +323,7 @@ const From = { conversation: Schema.optional(Conversation) }
 /**
  * The active account's Drive, held by the main process, where the account's credential stays. Every method answers a
  * `Failure` instead of rejecting. Writes carry "<conversation> by DynWork" or "<user> by DynWork" and, from a
- * conversation, its `x-context-id` (D2).
+ * conversation, its `x-context-id`: the id the instance gave the conversation when DynWork registered it (D2, D20).
  */
 export const Drive = Ipc.define({
   id: "dynwork.drive",
@@ -403,6 +406,11 @@ export const Drive = Ipc.define({
       input: Schema.Struct({ ...OnDocument, parent: Schema.String, body: Schema.String, ...From }),
       output: Outcome(Comment),
     },
+    /**
+     * The names of the people of `ids`, for the authors of comments no grant names. `unsupported` until the instance
+     * names people by id (`peopleByRest`); an id it does not know is left out.
+     */
+    people: { input: Schema.Struct({ ids: Schema.Array(Schema.String) }), output: Outcome(Schema.Array(Person)) },
     /** There is no reopen: the instance has no route for it (G12). */
     resolve: { input: Schema.Struct({ ...OnDocument, comment: Schema.String }), output: Outcome(Comment) },
     /**

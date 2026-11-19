@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { DynWorkDocuments } from "@dynwork/server-plugin/documents"
 import type { OpenCodeClient } from "@opencode/client/promise"
 import { DriveAgent } from "../../src/drive/agent"
+import type { Backend } from "../../src/drive/backend"
 import type { DriveCapabilities } from "../../src/drive/capabilities"
 import { DriveFake } from "../../src/drive/fake"
 import { DriveIpc } from "../../src/drive/ipc"
@@ -19,16 +20,24 @@ const text = (value: string) => new TextEncoder().encode(value)
 interface Standing {
   capabilities?: Partial<DriveCapabilities.Capabilities>
   sessions?: Record<string, DriveAgent.Session>
+  /** How the fake Drive behaves (`nameTaken`, as 0.84). */
+  drive?: DriveFake.Options
+  /** Replaces methods of the Drive the service reads, around the fake. */
+  around?: (fake: DriveFake.Fake) => Partial<Backend>
 }
 
 function stand(options: Standing = {}) {
   const sessions: Record<string, DriveAgent.Session> = options.sessions ?? {
     ses_q3: { directory: "/Users/ana/work/Billing", title: "Q3 report" },
   }
-  const fake = DriveFake.make({ user: "user-ana" })
+  const fake = DriveFake.make({ user: "user-ana", ...options.drive })
   // What reached `importBlob`, attribution included: 0.83 keeps no message on what it imports, so only the call shows it.
   const imports: Array<Parameters<DriveFake.Fake["importBlob"]>[0]> = []
-  const backend: DriveFake.Fake = { ...fake, importBlob: (input) => (imports.push(input), fake.importBlob(input)) }
+  const backend: DriveFake.Fake = {
+    ...fake,
+    importBlob: (input) => (imports.push(input), fake.importBlob(input)),
+    ...options.around?.(fake),
+  }
   const capabilities = { value: options.capabilities ?? {} }
   const service = DriveIpc.make({
     account: () => ana,
@@ -46,8 +55,13 @@ function stand(options: Standing = {}) {
     answer: async (answer) => void answers.push(answer),
   })
   const client = connect(service)
-  const asked = async (id: string, session: string, verb: DynWorkDocuments.Verb = "create") => {
-    await agent.ask({ id, session, verb })
+  const asked = async (
+    id: string,
+    session: string,
+    verb: DynWorkDocuments.Verb = "create",
+    edit: Pick<DynWorkDocuments.Ask, "document" | "replace"> = {},
+  ) => {
+    await agent.ask({ id, session, verb, ...edit })
     return answers.find((answer) => answer.id === id)
   }
   // Every folder from the root, walked as the instance is read: a level at a time.
@@ -169,6 +183,87 @@ describe("before a write", () => {
     fake.down({ code: "unreachable", message: "down", retryable: true })
     // The message needs no Drive; the folder does.
     expect(await asked("call_2", "ses_q3")).toEqual({ id: "call_2", message: "Q3 report by DynWork" })
+  })
+})
+
+describe("an edit of an HTML page (D21)", () => {
+  const page = async (subject: ReturnType<typeof stand>, name = "report.html", mime = "text/html") =>
+    (await ok(subject.fake.upload({ name, bytes: text("<h1>R</h1><script>1</script>"), mime }))).document.id
+
+  test("by ops is refused before it reaches the instance, telling the agent to upload the whole page again", async () => {
+    const subject = stand()
+    const document = await page(subject)
+    const answer = await subject.asked("call_1", "ses_q3", "edit", { document })
+    expect(answer).toEqual({ id: "call_1", refuse: DriveAgent.htmlRefused })
+    expect(answer?.refuse).toContain("documents_upload")
+    expect(subject.fake.calls.edit).toBeUndefined()
+  })
+
+  test("is refused whether or not the service knows the conversation", async () => {
+    const subject = stand()
+    const document = await page(subject)
+    expect((await subject.asked("call_1", "ses_missing", "edit", { document }))?.refuse).toBe(DriveAgent.htmlRefused)
+  })
+
+  test("an edit of another format goes, signed; so does one that replaces the page from a blob, without a read", async () => {
+    const subject = stand()
+    const notes = await page(subject, "notes.md", "text/markdown")
+    expect(await subject.asked("call_1", "ses_q3", "edit", { document: notes })).toEqual({
+      id: "call_1",
+      message: "Q3 report by DynWork",
+    })
+    const reads = subject.fake.calls.get
+    const html = await page(subject)
+    expect(await subject.asked("call_2", "ses_q3", "edit", { document: html, replace: true })).toEqual({
+      id: "call_2",
+      message: "Q3 report by DynWork",
+    })
+    expect(subject.fake.calls.get).toBe(reads)
+  })
+
+  test("rawHtmlByMcp on: the edit goes without reading the document", async () => {
+    const subject = stand({ capabilities: { rawHtmlByMcp: true } })
+    const document = await page(subject)
+    expect((await subject.asked("call_1", "ses_q3", "edit", { document }))?.refuse).toBeUndefined()
+    expect(subject.fake.calls.get).toBeUndefined()
+  })
+
+  test("a document that cannot be read lets the edit go: the instance answers it", async () => {
+    const subject = stand()
+    const answer = await subject.asked("call_1", "ses_q3", "edit", { document: "not-there" })
+    expect(answer).toEqual({ id: "call_1", message: "Q3 report by DynWork" })
+  })
+})
+
+describe("a folder made meanwhile (G05)", () => {
+  test("0.84 refuses a second folder of a name as name_taken: the one already there is used", async () => {
+    // The Drive's root was read before `Artifacts` was made elsewhere (the web, another computer)
+    const stale = { root: true }
+    const subject = stand({
+      drive: { nameTaken: true },
+      around: (fake) => ({
+        children: async (parent) => {
+          if (parent !== undefined || !stale.root) return fake.children(parent)
+          stale.root = false
+          return []
+        },
+      }),
+    })
+    await ok(subject.fake.createFolder({ name: "Artifacts" }))
+    const answer = await subject.asked("call_1", "ses_q3")
+    expect(await subject.paths()).toEqual(["Artifacts", "Artifacts/Billing", "Artifacts/Billing/Q3 report"])
+    expect(answer?.folder).toBe(await subject.folderAt("Artifacts/Billing/Q3 report"))
+    // Made elsewhere, refused here, then the project's and the conversation's
+    expect(subject.fake.calls.createFolder).toBe(4)
+  })
+
+  test("a refusal with no folder of that name to be found is the answer: no folder for the document", async () => {
+    const subject = stand({
+      around: () => ({
+        createFolder: async () => ({ code: "conflict", message: "taken", retryable: false }) as const,
+      }),
+    })
+    expect(await subject.asked("call_1", "ses_q3")).toEqual({ id: "call_1", message: "Q3 report by DynWork" })
   })
 })
 

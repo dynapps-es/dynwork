@@ -10,18 +10,18 @@ const on = (...keys: DriveCapabilities.Key[]) => ({
 })
 
 describe("the Drive capabilities", () => {
-  test("are the nine the plan names, and all off today", () => {
+  test("are the nine the plan names, PDF comments not among them (D22), and all off today", () => {
     expect(Object.keys(DriveCapabilities.none).toSorted()).toEqual(
       [
         "personActions",
         "conversationLabel",
         "rangeComments",
-        "pdfComments",
         "rawHtmlByMcp",
         "mcpFolders",
         "contextByMcp",
         "docsByContext",
         "pushChanges",
+        "peopleByRest",
       ].toSorted(),
     )
     expect(Object.values(DriveCapabilities.none).every((value) => value === false)).toBe(true)
@@ -57,15 +57,26 @@ describe("the Drive capabilities", () => {
     const range = { kind: "range" as const, sheet: 0, from: "A1", to: "B3" }
     expect(DriveCapabilities.anchorable(DriveCapabilities.none, range)).toBe(false)
     expect(DriveCapabilities.anchorable(on("rangeComments"), range)).toBe(true)
-    expect(DriveCapabilities.anchorable(on("pdfComments"), range)).toBe(false)
+    expect(DriveCapabilities.anchorable(on("peopleByRest"), range)).toBe(false)
     expect(DriveCapabilities.anchorable(DriveCapabilities.none, { kind: "node", node: "n1" })).toBe(true)
   })
 
-  test("pdfComments: a point on a PDF takes a comment only when on", () => {
-    const page = { kind: "page" as const, page: 2, x: 0.1, y: 0.9 }
-    expect(DriveCapabilities.anchorable(DriveCapabilities.none, page)).toBe(false)
-    expect(DriveCapabilities.anchorable(on("pdfComments"), page)).toBe(true)
-    expect(DriveCapabilities.anchorable(on("rangeComments"), page)).toBe(false)
+  test("a conversation's write carries no context while the instance has not registered one", () => {
+    const author = { user: "ana@dynapps.es", conversation: { name: "Q3 report" } }
+    expect(DriveCapabilities.attribution(DriveCapabilities.none, author)).toEqual({
+      contextId: undefined,
+      message: "Q3 report by DynWork",
+    })
+  })
+
+  test("rawHtmlByMcp: the agent's edit by ops of an HTML document is refused while off, and goes when on", () => {
+    const ops = { format: "html", replace: false }
+    expect(DriveCapabilities.agentEdits(DriveCapabilities.none, ops)).toBe(false)
+    expect(DriveCapabilities.agentEdits(on("rawHtmlByMcp"), ops)).toBe(true)
+    // Rewriting the whole page from an uploaded blob keeps it, and any other format loses nothing to ops.
+    expect(DriveCapabilities.agentEdits(DriveCapabilities.none, { format: "html", replace: true })).toBe(true)
+    expect(DriveCapabilities.agentEdits(DriveCapabilities.none, { format: "markdown", replace: false })).toBe(true)
+    expect(DriveCapabilities.agentEdits(on("mcpFolders"), ops)).toBe(false)
   })
 
   test("pushChanges: a watched Drive is polled every 20 s while off, and every 5 min when on", () => {

@@ -1,6 +1,5 @@
 export * as DriveIpc from "./ipc"
 
-import { randomUUID } from "node:crypto"
 import { Schema } from "effect"
 import type { IpcImpl, Persisted } from "@opencode/plugin/gui/main"
 import { fail, type Backend } from "./backend"
@@ -23,15 +22,23 @@ export interface Timers {
 }
 
 /**
- * What the service keeps on this computer, per account: the `x-context-id` it gave each conversation (a UUID v4, by
- * session id), the conversation ↔ document index, the folder each conversation's files go to (by session id) and
- * what became of the comments that asked for the agent.
+ * A conversation's context in the instance (D20): the id the instance gave it, which its writes carry as `x-context-id`,
+ * and the title it was registered or last renamed under.
+ */
+const Context = Schema.Struct({ id: Schema.String, name: Schema.String })
+
+/**
+ * What the service keeps on this computer, per account: each conversation's context (by session id), the conversation
+ * ↔ document index, the folder each conversation's files go to (by session id) and what became of the comments that
+ * asked for the agent. A context saved as a plain string is a UUID an earlier version made up and the instance never
+ * registered: it is not sent, and the conversation's next write registers one in its place. The index keys
+ * conversations by session id, so no link is lost.
  */
 export const Saved = Schema.Struct({
   accounts: Schema.Record(
     Schema.String,
     Schema.Struct({
-      contexts: Schema.Record(Schema.String, Schema.String),
+      contexts: Schema.Record(Schema.String, Schema.Union([Schema.String, Context])),
       links: Schema.Array(Link),
       // Absent in what an earlier version saved.
       folders: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
@@ -101,6 +108,10 @@ export function make<A extends Account>(options: Options<A>) {
     watching: number
     stop?: () => void
   } = { cache: empty(undefined), reads: 0, watching: 0 }
+  // The registrations under way, by account and conversation: the writes of one conversation share one.
+  const registering = new Map<string, Promise<string | undefined>>()
+  // A read the stream asked for (`reread`): one at a time, and one more after it when another change came meanwhile.
+  const hinted = { reading: false, again: false }
 
   const capabilities = (): DriveCapabilities.Capabilities => ({
     ...DriveCapabilities.none,
@@ -170,23 +181,80 @@ export function make<A extends Account>(options: Options<A>) {
     return answer
   }
 
-  // The conversation's `x-context-id`: given once, kept for the life of the account on this computer.
-  function context(account: string, conversation: string) {
+  // The id the instance gave a conversation of an account, once registered.
+  function registered(account: string, conversation: string) {
     const known = options.store.value.accounts[account]?.contexts[conversation]
-    if (known !== undefined) return known
-    const id = randomUUID()
-    options.store.update((draft) => {
-      draft.accounts[account] ??= { contexts: {}, links: [] }
-      draft.accounts[account].contexts[conversation] = id
-    })
+    return typeof known === "object" ? known.id : undefined
+  }
+
+  /**
+   * The conversation's `x-context-id` (D20): registered in the instance under its title on its first write, and kept
+   * for the life of the account on this computer; after its title changes, the next write renames it. When the instance
+   * does not answer, the write goes without one and the next write tries again.
+   */
+  function context(backend: Backend, account: string, conversation: Conversation) {
+    const key = `${account}/${conversation.id}`
+    const running = registering.get(key)
+    if (running) return running
+    const done = register(backend, account, conversation).finally(() => registering.delete(key))
+    registering.set(key, done)
+    return done
+  }
+
+  async function register(backend: Backend, account: string, conversation: Conversation) {
+    const known = options.store.value.accounts[account]?.contexts[conversation.id]
+    if (typeof known === "object") {
+      if (known.name === conversation.name) return known.id
+      const renamed = await guard(() => backend.renameContext(known.id, conversation.name))
+      if (!isFailure(renamed)) keep(account, conversation.id, { id: known.id, name: conversation.name })
+      // Gone from the instance (the user deleted it there): registered again below. Anything else leaves it as it is.
+      if (!isFailure(renamed) || renamed.code !== "not-found") return known.id
+    }
+    const id = await guard(() => backend.createContext(conversation.name))
+    if (isFailure(id)) return undefined
+    keep(account, conversation.id, { id, name: conversation.name })
     return id
   }
 
-  function author(account: Account, conversation: Conversation | undefined) {
+  function keep(account: string, conversation: string, context: typeof Context.Type) {
+    options.store.update((draft) => {
+      draft.accounts[account] ??= { contexts: {}, links: [] }
+      draft.accounts[account].contexts[conversation] = context
+    })
+  }
+
+  // Who a write is signed by, and the conversation's context, registered on the way.
+  async function author(backend: Backend, account: Account, conversation: Conversation | undefined) {
+    const id = conversation && (await context(backend, account.id, conversation))
     return DriveCapabilities.attribution(capabilities(), {
       user: account.user,
-      conversation: conversation && { name: conversation.name, context: context(account.id, conversation.id) },
+      conversation: conversation && { name: conversation.name, context: id },
     })
+  }
+
+  // The revision message alone, for a write that carries no context: the agent's through the MCP (`contextByMcp` off).
+  const message = (account: Account, conversation: Conversation | undefined) =>
+    DriveCapabilities.attribution(capabilities(), {
+      user: account.user,
+      conversation: conversation && { name: conversation.name },
+    }).message
+
+  /**
+   * The stream says the Drive changed (`document.drive.changed`): with `pushChanges` on, the account's Drive is read
+   * now, and a burst of changes makes at most one more read. Off, the poll alone reads it, as before.
+   */
+  async function reread(account: string) {
+    if (live.account?.id !== account || !capabilities().pushChanges) return
+    if (hinted.reading) {
+      hinted.again = true
+      return
+    }
+    hinted.reading = true
+    do {
+      hinted.again = false
+      await load()
+    } while (hinted.again && live.account?.id === account)
+    hinted.reading = false
   }
 
   function record(account: string, link: Omit<Link, "at" | "via"> & { via: "rest" | "mcp" }) {
@@ -258,7 +326,7 @@ export function make<A extends Account>(options: Options<A>) {
     createFolder: (input) => changing((backend) => backend.createFolder(input)),
     upload: (input) =>
       changing(async (backend, account) => {
-        const created = await backend.upload({ ...input, ...author(account, input.conversation) })
+        const created = await backend.upload({ ...input, ...(await author(backend, account, input.conversation)) })
         if (!isFailure(created) && input.conversation)
           record(account.id, {
             conversation: input.conversation.id,
@@ -276,7 +344,7 @@ export function make<A extends Account>(options: Options<A>) {
           template: input.template,
           name: input.name,
           folder: input.folder,
-          contextId: author(account, input.conversation).contextId,
+          contextId: (await author(backend, account, input.conversation)).contextId,
         })
         if (!isFailure(created) && input.conversation)
           record(account.id, {
@@ -294,7 +362,7 @@ export function make<A extends Account>(options: Options<A>) {
           ops: input.ops,
           base: input.base,
           mode: input.mode,
-          ...author(account, input.conversation),
+          ...(await author(backend, account, input.conversation)),
         })
         if (!isFailure(edited) && input.conversation)
           record(account.id, {
@@ -315,7 +383,7 @@ export function make<A extends Account>(options: Options<A>) {
         const created = await backend.comment(input.id, {
           body: said.body,
           anchor: input.anchor,
-          contextId: author(account, input.conversation).contextId,
+          contextId: (await author(backend, account, input.conversation)).contextId,
           ...(said.agent ? { agent: true } : {}),
         })
         if (!isFailure(created)) asked(account, input.id, created.id, said.agent)
@@ -327,13 +395,19 @@ export function make<A extends Account>(options: Options<A>) {
         const created = await backend.reply(input.id, {
           body: said.body,
           parent: input.parent,
-          contextId: author(account, input.conversation).contextId,
+          contextId: (await author(backend, account, input.conversation)).contextId,
           ...(said.agent ? { agent: true } : {}),
         })
         if (!isFailure(created)) asked(account, input.id, created.id, said.agent)
         return created
       }),
     resolve: (input) => on((backend) => backend.resolve(input.id, input.comment)),
+    people: (input) =>
+      on(async (backend) =>
+        capabilities().peopleByRest
+          ? backend.people(input.ids)
+          : fail("unsupported", "Governance does not name people by id yet."),
+      ),
     link: (input) =>
       on(async (_, account) => {
         record(account.id, input)
@@ -342,8 +416,9 @@ export function make<A extends Account>(options: Options<A>) {
     documentsOf: (input) =>
       on(async (backend, account) => {
         const local = links(account.id).filter((link) => link.conversation === input.conversation)
-        if (!capabilities().docsByContext || !backend.byContext) return local
-        const listed = await backend.byContext(context(account.id, input.conversation))
+        const id = registered(account.id, input.conversation)
+        if (!capabilities().docsByContext || !backend.byContext || id === undefined) return local
+        const listed = await backend.byContext(id)
         if (isFailure(listed)) return listed
         // The Drive does not say what the conversation did, only that it wrote: `edited`, unless the index knows more.
         const known = new Set(local.map((link) => link.document))
@@ -387,8 +462,12 @@ export function make<A extends Account>(options: Options<A>) {
           draft.accounts[account].folders[conversation] = folder
         }),
     },
-    /** The author of a write, as the service would sign it (`DriveCapabilities.attribution`). */
+    /** The author of a write, as the service signs it (`DriveCapabilities.attribution`), the conversation registered. */
     author,
+    /** The revision message alone, for a write without the conversation's context: the agent's through the MCP. */
+    message,
+    /** The stream says the account's Drive changed. */
+    reread: (account: string) => void reread(account),
     /** Main calls it on every change of the accounts: a new active account replaces the snapshot. */
     account: () => {
       if (follow()) void load()
@@ -422,8 +501,8 @@ export function make<A extends Account>(options: Options<A>) {
         return () => void listeners.asked.delete(listener)
       },
     },
-    /** The `x-context-id` of a conversation of the active account, for the agent's writes (phase 07). */
-    context: (conversation: string) => (live.account ? context(live.account.id, conversation) : undefined),
+    /** The `x-context-id` of a conversation of the active account, once registered. */
+    context: (conversation: string) => (live.account ? registered(live.account.id, conversation) : undefined),
     capabilities,
     dispose: () => {
       live.stop?.()

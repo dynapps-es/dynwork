@@ -99,7 +99,7 @@ export function CommentsTab(props: { doc: Document }) {
   )
 }
 
-/** What an anchor points at, as a line: its quote, the node's own text, a cell range or a PDF page. */
+/** What an anchor points at, as a line: its quote, the node's own text or a cell range. */
 function Pointing(props: { doc: Document; anchor: Anchor }) {
   const ctx = usePlugin()
   const line = () => {
@@ -109,8 +109,6 @@ function Pointing(props: { doc: Document; anchor: Anchor }) {
         icon: "dot-grid" as const,
         text: ctx.t("drive.anchor.range", { range: `${anchor.from}:${anchor.to}`, sheet: String(anchor.sheet + 1) }),
       }
-    if (anchor.kind === "page")
-      return { icon: "file-document" as const, text: ctx.t("drive.anchor.page", { page: String(anchor.page) }) }
     if (anchor.find) return { icon: "outline-quote" as const, text: `“${anchor.find}”` }
     return pointed(anchor.node)
   }
@@ -369,7 +367,7 @@ function Composer(props: { doc: Document; anchor: Anchor }) {
 
 /**
  * Where a new comment goes, when the document cannot be clicked: its paragraphs and cells to search and pick, and a
- * cell range or a PDF page when the instance takes those.
+ * cell range when the instance takes one. A PDF takes none (D22).
  */
 function Picker(props: { doc: Document }) {
   const ctx = usePlugin()
@@ -427,10 +425,7 @@ function Picker(props: { doc: Document }) {
       <Show when={kinds().range}>
         <RangeForm />
       </Show>
-      <Show when={kinds().page}>
-        <PageForm />
-      </Show>
-      <Show when={!kinds().node && !kinds().page}>
+      <Show when={!kinds().node}>
         <p data-slot="drive-note">{ctx.t("drive.comment.pdf.off")}</p>
       </Show>
     </>
@@ -461,31 +456,6 @@ function RangeForm() {
         }}
       >
         {ctx.t("drive.comment.range")}
-      </Button>
-    </div>
-  )
-}
-
-/** A page of a PDF, once the instance takes a comment there (`pdfComments`). */
-function PageForm() {
-  const ctx = usePlugin()
-  const [page, setPage] = createSignal("1")
-  const number = () => Number.parseInt(page(), 10)
-  return (
-    <div data-slot="drive-card-row">
-      <TextInput
-        type="number"
-        value={page()}
-        aria-label={ctx.t("drive.comment.page")}
-        onInput={(event) => setPage(event.currentTarget.value)}
-      />
-      <Button
-        variant="outline"
-        size="small"
-        disabled={!(number() >= 1)}
-        onClick={() => drive.startComment({ kind: "page", page: number(), x: 0.5, y: 0.5 })}
-      >
-        {ctx.t("drive.comment.page")}
       </Button>
     </div>
   )

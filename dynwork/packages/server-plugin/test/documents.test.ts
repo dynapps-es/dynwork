@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { Effect, Fiber } from "effect"
+import { Effect, Fiber, Schema } from "effect"
 import { DynWorkDocuments } from "../src/documents"
 import { DynWorkInstructions } from "../src/instructions"
 import { DynWorkMapping } from "../src/mapping"
@@ -92,6 +92,41 @@ describe("what a completed write touched", () => {
   })
 })
 
+describe("what main is asked before a write", () => {
+  const call = (tool: string, input: unknown) => ({ tool, sessionID: "ses_q3", id: "call_1", input })
+
+  test("a creation, and an edit naming its document and whether it replaces the content from a blob", () => {
+    expect(DynWorkDocuments.asking(call("documents_documents_create", { name: "a.md", document_id: "x" }))).toEqual({
+      id: "call_1",
+      session: "ses_q3",
+      verb: "create",
+    })
+    expect(
+      DynWorkDocuments.asking(call("documents_documents_edit", { document_id: "d", ops: [{ op: "str_replace" }] })),
+    ).toEqual({ id: "call_1", session: "ses_q3", verb: "edit", document: "d" })
+    expect(
+      DynWorkDocuments.asking(call("documents_documents_edit", { document_id: "d", content_blob_ref: "blob-1" })),
+    ).toEqual({ id: "call_1", session: "ses_q3", verb: "edit", document: "d", replace: true })
+  })
+
+  test("an edit main cannot read the document of is still asked, and other calls are not asked about", () => {
+    expect(DynWorkDocuments.asking(call("documents_documents_edit", "not a record"))).toEqual({
+      id: "call_1",
+      session: "ses_q3",
+      verb: "edit",
+    })
+    expect(DynWorkDocuments.asking(call("documents_documents_upload", { name: "a.html" }))).toBeUndefined()
+    expect(DynWorkDocuments.asking(call("documents_documents_read", { document_id: "d" }))).toBeUndefined()
+  })
+
+  test("main's refusal travels in its answer, and the ask and the answer keep their shape across the RPC", () => {
+    const answer = { id: "call_1", refuse: "Upload the whole page again." }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Answer)(answer)).toEqual(answer)
+    const ask = { id: "call_1", session: "ses_q3", verb: "edit" as const, document: "d", replace: true }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Ask)(ask)).toEqual(ask)
+  })
+})
+
 describe("what main adds before a write", () => {
   const asks: DynWorkDocuments.Ask[] = []
   const emitter: DynWorkDocuments.Emitter = { ask: (request) => Effect.sync(() => void asks.push(request)) }
@@ -174,6 +209,14 @@ describe("the rules about the server", () => {
     expect(
       DynWorkMapping.map(apply({ ...documents("http://example.com/mcp"), rules: [] })).instructions,
     ).toBeUndefined()
+  })
+
+  test("tell the agent that an edit of an HTML page is refused and the page is uploaded again instead", () => {
+    const text = DynWorkDocuments.rules(["documents"])
+      .map((rule) => rule.instructions)
+      .join("\n")
+    expect(text).toContain("refuses documents_edit on an HTML document")
+    expect(text).toContain("documents_upload")
   })
 
   test("name no product the user does not know", () => {

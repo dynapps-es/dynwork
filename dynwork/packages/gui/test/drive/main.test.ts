@@ -111,12 +111,19 @@ describe("the Drive's main side", () => {
     main.cleanups.forEach((cleanup) => cleanup())
   })
 
-  test("keeps each conversation's context in the plugin's storage, and stops polling on cleanup", async () => {
+  test("keeps each conversation's context, registered by the instance, in the plugin's storage, and stops polling on cleanup", async () => {
     const stored = new Map<string, unknown>()
     const main = await stand(stored)
+    await until(() => main.state().status === "ready")
+    const bytes = new TextEncoder().encode("# Kept")
+    const conversation = { id: "ses_kept", name: "Kept" }
+    await ok(main.call("upload", { name: "kept.md", bytes, mime: "text/markdown", conversation }))
     const context = main.service.context("ses_kept")
-    const drive = stored.get("drive") as { value: { accounts: Record<string, { contexts: Record<string, string> }> } }
-    expect(drive.value.accounts[main.id(alpha)]?.contexts.ses_kept).toBe(context)
+    expect(alpha.state.drive.contexts.get(context ?? "")).toBe("Kept")
+    const drive = stored.get("drive") as {
+      value: { accounts: Record<string, { contexts: Record<string, { id: string; name: string }> }> }
+    }
+    expect(drive.value.accounts[main.id(alpha)]?.contexts.ses_kept).toEqual({ id: context, name: "Kept" })
     await until(() => main.timers.pending().length > 0)
     expect(main.timers.pending()).toEqual([5 * 60_000])
     main.cleanups.forEach((cleanup) => cleanup())

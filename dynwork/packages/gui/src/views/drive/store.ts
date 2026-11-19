@@ -208,8 +208,9 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     thread: (id: string) =>
       threadsOf(state.discussion[state.open ?? ""]?.comments ?? []).find((item) => item.id === id),
     /**
-     * A person's name by user id, from the grants of the documents the window opened: the instance has no route that
-     * names an author for a bearer, so someone who was never granted anything is unnamed.
+     * A person's name by user id, from the grants of the documents the window opened and, once the instance names
+     * people by id (`peopleByRest`), from the instance for the authors of comments no grant names. Without it, someone
+     * who was never granted anything is unnamed.
      */
     nameOf: (user: string) => state.people[user],
     /** The nodes of a document as last read, in reading order. */
@@ -450,6 +451,23 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
       nodes: isFailure(outline) ? [] : [...outline.nodes],
       status: "ready",
     })
+    await nameAuthors(comments)
+  }
+
+  // The authors of comments no grant names, asked of the instance by id once it names people (`peopleByRest`).
+  async function nameAuthors(comments: readonly Comment[]) {
+    const client = options.client()
+    if (!client || !capabilities()?.peopleByRest) return
+    const ids = [
+      ...new Set(
+        comments
+          .filter((comment) => !comment.mine && state.people[comment.author] === undefined)
+          .map((comment) => comment.author),
+      ),
+    ]
+    if (ids.length === 0) return
+    const found = await client.people({ ids })
+    if (!isFailure(found)) found.forEach((person) => setState("people", person.id, person.name))
   }
 
   return store

@@ -61,6 +61,10 @@ export function startDrive() {
     suggestOnly: false,
     // Size of each upload part the instance asks for
     partSize: 8 * 1024 * 1024,
+    // The conversations registered with `POST /api/v1/core/contexts`: name by `context_id`
+    contexts: new Map<string, string>(),
+    // The directory `GET /api/v1/documents/people` (0.84) reads, by user id
+    people: new Map<string, { user_id: string; name: string; email: string }>(),
     // The bridge stream: what each open stream is sent, and the frames sent to every stream that opens from now on
     streams: new Set<(frame: string) => void>(),
     backlog: [] as string[],
@@ -190,6 +194,38 @@ export function startFake() {
     if (path.startsWith("/api/v1/consumer/")) return consumerRoute(request, path, body, bearer)
     if (!signedIn) return Response.json(alpha.rejected_jwt.body, { status: 401 })
     if (route === "GET /v1/bridge/profile") return Response.json(alpha.profile.body)
+    // Conversations as sp-local 0.83 registers them: the platform's `data` envelope, a plain `code` on a refusal
+    const registered = (id: string) =>
+      Response.json(
+        {
+          data: {
+            context_id: id,
+            user_id: alpha.whoami.body.user_id,
+            name: state.drive.contexts.get(id),
+            kind: "user",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          },
+          meta: { timestamp: new Date().toISOString(), version: "1.0.0" },
+        },
+        { status: request.method === "POST" ? 201 : 200 },
+      )
+    const named = () => String((JSON.parse(body) as { name?: unknown }).name ?? "").trim()
+    if (route === "POST /api/v1/core/contexts") {
+      if (named() === "")
+        return Response.json({ code: "bad_request", message: "Context name cannot be empty" }, { status: 400 })
+      const id = crypto.randomUUID()
+      state.drive.contexts.set(id, named())
+      return registered(id)
+    }
+    const context = /^\/api\/v1\/core\/contexts\/([^/]+)$/.exec(path)
+    if (request.method === "PUT" && context) {
+      const id = decodeURIComponent(context[1] ?? "")
+      if (!state.drive.contexts.has(id))
+        return Response.json({ code: "not_found", message: `context not found: ${id}` }, { status: 404 })
+      state.drive.contexts.set(id, named())
+      return registered(id)
+    }
     // As 0.76 answers it (`bridge_heartbeat.rs`): the session must be the JWT's, the version at least 0.28.0
     if (route === "POST /v1/bridge/heartbeat") {
       const input = JSON.parse(body) as Record<string, unknown>
@@ -468,6 +504,24 @@ export function startFake() {
       const blob = drive.blobs.get(String(input.blob_ref))
       if (blob === undefined) return refuse(400, "invalid_request", "invalid request body")
       return create(String(input.name), input.folder_id, blob.mime, blob.bytes, null)
+    }
+
+    // As 0.84 answers it: a search by name, email or id prefix, or a lookup of at most 20 ids, never both
+    if (route === "GET /api/v1/documents/people") {
+      const query = url.searchParams.get("query")
+      const ids = url.searchParams.get("ids")?.split(",").filter(Boolean)
+      if ((query === null) === (ids === undefined) || query?.trim() === "" || (ids?.length ?? 0) > 20)
+        return refuse(400, "invalid_params", "name a query or at most 20 ids")
+      const all = [...drive.people.values()]
+      if (ids !== undefined) return Response.json({ people: all.filter((person) => ids.includes(person.user_id)) })
+      const text = (query ?? "").toLowerCase()
+      return Response.json({
+        people: all
+          .filter((person) =>
+            [person.name, person.email, person.user_id].some((value) => value.toLowerCase().startsWith(text)),
+          )
+          .slice(0, Number(url.searchParams.get("limit") ?? 20)),
+      })
     }
 
     const doc = /^\/api\/v1\/documents\/([^/]+)(?:\/(.+))?$/.exec(url.pathname)

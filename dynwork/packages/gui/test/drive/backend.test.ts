@@ -4,6 +4,7 @@ import { DynWorkAccounts } from "../../src/accounts/accounts"
 import { DriveBackend } from "../../src/drive/backend"
 import { DriveFake } from "../../src/drive/fake"
 import { startFake } from "../../../sp-client/test/fake"
+import { isFailure } from "../../src/drive/contract"
 import { conformance, expectFailure, ok } from "./conformance"
 
 // The real backend runs against sp-client's fake instance, which answers the Drive routes as sp-local 0.83 does.
@@ -175,6 +176,67 @@ describe("the Governance backend", () => {
       remote().upload({ name: "data.bin", bytes: new Uint8Array([1, 2]), mime: "application/octet-stream" }),
     )
     expect(other.document.format).toBe("file")
+  })
+
+  test("a conversation is registered with the account's JWT, under its title, and renamed in place", async () => {
+    const jwt = issued()
+    const backend = remote(jwt)
+    const id = await ok(backend.createContext("Weekly report"))
+    expect(instance.state.drive.contexts.get(id)).toBe("Weekly report")
+    await ok(backend.renameContext(id, "Weekly report, final"))
+    expect(instance.state.drive.contexts.get(id)).toBe("Weekly report, final")
+    const calls = instance.state.requests.filter((request) => request.path.startsWith("/api/v1/core/contexts"))
+    expect(calls.slice(-2).map((request) => [request.method, JSON.parse(request.body)])).toEqual([
+      ["POST", { name: "Weekly report" }],
+      ["PUT", { name: "Weekly report, final" }],
+    ])
+    expect(calls.slice(-2).every((request) => request.headers.authorization === `Bearer ${jwt}`)).toBe(true)
+  })
+
+  test("people are named by id, 20 a call, by their email when they have no name, and left out when unknown", async () => {
+    const ids = Array.from({ length: 21 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`)
+    ids.forEach((id, index) =>
+      instance.state.drive.people.set(id, {
+        user_id: id,
+        name: index === 0 ? "" : `Person ${index}`,
+        email: `p${index}@x.es`,
+      }),
+    )
+    const before = instance.state.requests.length
+    const named = await ok(remote().people([...ids, "unknown"]))
+    expect(named).toHaveLength(21)
+    expect(named.find((person) => person.id === ids[0])?.name).toBe("p0@x.es")
+    expect(named.find((person) => person.id === ids[1])?.name).toBe("Person 1")
+    expect(
+      instance.state.requests.slice(before).filter((request) => request.path === "/api/v1/documents/people"),
+    ).toHaveLength(2)
+  })
+
+  test("a folder whose name a sibling has (0.84 name_taken) is a conflict", async () => {
+    instance.state.override = {
+      path: "/api/v1/document-folders",
+      status: 409,
+      body: { code: "conflict", message: "a folder named Artifacts already exists here", error_key: "name_taken" },
+    }
+    const answer = await remote().createFolder({ name: "Artifacts" })
+    instance.state.override = undefined
+    expectFailure(answer, "conflict")
+  })
+
+  test("the stream says that the Drive changed, with no document, next to the mentions", async () => {
+    const stop = new AbortController()
+    instance.state.drive.announce("document.drive.changed", { v: 1 }, false)
+    const events = await remote().stream?.(stop.signal)
+    if (events === undefined || isFailure(events)) throw new Error("the backend has no stream")
+    const heard = events[Symbol.asyncIterator]()
+    instance.state.drive.announce("document.drive.changed", { v: 1 }, false)
+    // The fake instance replays the mentions earlier tests announced first: the change comes after them.
+    const change = async (): Promise<unknown> => {
+      const next = await heard.next()
+      return next.done || next.value.kind === "changed" ? next.value : change()
+    }
+    expect(await change()).toEqual({ kind: "changed" })
+    stop.abort()
   })
 
   test("a document is the user's own only when its owner is the signed-in user", async () => {

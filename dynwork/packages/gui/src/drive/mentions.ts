@@ -62,9 +62,15 @@ export interface Heard {
   author: string
 }
 
+/**
+ * What the bridge stream carries for the Drive: a mention, or that something the user can see changed
+ * (`document.drive.changed`, 0.84), which names no document: the account's Drive is read again (`DriveIpc` `reread`).
+ */
+export type Streamed = ({ kind: "mentioned" } & Heard) | { kind: "changed" }
+
 export interface Options {
-  /** The service's account, index, mention record and `using`. */
-  service: Pick<DriveIpc.Service, "using" | "current" | "linksOf" | "mention" | "listen">
+  /** The service's account, index, mention record, `using`, and `reread` for a change the stream announces. */
+  service: Pick<DriveIpc.Service, "using" | "current" | "linksOf" | "mention" | "listen" | "reread">
   /** Whether a conversation still exists (its session). */
   session: (id: string) => Promise<boolean>
   /** Prompts a conversation. Answers whether the service took it. */
@@ -154,7 +160,7 @@ export function make(options: Options) {
 
   /**
    * Follows the bridge stream of the active account until `life` aborts, opening it again when it ends. A switch of
-   * account ends the stream of the one that left.
+   * account ends the stream of the one that left. The one stream carries the mentions and the changes of the Drive.
    */
   async function follow(life: AbortSignal, timings: Timing = timing) {
     while (!life.aborted) {
@@ -173,10 +179,13 @@ export function make(options: Options) {
     try {
       const events = await service.using(async (backend, active) => {
         if (active.id !== account) return fail("signed-out", "Another account is active.")
-        return backend.mentions?.(stop.signal) ?? fail("unsupported", "The Drive does not announce mentions.")
+        return backend.stream?.(stop.signal) ?? fail("unsupported", "The Drive does not announce mentions.")
       })
       if (isFailure(events)) return
-      for await (const event of events) void heard(event).catch(() => undefined)
+      for await (const event of events) {
+        if (event.kind === "changed") service.reread(account)
+        else void heard(event).catch(() => undefined)
+      }
     } finally {
       clearTimeout(timer)
       life.removeEventListener("abort", end)

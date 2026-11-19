@@ -292,15 +292,13 @@ export function pickable(nodes: readonly Node[], query: string) {
 
 /**
  * How a document takes a comment, by its format and the instance's capabilities (D11): at a node, always, but a PDF has
- * no nodes; at a cell range, once `rangeComments` is on; at a point of a PDF page, once `pdfComments` is on.
+ * no nodes and takes no comment, the core does not read it (D22); at a cell range, once `rangeComments` is on.
  */
 export function anchorsOf(doc: Pick<Document, "format" | "mime">, capabilities: DriveCapabilities.Capabilities) {
-  const pdf = isPdf(doc)
   return {
-    node: !pdf,
+    node: !isPdf(doc),
     range:
       doc.format === "xlsx" &&
       DriveCapabilities.anchorable(capabilities, { kind: "range", sheet: 0, from: "A1", to: "A1" }),
-    page: pdf && DriveCapabilities.anchorable(capabilities, { kind: "page", page: 1, x: 0, y: 0 }),
   }
 }

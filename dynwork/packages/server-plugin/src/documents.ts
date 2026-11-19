@@ -5,9 +5,10 @@ import type { DynWorkSync } from "./contract"
 
 // What the agent does with the instance's `documents` MCP server, as DynWork's main process needs to hear it. The
 // tools run on the instance (this plugin adds the server, `./mapping`); here the service only watches their calls:
-// before a write it asks main for the conversation's folder and revision message, and after one it tells main what the
-// call touched, so main can file the document, index it for the conversation and open it beside the chat. Calls a Code
-// Mode program makes go through the same tool hooks as direct ones. Only `effect` is imported: main bundles this file.
+// before a write it asks main for the conversation's folder and revision message, or whether to refuse it (an edit by
+// ops of an HTML page, D21), and after one it tells main what the call touched, so main can file the document, index
+// it for the conversation and open it beside the chat. Calls a Code Mode program makes go through the same tool hooks
+// as direct ones. Only `effect` is imported: main bundles this file.
 
 /** The RPC the plugin registers, called at `/api/rpc/<id>/<method>`. */
 export const id = "dynwork.documents"
@@ -37,6 +38,8 @@ const Input = Schema.Struct({
   mime: Text,
   mode: Text,
   message: Text,
+  /** `documents_edit` (0.84): a blob the agent uploaded becomes the whole new content, in place of `ops`. */
+  content_blob_ref: Text,
 })
 
 /** What the server answered, as far as main reads it. A proposal has `proposal_id`; an upload, the `blob_ref` to import. */
@@ -62,15 +65,28 @@ export const Touch = Schema.Struct({
 })
 export type Touch = typeof Touch.Type
 
-/** A write about to run: published as the `ask` event; main answers with `answer`. */
-export const Ask = Schema.Struct({ id: Schema.String, session: Schema.String, verb: Schema.Literals(verbs) })
+/**
+ * A write about to run: published as the `ask` event; main answers with `answer`. An edit names its `document`, and
+ * `replace` when it rewrites the whole content from a blob rather than by ops.
+ */
+export const Ask = Schema.Struct({
+  id: Schema.String,
+  session: Schema.String,
+  verb: Schema.Literals(verbs),
+  document: Schema.optional(Schema.String),
+  replace: Schema.optional(Schema.Boolean),
+})
 export type Ask = typeof Ask.Type
 
-/** What main adds to the call: the folder for a new document, and the revision message. Each only when it applies. */
+/**
+ * What main adds to the call: the folder for a new document, and the revision message. Each only when it applies.
+ * `refuse` stops the call before it reaches the instance, and is what the agent reads instead of an answer.
+ */
 export const Answer = Schema.Struct({
   id: Schema.String,
   folder: Schema.optional(Schema.String),
   message: Schema.optional(Schema.String),
+  refuse: Schema.optional(Schema.String),
 })
 export type Answer = typeof Answer.Type
 export const Accepted = Schema.Struct({ accepted: Schema.Boolean })
@@ -97,6 +113,25 @@ export function touch(event: Executed): Touch | undefined {
       Option.map((read) => ({ session: event.sessionID, call: event.id, verb: write, ...read })),
     ),
   )
+}
+
+/** What main is asked about a write about to run: the writes it adds to or may refuse, a creation and an edit. */
+export function asking(event: {
+  readonly tool: string
+  readonly sessionID: string
+  readonly id: string
+  readonly input: unknown
+}): Ask | undefined {
+  const write = verb(event.tool)
+  if (write !== "create" && write !== "edit") return undefined
+  const given = Option.getOrUndefined(decodeInput(event.input))
+  return {
+    id: event.id,
+    session: event.sessionID,
+    verb: write,
+    ...(write === "edit" && given?.document_id !== undefined ? { document: given.document_id } : {}),
+    ...(write === "edit" && given?.content_blob_ref !== undefined ? { replace: true } : {}),
+  }
 }
 
 /** How long a write waits for main: it may make the conversation's folders. Past it the call goes as the agent wrote it. */
@@ -166,8 +201,9 @@ const instructions = [
   "of this conversation (Artifacts/<project>/<conversation>) and lists it in the conversation's panel: leave out",
   "`folder_id` in documents_create unless the user names a folder.",
   "",
-  "An HTML page with scripts, charts or animations loses its scripts through documents_create, documents_edit and",
-  "set_html. Upload the whole page with documents_upload (mime text/html, a name ending in .html): Dynwork imports it",
-  "as a document of this conversation, scripts kept. To change the page, upload it again under a new name.",
+  "An HTML page with scripts, charts or animations loses its scripts through documents_create and set_html, and Dynwork",
+  "refuses documents_edit on an HTML document for that reason. Upload the whole page with documents_upload (mime",
+  "text/html, a name ending in .html): Dynwork imports it as a document of this conversation, scripts kept. To change",
+  "the page, upload it again under a new name.",
   "A file you upload to put inside another document (an image for a Word file) is not imported as a document.",
 ].join("\n")

@@ -17,6 +17,8 @@ import { drive } from "./store"
 // - Word, Excel and PowerPoint as the Drive previews them (`/preview`), in the same frame as HTML, which that preview's
 //   policy keeps without scripts.
 // The account's JWT stays in main: a frame gets only the page, never DynWork's origin, cookies, token or Ipc.
+// Nothing that comes out of a frame is trusted (G11): an agent writes these pages, so the viewer listens to no
+// `message` event and reads no `postMessage`. A feature that wants one validates its origin and shape as untrusted input.
 
 // pdf.js and the viewer load on the client only, when a PDF opens; the tests render with Solid's server build.
 const PdfViewer = lazy(() => import("./pdf-viewer"))

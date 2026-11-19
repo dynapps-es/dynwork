@@ -497,8 +497,14 @@ describe("mentions", () => {
       excerpt: "x",
     })
     const abort = new AbortController()
-    const events = await SpDrive.mentions(fake.url, state.jwt, abort.signal)
-    expect((await events.next()).value).toEqual({ document: "d1", comment: "c1", user: me, author: me })
+    const events = await SpDrive.stream(fake.url, state.jwt, abort.signal)
+    expect((await events.next()).value).toEqual({
+      kind: "mentioned",
+      document: "d1",
+      comment: "c1",
+      user: me,
+      author: me,
+    })
     // One sent while the stream is open comes as well
     stream.announce("document.comment.mentioned", {
       document_id: "d2",
@@ -506,18 +512,109 @@ describe("mentions", () => {
       mentioned_user_id: me,
       author_id: "someone",
     })
-    expect((await events.next()).value).toEqual({ document: "d2", comment: "c2", user: me, author: "someone" })
+    expect((await events.next()).value).toEqual({
+      kind: "mentioned",
+      document: "d2",
+      comment: "c2",
+      user: me,
+      author: "someone",
+    })
     abort.abort()
     expect((await events.next()).done).toBe(true)
     expect(sent("/v1/bridge/stream")[0]?.headers.authorization).toBe(`Bearer ${state.jwt}`)
   })
 
+  test("a change of the Drive (0.84) names no document, and a later version of it is still a change", async () => {
+    const stream = fake.state.drive
+    stream.announce("document.drive.changed", { v: 1 })
+    stream.announce("document.revision.created", { document_id: "d1" })
+    stream.announce("document.drive.changed", { v: 2, extra: true })
+    const abort = new AbortController()
+    const events = await SpDrive.stream(fake.url, state.jwt, abort.signal)
+    expect((await events.next()).value).toEqual({ kind: "changed" })
+    expect((await events.next()).value).toEqual({ kind: "changed" })
+    abort.abort()
+    expect((await events.next()).done).toBe(true)
+  })
+
   test("a refused credential rejects before any event, and an unreachable instance too", async () => {
     const abort = new AbortController()
-    await expect(SpDrive.mentions(fake.url, "not-a-jwt", abort.signal)).rejects.toBeInstanceOf(SpClient.Unauthorized)
-    await expect(SpDrive.mentions("http://127.0.0.1:9", state.jwt, abort.signal)).rejects.toBeInstanceOf(
+    await expect(SpDrive.stream(fake.url, "not-a-jwt", abort.signal)).rejects.toBeInstanceOf(SpClient.Unauthorized)
+    await expect(SpDrive.stream("http://127.0.0.1:9", state.jwt, abort.signal)).rejects.toBeInstanceOf(
       SpClient.Unreachable,
     )
+  })
+})
+
+describe("conversations", () => {
+  test("a conversation is registered under its title and its id is the instance's", async () => {
+    const id = await run(SpDrive.createContext(fake.url, state.jwt, "Q3 report"))
+    expect(fake.state.drive.contexts.get(id)).toBe("Q3 report")
+    const posted = sent("/api/v1/core/contexts", "POST")[0]
+    expect(JSON.parse(posted?.body ?? "")).toEqual({ name: "Q3 report" })
+    expect(posted?.headers.authorization).toBe(`Bearer ${state.jwt}`)
+    // A write of the conversation names it
+    const created = await run(
+      SpDrive.importFile(fake.url, state.jwt, {
+        name: "q3.md",
+        bytes: text("# Q3"),
+        mime: "text/markdown",
+        contextId: id,
+      }),
+    )
+    expect(fake.state.drive.documents.get(created.document.id)?.contexts).toEqual([id])
+  })
+
+  test("a renamed conversation takes its new title, and one the instance does not know is NotFound", async () => {
+    const id = await run(SpDrive.createContext(fake.url, state.jwt, "Q3"))
+    await run(SpDrive.renameContext(fake.url, state.jwt, id, "Q3 report"))
+    expect(fake.state.drive.contexts.get(id)).toBe("Q3 report")
+    expect(JSON.parse(sent(`/api/v1/core/contexts/${id}`, "PUT")[0]?.body ?? "")).toEqual({ name: "Q3 report" })
+    const error = await fail(SpDrive.renameContext(fake.url, state.jwt, crypto.randomUUID(), "x"))
+    expect(error).toBeInstanceOf(SpClient.NotFound)
+    expect(error).toMatchObject({ endpoint: "PUT /api/v1/core/contexts/{id}" })
+  })
+
+  test("an empty title is refused as the instance's 400, a Protocol error", async () => {
+    expect(await fail(SpDrive.createContext(fake.url, state.jwt, " "))).toMatchObject({ _tag: "Protocol", status: 400 })
+  })
+})
+
+describe("people", () => {
+  const person = (index: number) => ({
+    user_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    name: `Person ${index}`,
+    email: `p${index}@dynapps.es`,
+  })
+
+  test("names the ids asked for, 20 a call, leaving out those the instance does not know", async () => {
+    const known = Array.from({ length: 45 }, (_, index) => person(index))
+    known.forEach((entry) => fake.state.drive.people.set(entry.user_id, entry))
+    const asked = [...known.map((entry) => entry.user_id), "unknown", known[0]!.user_id]
+    const found = await run(SpDrive.people(fake.url, state.jwt, asked))
+    expect(found.map((entry) => entry.user_id).toSorted()).toEqual(known.map((entry) => entry.user_id).toSorted())
+    const calls = sent("/api/v1/documents/people", "GET")
+    expect(calls.map((call) => new URLSearchParams(call.query).get("ids")?.split(",").length)).toEqual([20, 20, 6])
+    expect(found[0]).toMatchObject({ name: "Person 0", email: "p0@dynapps.es" })
+  })
+
+  test("no ids is no call", async () => {
+    expect(await run(SpDrive.people(fake.url, state.jwt, []))).toEqual([])
+    expect(sent("/api/v1/documents/people")).toEqual([])
+  })
+
+  test("a search sends the query, the limit and the document, and answers who matches", async () => {
+    ;[person(1), { ...person(2), name: "Ana Ruiz" }].forEach((entry) =>
+      fake.state.drive.people.set(entry.user_id, entry),
+    )
+    const found = await run(SpDrive.searchPeople(fake.url, state.jwt, "ana", { limit: 5, document: "doc-1" }))
+    expect(found.map((entry) => entry.name)).toEqual(["Ana Ruiz"])
+    expect(sent("/api/v1/documents/people", "GET")[0]?.query).toBe("?query=ana&limit=5&document_id=doc-1")
+  })
+
+  test("an instance before 0.84 has no such route: a NotFound, not a list", async () => {
+    fake.state.override = { path: "/api/v1/documents/people", status: 404, body: { error_key: "not_found" } }
+    expect(await fail(SpDrive.people(fake.url, state.jwt, ["a"]))).toBeInstanceOf(SpClient.NotFound)
   })
 })
 

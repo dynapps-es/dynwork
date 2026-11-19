@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import type { Backend } from "../../../src/drive/backend"
 import { DriveCapabilities } from "../../../src/drive/capabilities"
 import { isFailure, type Comment } from "../../../src/drive/contract"
 import {
@@ -188,11 +189,11 @@ describe("the quote of a selection", () => {
 
 describe("how a document takes a comment (D11)", () => {
   const off = DriveCapabilities.none
-  const on = { ...DriveCapabilities.none, rangeComments: true, pdfComments: true }
+  const on = { ...DriveCapabilities.none, rangeComments: true }
 
   test("a node, whatever the instance gives; nothing else while it gives nothing", () => {
     for (const format of ["markdown", "html", "docx", "pptx", "xlsx"])
-      expect(anchorsOf({ format, mime: "" }, off)).toEqual({ node: true, range: false, page: false })
+      expect(anchorsOf({ format, mime: "" }, off)).toEqual({ node: true, range: false })
   })
 
   test("a cell range of a spreadsheet only once rangeComments is on", () => {
@@ -201,12 +202,11 @@ describe("how a document takes a comment (D11)", () => {
     expect(anchorsOf({ format: "docx", mime: "" }, on).range).toBe(false)
   })
 
-  test("a PDF has no nodes, and a point on a page only once pdfComments is on", () => {
-    const pdf = { format: "file", mime: "application/pdf" }
-    expect(anchorsOf(pdf, off)).toEqual({ node: false, range: false, page: false })
-    expect(anchorsOf(pdf, on)).toEqual({ node: false, range: false, page: true })
-    expect(anchorsOf({ format: "pdf", mime: "" }, on).page).toBe(true)
-    expect(anchorsOf({ format: "markdown", mime: "" }, on).page).toBe(false)
+  test("a PDF takes no comment, whatever the instance gives (D22)", () => {
+    const every = Object.fromEntries(Object.keys(off).map((key) => [key, true])) as typeof off
+    expect(anchorsOf({ format: "file", mime: "application/pdf" }, off)).toEqual({ node: false, range: false })
+    expect(anchorsOf({ format: "file", mime: "application/pdf" }, every)).toEqual({ node: false, range: false })
+    expect(anchorsOf({ format: "pdf", mime: "" }, every)).toEqual({ node: false, range: false })
   })
 })
 
@@ -292,9 +292,8 @@ describe("comments in the store", () => {
     expect(store.state.doc.compose).toEqual({ kind: "node", node: "n9" })
   })
 
-  test("a cell range and a PDF point are refused while their capabilities are off, and reach the Drive when on", async () => {
+  test("a cell range is refused while rangeComments is off, and reaches the Drive when on", async () => {
     const range = { kind: "range" as const, sheet: 0, from: "A1", to: "B2" }
-    const page = { kind: "page" as const, page: 1, x: 0.5, y: 0.5 }
     const reached: string[] = []
     const watch = (backend: Parameters<NonNullable<NonNullable<Parameters<typeof setup>[0]>["backend"]>>[0]) => ({
       ...backend,
@@ -306,13 +305,38 @@ describe("comments in the store", () => {
     const off = await stand({ backend: watch })
     const offId = ok(await off.client.upload(file("a.md", "# A", "text/markdown"))).document.id
     expect(code(await off.store.comment(offId, range, "?"))).toBe("unsupported")
-    expect(code(await off.store.comment(offId, page, "?"))).toBe("unsupported")
     expect(reached).toEqual([])
-    const on = await stand({ backend: watch, capabilities: { rangeComments: true, pdfComments: true } })
+    const on = await stand({ backend: watch, capabilities: { rangeComments: true } })
     const onId = ok(await on.client.upload(file("b.md", "# B", "text/markdown"))).document.id
     await on.store.comment(onId, range, "?")
-    await on.store.comment(onId, page, "?")
-    expect(reached).toEqual(["range", "page"])
+    expect(reached).toEqual(["range"])
+  })
+
+  test("an author no grant names is unnamed; with peopleByRest the instance names them, asked once by id (G13)", async () => {
+    const asked: string[][] = []
+    const others = (backend: Backend): Backend => ({
+      ...backend,
+      comments: async (id) => {
+        const own = await backend.comments(id)
+        return isFailure(own) ? own : [...own, comment("c-bob", 5, { author: "user-bob", mine: false })]
+      },
+      people: async (ids) => {
+        asked.push([...ids])
+        return ids.includes("user-bob") ? [{ id: "user-bob", name: "Bob Martín" }] : []
+      },
+    })
+    const off = await stand({ backend: others })
+    await off.store.openDoc(ok(await off.client.upload(file("a.md", "# A", "text/markdown"))).document.id)
+    expect(off.store.nameOf("user-bob")).toBeUndefined()
+    expect(asked).toEqual([])
+    const on = await stand({ backend: others, capabilities: { peopleByRest: true } })
+    const id = ok(await on.client.upload(file("b.md", "# B", "text/markdown"))).document.id
+    await on.store.openDoc(id)
+    expect(on.store.nameOf("user-bob")).toBe("Bob Martín")
+    expect(asked).toEqual([["user-bob"]])
+    // Named once, not asked again
+    await on.store.openDoc(id)
+    expect(asked).toHaveLength(1)
   })
 
   test("the comments of the document are read again when its Comments tab opens", async () => {

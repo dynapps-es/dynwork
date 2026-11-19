@@ -19,6 +19,10 @@ export interface Options {
   now?: () => number
   /** Lists by conversation (`byContext`), as an instance with P3 will. */
   contexts?: boolean
+  /** Refuses a folder whose name a sibling already has (`name_taken`), as 0.84 does; 0.83 makes a second one. */
+  nameTaken?: boolean
+  /** The people the instance names by id (`people`), by user id. */
+  people?: Record<string, string>
 }
 
 export interface Fake extends Backend {
@@ -28,8 +32,12 @@ export interface Fake extends Backend {
   suggestOnly(on: boolean): void
   /** Holds bytes as the instance holds what the agent's `documents_upload` sent, and answers the `blob_ref` to import. */
   stage(bytes: Uint8Array, mime: string): string
-  /** Says to every open `mentions` stream that someone was mentioned, as the instance does for a comment that mentions. */
+  /** Says to every open `stream` that someone was mentioned, as the instance does for a comment that mentions. */
   announce(heard: DriveMentions.Heard): void
+  /** Says to every open `stream` that the Drive changed, as 0.84 does after a revision lands (`document.drive.changed`). */
+  changed(): void
+  /** The conversations registered (`createContext`): title by id. */
+  readonly contexts: ReadonlyMap<string, string>
   /** How many calls reached the backend, by method. */
   readonly calls: Readonly<Record<string, number>>
 }
@@ -46,8 +54,7 @@ type Entry = {
 /**
  * An in-memory Drive that behaves as the instance (0.83) does where DynWork can tell: a document created by upload
  * has an unnamed first revision, a comment anchors to a node of the outline only, an agent capped at `suggest` may
- * only propose, and a cell range or PDF point is refused. For the conformance suite, the service's tests and the
- * views' tests.
+ * only propose, and a cell range is refused. For the conformance suite, the service's tests and the views' tests.
  */
 export function make(options: Options = {}): Fake {
   const user = options.user ?? "user-1"
@@ -57,13 +64,15 @@ export function make(options: Options = {}): Fake {
   const switches: { down?: Failure; suggestOnly: boolean } = { suggestOnly: false }
   const calls: Record<string, number> = {}
   const blobs = new Map<string, { bytes: Uint8Array; mime: string }>()
-  // The open `mentions` streams: each a queue of what was announced and the way to wake its reader.
-  const streams = new Set<{ queue: DriveMentions.Heard[]; wake: () => void }>()
-  const announce = (heard: DriveMentions.Heard) =>
+  const contexts = new Map<string, string>()
+  // The open streams: each a queue of what was announced and the way to wake its reader.
+  const streams = new Set<{ queue: DriveMentions.Streamed[]; wake: () => void }>()
+  const send = (event: DriveMentions.Streamed) =>
     streams.forEach((stream) => {
-      stream.queue.push(heard)
+      stream.queue.push(event)
       stream.wake()
     })
+  const announce = (heard: DriveMentions.Heard) => send({ kind: "mentioned", ...heard })
   // What the instance does with a comment: it keeps the body as written, and refuses a mention option for a user the
   // body does not mention; the reader sees `@Agent` for the user's own mention (`DriveMentions.read`).
   const spoken = (body: string, agent: boolean | undefined) =>
@@ -259,6 +268,8 @@ export function make(options: Options = {}): Fake {
       if (input.parent !== undefined && !folders.has(input.parent)) return fail("not-found", "No such folder.")
       const blocked = writable()
       if (blocked) return blocked
+      const taken = [...folders.values()].some((folder) => folder.parent === input.parent && folder.name === input.name)
+      if (options.nameTaken && taken) return fail("conflict", "A folder of that name is already there.")
       const folder: Folder = {
         id: randomUUID(),
         name: input.name,
@@ -382,12 +393,31 @@ export function make(options: Options = {}): Fake {
       entry.comments[index] = resolved
       return resolved
     }),
+    createContext: method("createContext", (name: string) => {
+      if (!name.trim()) return fail("invalid", "A conversation needs a name.")
+      const id = randomUUID()
+      contexts.set(id, name)
+      return id
+    }),
+    renameContext: method("renameContext", (id: string, name: string) => {
+      if (!contexts.has(id)) return fail("not-found", "No such conversation.")
+      contexts.set(id, name)
+      return undefined
+    }),
+    people: method("people", (ids: readonly string[]) =>
+      ids.flatMap((id) => {
+        const name = options.people?.[id]
+        return name === undefined ? [] : [{ id, name }]
+      }),
+    ),
   }
 
   return {
     ...backend,
-    mentions: method("mentions", (signal: AbortSignal) => stream(streams, signal)),
+    stream: method("stream", (signal: AbortSignal) => stream(streams, signal)),
     announce,
+    changed: () => send({ kind: "changed" }),
+    contexts,
     ...(options.contexts
       ? {
           byContext: method("byContext", (context: string) =>
@@ -413,10 +443,10 @@ export function make(options: Options = {}): Fake {
   }
 }
 
-// A `mentions` stream: what is announced while it is open, until `signal` aborts.
-function stream(open: Set<{ queue: DriveMentions.Heard[]; wake: () => void }>, signal: AbortSignal) {
+// A stream: what is announced while it is open, until `signal` aborts.
+function stream(open: Set<{ queue: DriveMentions.Streamed[]; wake: () => void }>, signal: AbortSignal) {
   const state = { wake: () => {} }
-  const mine = { queue: [] as DriveMentions.Heard[], wake: () => state.wake() }
+  const mine = { queue: [] as DriveMentions.Streamed[], wake: () => state.wake() }
   open.add(mine)
   signal.addEventListener("abort", () => state.wake(), { once: true })
   return (async function* () {
