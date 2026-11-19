@@ -201,6 +201,7 @@ export default {
   "drive.share.agent": "De agent van DynWork heeft dit document gemaakt: wie je hier uitnodigt of wijzigt, wordt vanuit DynWork gedeeld, namens jou.",
   "drive.share.remove": "Toegang verwijderen",
   "drive.share.nobody": "Niemand met die naam of dat e-mailadres",
+  "drive.share.searching": "Zoeken…",
   "drive.bubble": "Opmerkingen hier: {{count}}",
   "drive.panel.title": "Artefacten",
   "drive.panel.add": "Toevoegen vanuit de Drive",

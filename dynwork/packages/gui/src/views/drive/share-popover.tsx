@@ -72,15 +72,18 @@ function ShareBody(props: { doc: Document }) {
       }
     },
   )
+  // Both resources are read only once ready: reading one while it loads suspends the nearest Suspense, which is the
+  // view's, so the document under the popover goes blank and the popover loses its trigger, its anchor.
+  const loaded = () => (read.state === "ready" ? read() : undefined)
   // Who has access as the instance last answered: what it read, then each change it took.
   const [shown, setShown] = createSignal<Access>()
   const [refusal, setRefusal] = createSignal<Failure>()
   const [busy, setBusy] = createSignal(false)
   const [query, setQuery] = createSignal("")
-  const list = () => shown() ?? read()?.access
+  const list = () => shown() ?? loaded()?.access
   const access = () => list()?.access ?? props.doc.access
   const offer = () =>
-    sharing({ access: access(), link: governance(props.doc.id), made: read()?.made, cap: read()?.cap?.cap })
+    sharing({ access: access(), link: governance(props.doc.id), made: loaded()?.made, cap: loaded()?.cap?.cap })
   const live = () => offer().change === "live" && !busy()
   const reason = () =>
     offer().change === "level"
@@ -98,6 +101,7 @@ function ShareBody(props: { doc: Document }) {
       return !answer || isFailure(answer) ? [] : answer
     },
   )
+  const people = () => (found.state === "ready" ? found() : undefined)
   const change = async (call: (client: DriveClient.Client) => Promise<Access | Failure>) => {
     const client = drive.client()
     const now = list()
@@ -150,8 +154,8 @@ function ShareBody(props: { doc: Document }) {
         <Show when={query().trim().length >= 2}>
           <div data-slot="drive-share-found">
             <For
-              each={found() ?? []}
-              fallback={<p data-slot="drive-note">{ctx.t(found.loading ? "drive.loading" : "drive.share.nobody")}</p>}
+              each={people() ?? []}
+              fallback={<p data-slot="drive-note">{ctx.t(found.loading ? "drive.share.searching" : "drive.share.nobody")}</p>}
             >
               {(person) => (
                 <button type="button" data-slot="drive-person" onClick={() => invite(person.id)}>
@@ -226,7 +230,7 @@ function ShareBody(props: { doc: Document }) {
             )}
           </For>
           {/* The agents' cap is the owner's to set, in Governance: the instance keeps `own` from agents. */}
-          <Show when={read()?.cap}>
+          <Show when={loaded()?.cap}>
             {(cap) => (
               <div data-slot="drive-person">
                 <Avatar name={ctx.t("drive.share.agents")} agent size="small" />
