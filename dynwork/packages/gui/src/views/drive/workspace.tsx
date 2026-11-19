@@ -8,7 +8,7 @@ import type { Access, AgentCap, Document } from "../../drive/contract"
 import { askAgent, back, sessionOf, titleOf } from "./chat"
 import { CommentMarks, CommentsTab, MarksToggle } from "./comments"
 import { DocMenu } from "./menus"
-import { drawerWidth, panes } from "./panes"
+import { drawerWidth, outlineWidth, panes } from "./panes"
 import {
   Avatar,
   createPresent,
@@ -28,8 +28,9 @@ const tabs: readonly DocTab[] = ["details", "comments", "versions", "proposals",
 
 /**
  * A document open in the Drive: its bar, the edition banner, its index, its viewer and the drawer. The index, the
- * drawer and the comments marked on the document show or hide from the bar, and the drawer takes the width its edge is
- * dragged to (`panes`). The index marks the heading being read; Present shows the document alone, full screen.
+ * drawer and the comments marked on the document show or hide from the bar, and the index and the drawer take the
+ * width their inner edge is dragged to (`panes`). The index marks the heading being read; Present shows the document
+ * alone, full screen.
  */
 export function Workspace(props: { doc: Document }) {
   const ctx = usePlugin()
@@ -131,23 +132,36 @@ export function Workspace(props: { doc: Document }) {
 
       <div data-slot="drive-ws-body">
         <Show when={panes.outline() && headings().length}>
-          <nav ref={rail} data-slot="drive-rail" aria-label={ctx.t("drive.outline")}>
-            <div data-slot="drive-rail-title">{ctx.t("drive.outline")}</div>
-            <For each={headings()}>
-              {(heading, index) => (
-                <button
-                  type="button"
-                  data-level={depth(heading.level)}
-                  data-state={outline()?.active() === index() ? "active" : undefined}
-                  aria-current={outline()?.active() === index() ? "location" : undefined}
-                  title={heading.text}
-                  onClick={() => outline()?.go(index())}
-                >
-                  {heading.text}
-                </button>
-              )}
-            </For>
-          </nav>
+          <div data-slot="drive-rail-pane" style={{ width: `${panes.width("outline")}px` }}>
+            <ResizeHandle
+              direction="horizontal"
+              edge="end"
+              size={panes.width("outline")}
+              min={outlineWidth.min}
+              max={outlineWidth.max}
+              onResize={(width) => panes.resize(width, "outline")}
+              onDraggingChange={(dragging) => {
+                if (!dragging) panes.settle()
+              }}
+            />
+            <nav ref={rail} data-slot="drive-rail" aria-label={ctx.t("drive.outline")}>
+              <div data-slot="drive-rail-title">{ctx.t("drive.outline")}</div>
+              <For each={headings()}>
+                {(heading, index) => (
+                  <button
+                    type="button"
+                    data-level={depth(heading.level)}
+                    data-state={outline()?.active() === index() ? "active" : undefined}
+                    aria-current={outline()?.active() === index() ? "location" : undefined}
+                    title={heading.text}
+                    onClick={() => outline()?.go(index())}
+                  >
+                    {heading.text}
+                  </button>
+                )}
+              </For>
+            </nav>
+          </div>
         </Show>
         <div ref={canvas} data-slot="drive-canvas">
           <Viewer doc={props.doc} onOutline={setOutline} onMark={(thread) => drive.focusThread(thread)} />
@@ -164,7 +178,7 @@ export function Workspace(props: { doc: Document }) {
               size={panes.width()}
               min={drawerWidth.min}
               max={drawerWidth.max}
-              onResize={panes.resize}
+              onResize={(width) => panes.resize(width)}
               onDraggingChange={(dragging) => {
                 if (!dragging) panes.settle()
               }}

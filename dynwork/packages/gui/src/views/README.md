@@ -118,8 +118,9 @@ in-memory Drive for the tests.
   marks the one being read (the last whose top has passed the upper third of the document's area, else the first),
   kept in sight in a long index; a sheet, a slide deck or a PDF has none and shows no column. In an HTML frame the
   heading being read comes from main's observer (`../drive/README.md`, "The viewer's frames"). The bar shows and hides
-  the index, the drawer and the comments marked on the document (with how many threads are open), and the drawer's
-  edge resizes it (`@opencode/ui/resize-handle`), all kept in the window's storage (`panes.ts`). Present shows the
+  the index, the drawer and the comments marked on the document (with how many threads are open), and the inner edge
+  of the index (180–420 px) and of the drawer (320–720 px) resizes it (`@opencode/ui/resize-handle`), all kept in the
+  window's storage (`panes.ts`). Present shows the
   document alone, full screen (the Fullscreen API on the canvas, which takes the window with it); Escape or Exit
   returns to the view as it was. Every
   icon-only button carries a tooltip. Ask the agent opens the document beside the last chat with a composer chip. What

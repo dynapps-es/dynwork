@@ -990,15 +990,25 @@
   min-height: 0;
 }
 
-[data-slot="drive-rail"] {
+/* The index is as wide as its edge was dragged (`panes.ts`), and never takes more than a third of the view. */
+[data-slot="drive-rail-pane"] {
+  position: relative;
   display: flex;
   flex: none;
+  width: 196px;
+  max-width: 33%;
+  min-height: 0;
+  border-right: 1px solid var(--v2-border-border-muted);
+}
+
+[data-slot="drive-rail"] {
+  display: flex;
+  flex: 1;
   flex-direction: column;
   gap: 1px;
-  width: 196px;
+  min-width: 0;
   padding: 12px 8px;
   overflow-y: auto;
-  border-right: 1px solid var(--v2-border-border-muted);
 
   button {
     flex: none;
