@@ -8,9 +8,9 @@ import { boot, until } from "./service"
 // The agent's documents in a real OpenCode service: a real Session step against a fake instance that serves the
 // gateway's `/v1/messages` and a `documents` MCP server, and records what arrives. The model creates a document first
 // directly and then inside a Code Mode program; this test plays main, answering the plugin's asks and listening to its
-// touches, and checks what the MCP server received.
+// touches, deciding on its shares as the user would on the card, and checks what the MCP server received.
 
-const gateway: Array<{ tools: string[]; results: number }> = []
+const gateway: Array<{ tools: string[]; results: number; messages: string }> = []
 // What the model's Code Mode program does in the next Session.
 const program = { code: "" }
 const mcp: Array<{ method: string; arguments?: Record<string, unknown>; name?: string; auth?: string }> = []
@@ -41,7 +41,7 @@ const instance = Bun.serve({
         })
       if (call.method === "tools/list")
         return rpcResult(call.id, {
-          tools: ["documents_create", "documents_edit", "documents_upload"].map((name) => ({
+          tools: ["documents_create", "documents_edit", "documents_upload", "documents_share"].map((name) => ({
             name,
             description: `The ${name} tool.`,
             inputSchema: { type: "object", properties: {}, additionalProperties: true },
@@ -62,7 +62,11 @@ const instance = Bun.serve({
     const body: { model: string; tools?: Array<{ name: string }>; messages: Array<{ content: unknown }> } =
       await request.json()
     const results = JSON.stringify(body.messages).split("tool_result").length - 1
-    gateway.push({ tools: (body.tools ?? []).map((tool) => tool.name), results })
+    gateway.push({
+      tools: (body.tools ?? []).map((tool) => tool.name),
+      results,
+      messages: JSON.stringify(body.messages),
+    })
     return new Response(results > 0 ? text(body.model) : tool(body.model, "execute", { code: program.code }), {
       headers: { "content-type": "text/event-stream" },
     })
@@ -134,9 +138,11 @@ const models = [
   { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", api: "messages" },
 ] satisfies DynWorkSync.Gateway["models"]
 
-// Main: it answers each ask with a folder and a message, and keeps each touch.
+// Main: it answers each ask with a folder and a message, keeps each touch, and decides each share as `decision` says.
 const asks: DynWorkDocuments.Ask[] = []
 const touches: DynWorkDocuments.Touch[] = []
+const confirms: DynWorkDocuments.Share[] = []
+const decision = { allow: false }
 const listening = new AbortController()
 
 afterAll(async () => {
@@ -158,7 +164,7 @@ beforeAll(async () => {
     expiresAt: Date.now() + 3_600_000,
     gateway: { label: "Alpha", models },
   })
-  const types = ["ask", "touch"].map((name) => `types=rpc.${DynWorkDocuments.id}.${name}`).join("&")
+  const types = ["ask", "touch", "confirm"].map((name) => `types=rpc.${DynWorkDocuments.id}.${name}`).join("&")
   const events = await fetch(`${service.url}/api/event?${types}`, {
     headers: { ...service.headers, accept: "text/event-stream" },
     signal: listening.signal,
@@ -179,16 +185,26 @@ beforeAll(async () => {
           })
         }
         if (event.type.endsWith(".touch")) touches.push(event.data)
+        if (event.type.endsWith(".confirm")) {
+          const share: DynWorkDocuments.Share = event.data
+          confirms.push(share)
+          await fetch(`${service.url}/api/rpc/${DynWorkDocuments.id}/decide`, {
+            method: "POST",
+            headers: { ...service.headers, "content-type": "application/json" },
+            body: JSON.stringify({ input: { id: share.id, allow: decision.allow } }),
+          })
+        }
       }
     }
   })().catch(() => undefined)
 })
 
 // One Session whose model runs `code` as a Code Mode program, and the calls the MCP server received from it.
-async function run(code: string) {
+async function run(code: string, session?: string) {
   program.code = code
   const before = mcp.filter((entry) => entry.method === "tools/call").length
   const created = await service.post("/api/session", {
+    ...(session === undefined ? {} : { id: session }),
     location: { directory: project },
     title: "documents test",
     model: { id: "claude-sonnet-5-5", providerID: "systemprompt" },
@@ -285,3 +301,46 @@ test("the agent is told about the server in the service's AGENTS.md, after the i
   expect(rules).toContain("documents_upload")
   expect(rules.indexOf("alpha conventions")).toBeLessThan(rules.indexOf("Documents in Dynwork"))
 })
+
+const share = `tools.documents.documents_share({ document_id: "d1", subject_kind: "user", subject_value: "user-luis", level: "edit" })`
+// The program returns what the call threw, so the model's next request carries it as the program's result.
+const caught = `try { return await ${share} } catch (error) { return "threw: " + (error?.message ?? String(error)) }`
+const shared = () => mcp.filter((entry) => entry.method === "tools/call" && entry.name === "documents_share")
+
+test("a share the user rejects never reaches the instance, and the agent reads what the user declined", async () => {
+  decision.allow = false
+  const before = shared().length
+  const done = await run(caught)
+  expect(confirms.at(-1)).toMatchObject({
+    session: done.id,
+    kind: "grant",
+    document: "d1",
+    subject: { kind: "user", value: "user-luis" },
+    level: "edit",
+  })
+  expect(shared().length).toBe(before)
+  expect(gateway.at(-1)?.messages).toContain("The user declined to share document d1 with user user-luis (edit)")
+}, 60_000)
+
+test("a share the user allows reaches the instance as the agent wrote it", async () => {
+  decision.allow = true
+  const confirmed = confirms.length
+  const done = await run(`return await ${share}`)
+  expect(confirms.length - confirmed).toBe(1)
+  expect(done.calls).toEqual([
+    expect.objectContaining({
+      name: "documents_share",
+      arguments: { document_id: "d1", subject_kind: "user", subject_value: "user-luis", level: "edit" },
+    }),
+  ])
+}, 60_000)
+
+test("a share in a scheduled task's run is refused at once, with no card", async () => {
+  decision.allow = true
+  const confirmed = confirms.length
+  const before = shared().length
+  await run(caught, `ses_aut_dynwork_${crypto.randomUUID().replaceAll("-", "")}`)
+  expect(confirms.length).toBe(confirmed)
+  expect(shared().length).toBe(before)
+  expect(gateway.at(-1)?.messages).toContain("nobody is there to answer in a scheduled task")
+}, 60_000)

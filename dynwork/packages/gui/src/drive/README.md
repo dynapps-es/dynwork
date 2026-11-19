@@ -19,6 +19,7 @@ window                                main process
 | `fake.ts`         | An in-memory Drive that behaves as 0.83 where DynWork can tell: `DriveFake.make(options)`                                        |
 | `agent.ts`        | What the agent does with the `documents` MCP tools: its folder, its signature, its index, its uploaded pages (phase 07)          |
 | `mentions.ts`     | `@Agent` in a comment: written as a real mention, followed on the bridge stream, and woken to the linked conversation (phase 08) |
+| `share.ts`        | The agent's shares: each `documents_share` call waits on a card in its conversation for the user's decision (D24)                |
 | `main.ts`         | The main-process setup over the accounts, from `accounts/main.ts`                                                                |
 | `client.ts`       | The window's live Ipc client, handed over by the window entry for the views to read                                              |
 
@@ -166,6 +167,43 @@ Governance ──/v1/bridge/stream──► Backend.stream ────► Drive
   as the user's agent, and is left to Governance; only the user mentioning themself is a job. DynWork opens the stream
   again every five minutes and two seconds after it ends, and a mention made while it was closed is lost, except for those
   the service writes (they do not wait for the stream).
+
+## The agent's shares (D24)
+
+Before every `documents_share` call (a grant, a `transfer_to` or a `revoke_all`) the server plugin stops the call and
+publishes it (`DynWorkDocuments.confirm`, `confirm` event of `dynwork.documents`); main shows it on a card in the
+conversation and sends back the user's decision (`decide`). Nothing is shared without it: the call waits as long as it
+takes, and a main that connects later reads the shares still waiting (`shares`). Stopping the step withdraws the card.
+
+```
+documents_share ──execute.before──► plugin: confirm ──event──► DriveShare (share.ts) ──Ipc dynwork.drive.shares──► card
+       ▲                                  ▲                        │ names: backend.get, the folders read, people
+       └──── runs, or fails with ─────────┴──────── decide ◄───────┘ ◄── Reject · Allow in this conversation · Allow once
+             "The user declined …"
+```
+
+- **The card.** `views/drive/share.tsx`, in the `session.composer.dock` slot, drawn as OpenCode's permission dock. It
+  says what, with whom and at which level («Share _Q3 report.md_ with _Luis Martín_ · Edit»); a transfer and a revocation
+  have their own words. Names come from the Drive (the document, a folder as last read, a person while `peopleByRest` is
+  on); what it cannot name shows as the agent gave it, an email or an id.
+- **Allow in this conversation.** Kept in main, per conversation and kind of share (grant, transfer, revoke), while the
+  app runs: the next share of that kind there is allowed with no card, and the cards of that kind already waiting there
+  go too. Another conversation asks again; a restart asks again. A subagent's share shows in, and counts for, the
+  conversation that started it; a conversation child (DynWork's runs, the chats) is a conversation of its own.
+- **Reject.** The call fails with a `Tool.Error` the agent reads ("The user declined to share document … with user …
+  (edit): nothing was shared. Do not try again unless the user asks you to."), so the step goes on: it is not OpenCode's
+  plain rejection, which ends the step.
+- **Why not OpenCode's permission prompt.** Its "Allow always" is saved for the whole project
+  (`PermissionSaved.add({projectID, …})`), its button cannot say "in this conversation" without an upstream patch, and the
+  app's auto-approve answers permission requests unseen. The card is not a permission: the session's permissions ("Don't
+  ask" too) and auto-approve play no part. The tool's own permission (`documents_documents_share`) still applies after
+  the card; OpenCode's agents allow it, so it does not ask a second time unless the user's config makes it ask.
+- **Scheduled tasks.** OpenCode denies a permission that would ask only where it settles unattended work itself
+  (`Permission.Unattended`: an automation's code check, its subagent check); in a DynWork run an "Ask me" permission
+  waits for the user until the run's time limit, and "Don't ask" allows everything. A share does neither: in a run's
+  conversation (`ses_aut_`, OpenCode's automations and DynWork's runs) it is refused at once, with no card, and the agent
+  reads why. The instance's policy also denies sharing to unattended agents.
+- **Main closed.** The call waits; it is decided once the app is back, or withdrawn when the user stops the step.
 
 ## Capabilities
 

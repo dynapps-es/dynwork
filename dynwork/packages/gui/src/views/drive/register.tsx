@@ -8,6 +8,7 @@ import { docKey, listKey, origin, sessionOf } from "./chat"
 import { arrivals, landing } from "./model"
 import { DocTabLabel, ListTabLabel } from "./tab-label"
 import { ArtifactsPanel, DocPanel } from "./panel"
+import { registerShares } from "./share"
 import { drive, follow } from "./store"
 import "./drive.css"
 
@@ -16,6 +17,8 @@ import "./drive.css"
 // the Drive's composer chips, which opens the document's tab again.
 export function registerDrive(ctx: SetupContext<typeof definition>) {
   DriveClient.attach(ctx.use(Drive))
+  // The agent's shares wait for the user on a card in their conversation.
+  registerShares(ctx)
   // The active account's Governance address and user name, for Open in Governance and the edition banner, from the
   // accounts Ipc the window entry already holds.
   createEffect(() => {

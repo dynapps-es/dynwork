@@ -431,3 +431,45 @@ export const Drive = Ipc.define({
     documentsOf: { input: Schema.Struct({ conversation: Schema.String }), output: Outcome(Schema.Array(Link)) },
   },
 })
+
+/**
+ * A share the agent is about to make through the `documents` tools, on its card (D24): the plugin's share
+ * (`DynWorkDocuments.Share`) with the names main could read. `session` is the conversation that shows the card: a
+ * subagent's share shows in the conversation that started it. A name that could not be read is absent, and the card
+ * shows the id the agent gave.
+ */
+export const ShareCard = Schema.Struct({
+  id: Schema.String,
+  session: Schema.String,
+  kind: Schema.Literals(["grant", "transfer", "revoke"]),
+  target: Schema.optional(
+    Schema.Struct({
+      kind: Schema.Literals(["document", "folder"]),
+      id: Schema.String,
+      name: Schema.optional(Schema.String),
+    }),
+  ),
+  subject: Schema.optional(
+    Schema.Struct({ kind: Schema.String, value: Schema.String, name: Schema.optional(Schema.String) }),
+  ),
+  level: Schema.optional(Schema.String),
+  until: Schema.optional(Schema.String),
+})
+export type ShareCard = typeof ShareCard.Type
+
+/** `once` runs this share; `conversation` also every later one of its kind in the card's conversation; `reject` none. */
+export const ShareDecision = Schema.Literals(["once", "conversation", "reject"])
+export type ShareDecision = typeof ShareDecision.Type
+
+/** The agent's shares waiting for the user, held by main, which decides them with the plugin. */
+export const Shares = Ipc.define({
+  id: "dynwork.drive.shares",
+  state: Schema.Struct({ cards: Schema.Array(ShareCard) }),
+  methods: {
+    /** The user's decision on a card. `not-found` when it is no longer waiting (decided in another window, or stopped). */
+    decide: {
+      input: Schema.Struct({ id: Schema.String, decision: ShareDecision }),
+      output: Schema.UndefinedOr(Failure),
+    },
+  },
+})

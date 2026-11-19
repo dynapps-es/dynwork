@@ -227,4 +227,17 @@ export default {
   "drive.cap.read": "seulement lire",
   "drive.cap.suggest": "seulement suggérer des modifications",
   "drive.cap.edit": "modifier",
+  "drive.share.grant.title": "Laisser l’agent partager ?",
+  "drive.share.transfer.title": "Laisser l’agent céder la propriété ?",
+  "drive.share.revoke.title": "Laisser l’agent retirer l’accès ?",
+  "drive.share.grant.text": "Partager {{target}} avec {{subject}} · {{level}}",
+  "drive.share.grant.folder": "Partager le dossier {{target}}, avec tout son contenu, avec {{subject}} · {{level}}",
+  "drive.share.transfer.text":
+    "Faire de {{subject}} le propriétaire de {{target}}. Le propriétaire actuel garde la modification.",
+  "drive.share.revoke.text": "Retirer l’accès de tous à {{target}} : seul son propriétaire le garde.",
+  "drive.share.until": "Jusqu’au {{until}}",
+  "drive.share.missing": "non précisé",
+  "drive.share.reject": "Refuser",
+  "drive.share.conversation": "Autoriser dans cette conversation",
+  "drive.share.once": "Autoriser une fois",
 } satisfies Record<keyof typeof en, string>

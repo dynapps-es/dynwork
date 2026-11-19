@@ -9,6 +9,7 @@ import { Drive } from "./contract"
 import { DriveFrames } from "./frames"
 import { DriveIpc } from "./ipc"
 import { DriveMentions } from "./mentions"
+import { DriveShare } from "./share"
 
 export interface Options {
   /** What each account's instance has delivered; absent, nothing (`DriveCapabilities.none`). */
@@ -24,8 +25,9 @@ export interface Options {
 // over the active account's Drive in Governance, with the account's JWT, which never reaches a window. Answers
 // `account`, which main calls on every change of the accounts, and the service, for main code that writes to the
 // Drive for a conversation. With the service's `client`, the agent's writes through the `documents` tools are followed:
-// they enter the conversation's index and land in its folder (`DriveAgent`), and a comment that asks for the agent
-// (`@Agent`) wakes the conversation its document is linked to (`DriveMentions`).
+// they enter the conversation's index and land in its folder (`DriveAgent`), a comment that asks for the agent
+// (`@Agent`) wakes the conversation its document is linked to (`DriveMentions`), and each share waits on a card for the
+// user's decision (`DriveShare`, the `dynwork.drive.shares` Ipc).
 export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, options: Options = {}) {
   const provider = { changed: () => {} }
   const service = DriveIpc.make({
@@ -55,6 +57,7 @@ export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, opti
   if (options.client) {
     DriveAgent.setup(ctx, { service, client: options.client, untitled: ctx.t("drive.chat.untitled") })
     DriveMentions.setup(ctx, { service, client: options.client })
+    DriveShare.setup(ctx, { service, client: options.client })
   }
   const ipc = ctx.provide(Drive, service.ipc)
   provider.changed = () => ipc.changed()

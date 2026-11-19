@@ -302,3 +302,17 @@ export function anchorsOf(doc: Pick<Document, "format" | "mime">, capabilities: 
       DriveCapabilities.anchorable(capabilities, { kind: "range", sheet: 0, from: "A1", to: "A1" }),
   }
 }
+
+/**
+ * A translated sentence with its `{{name}}` values marked to show in bold: the template is split where each value goes,
+ * so every language keeps its own word order (the share card's sentence).
+ */
+export function emphasized(template: string, values: Record<string, string>) {
+  return template
+    .split(/({{\s*\w+\s*}})/g)
+    .filter(Boolean)
+    .map((part) => {
+      const key = /^{{\s*(\w+)\s*}}$/.exec(part)?.[1]
+      return key === undefined ? { text: part, strong: false } : { text: values[key] ?? "", strong: true }
+    })
+}

@@ -182,6 +182,177 @@ describe("what main adds before a write", () => {
   })
 })
 
+describe("what the user confirms before the agent shares", () => {
+  const call = (input: unknown, sessionID = "ses_q3", tool = "documents_documents_share") => ({
+    tool,
+    sessionID,
+    id: "call_s",
+    input,
+  })
+
+  test("documents_share asks for confirmation in its own conversation, naming what, with whom and at which level", () => {
+    expect(
+      DynWorkDocuments.sharing(
+        call({ document_id: "d1", subject_kind: "user", subject_value: "user-luis", level: "edit", message: "fyi" }),
+      ),
+    ).toEqual({
+      id: "call_s",
+      session: "ses_q3",
+      kind: "grant",
+      document: "d1",
+      subject: { kind: "user", value: "user-luis" },
+      level: "edit",
+    })
+    // Each conversation asks for itself: what one allowed says nothing about another.
+    expect(
+      DynWorkDocuments.sharing(
+        call(
+          { folder_id: "f1", subject_kind: "group", subject_value: "sales", level: "view", valid_until: "2026-12-01" },
+          "ses_other",
+        ),
+      ),
+    ).toEqual({
+      id: "call_s",
+      session: "ses_other",
+      kind: "grant",
+      folder: "f1",
+      subject: { kind: "group", value: "sales" },
+      level: "view",
+      until: "2026-12-01",
+    })
+  })
+
+  test("a transfer and a revoke_all are asked about too, each as what it is", () => {
+    expect(DynWorkDocuments.sharing(call({ document_id: "d1", transfer_to: "user-luis" }))).toEqual({
+      id: "call_s",
+      session: "ses_q3",
+      kind: "transfer",
+      document: "d1",
+      subject: { kind: "user", value: "user-luis" },
+    })
+    expect(DynWorkDocuments.sharing(call({ document_id: "d1", revoke_all: true }))).toEqual({
+      id: "call_s",
+      session: "ses_q3",
+      kind: "revoke",
+      document: "d1",
+    })
+  })
+
+  test("nothing is shared unasked: a call whose input cannot be read is still asked about", () => {
+    expect(DynWorkDocuments.sharing(call("not a record"))).toEqual({ id: "call_s", session: "ses_q3", kind: "grant" })
+    expect(DynWorkDocuments.sharing(call({ document_id: 7, level: ["edit"] }))).toEqual({
+      id: "call_s",
+      session: "ses_q3",
+      kind: "grant",
+    })
+  })
+
+  test("no other tool asks: not a write, a read, the access check, or another server's share", () => {
+    for (const tool of [
+      "documents_documents_create",
+      "documents_documents_access",
+      "documents_documents_people",
+      "drive_documents_share",
+      "documents_share",
+      "documents_documents_share_all",
+    ])
+      expect(DynWorkDocuments.sharing(call({ document_id: "d1" }, "ses_q3", tool))).toBeUndefined()
+  })
+
+  test("a scheduled task's conversation has nobody to confirm: its share is refused at once", () => {
+    expect(DynWorkDocuments.unattended("ses_aut_dynwork_3f2a")).toBe(true)
+    expect(DynWorkDocuments.unattended("ses_aut_1")).toBe(true)
+    expect(DynWorkDocuments.unattended("ses_q3")).toBe(false)
+    expect(DynWorkDocuments.nobody).toContain("scheduled task")
+    expect(DynWorkDocuments.nobody).toContain("nothing was shared")
+  })
+
+  test("a refusal tells the agent what the user declined, and not to try again on its own", () => {
+    const share = { id: "c", session: "ses_q3" }
+    expect(
+      DynWorkDocuments.declined({
+        ...share,
+        kind: "grant",
+        document: "d1",
+        subject: { kind: "user", value: "user-luis" },
+        level: "edit",
+      }),
+    ).toBe(
+      "The user declined to share document d1 with user user-luis (edit): nothing was shared. Do not try again unless the user asks you to.",
+    )
+    expect(
+      DynWorkDocuments.declined({ ...share, kind: "grant", folder: "f1", subject: { kind: "group", value: "sales" } }),
+    ).toBe(
+      "The user declined to share folder f1 with group sales: nothing was shared. Do not try again unless the user asks you to.",
+    )
+    expect(
+      DynWorkDocuments.declined({
+        ...share,
+        kind: "transfer",
+        document: "d1",
+        subject: { kind: "user", value: "user-luis" },
+      }),
+    ).toBe(
+      "The user declined to transfer ownership of document d1 to user user-luis: nothing changed. Do not try again unless the user asks you to.",
+    )
+    expect(DynWorkDocuments.declined({ ...share, kind: "revoke", document: "d1" })).toBe(
+      "The user declined to revoke every grant on document d1: nothing changed. Do not try again unless the user asks you to.",
+    )
+  })
+
+  test("the share and the user's decision keep their shape across the RPC", () => {
+    const share = {
+      id: "c",
+      session: "ses_q3",
+      kind: "grant" as const,
+      document: "d1",
+      subject: { kind: "user", value: "u" },
+      level: "view",
+      until: "2026-12-01",
+    }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Share)(share)).toEqual(share)
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Decision)({ id: "c", allow: false })).toEqual({
+      id: "c",
+      allow: false,
+    })
+  })
+})
+
+describe("waiting for the user's decision on a share", () => {
+  const shown: DynWorkDocuments.Share[] = []
+  const withdrawn: string[] = []
+  const confirmer: DynWorkDocuments.Confirmer = {
+    confirm: (share) => Effect.sync(() => void shown.push(share)),
+    withdraw: (id) => Effect.sync(() => void withdrawn.push(id)),
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const share = (id: string): DynWorkDocuments.Share => ({ id, session: "ses_q3", kind: "revoke", document: "d1" })
+
+  test("the share is published and the call waits for the user's decision, as long as it takes", async () => {
+    const running = Effect.runPromise(DynWorkDocuments.confirm(confirmer, share("call_x")))
+    await settle()
+    expect(shown.at(-1)).toEqual(share("call_x"))
+    expect(DynWorkDocuments.shares().shares).toContainEqual(share("call_x"))
+    expect(DynWorkDocuments.decide({ id: "call_x", allow: true })).toEqual({ accepted: true })
+    expect(await running).toBe(true)
+    expect(DynWorkDocuments.shares().shares).not.toContainEqual(share("call_x"))
+    const refused = Effect.runPromise(DynWorkDocuments.confirm(confirmer, share("call_y")))
+    await settle()
+    DynWorkDocuments.decide({ id: "call_y", allow: false })
+    expect(await refused).toBe(false)
+  })
+
+  test("a stopped call withdraws its card, and a decision for nothing that waits is not accepted", async () => {
+    expect(DynWorkDocuments.decide({ id: "call_gone", allow: true })).toEqual({ accepted: false })
+    const fiber = Effect.runFork(DynWorkDocuments.confirm(confirmer, share("call_z")))
+    await settle()
+    await Effect.runPromise(Fiber.interrupt(fiber))
+    expect(withdrawn).toContain("call_z")
+    expect(DynWorkDocuments.decide({ id: "call_z", allow: true })).toEqual({ accepted: false })
+    expect(DynWorkDocuments.shares().shares).not.toContainEqual(share("call_z"))
+  })
+})
+
 describe("the rules about the server", () => {
   const documents = (url = "http://127.0.0.1:18101/api/v1/mcp/documents/mcp") => ({
     ...alpha,

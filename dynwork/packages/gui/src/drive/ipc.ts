@@ -501,6 +501,8 @@ export function make<A extends Account>(options: Options<A>) {
         return () => void listeners.asked.delete(listener)
       },
     },
+    /** The folders of the Drive as last read. */
+    folders: () => live.cache.folders,
     /** The `x-context-id` of a conversation of the active account, once registered. */
     context: (conversation: string) => (live.account ? registered(live.account.id, conversation) : undefined),
     capabilities,

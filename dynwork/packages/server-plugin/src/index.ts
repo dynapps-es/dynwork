@@ -79,8 +79,9 @@ export const RoutinesDefinition = Rpc.define({
   },
 })
 
-// What the agent does with the `documents` MCP server (`./documents`): main adds a write's folder and message, and hears
-// what each write touched.
+// What the agent does with the `documents` MCP server (`./documents`): main adds a write's folder and message, hears
+// what each write touched, and shows each share on a card for the user to decide (`decide`, and `shares` after it
+// reconnects).
 export const DocumentsDefinition = Rpc.define({
   id: DynWorkDocuments.id,
   methods: {
@@ -88,10 +89,20 @@ export const DocumentsDefinition = Rpc.define({
       input: Schema.toStandardSchemaV1(DynWorkDocuments.Answer),
       output: Schema.toStandardSchemaV1(DynWorkDocuments.Accepted),
     },
+    decide: {
+      input: Schema.toStandardSchemaV1(DynWorkDocuments.Decision),
+      output: Schema.toStandardSchemaV1(DynWorkDocuments.Accepted),
+    },
+    shares: {
+      input: Schema.toStandardSchemaV1(Schema.Unknown),
+      output: Schema.toStandardSchemaV1(DynWorkDocuments.Shares),
+    },
   },
   events: {
     ask: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Ask) },
     touch: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Touch) },
+    confirm: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Share) },
+    withdraw: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Withdrawn) },
   },
 })
 
@@ -595,12 +606,32 @@ export default Plugin.define({
     )
 
     // The `documents` server's writes: before one, main adds the conversation's folder and message; after one, it hears
-    // what the call touched. Code Mode programs' calls pass the same hooks. Any other tool is left alone.
+    // what the call touched. A share runs only once the user allows it on a card (D24). Code Mode programs' calls pass
+    // the same hooks. Any other tool is left alone.
     const documentsRpc = yield* ctx.rpc
-      .register(DocumentsDefinition, { answer: (input) => Effect.sync(() => DynWorkDocuments.answer(input)) })
+      .register(DocumentsDefinition, {
+        answer: (input) => Effect.sync(() => DynWorkDocuments.answer(input)),
+        decide: (input) => Effect.sync(() => DynWorkDocuments.decide(input)),
+        shares: () => Effect.sync(DynWorkDocuments.shares),
+      })
       .pipe(Effect.orDie)
+    const confirmer: DynWorkDocuments.Confirmer = {
+      confirm: (share) =>
+        documentsRpc.events
+          .emit("confirm", share)
+          .pipe(Effect.catchCause(() => Effect.logWarning("dynwork: could not ask main about a share"))),
+      withdraw: (id) => documentsRpc.events.emit("withdraw", { id }).pipe(Effect.ignore),
+    }
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
+        const share = DynWorkDocuments.sharing(event)
+        if (share) {
+          if (DynWorkDocuments.unattended(share.session))
+            return yield* new Tool.Error({ message: DynWorkDocuments.nobody })
+          if (!(yield* DynWorkDocuments.confirm(confirmer, share)))
+            return yield* new Tool.Error({ message: DynWorkDocuments.declined(share) })
+          return
+        }
         const request = DynWorkDocuments.asking(event)
         if (!request) return
         const answered = yield* DynWorkDocuments.ask(

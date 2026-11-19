@@ -7,8 +7,9 @@ import type { DynWorkSync } from "./contract"
 // tools run on the instance (this plugin adds the server, `./mapping`); here the service only watches their calls:
 // before a write it asks main for the conversation's folder and revision message, or whether to refuse it (an edit by
 // ops of an HTML page, D21), and after one it tells main what the call touched, so main can file the document, index
-// it for the conversation and open it beside the chat. Calls a Code Mode program makes go through the same tool hooks
-// as direct ones. Only `effect` is imported: main bundles this file.
+// it for the conversation and open it beside the chat. Before a share it waits for the user's decision (D24, below).
+// Calls a Code Mode program makes go through the same tool hooks as direct ones. Only `effect` is imported: main
+// bundles this file.
 
 /** The RPC the plugin registers, called at `/api/rpc/<id>/<method>`. */
 export const id = "dynwork.documents"
@@ -190,6 +191,145 @@ function joined(written: string | undefined, label: string) {
   return text.includes(label) ? text : `${text} (${label})`
 }
 
+// Sharing (D24). Before every `documents_share` call the user decides on a card in the conversation: Reject, Allow once
+// or Allow in this conversation. The call waits for that answer as long as it takes; main keeps what a conversation
+// allowed and answers its next shares at once. OpenCode's permission prompt is not used: its "always" is saved for the
+// whole project, its button cannot say "in this conversation", and the app's auto-approve would answer it unseen.
+
+const shareTool = `${server}_${server}_share`
+
+const ShareInput = Schema.Struct({
+  document_id: Text,
+  folder_id: Text,
+  subject_kind: Text,
+  subject_value: Text,
+  level: Text,
+  valid_until: Text,
+  transfer_to: Text,
+  revoke_all: Schema.optional(Schema.Boolean),
+})
+const decodeShare = Schema.decodeUnknownOption(ShareInput)
+
+/**
+ * A share about to run: published as the `confirm` event, shown on a card, and answered by main with `decide`. `grant`
+ * gives `subject` `level` on a document or a folder (until `until`), `transfer` makes `subject` the document's owner, and
+ * `revoke` removes every grant on the document. What the call did not say, or said wrong, is absent: it is still asked.
+ */
+export const Share = Schema.Struct({
+  id: Schema.String,
+  session: Schema.String,
+  kind: Schema.Literals(["grant", "transfer", "revoke"]),
+  document: Schema.optional(Schema.String),
+  folder: Schema.optional(Schema.String),
+  subject: Schema.optional(Schema.Struct({ kind: Schema.String, value: Schema.String })),
+  level: Schema.optional(Schema.String),
+  until: Schema.optional(Schema.String),
+})
+export type Share = typeof Share.Type
+
+/** The user's decision on a share: `allow` runs the call, otherwise it fails with what the user declined. */
+export const Decision = Schema.Struct({ id: Schema.String, allow: Schema.Boolean })
+export type Decision = typeof Decision.Type
+export const Shares = Schema.Struct({ shares: Schema.Array(Share) })
+export type Shares = typeof Shares.Type
+export const Withdrawn = Schema.Struct({ id: Schema.String })
+
+/** The share a call is about to make, or undefined for any other call. */
+export function sharing(event: {
+  readonly tool: string
+  readonly sessionID: string
+  readonly id: string
+  readonly input: unknown
+}): Share | undefined {
+  if (event.tool !== shareTool) return undefined
+  const given = Option.getOrUndefined(decodeShare(event.input))
+  const base = { id: event.id, session: event.sessionID }
+  // The instance reads a transfer before a revocation, and both before a grant (`ShareHandler.handle`).
+  if (given?.transfer_to !== undefined)
+    return {
+      ...base,
+      kind: "transfer",
+      ...(given.document_id === undefined ? {} : { document: given.document_id }),
+      subject: { kind: "user", value: given.transfer_to },
+    }
+  if (given?.revoke_all === true)
+    return { ...base, kind: "revoke", ...(given.document_id === undefined ? {} : { document: given.document_id }) }
+  return {
+    ...base,
+    kind: "grant",
+    ...(given?.document_id === undefined ? {} : { document: given.document_id }),
+    ...(given?.folder_id === undefined ? {} : { folder: given.folder_id }),
+    ...(given?.subject_kind === undefined || given.subject_value === undefined
+      ? {}
+      : { subject: { kind: given.subject_kind, value: given.subject_value } }),
+    ...(given?.level === undefined ? {} : { level: given.level }),
+    ...(given?.valid_until === undefined ? {} : { until: given.valid_until }),
+  }
+}
+
+// A scheduled task's run: OpenCode's automation runs and DynWork's own carry this prefix (`Automation.isRunSession` in
+// `@opencode/schema/automation`, which main bundles without; mirrored here).
+/** Whether the conversation is a scheduled task's run, which nobody watches: a share there is refused at once. */
+export const unattended = (session: string) => session.startsWith("ses_aut_")
+
+/** What the agent reads when it shares in a scheduled task. */
+export const nobody =
+  "Dynwork asks the user before every share, and nobody is there to answer in a scheduled task: nothing was shared. Ask the user to share it from a conversation."
+
+/** What the agent reads when the user rejects its share. */
+export function declined(share: Share) {
+  const document = `document ${share.document ?? "(none given)"}`
+  const target = share.folder === undefined ? document : `folder ${share.folder}`
+  const subject = share.subject ? `${share.subject.kind} ${share.subject.value}` : "(nobody given)"
+  const after = "Do not try again unless the user asks you to."
+  if (share.kind === "transfer")
+    return `The user declined to transfer ownership of ${document} to ${subject}: nothing changed. ${after}`
+  if (share.kind === "revoke")
+    return `The user declined to revoke every grant on ${document}: nothing changed. ${after}`
+  const level = share.level === undefined ? "" : ` (${share.level})`
+  return `The user declined to share ${target} with ${subject}${level}: nothing was shared. ${after}`
+}
+
+export interface Confirmer {
+  readonly confirm: (share: Share) => Effect.Effect<void>
+  readonly withdraw: (id: string) => Effect.Effect<void>
+}
+
+interface Asked {
+  readonly share: Share
+  readonly resolve: (allow: boolean) => void
+}
+
+// Like the asks: one process-wide slot, as main decides on whichever Location takes the call.
+const shareSlot = globalThis as typeof globalThis & { __dynworkShares?: Map<string, Asked> }
+const asked: Map<string, Asked> = (shareSlot.__dynworkShares ??= new Map())
+
+/**
+ * Publishes the share and waits for the user's decision, with no time limit: nothing is shared without it. A main that
+ * connects later reads it with `shares`. An interrupted wait (the user stopped the step) withdraws the card.
+ */
+export function confirm(confirmer: Confirmer, share: Share) {
+  return Effect.callback<boolean>((resume) => {
+    asked.set(share.id, { share, resolve: (allow) => resume(Effect.succeed(allow)) })
+    Effect.runFork(confirmer.confirm(share))
+    return Effect.suspend(() => (asked.delete(share.id) ? confirmer.withdraw(share.id) : Effect.void))
+  })
+}
+
+/** Main's `decide`: settles the share it names; false when nothing waits for it (withdrawn, or decided before). */
+export function decide(input: Decision) {
+  const found = asked.get(input.id)
+  if (!found) return { accepted: false }
+  asked.delete(input.id)
+  found.resolve(input.allow)
+  return { accepted: true }
+}
+
+/** Main's `shares`: the shares still waiting, for a main that (re)connected after they were published. */
+export function shares(): Shares {
+  return { shares: [...asked.values()].map((item) => item.share) }
+}
+
 /** The rules the plugin adds to the instance's own when the `documents` server is among its MCP servers. */
 export function rules(servers: ReadonlyArray<string>): ReadonlyArray<DynWorkSync.Manifest["rules"][number]> {
   if (!servers.includes(server)) return []
@@ -206,4 +346,6 @@ const instructions = [
   "text/html, a name ending in .html): Dynwork imports it as a document of this conversation, scripts kept. To change",
   "the page, upload it again under a new name.",
   "A file you upload to put inside another document (an image for a Word file) is not imported as a document.",
+  "Before every documents_share the user allows or rejects it on a card in this conversation: call it without asking",
+  "first, and when the user rejects it, do not try again unless they ask.",
 ].join("\n")

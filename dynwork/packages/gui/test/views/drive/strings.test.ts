@@ -4,7 +4,7 @@ import en from "../../../src/views/drive/en"
 import es from "../../../src/views/drive/es"
 import fr from "../../../src/views/drive/fr"
 import nl from "../../../src/views/drive/nl"
-import { formats, scopes, sorts, typeFilters } from "../../../src/views/drive/model"
+import { emphasized, formats, scopes, sorts, typeFilters } from "../../../src/views/drive/model"
 
 const locales: Record<string, Record<string, string>> = { en, es, fr, nl }
 
@@ -48,6 +48,40 @@ describe("the Drive's strings", () => {
         keys.filter((key) => !table[key]).map((key) => `${locale} ${key}`),
       ),
     ).toEqual([])
+  })
+
+  test("every key of the share card is in every language, and each sentence names all it shows", async () => {
+    const source = await Bun.file(new URL("../../../src/views/drive/share.tsx", import.meta.url)).text()
+    const keys = [...new Set([...source.matchAll(/"(drive\.[\w.]+)"/g)].map((match) => match[1] ?? ""))]
+    expect(keys).toContain("drive.share.conversation")
+    expect(
+      Object.entries(locales).flatMap(([locale, table]) =>
+        keys.filter((key) => !table[key]).map((key) => `${locale} ${key}`),
+      ),
+    ).toEqual([])
+    const placeholders = (text: string) => [...text.matchAll(/{{\s*(\w+)\s*}}/g)].map((match) => match[1]).toSorted()
+    const sentences = ["grant.text", "grant.folder", "transfer.text", "revoke.text"].map((key) => `drive.share.${key}`)
+    for (const [locale, table] of Object.entries(locales))
+      for (const key of sentences)
+        expect([locale, key, placeholders(table[key] ?? "")]).toEqual([
+          locale,
+          key,
+          placeholders(en[key as keyof typeof en]),
+        ])
+  })
+
+  test("a share sentence keeps each language's order and marks only the values", () => {
+    expect(emphasized(nl["drive.share.grant.text"], { target: "Q3.md", subject: "Luis", level: "Bewerken" })).toEqual([
+      { text: "Q3.md", strong: true },
+      { text: " delen met ", strong: false },
+      { text: "Luis", strong: true },
+      { text: " · ", strong: false },
+      { text: "Bewerken", strong: true },
+    ])
+    expect(emphasized("Share {{target}}", {})).toEqual([
+      { text: "Share ", strong: false },
+      { text: "", strong: true },
+    ])
   })
 
   // The platform and the other products behind Governance are never named on screen.
