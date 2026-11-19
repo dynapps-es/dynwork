@@ -144,7 +144,11 @@ describe("paging", () => {
     })
     const list = await backend.create(await sample(backend, "Paged"))
     if (isFailure(list)) throw new Error(list.message)
-    await Promise.all([1, 2, 3, 4, 5].map(() => backend.start(list.ref.id)))
+    for (const _ of [1, 2, 3, 4, 5]) {
+      await backend.start(list.ref.id)
+      time.advance(10 * MINUTE)
+      backend.settle()
+    }
     const first = await backend.runs({})
     if (isFailure(first)) throw new Error(first.message)
     expect(first.items).toHaveLength(2)

@@ -30,7 +30,10 @@ export interface Backend {
   remove(id: string): Promise<Failure | undefined>
   pause(id: string): Promise<Failure | undefined>
   resume(id: string): Promise<Failure | undefined>
-  /** Starts a run now, whatever the schedule says. */
+  /**
+   * Starts a run now and never moves the schedule. While a run of this routine is still going it answers `conflict`,
+   * unless the routine allows overlap.
+   */
   start(id: string): Promise<Run | Failure>
   /** Makes this device the one that runs the routine (`Routine.owner`). Only a backend with owners has it. */
   move?(id: string): Promise<Failure | undefined>

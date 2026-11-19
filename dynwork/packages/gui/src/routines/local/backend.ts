@@ -661,6 +661,12 @@ export function make(options: Options): Local {
       if (!stored) return missing("routine", routine)
       if (!here(stored))
         return fail("conflict", stored.owner ? `It runs on ${stored.owner.name}.` : "No computer has claimed it yet.")
+      const read = await Promise.all(
+        inflight()
+          .filter((record) => record.routine === routine)
+          .map(refresh),
+      )
+      if (read.some((record) => !ended(record.state))) return fail("conflict", "A run of this routine is still going.")
       return launch(stored, { trigger: "manual" })
     },
     // The same write as an edit: the owner goes to Governance with the routine's revision. Nothing missed before now.

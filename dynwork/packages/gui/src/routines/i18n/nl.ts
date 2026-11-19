@@ -59,6 +59,7 @@ export default {
   "routines.fail.offline": "De service van Dynwork draait niet.",
   "routines.fail.otherComputers": "Deze computer kan geen taken van andere computers uitvoeren.",
   "routines.fail.finished": "De uitvoering is al klaar.",
+  "routines.fail.going": "Er loopt al een uitvoering van deze routine.",
   "routines.fail.cursor": "Die cursor hoort niet bij deze backend.",
   "routines.fail.inSession": "Deze uitvoering lees je in haar sessie.",
   "routines.fail.silent": "De service van Dynwork heeft niet geantwoord.",

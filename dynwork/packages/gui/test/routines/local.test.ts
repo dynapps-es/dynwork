@@ -79,11 +79,15 @@ describe("the local backend's permissions field", () => {
 
 describe("the local backend", () => {
   test("start creates the anchor once, then a child session per run with the routine's fields", async () => {
-    const { backend, service } = setup()
+    const { backend, service, time } = setup()
     const routine = await ok(
       backend.create(prompt({ agent: "build", model: "anthropic/claude-sonnet-5-5" }, { folder: "/work/portal" })),
     )
     const first = await ok(backend.start(routine.ref.id))
+    expectFailure(await backend.start(routine.ref.id), "conflict")
+    time.advance(5 * MINUTE)
+    service.finish()
+    await until(() => backend.running() === 0)
     const second = await ok(backend.start(routine.ref.id))
 
     const created = service.received.filter((request) => request.method === "POST" && request.path === "/api/session")

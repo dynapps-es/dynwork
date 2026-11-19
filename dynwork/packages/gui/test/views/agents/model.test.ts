@@ -127,8 +127,15 @@ describe("tabs and Activity", () => {
   test("Activity pages through each backend that has more", async () => {
     const view = await setup()
     // Twenty-one more runs make the farm's first page full.
+    // One run at a time: a routine does not start while a run of it is going.
     await Array.from({ length: 21 }).reduce<Promise<unknown>>(
-      (previous) => previous.then(() => view.wire.client.start({ backend: "farm", id: "notes" })),
+      (previous) =>
+        previous
+          .then(() => view.wire.client.start({ backend: "farm", id: "notes" }))
+          .then(() => {
+            view.time.advance(10 * MINUTE)
+            view.farm.settle()
+          }),
       Promise.resolve(),
     )
     await view.model.loadActivity()

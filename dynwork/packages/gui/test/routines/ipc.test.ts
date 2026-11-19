@@ -134,7 +134,7 @@ describe("the Ipc methods", () => {
     const { client } = setup()
     await client.refresh()
     const routine = routinesIn(client).find(
-      (item) => item.ref.backend === "farm" && item.definition.schedule,
+      (item) => item.ref.backend === "farm" && item.definition.schedule && item.last?.state !== "running",
     ) as Routine
     const run = await client.start({ backend: "farm", id: routine.ref.id })
     if (isFailure(run)) throw new Error(run.message)
@@ -308,7 +308,7 @@ describe("watching", () => {
     expect(fake.open.count).toBe(0)
     expect(real.open.count).toBe(1)
 
-    const routine = routinesIn(client).find((item) => item.definition.schedule) as Routine
+    const routine = routinesIn(client).find((item) => item.definition.schedule && item.last?.state !== "running") as Routine
     await real.backend.start(routine.ref.id)
     await flush()
     expect(events).toHaveLength(1)
