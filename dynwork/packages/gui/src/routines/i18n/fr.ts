@@ -59,6 +59,7 @@ export default {
   "routines.fail.offline": "Le service de Dynwork n'est pas en cours d'exécution.",
   "routines.fail.otherComputers": "Cet ordinateur ne peut pas exécuter les tâches d'autres ordinateurs.",
   "routines.fail.finished": "L'exécution est déjà terminée.",
+  "routines.fail.going": "Une exécution de cette routine est déjà en cours.",
   "routines.fail.cursor": "Ce curseur n'appartient pas à ce backend.",
   "routines.fail.inSession": "Cette exécution se lit dans sa session.",
   "routines.fail.silent": "Le service de Dynwork n'a pas répondu.",

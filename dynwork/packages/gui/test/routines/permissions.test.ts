@@ -186,8 +186,9 @@ describe("keeping the computer awake", () => {
     const { backend, service, awake } = setup()
     const routine = await ok(backend.create(prompt()))
     expect(awake).toEqual([])
+    const other = await ok(backend.create(prompt({ name: "Another report" })))
     const first = await ok(backend.start(routine.ref.id))
-    const second = await ok(backend.start(routine.ref.id))
+    const second = await ok(backend.start(other.ref.id))
     expect(awake).toEqual([true])
 
     await backend.cancel(first.ref.id)

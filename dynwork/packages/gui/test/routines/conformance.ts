@@ -134,7 +134,9 @@ export function conformance(name: string, make: () => Promise<Subject> | Subject
       const subject = await make()
       const { backend } = subject
       const created = await ok(backend.create(await sample(backend, "Pages")))
-      const started = [await ok(backend.start(created.ref.id)), await ok(backend.start(created.ref.id))]
+      const first = await ok(backend.start(created.ref.id))
+      await subject.finish()
+      const started = [first, await ok(backend.start(created.ref.id))]
       await subject.finish()
 
       const seen: string[] = []
@@ -154,6 +156,21 @@ export function conformance(name: string, make: () => Promise<Subject> | Subject
       expect(new Set(seen).size).toBe(seen.length)
       expect(seen.slice(0, 2)).toEqual(started.map((run) => run.ref.id).reverse())
       expect(times).toEqual([...times].sort((left, right) => right - left))
+    })
+
+    test("a start while a run is going answers conflict", async () => {
+      const subject = await make()
+      const { backend } = subject
+      const created = await ok(backend.create(await sample(backend, "Going")))
+      const run = await ok(backend.start(created.ref.id))
+      expectFailure(await backend.start(created.ref.id), "conflict")
+      expect((await ok(backend.runs({ routine: created.ref.id }))).items.map((item) => item.ref.id)).toEqual([
+        run.ref.id,
+      ])
+
+      await subject.finish()
+      const next = await ok(backend.start(created.ref.id))
+      expect(next.ref).not.toEqual(run.ref)
     })
 
     test("a running run is cancelled once, where the backend can", async () => {

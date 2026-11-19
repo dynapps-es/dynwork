@@ -349,7 +349,10 @@ export const Routines = Ipc.define({
     remove: { input: Schema.Struct(OnRoutine), output: Done },
     pause: { input: Schema.Struct(OnRoutine), output: Done },
     resume: { input: Schema.Struct(OnRoutine), output: Done },
-    /** Starts a run now, whatever the schedule says. */
+    /**
+     * Starts a run now and never moves the schedule. While a run of this routine is still going it answers `conflict`,
+     * unless the routine allows overlap.
+     */
     start: { input: Schema.Struct(OnRoutine), output: Outcome(Run) },
     /** Makes this device the one that runs a routine of another device; `unsupported` for a backend without owners. */
     move: { input: Schema.Struct(OnRoutine), output: Done },
