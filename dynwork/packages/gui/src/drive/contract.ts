@@ -200,7 +200,7 @@ export const Access = Schema.Struct({
 export type Access = typeof Access.Type
 
 /** Someone of the instance, as it names them by id (`peopleByRest`). */
-export const Person = Schema.Struct({ id: Schema.String, name: Schema.String })
+export const Person = Schema.Struct({ id: Schema.String, name: Schema.String, email: Schema.optional(Schema.String) })
 export type Person = typeof Person.Type
 
 /** What DynWork, an attended agent, may do on a document or folder: `none`, `read`, `suggest` or `edit`. */

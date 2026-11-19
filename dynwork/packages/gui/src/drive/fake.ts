@@ -410,6 +410,13 @@ export function make(options: Options = {}): Fake {
         return name === undefined ? [] : [{ id, name }]
       }),
     ),
+    findPeople: method("findPeople", (query: string, limit = 20) =>
+      Object.entries(options.people ?? {})
+        // As 0.83.0: by name, never by id.
+        .filter((entry) => entry[1].toLowerCase().startsWith(query.toLowerCase()))
+        .slice(0, limit)
+        .map(([id, name]) => ({ id, name })),
+    ),
   }
 
   return {

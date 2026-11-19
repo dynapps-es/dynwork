@@ -212,6 +212,26 @@ describe("the Governance backend", () => {
     ).toHaveLength(2)
   })
 
+  test("a person is found by email or name prefix through the documents MCP server, with name and email", async () => {
+    const id = "e51c808f-4246-4487-9974-43a56298aa0b"
+    const jesus = { id, name: "Jesús Pérez", email: "jesus.perez@dynapps.es" }
+    instance.state.drive.people.set(id, { user_id: id, name: jesus.name, email: jesus.email })
+    const before = instance.state.requests.length
+    expect(await ok(remote().findPeople("jesus.perez@dynapps.es", 1))).toEqual([jesus])
+    expect(await ok(remote().findPeople("Jesús"))).toEqual([jesus])
+    // As 0.83.0: an id finds nobody.
+    expect(await ok(remote().findPeople(id))).toEqual([])
+    expect(await ok(remote().findPeople("nobody"))).toEqual([])
+    expect(instance.state.requests.slice(before).every((request) => request.path === "/api/v1/mcp/documents/mcp")).toBe(
+      true,
+    )
+    // The JWT the instance refuses is a failure, not a throw.
+    expectFailure(
+      await DriveBackend.remote({ url: instance.url, user, withJwt: (use) => use("refused") }).findPeople(id),
+      "signed-out",
+    )
+  })
+
   test("a folder whose name a sibling has (0.84 name_taken) is a conflict", async () => {
     instance.state.override = {
       path: "/api/v1/document-folders",

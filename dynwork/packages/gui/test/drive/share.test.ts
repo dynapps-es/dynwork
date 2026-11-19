@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, jest, test } from "bun:test"
 import type { DynWorkDocuments } from "@dynwork/server-plugin/documents"
 import type { Backend } from "../../src/drive/backend"
 import type { DriveCapabilities } from "../../src/drive/capabilities"
@@ -128,7 +128,7 @@ describe("the card", () => {
         session: "ses_q3",
         kind: "grant",
         target: { kind: "folder", id: at.folder, name: "Sales" },
-        // People are named by id only once the instance does (`peopleByRest`).
+        // Without `peopleByRest`, the id is looked up through the `documents` MCP server, which in 0.83 finds no one by id.
         subject: { kind: "user", value: "user-luis" },
         level: "view",
         until: "2026-12-01",
@@ -173,6 +173,87 @@ describe("the card", () => {
     await at.logic.request(grant("call_1", "ses_task", at.document))
     await at.logic.request(grant("call_2", "ses_chat", at.document))
     expect(at.logic.cards().map((card) => card.session)).toEqual(["ses_q3", "ses_chat"])
+  })
+})
+
+describe("a person the conversation never looked up", () => {
+  const unseen = (id: string, value: string) => ({ ...grant(id, "ses_q3", "doc-x"), subject: { kind: "user", value } })
+  const subjects = async (at: Awaited<ReturnType<typeof stand>>) => at.logic.cards().map((card) => card.subject)
+
+  // 0.83.0's `documents_people` does not match ids (the fakes behave so); an instance that does is named this way.
+  test("an unseen id is looked up through documents_people and shows by name and email", async () => {
+    const asked: Array<[string, number | undefined]> = []
+    const at = await stand({
+      around: () => ({
+        findPeople: async (query, limit) => {
+          asked.push([query, limit])
+          return [{ id: "e51c808f-4246", name: "Jesús Pérez", email: "jesus.perez@dynapps.es" }]
+        },
+      }),
+    })
+    await at.logic.request(unseen("call_1", "e51c808f-4246"))
+    expect(await subjects(at)).toEqual([
+      { kind: "user", value: "e51c808f-4246", name: "Jesús Pérez", email: "jesus.perez@dynapps.es" },
+    ])
+    expect(asked).toEqual([["e51c808f-4246", 1]])
+  })
+
+  test("an email is looked up the same way, matched by email", async () => {
+    const at = await stand({
+      around: () => ({
+        findPeople: async () => [{ id: "u-luis", name: "Luis Martín", email: "Luis@Dynapps.es" }],
+      }),
+    })
+    await at.logic.request(unseen("call_1", "luis@dynapps.es"))
+    expect(await subjects(at)).toEqual([
+      { kind: "user", value: "luis@dynapps.es", name: "Luis Martín", email: "Luis@Dynapps.es" },
+    ])
+  })
+
+  test("a lookup that finds someone else, fails or takes too long leaves the id as the agent gave it", async () => {
+    const at = await stand({
+      around: () => ({
+        findPeople: async (query) => {
+          if (query === "e51c808f-1") return [{ id: "e51c808f-10", name: "Prefix Only", email: "p@dynapps.es" }]
+          if (query === "e51c808f-2") return { code: "unreachable", message: "no answer", retryable: true }
+          throw new Error("the MCP server broke")
+        },
+      }),
+    })
+    await at.logic.request(unseen("call_1", "e51c808f-1"))
+    await at.logic.request(unseen("call_2", "e51c808f-2"))
+    await at.logic.request(unseen("call_3", "e51c808f-3"))
+    expect(await subjects(at)).toEqual([
+      { kind: "user", value: "e51c808f-1" },
+      { kind: "user", value: "e51c808f-2" },
+      { kind: "user", value: "e51c808f-3" },
+    ])
+  })
+
+  test("a lookup that never answers holds the card back no longer than lookupWithin", async () => {
+    const at = await stand({ around: () => ({ findPeople: () => new Promise(() => {}) }) })
+    jest.useFakeTimers()
+    try {
+      const shown = at.logic.request(unseen("call_1", "e51c808f-4246"))
+      await flush()
+      expect(at.logic.cards()).toEqual([])
+      jest.advanceTimersByTime(DriveShare.lookupWithin)
+      await shown
+      expect(await subjects(at)).toEqual([{ kind: "user", value: "e51c808f-4246" }])
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test("with peopleByRest on, an id is read by id over REST, not looked up through the MCP server", async () => {
+    const searched: string[] = []
+    const at = await stand({
+      capabilities: { peopleByRest: true },
+      around: () => ({ findPeople: async (query) => (searched.push(query), []) }),
+    })
+    await at.logic.request(unseen("call_1", "user-luis"))
+    expect(await subjects(at)).toEqual([{ kind: "user", value: "user-luis", name: "Luis Martín" }])
+    expect(searched).toEqual([])
   })
 })
 

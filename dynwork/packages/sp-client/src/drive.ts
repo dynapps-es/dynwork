@@ -388,6 +388,68 @@ const findPeople = (baseUrl: string, jwt: string, query: URLSearchParams) =>
     limit: 1024 * 1024,
   }).pipe(Effect.map((answer) => answer.people))
 
+/** The instance's `documents` MCP server, where the agent's `documents_*` tools run, as every manifest names it. */
+export const documentsMcp = "/api/v1/mcp/documents/mcp"
+
+/**
+ * The active people whose name or email starts with `query`, through the `documents` MCP server's `documents_people`
+ * tool, the only directory search before `GET /documents/people` (0.84): Streamable HTTP, `initialize` then one
+ * `tools/call`, with the account's JWT. At most `limit` people. The tool says it searches by "name, email or id", but
+ * 0.83.0 matches display name, name, full name and email only (`search_active_by_prefix`): an id finds nobody.
+ */
+export const lookupPeople = Effect.fn("SpDrive.lookupPeople")(function* (
+  baseUrl: string,
+  jwt: string,
+  query: string,
+  limit = 1,
+) {
+  const call = (method: string, params: unknown, session: string | null) =>
+    send({
+      method: "POST",
+      path: documentsMcp,
+      endpoint: `POST ${documentsMcp} ${method}`,
+      baseUrl,
+      jwt,
+      body: { jsonrpc: "2.0", id: 1, method, params },
+      headers: {
+        accept: "application/json, text/event-stream",
+        ...(session === null ? {} : { "mcp-session-id": session }),
+      },
+      limit: 1024 * 1024,
+    })
+  const opened = yield* call(
+    "initialize",
+    { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "dynwork", version: "1" } },
+    null,
+  )
+  const answer = yield* call(
+    "tools/call",
+    { name: "documents_people", arguments: { query, limit } },
+    opened.headers.get("mcp-session-id"),
+  )
+  const endpoint = "POST documents_people"
+  // A JSON answer, or the last `data:` line of an event stream.
+  const text = new TextDecoder().decode(answer.body)
+  const data = text.includes("data:")
+    ? (text
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5))
+        .pop() ?? "")
+    : text
+  const result = yield* decode(endpoint, McpPeopleAnswer, new TextEncoder().encode(data), answer.status)
+  if (result.result.isError === true || result.result.structuredContent === undefined)
+    return yield* new Protocol({ endpoint, message: "the tool answered no people", status: answer.status })
+  return result.result.structuredContent.people
+})
+
+const McpPeopleAnswer = Schema.Struct({
+  result: Schema.Struct({
+    isError: Schema.optional(Schema.Boolean),
+    structuredContent: Schema.optional(DrivePeople),
+  }),
+})
+
 /** Where a write is attributed: the revision `message` ("... by DynWork") and the conversation (`x-context-id`). */
 export type Attribution = {
   readonly message?: string

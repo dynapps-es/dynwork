@@ -411,6 +411,14 @@ import, which is also what lets an interrupted transfer resume: `uploadStatus` r
 sends only those. A revision `message` ("... by DynWork") is recorded for edits; on creation it is recorded neither by the
 multipart route nor by the import (observed), so the first revision of a created document has none.
 
+Before 0.84 nothing over REST names a person by id. `lookupPeople` calls the `documents` MCP server's `documents_people`
+instead (`POST /api/v1/mcp/documents/mcp`, Streamable HTTP with the JWT: `initialize`, whose `mcp-session-id` the
+`tools/call` repeats; the answer is an event stream whose `data:` line is the JSON-RPC answer). It answers
+`structuredContent {people: [{user_id, name, email?, access?}]}`. The tool's own text says it searches by "name, email or
+id", but 0.83.0 compares the query as a prefix with display name, name, full name and email only
+(`search_active_by_prefix`): a user id, whole or a prefix, finds nobody (observed on sp-local 0.83.0). The caller keeps
+only an exact match.
+
 ### How Drive answers map to the client's errors
 
 On top of the table in section 9:

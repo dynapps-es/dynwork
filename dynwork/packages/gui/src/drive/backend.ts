@@ -104,6 +104,11 @@ export interface Backend {
   renameContext(id: string, name: string): Promise<undefined | Failure>
   /** The people of `ids`, as the instance names them (0.84, `peopleByRest`); an id it does not know is left out. */
   people(ids: readonly string[]): Promise<readonly Person[] | Failure>
+  /**
+   * The active people whose name or email starts with `query`, at most `limit`, through the `documents` MCP server's
+   * `documents_people` (0.83: its description says "or id", but 0.83.0 does not match ids).
+   */
+  findPeople(query: string, limit?: number): Promise<readonly Person[] | Failure>
   /** The documents written with `contextId`, newest first: only where the instance lists by conversation (P3). */
   byContext?(contextId: string): Promise<readonly Document[] | Failure>
   /**
@@ -367,15 +372,15 @@ export function remote(options: Remote): Backend {
         (jwt) => SpDrive.renameContext(url, jwt, id, name),
         () => undefined,
       ),
-    // Someone without a name is named by their email; someone with neither is left unnamed.
     people: (ids) =>
       call(
         (jwt) => SpDrive.people(url, jwt, ids),
-        (list) =>
-          list.flatMap((person) => {
-            const name = person.name || person.email
-            return name ? [{ id: person.user_id, name }] : []
-          }),
+        (list) => list.flatMap(personOf),
+      ),
+    findPeople: (query, limit) =>
+      call(
+        (jwt) => SpDrive.lookupPeople(url, jwt, query, limit),
+        (list) => list.flatMap(personOf),
       ),
     // The stream is opened with a JWT the account mints again when the instance refuses it; a stream that breaks later just ends.
     stream: (signal) => options.withJwt((jwt) => SpDrive.stream(url, jwt, signal)).catch(failure),
@@ -467,4 +472,10 @@ function failure(error: unknown): Failure {
   if (error instanceof SpClient.Protocol && error.status === 400)
     return fail("invalid", "Governance did not accept it.")
   return fail("failed", "The Drive did not answer as expected.")
+}
+
+// Someone without a name is named by their email; someone with neither is left unnamed.
+function personOf(person: { readonly user_id: string; readonly name?: string | null; readonly email?: string | null }) {
+  const name = person.name || person.email
+  return name ? [{ id: person.user_id, name, ...(person.email ? { email: person.email } : {}) }] : []
 }

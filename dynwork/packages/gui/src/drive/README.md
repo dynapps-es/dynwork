@@ -204,8 +204,14 @@ documents_share ──execute.before──► plugin: confirm ──event──�
   have their own words. The document comes by name from the Drive, a folder from the Drive as last read. A person: the
   agent passes the user id it got from `documents_people`, so the plugin keeps what each `documents_people` call of the
   conversation answered (`DynWorkDocuments.heard`, user id → name and email) and the card says «Name (email)», the email
-  telling two people of one name apart; failing that, while `peopleByRest` is on (0.84), the name is read by id;
-  otherwise the value shows as the agent gave it, an email or an id never seen.
+  telling two people of one name apart. An id or email the conversation never looked up (found before the service
+  restarted, or given by the user) is looked up by main before the card shows: by id over REST while `peopleByRest` is
+  on (0.84), otherwise through the `documents` MCP server's `documents_people` (`Backend.findPeople`,
+  `SpDrive.lookupPeople`: the account's JWT, `initialize` then `tools/call`). That tool says it searches by "name, email
+  or id", but 0.83.0 compares only display name, name, full name and email (`search_active_by_prefix`): an email is
+  named, an id finds nobody (observed on sp-local 0.83.0), so on 0.83 an id the conversation never looked up still shows
+  raw. Only an exact match names them; a lookup that fails or takes over 3 seconds (`DriveShare.lookupWithin`) leaves
+  the value as the agent gave it, and the card shows anyway.
 - **Allow in this conversation.** Kept in main, per conversation and kind of share (grant, transfer, revoke), while the
   app runs: the next share of that kind there is allowed with no card, and the cards of that kind already waiting there
   go too. Another conversation asks again; a restart asks again. A subagent's share shows in, and counts for, the

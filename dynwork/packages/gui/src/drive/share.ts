@@ -38,6 +38,18 @@ export interface Options {
   changed: () => void
 }
 
+/** How long a person's lookup may hold the card back: past it, the card shows the value the agent gave. */
+export const lookupWithin = 3_000
+
+// `work`'s answer, or undefined once `lookupWithin` passes first.
+function within<A>(work: Promise<A>) {
+  const timer = { id: undefined as ReturnType<typeof setTimeout> | undefined }
+  const late = new Promise<undefined>((resolve) => {
+    timer.id = setTimeout(() => resolve(undefined), lookupWithin)
+  })
+  return Promise.race([work, late]).finally(() => clearTimeout(timer.id))
+}
+
 /** How far up a subagent's sessions the card's conversation is looked for. */
 const depth = 8
 
@@ -111,15 +123,28 @@ export function make(options: Options) {
     return options.service.folders().find((folder) => folder.id === id)?.name
   }
 
-  // The name and email the conversation's `documents_people` call gave come with the share (0.83). Otherwise, while the
-  // instance names people by id (`peopleByRest`, 0.84), the name is read; failing both, the card shows the value the
-  // agent gave, an email or an id.
+  // The name and email the conversation's `documents_people` call gave come with the share. A user named by an id or an
+  // email the conversation never looked up (it found them before the service restarted, say) is looked up here: by id
+  // over REST while the instance has it (`peopleByRest`, 0.84), otherwise through the `documents` MCP server's
+  // `documents_people`. That tool says it searches by "name, email or id", but 0.83.0 matches names and emails only
+  // (`search_active_by_prefix`): an email is named, an id finds nobody until the instance searches ids. Only an exact
+  // match names them; a lookup that fails or takes longer than `lookupWithin` leaves the value as the agent gave it,
+  // and the card shows anyway.
   async function person(subject: DynWorkDocuments.Subject) {
-    if (subject.name !== undefined || subject.kind !== "user" || !options.service.capabilities().peopleByRest)
-      return subject
-    const people = await options.service.using((backend) => backend.people([subject.value]))
-    const name = isFailure(people) ? undefined : people.find((item) => item.id === subject.value)?.name
-    return { ...subject, ...named(name) }
+    if (subject.name !== undefined || subject.kind !== "user") return subject
+    const value = subject.value
+    const email = value.includes("@")
+    const found = await within(
+      options.service.using((backend) =>
+        options.service.capabilities().peopleByRest && !email ? backend.people([value]) : backend.findPeople(value, 1),
+      ),
+    )
+    const match =
+      found === undefined || isFailure(found)
+        ? undefined
+        : found.find((item) => (email ? item.email?.toLowerCase() === value.toLowerCase() : item.id === value))
+    if (!match) return subject
+    return { ...subject, name: match.name, ...(match.email === undefined ? {} : { email: match.email }) }
   }
 
   function withdraw(id: string) {

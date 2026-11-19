@@ -133,6 +133,7 @@ export function startFake() {
           headers: state.override.headers,
         })
       if (/^\/api\/v1\/(documents|document-folders|uploads)/.test(url.pathname)) return driveRoute(request, url, raw)
+      if (url.pathname === "/api/v1/mcp/documents/mcp") return documentsMcp(request, body)
       return route(request, url.pathname, body)
     },
   })
@@ -351,6 +352,36 @@ export function startFake() {
 
   // The Drive routes, answering as 0.83 does: bodies as observed, a `404`/`403` envelope with `error_key`, writes
   // attributed to the agent, `x-context-id` kept per revision.
+  // The `documents` MCP server as far as DynWork's main calls it (0.83): `initialize` opens a session, and
+  // `documents_people` searches by name or email prefix, never by id (as 0.83.0 does, whatever its text says), answered
+  // as an event stream like the real server.
+  const documentsMcp = (request: Request, body: string) => {
+    const bearer = request.headers.get("authorization")?.replace(/^Bearer /, "")
+    if (bearer === undefined || !state.jwts.has(bearer)) return Response.json(alpha.rejected_jwt.body, { status: 401 })
+    const call: {
+      id: number
+      method: string
+      params?: { name?: string; arguments?: { query?: string; limit?: number } }
+    } = JSON.parse(body)
+    const stream = (result: unknown, headers: Record<string, string> = {}) =>
+      new Response(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: call.id, result })}\n\n`, {
+        headers: { "content-type": "text/event-stream", ...headers },
+      })
+    if (call.method === "initialize")
+      return stream(
+        { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "documents", version: "0" } },
+        { "mcp-session-id": "fake-session" },
+      )
+    if (request.headers.get("mcp-session-id") !== "fake-session") return new Response("no session", { status: 400 })
+    if (call.method !== "tools/call" || call.params?.name !== "documents_people")
+      return stream({ isError: true, content: [{ type: "text", text: "unknown tool" }] })
+    const text = (call.params.arguments?.query ?? "").toLowerCase()
+    const people = [...state.drive.people.values()]
+      .filter((person) => [person.name, person.email].some((value) => value.toLowerCase().startsWith(text)))
+      .slice(0, call.params.arguments?.limit ?? 20)
+    return stream({ content: [{ type: "text", text: `${people.length} people` }], structuredContent: { people } })
+  }
+
   const driveRoute = async (request: Request, url: URL, raw: Uint8Array) => {
     const bearer = request.headers.get("authorization")?.replace(/^Bearer /, "")
     if (bearer === undefined || !state.jwts.has(bearer)) return Response.json(alpha.rejected_jwt.body, { status: 401 })

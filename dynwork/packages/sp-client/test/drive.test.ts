@@ -580,6 +580,38 @@ describe("conversations", () => {
   })
 })
 
+describe("people through the documents MCP server (0.83)", () => {
+  const luis = { user_id: "e51c808f-4246", name: "Luis Martín", email: "luis@dynapps.es" }
+
+  test("documents_people finds a person by email or name prefix, with the account's JWT and one MCP session", async () => {
+    fake.state.drive.people.set(luis.user_id, luis)
+    const before = fake.state.requests.length
+    expect(await run(SpDrive.lookupPeople(fake.url, state.jwt, "luis@dynapps.es"))).toEqual([
+      { user_id: luis.user_id, name: luis.name, email: luis.email },
+    ])
+    const calls = fake.state.requests.slice(before)
+    expect(calls.map((call) => [call.path, JSON.parse(call.body).method])).toEqual([
+      ["/api/v1/mcp/documents/mcp", "initialize"],
+      ["/api/v1/mcp/documents/mcp", "tools/call"],
+    ])
+    expect(calls.every((call) => call.headers.authorization === `Bearer ${state.jwt}`)).toBe(true)
+    expect(calls[1]?.headers["mcp-session-id"]).toBe("fake-session")
+    expect(JSON.parse(calls[1]?.body ?? "{}").params).toEqual({
+      name: "documents_people",
+      arguments: { query: "luis@dynapps.es", limit: 1 },
+    })
+    expect(await run(SpDrive.lookupPeople(fake.url, state.jwt, "Luis"))).toHaveLength(1)
+    // As 0.83.0: an id, whole or a prefix, finds nobody.
+    expect(await run(SpDrive.lookupPeople(fake.url, state.jwt, "e51c808f-4246"))).toEqual([])
+    expect(await run(SpDrive.lookupPeople(fake.url, state.jwt, "nobody"))).toEqual([])
+  })
+
+  test("a refused JWT fails as unauthorized", async () => {
+    const failed = await fail(SpDrive.lookupPeople(fake.url, "not-a-jwt", "x"))
+    expect(failed._tag).toBe("Unauthorized")
+  })
+})
+
 describe("people", () => {
   const person = (index: number) => ({
     user_id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
