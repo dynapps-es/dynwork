@@ -229,8 +229,13 @@ export function make(options: Options) {
   const attempt = async (loop: Loop) => {
     const fresh = loop.fresh
     loop.fresh = false
-    const result = await accounts.withJwt(loop.id, (token) =>
-      Effect.runPromise(SpClient.manifest(loop.account.url, token, { key: loop.key, etag: loop.etag, fresh })),
+    // The manifest speaks for the whole sign-in: refused again with a JWT minted for it, the account lapses and this
+    // loop stops until the user signs in again, instead of asking again every poll.
+    const result = await accounts.withJwt(
+      loop.id,
+      (token) =>
+        Effect.runPromise(SpClient.manifest(loop.account.url, token, { key: loop.key, etag: loop.etag, fresh })),
+      { lapse: true },
     )
     if (loop.stopped) return
     if (result._tag === "Manifest") {
@@ -359,11 +364,12 @@ export function make(options: Options) {
         .then((session) => push(loop, session))
         .catch(() => undefined)
     },
+    // The gateway refused the JWT minted in answer to its refusal: the account lapses until the user signs in again.
     rejected: (event) => {
       const loop = current.loop
       if (loop === undefined || event.instance !== loop.instance) return
       void Promise.resolve()
-        .then(() => accounts.signOut(loop.id))
+        .then(() => accounts.lapse(loop.id, "refused"))
         .catch(() => undefined)
     },
     // A Session the plugin's governance events reported with the device evidence: bound to the device's receipts.

@@ -151,3 +151,46 @@ describe("the pill's menu", () => {
     expect(log).toEqual(["close", "activate:beta", "failed"])
   })
 })
+
+describe("signing in again", () => {
+  test("runs the browser sign-in for the account's instance, once at a time, and keeps how it ended", async () => {
+    const release = Promise.withResolvers<"signed-in" | "denied">()
+    const calls: string[] = []
+    const reconnect = AccountsController.reconnect({
+      client: () => ({
+        signInBrowser: async (input: { url: string; keep?: boolean }) => {
+          calls.push(JSON.stringify(input))
+          return release.promise
+        },
+        cancel: async () => {
+          calls.push("cancel")
+        },
+      }),
+    })
+    const first = reconnect.run({ url: "https://sp.dynapps.test" })
+    expect(reconnect.state.running).toBe(true)
+    await reconnect.run({ url: "https://sp.dynapps.test" })
+    reconnect.cancel()
+    release.resolve("denied")
+    await first
+    // No `keep`: main signs the account in again as it was, kept or not.
+    expect(calls).toEqual(['{"url":"https://sp.dynapps.test"}', "cancel"])
+    expect(reconnect.state).toEqual({ running: false, outcome: "denied" })
+  })
+
+  test("without the Ipc client, or when the call rejects, it ends as failed", async () => {
+    const gone = AccountsController.reconnect({ client: () => undefined })
+    await gone.run({ url: "https://sp.dynapps.test" })
+    expect(gone.state.outcome).toBe("failed")
+    const broken = AccountsController.reconnect({
+      client: () => ({
+        signInBrowser: async () => {
+          throw new Error("rejected")
+        },
+        cancel: async () => {},
+      }),
+    })
+    await broken.run({ url: "https://sp.dynapps.test" })
+    expect(broken.state).toEqual({ running: false, outcome: "failed" })
+  })
+})

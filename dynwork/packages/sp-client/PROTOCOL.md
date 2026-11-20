@@ -175,6 +175,10 @@ unknown, and a `404` on `/v1/auth/bridge/capabilities` (instances before 0.76) m
 | discovery `contract` other than `"1"`, manifest schema above 1                                                                                                              | `Incompatible`                                                                                                                          |
 | any other status, a `3xx` (never followed, so a bearer never leaves the origin), a body that does not decode (with the field path), a discovery path that leaves the origin | `Protocol`                                                                                                                              |
 
+A PAT refused at `/v1/auth/bridge/pat` is gone for good: the instance answers `401 {"message": "Invalid PAT"}` alike for a
+key revoked, deleted or past the profile's `security.api_keys.max_lifetime_days` (0.84), and only another device-link
+sign-in mints a new one. `refusal(error)` reads it as `revoked`, or `expired` when the answer names an expiry.
+
 ## 10. Skill runtime files: the consumer API (`SpConsumer`)
 
 A skill's runtime files (`config.yaml`, `references/*`, the `.systemprompt-source/<revision>/` copy) are not in the

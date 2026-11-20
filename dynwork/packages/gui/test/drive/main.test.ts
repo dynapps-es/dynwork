@@ -111,6 +111,28 @@ describe("the Drive's main side", () => {
     main.cleanups.forEach((cleanup) => cleanup())
   })
 
+  test("a sign-in the instance refuses empties the Drive at once, and signing in again reads it again", async () => {
+    const main = await stand()
+    await until(() => main.state().status === "ready")
+    alpha.state.pats.clear()
+    alpha.state.jwts.clear()
+    expectFailure(await main.call("list", {}), "signed-out")
+    expect(main.accounts.list().find((account) => account.url === alpha.url)).toMatchObject({
+      status: "needsSignIn",
+      active: true,
+    })
+    // The lapsed account stays the active one: the Drive waits for it, and asks the instance nothing meanwhile.
+    expect(main.state()).toMatchObject({ status: "none", documents: [] })
+    const asked = alpha.state.requests.length
+    expectFailure(await main.call("list", {}), "signed-out")
+    expect(alpha.state.requests.length).toBe(asked)
+
+    await main.accounts.signInToken({ url: alpha.url, token: alpha.issuePat() })
+    expect(main.state()).toMatchObject({ account: main.id(alpha), status: "loading" })
+    await until(() => main.state().status === "ready")
+    main.cleanups.forEach((cleanup) => cleanup())
+  })
+
   test("keeps each conversation's context, registered by the instance, in the plugin's storage, and stops polling on cleanup", async () => {
     const stored = new Map<string, unknown>()
     const main = await stand(stored)

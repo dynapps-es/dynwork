@@ -4,26 +4,39 @@ import { usePlugin } from "@opencode/plugin/gui"
 import { For, Show } from "solid-js"
 import type { State } from "../contract"
 import type definition from "../index"
+import type { Client } from "../renderer"
+import { Lapsed } from "./lapse"
 import { AccountsModel } from "./model"
 import { AccountsText } from "./text"
 
 // What the titlebar pill opens: the instances to switch to, Sync now, and the way to the Accounts page. The titlebar
-// item is only a pill, so the menu of the mockup is this small dialog.
+// item is only a pill, so the menu of the mockup is this small dialog. When the instance refused the active account's
+// sign-in for good, it leads with the way to sign in again.
 export default function PillMenu(props: {
   state: () => State | undefined
   now: () => number
   switchTo: (id: string) => void
   syncNow: () => void
   manage: () => void
+  client: () => Pick<Client, "signInBrowser" | "cancel"> | undefined
 }) {
   const ctx = usePlugin<typeof definition>()
   const state = () => props.state()
   const rows = () => {
     const value = state()
 
-    return value ? AccountsModel.rows(value).filter((row) => row.account.status === "signedIn") : []
+    return value
+      ? AccountsModel.rows(value).filter(
+          (row) => row.account.status === "signedIn" || (row.account.active && row.account.status === "needsSignIn"),
+        )
+      : []
   }
   const current = () => rows().find((row) => row.account.active)
+  const lapsed = () => {
+    const row = current()
+
+    return row?.account.status === "needsSignIn" ? row : undefined
+  }
 
   return (
     <Dialog fit>
@@ -32,6 +45,11 @@ export default function PillMenu(props: {
       </DialogHeader>
       <DialogBody>
         <div data-component="accounts-pill-menu">
+          <Show when={lapsed()}>
+            {(row) => (
+              <Lapsed account={row().account} name={row().name} client={props.client} signingIn={state()?.signingIn} />
+            )}
+          </Show>
           <ul data-slot="accounts-pill-list" aria-label={ctx.t("instances.label")}>
             <For each={rows()}>
               {(row) => (

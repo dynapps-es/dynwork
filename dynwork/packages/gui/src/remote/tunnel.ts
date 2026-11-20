@@ -17,7 +17,7 @@ export type Account = {
   readonly id: string
   readonly label: string
   readonly url: string
-  readonly status: "signedIn" | "signedOut"
+  readonly status: "signedIn" | "signedOut" | "needsSignIn"
   readonly active: boolean
 }
 

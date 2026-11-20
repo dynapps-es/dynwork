@@ -6,6 +6,9 @@ import { IconButton } from "@opencode/ui/icon-button"
 import { Tabs } from "@opencode/ui/tabs"
 import { TextInput } from "@opencode/ui/text-input"
 import { createSignal, For, Match, Show, Switch } from "solid-js"
+import { connection } from "../../accounts/renderer"
+import { Lapsed } from "../../accounts/ui/lapse"
+import { AccountsModel } from "../../accounts/ui/model"
 import { isFailure, type Conversation, type Document, type Folder } from "../../drive/contract"
 import { askAgent, titleOf } from "./chat"
 import { byConversation, highlight, pathOf, scopes, typeFilters, type Format } from "./model"
@@ -275,9 +278,22 @@ export function Browser() {
   )
 }
 
-/** Why the Drive shows less than it should: no account, Governance away, or a listing that failed. */
+/**
+ * Why the Drive shows less than it should: no account, Governance away, or a listing that failed. When the instance
+ * refused the active account's sign-in for good, the way to sign in again instead.
+ */
 function Status() {
   const ctx = usePlugin()
+  const accounts = () => {
+    const live = connection()
+
+    return live?.status === "active" ? live.value : undefined
+  }
+  const lapsed = () => {
+    const state = accounts()?.state()
+
+    return state ? AccountsModel.lapsed(state) : undefined
+  }
   const message = () => {
     const status = drive.status()
     if (status === "none") return ctx.t("drive.status.none")
@@ -287,16 +303,32 @@ function Status() {
     return failure ? failureText(ctx, failure) : undefined
   }
   return (
-    <Show when={message()}>
-      {(text) => (
-        <div data-slot="drive-banner" data-tone="warning">
-          <Icon name="warning" size="small" />
-          <span data-slot="drive-grow">{text()}</span>
-          <Show when={drive.status() !== "none"}>
-            <Button variant="ghost" size="small" onClick={() => void drive.reload()}>
-              {ctx.t("drive.retry")}
-            </Button>
-          </Show>
+    <Show
+      when={lapsed()}
+      fallback={
+        <Show when={message()}>
+          {(text) => (
+            <div data-slot="drive-banner" data-tone="warning">
+              <Icon name="warning" size="small" />
+              <span data-slot="drive-grow">{text()}</span>
+              <Show when={drive.status() !== "none"}>
+                <Button variant="ghost" size="small" onClick={() => void drive.reload()}>
+                  {ctx.t("drive.retry")}
+                </Button>
+              </Show>
+            </div>
+          )}
+        </Show>
+      }
+    >
+      {(account) => (
+        <div data-slot="drive-lapse">
+          <Lapsed
+            account={account()}
+            name={account().label}
+            client={accounts}
+            signingIn={accounts()?.state()?.signingIn}
+          />
         </div>
       )}
     </Show>

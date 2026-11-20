@@ -75,6 +75,7 @@ export function register(ctx: SetupContext<typeof definition>, live: Accessor<Li
               failed,
               close: dialog.close,
             })}
+            client={client}
           />
         ))
       },

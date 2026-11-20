@@ -69,6 +69,14 @@ describe("gate visibility", () => {
     dispose()
   })
 
+  test("the instance refusing the active account's sign-in keeps the window, without the gate", () => {
+    const { visibility, setState, dispose } = visible({ accounts: [account({})] })
+
+    setState({ accounts: [account({ status: "needsSignIn", lapse: "revoked" })] })
+    expect(visibility.open()).toBe(false)
+    dispose()
+  })
+
   test("signing out of the active account brings the gate back", () => {
     const { visibility, setState, dispose } = visible({ accounts: [account({})] })
 

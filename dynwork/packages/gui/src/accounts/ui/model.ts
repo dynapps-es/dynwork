@@ -1,23 +1,27 @@
 export * as AccountsModel from "./model"
 
-import type { Account, Counts, State, SyncError } from "../contract"
+import type { Account, Counts, Lapse, SignIn, State, SyncError } from "../contract"
 
 // What the Accounts page and the titlebar pill show, as plain values: the page and the pill only render them, so the
 // statuses and the actions an account offers are tested here without a window.
 
-/** A badge beside an instance's name. `key-changed` and `new-key` wait for `trust`. */
-export type Badge = "active" | "signed-out" | "key-changed" | "new-key"
+/**
+ * A badge beside an instance's name. `key-changed` and `new-key` wait for `trust`; `needs-sign-in` for the user to sign
+ * in again.
+ */
+export type Badge = "active" | "signed-out" | "needs-sign-in" | "key-changed" | "new-key"
 
 /** What an instance says about its sync. Only the active instance syncs, so the others are `idle`. */
 export type Sync =
   | { kind: "signed-out" }
+  | { kind: "needs-sign-in"; lapse: Lapse }
   | { kind: "idle" }
   | { kind: "waiting" }
   | { kind: "syncing" }
   | { kind: "synced"; at: number; counts: Counts }
   | { kind: "error"; error: SyncError; at: number }
 
-export type Action = "trust" | "sync-now" | "make-active" | "sign-in" | "sign-out" | "remove"
+export type Action = "trust" | "sync-now" | "make-active" | "sign-in" | "sign-in-again" | "sign-out" | "remove"
 
 export type Row = {
   account: Account
@@ -71,6 +75,11 @@ export function active(state: State) {
   return state.accounts.find((account) => account.active && account.status === "signedIn")
 }
 
+/** The active account when the instance refused its sign-in for good: it waits for the user to sign in again. */
+export function lapsed(state: State) {
+  return state.accounts.find((account) => account.active && account.status === "needsSignIn")
+}
+
 /** The accounts the pill's dialog lists to switch to: signed in, not active. */
 export function others(state: State) {
   return state.accounts.filter((account) => !account.active && account.status === "signedIn")
@@ -87,8 +96,21 @@ export function describe(sync: Sync, now: number, locale?: string) {
   if (sync.kind === "error") return { key: errorKey(sync.error), time: ago(sync.at, now, locale) }
   if (sync.kind === "syncing") return { key: "sync.syncing" as const, time: undefined }
   if (sync.kind === "signed-out") return { key: "sync.signedOut" as const, time: undefined }
+  if (sync.kind === "needs-sign-in") return { key: `sync.lapse.${sync.lapse}` as const, time: undefined }
   if (sync.kind === "waiting") return { key: "sync.waiting" as const, time: undefined }
   return { key: "sync.idle" as const, time: undefined }
+}
+
+/**
+ * What the window says when a sign-in again did not end signed in, as the key of the plugin's copy; nothing when it
+ * did, or when the user cancelled it.
+ */
+export function outcome(value: SignIn) {
+  if (value === "signed-in" || value === "cancelled") return undefined
+  if (value === "denied") return "lapse.outcome.denied" as const
+  if (value === "expired") return "lapse.outcome.expired" as const
+  if (value === "unreachable") return "lapse.outcome.unreachable" as const
+  return "lapse.outcome.failed" as const
 }
 
 /** "2 minutes ago", in the locale. Under a minute reads as "now". */
@@ -112,16 +134,17 @@ export function short(fingerprint: string) {
 
 /**
  * The titlebar pill: its icon and tone say how the sync stands, since the pill has no room for a dot. Green once
- * synced, red when the sync failed, amber while a new key waits for the user's trust; the accent while it syncs or
- * waits to.
+ * synced, red when the sync failed, amber while a new key waits for the user's trust or the user must sign in again;
+ * the accent while it syncs or waits to.
  */
 export function pill(state: State) {
-  const account = active(state)
+  const account = active(state) ?? lapsed(state)
 
   if (!account) return undefined
   const sync = syncOf(account, state)
   const shown = { account, name: name(account, state), sync }
 
+  if (sync.kind === "needs-sign-in") return { ...shown, icon: "circle-exclamation" as const, tone: "warning" as const }
   if (sync.kind === "error") return { ...shown, icon: "circle-exclamation" as const, tone: "danger" as const }
   if (pending(account)) return { ...shown, icon: "circle-exclamation" as const, tone: "warning" as const }
   if (sync.kind === "syncing") return { ...shown, icon: "refresh" as const, tone: undefined }
@@ -136,6 +159,7 @@ function pending(account: Account) {
 
 function badges(account: Account, keyPending: boolean): readonly Badge[] {
   if (account.status === "signedOut") return ["signed-out"]
+  if (account.status === "needsSignIn") return account.active ? ["active", "needs-sign-in"] : ["needs-sign-in"]
   const key: readonly Badge[] = keyPending ? [account.pinned === undefined ? "new-key" : "key-changed"] : []
 
   return account.active ? ["active", ...key] : key
@@ -143,6 +167,7 @@ function badges(account: Account, keyPending: boolean): readonly Badge[] {
 
 function syncOf(account: Account, state: State): Sync {
   if (account.status === "signedOut") return { kind: "signed-out" }
+  if (account.status === "needsSignIn") return { kind: "needs-sign-in", lapse: account.lapse ?? "refused" }
   if (!account.active) return { kind: "idle" }
   const sync = state.sync
   if (sync.status === "idle" || sync.account !== account.id) return { kind: "waiting" }
@@ -153,6 +178,7 @@ function syncOf(account: Account, state: State): Sync {
 
 function actions(account: Account, keyPending: boolean, sync: Sync): readonly Action[] {
   if (account.status === "signedOut") return ["sign-in", "remove"]
+  if (account.status === "needsSignIn") return ["sign-in-again", "sign-out", "remove"]
   const rest: readonly Action[] = ["sign-out", "remove"]
   const first: readonly Action[] = keyPending ? ["trust"] : []
 

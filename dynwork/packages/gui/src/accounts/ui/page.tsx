@@ -8,6 +8,7 @@ import type definition from "../index"
 import type { Client } from "../renderer"
 import AddInstance from "./add"
 import { AccountsController } from "./controller"
+import { Lapsed } from "./lapse"
 import { AccountsModel } from "./model"
 import { AccountsText } from "./text"
 import "./accounts.css"
@@ -88,6 +89,8 @@ export default function AccountsPage(props: { accounts: Accessor<Live<Client>>; 
                     busy={!!controller.state.pending}
                     failed={controller.state.failed?.id === row.account.id}
                     run={(action) => (action === "sign-in" ? add(row.account.url) : void controller.run(action, row))}
+                    client={client}
+                    signingIn={state()?.signingIn}
                   />
                 )}
               </For>
@@ -108,6 +111,8 @@ function Instance(props: {
   busy: boolean
   failed: boolean
   run: (action: AccountsModel.Action) => void
+  client: () => Client | undefined
+  signingIn: string | undefined
 }) {
   const ctx = usePlugin<typeof definition>()
   const [full, setFull] = createSignal(false)
@@ -116,6 +121,7 @@ function Instance(props: {
     if (action === "make-active") return ctx.t("makeActive")
     if (action === "sync-now") return ctx.t("syncNow")
     if (action === "sign-in") return ctx.t("signIn")
+    if (action === "sign-in-again") return ctx.t("signInAgain")
     if (action === "sign-out") return ctx.t("signOut")
     if (action === "remove") return ctx.t("remove")
     return ctx.t(row().key?.pinned === undefined ? "key.trustFirst" : "key.trust")
@@ -123,6 +129,7 @@ function Instance(props: {
   const badge = (value: AccountsModel.Badge) => {
     if (value === "active") return { text: ctx.t("badge.active"), variant: "accent" as const }
     if (value === "signed-out") return { text: ctx.t("badge.signedOut"), variant: "neutral" as const }
+    if (value === "needs-sign-in") return { text: ctx.t("badge.needsSignIn"), variant: "neutral" as const }
     if (value === "key-changed") return { text: ctx.t("badge.keyChanged"), variant: "neutral" as const }
     return { text: ctx.t("badge.newKey"), variant: "neutral" as const }
   }
@@ -167,7 +174,7 @@ function Instance(props: {
           </div>
         </div>
         <div data-slot="accounts-instance-actions">
-          <For each={row().actions.filter((action) => action !== "trust")}>
+          <For each={row().actions.filter((action) => action !== "trust" && action !== "sign-in-again")}>
             {(action) => (
               <Button
                 data-action={`accounts-${action}`}
@@ -183,6 +190,15 @@ function Instance(props: {
           </For>
         </div>
       </div>
+      <Show when={row().account.status === "needsSignIn"}>
+        <Lapsed
+          account={row().account}
+          name={row().name}
+          client={props.client}
+          signingIn={props.signingIn}
+          variant="inline"
+        />
+      </Show>
       <Show when={row().key}>
         {(key) => (
           <div data-slot="accounts-key" data-kind={key().pinned === undefined ? "new" : "changed"} role="group">

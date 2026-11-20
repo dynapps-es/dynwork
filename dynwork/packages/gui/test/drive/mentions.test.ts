@@ -496,6 +496,22 @@ describe("following the stream", () => {
     life.abort()
   })
 
+  test("an account whose sign-in lapsed ends its stream, and signing in again follows it again", async () => {
+    const subject = stand()
+    const life = new AbortController()
+    void subject.mentions.follow(life.signal, quick)
+    await until(() => (subject.backends[ana.id].calls.stream ?? 0) === 1)
+    // A lapsed account is no active signed-in one for the Drive (`DriveMain`): the service follows none.
+    subject.active.value = undefined
+    subject.service.account()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(subject.backends[ana.id].calls.stream).toBe(1)
+    subject.active.value = ana
+    subject.service.account()
+    await until(() => (subject.backends[ana.id].calls.stream ?? 0) === 2)
+    life.abort()
+  })
+
   test("with no account, or one without its user's id, nothing is followed", async () => {
     const subject = stand({ account: { id: ana.id, user: "Ana", url: ana.url } })
     const life = new AbortController()

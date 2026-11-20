@@ -90,7 +90,8 @@ failure is an answer the screen maps to its copy (`copy.ts`, `failure`).
 - "Keep me signed in on this device" unchecked means the PAT is never stored: main keeps it sealed in memory for this
   run (so the JWT is still renewed) and the account is signed out on the next launch.
 - Visibility follows main's state, not a renderer flag: the screen shows while no signed-in account is active, stays up
-  until Finish has faded it out, and comes back when the active account signs out. Until main's first snapshot a plain
+  until Finish has faded it out, and comes back when the active account signs out. An active account whose sign-in the
+  instance refused (`needsSignIn`, see "When the instance refuses the sign-in") keeps the window. Until main's first snapshot a plain
   cover keeps the shell from showing. The old `dynwork-signin` storage key is removed on startup.
 
 The screen sits under the startup splash, so it appears when the splash fades and the shell keeps loading underneath.
@@ -117,7 +118,7 @@ Where secrets live:
   own SQLite under `plugin.dynwork`, key `accounts`, with each instance's URL, label, user, organization, pinned
   manifest key and its fingerprint. Without OS encryption (`safeStorage.isEncryptionAvailable()` false) no sign-in
   starts. A ciphertext the OS cannot open right now (a locked keyring, a denied Keychain prompt) is kept and the call
-  fails with `SecureStorageUnavailable`; only the instance refusing the PAT signs the account out.
+  fails with `SecureStorageUnavailable`; only the instance refusing the PAT ends the sign-in (`needsSignIn`).
 - The device credential (`sp_device_...`, from enrolling this install for skill runtime files, see "Skill runtime
   files") is stored the same way, as `safeStorage` ciphertext in the account's `device` entry beside the receipts
   outbox, and decrypted only for a consumer call and for the governance events: each capture pushes it to DynWork's
@@ -125,20 +126,54 @@ Where secrets live:
   in a window) to add it to its track calls (see "Governance telemetry"). A refused credential is taken back from the
   service; signing out (`clear`) or applying another instance drops it there. Signing out forgets it and the outbox.
 - JWTs exist only in main memory. Each is renewed at 80 % of its lifetime; a failed renewal is tried again every 30 s
-  while it holds. A refused JWT is minted again once; a refused PAT signs the account out. Main code (gateway, sync)
-  gets one through `jwt(id)`, `session(id, fresh)` (with its expiry; `fresh` mints even while the held one is valid)
-  or `withJwt(id, use)`, and hears of every JWT minted through the `renewed` option.
-- Windows see `{id, label, url, user, org, status, active, fingerprint, trusted}` and never a PAT, JWT or code.
+  while it holds. A refused JWT is minted again once; a refused PAT lapses the account (`needsSignIn`). Main code
+  (gateway, sync) gets one through `jwt(id)`, `session(id, fresh)` (with its expiry; `fresh` mints even while the held
+  one is valid) or `withJwt(id, use)`, and hears of every JWT minted through the `renewed` option.
+- Windows see `{id, label, url, user, org, status, active, fingerprint, trusted}`, and `lapse` while the account needs
+  signing in again, and never a PAT, JWT or code.
   Nothing goes into OpenCode's `credential` table or the service's database.
 - Signing out forgets the PAT locally; the token stays in the user's list on the instance until revoked there.
+
+### When the instance refuses the sign-in
+
+What DynWork holds, and how long each lasts against core 0.84:
+
+- The PAT (`sp-live-…`, a device key from `POST /v1/auth/bridge/session-pat`) has no expiry unless the instance's
+  profile sets `security.api_keys.max_lifetime_days`, and nothing renews it: only another browser sign-in mints a new
+  one. Revoked, deleted or past that lifetime, `POST /v1/auth/bridge/pat` answers `401 {"message": "Invalid PAT"}`,
+  the same for all three.
+- The JWT minted from it lasts 3600 s and is renewed in the background at 80 % of that, and minted again once when a
+  call is refused (an instance restart, a revoked session). The bridge sign-in has no refresh token, so there is no
+  `invalid_grant` here (that is the person session, G01).
+- The device credential (`sp_device_…`) is enrolled again when the instance refuses it (see "Skill runtime files").
+
+An account is `signedIn`, `signedOut`, or `needsSignIn` with its `lapse`:
+
+- `revoked`: the instance refused the PAT (`401` on `/v1/auth/bridge/pat`), at a renewal or at any call that needed a
+  new JWT. `expired` when that answer names an expiry (`SpClient.refusal`); 0.84 never does, so a key past its lifetime
+  reads as `revoked` too.
+- `refused`: the instance refused a JWT minted fresh from a PAT it still takes, where that speaks for the whole sign-in:
+  the manifest poll (`withJwt(id, use, { lapse: true })`) and the gateway's second refusal (`rejected`). A route that
+  refuses a fresh JWT for its own reasons (the Drive, the stream) fails that call only.
+- No answer, a 5xx or a rate limit is never a lapse: the account stays signed in and the calls retry as before.
+
+A lapse drops the PAT and the session, keeps the entry active with its user and device, records `lapsed {reason, at,
+kept}` in the store and logs `accounts: the instance refused the sign-in` with the account id and the reason only. With
+no PAT nothing reaches the instance again: the sync loop stops and clears the service, the Drive, its stream, the
+heartbeat and remote control stop as for a sign-out, and nothing retries. The titlebar pill (amber), Settings ->
+Governance and the Drive say why and offer "Sign in again", the same browser sign-in as the first one
+(`signInBrowser({url})`); without `keep` it keeps the PAT the way it was kept before. Signing in again ends the lapse on
+the same entry, and the sync, the Drive and its stream resume on their own. A lapse of a PAT that was never stored ends
+with the process: the next launch finds the account signed out.
 
 ### Managing instances
 
 Settings -> systemprompt (`dynwork/packages/gui/src/accounts/ui/`) lists every instance this device knows: its label,
 URL, user, status, when the active one last synced and what it holds, and the fingerprint of its manifest key. Per
 instance: Make active, Sync now (active only), Sign out and Remove (both ask first), and Sign in again for a signed-out
-one. Add instance opens the sign-in screen's connect form (browser link or personal access token) in a dialog; the
-account joins the list and stays inactive until you make it active.
+one, or the browser sign-in at once for one whose sign-in the instance refused. Add instance opens the sign-in screen's
+connect form (browser link or personal access token) in a dialog; the account joins the list and stays inactive until
+you make it active.
 
 A manifest key waits for the user: the first key an instance offers ("New key") and a rotated one ("Key changed", shown
 with the pinned and the offered fingerprints) stop at "Trust this key" / "Trust new key", which pins exactly the
@@ -182,7 +217,8 @@ no-cache`; polls, focus and activation let the instance answer from its memo, li
 - Switching to another account stops the previous loop, clears the service and syncs the new one at once; signing out
   clears it. The same account with a newly trusted key keeps its content until the next apply.
 - Every JWT the accounts mint for the active account is pushed with `token` once. The plugin's `refresh` event is
-  answered with `session(id)`, or with a fresh mint when the reason is `rejected`; `rejected` signs the account out.
+  answered with `session(id)`, or with a fresh mint when the reason is `rejected`; `rejected` lapses the account
+  (`refused`). A manifest refused again with a JWT minted for it lapses it too, and the loop stops.
   When the event stream ends (the service stopped or restarted), the engine follows it again after 1 s and applies the
   instance again; a `token` the plugin refuses means the same. Event handlers never throw.
 
@@ -519,7 +555,7 @@ changed by the user's config never receives the JWT. Freshness:
 - A `401` from the gateway runs through the `retry` hook: the step's first refusal publishes `refresh` with reason
   `rejected`, waits for a new JWT and retries at once, so the step does not fail. A refusal of that new JWT in the same
   step surfaces the error, drops the JWT (later calls carry none) and publishes `rpc.dynwork.sync.rejected
-{instance}`, on which main signs the instance out.
+{instance}`, on which main lapses the account until the user signs in again.
 - Main follows both events with `DynWorkSyncMain.make(...).listen(handlers, signal)` (`GET /api/event?types=…` on the
   sidecar); events published while nobody listens are lost and the call just gives up after its wait. On `rejected`
   reasons main must mint a new JWT rather than hand out its cached one, and on `ahead` one that lasts

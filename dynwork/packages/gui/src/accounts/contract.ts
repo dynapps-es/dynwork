@@ -1,6 +1,14 @@
 import { Schema } from "effect"
 import { Ipc } from "@opencode/plugin/gui"
 
+/**
+ * Why an account needs the user to sign in again: the instance refused the device key DynWork signs in with, saying it
+ * `expired`, or with no reason (`revoked`: revoked, deleted or past the instance's key lifetime, which it answers
+ * alike); or it refused a JWT minted fresh from a key it still takes (`refused`).
+ */
+export const Lapse = Schema.Literals(["expired", "revoked", "refused"])
+export type Lapse = typeof Lapse.Type
+
 /** One signed-in or known systemprompt instance as windows see it. Tokens never cross into the renderer. */
 export const Account = Schema.Struct({
   /** Local id, stable for the life of the entry. */
@@ -13,8 +21,13 @@ export const Account = Schema.Struct({
   user: Schema.optional(Schema.String),
   /** The user's organization, when the instance reported one. */
   org: Schema.optional(Schema.String),
-  /** `signedIn` while main holds a PAT for the instance. */
-  status: Schema.Literals(["signedIn", "signedOut"]),
+  /**
+   * `signedIn` while main holds a PAT for the instance; `needsSignIn` once the instance refused it for good, until the
+   * user signs in again or out.
+   */
+  status: Schema.Literals(["signedIn", "signedOut", "needsSignIn"]),
+  /** Why the account needs signing in again, while `status` is `needsSignIn`. */
+  lapse: Schema.optional(Lapse),
   /** The instance whose content DynWork syncs. At most one account is active. */
   active: Schema.Boolean,
   /** SHA-256 fingerprint of the manifest key: the pinned one, or the one served and waiting for `trust`. */
@@ -142,8 +155,9 @@ export const Accounts = Ipc.define({
     probe: { input: Schema.String, output: Probe },
     /**
      * Signs in through the system browser: opens the instance's device-link page and waits up to 10 minutes on a
-     * loopback listener for the answer. A second call cancels the first. `keep` false (default true) keeps the PAT
-     * out of the store: the account stays signed in until the app quits.
+     * loopback listener for the answer. A second call cancels the first. `keep` false keeps the PAT out of the store:
+     * the account stays signed in until the app quits. Without `keep`, an account signing in again keeps its PAT as it
+     * did before it lapsed, any other in the store.
      */
     signInBrowser: {
       input: Schema.Struct({ url: Schema.String, keep: Schema.optional(Schema.Boolean) }),

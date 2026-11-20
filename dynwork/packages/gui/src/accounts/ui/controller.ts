@@ -1,7 +1,7 @@
 export * as AccountsController from "./controller"
 
 import { createStore } from "solid-js/store"
-import type { Account } from "../contract"
+import type { Account, SignIn } from "../contract"
 import type { Client } from "../renderer"
 import type { AccountsModel } from "./model"
 
@@ -85,6 +85,35 @@ export function menu(input: {
     manage() {
       input.close()
       input.settings("accounts")
+    },
+  }
+}
+
+/**
+ * Signing in again to an account whose sign-in the instance refused for good: the same browser sign-in as the first
+ * one, for the account's instance. `outcome` is how the last try ended, for the window to say why it did not sign in;
+ * a try while the client is gone ends as `failed`. A second `run` while one is going does nothing; `cancel` ends it.
+ */
+export function reconnect(input: { client: () => Pick<Client, "signInBrowser" | "cancel"> | undefined }) {
+  const [state, setState] = createStore({ running: false, outcome: undefined as SignIn | undefined })
+
+  return {
+    state,
+    async run(account: Pick<Account, "url">) {
+      if (state.running) return
+      const client = input.client()
+      setState({ running: true, outcome: undefined })
+      const outcome = client
+        ? await client.signInBrowser({ url: account.url }).catch(() => "failed" as const)
+        : ("failed" as const)
+
+      setState({ running: false, outcome })
+    },
+    cancel() {
+      void input
+        .client()
+        ?.cancel()
+        .catch(() => undefined)
     },
   }
 }
