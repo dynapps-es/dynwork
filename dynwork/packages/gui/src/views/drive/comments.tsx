@@ -10,6 +10,7 @@ import { DriveCapabilities } from "../../drive/capabilities"
 import { askAgent, sessionOf, titleOf } from "./chat"
 import {
   anchorsOf,
+  bubbleFaces,
   bubbleRows,
   clip,
   marked,
@@ -74,8 +75,10 @@ export function MarksToggle(props: { doc: Document }) {
 /**
  * The comments' bubbles in a column beside a document, as Google Docs shows them: one beside each marked part, with
  * who wrote its thread (their initials: 0.83 gives no picture), and the threads at one height in one bubble, two faces
- * and "+N". A click opens the bubble's first thread, as a click on its mark does. The column is the app's own, outside
- * the document's frame: no name, picture or text of a comment goes into the page.
+ * and "+N". Each face is its own button and opens its own thread, as a click on its mark does; the thread open now
+ * (`drive.state.doc.thread`) goes to the front of its bubble, ringed in the comments' accent, as its card and its mark
+ * are. Hovering or focusing a bubble of several threads spreads all its faces apart, so each one is easy to point at.
+ * The column is the app's own, outside the document's frame: no name, picture or text of a comment goes into the page.
  */
 export function CommentBubbles(props: {
   doc: Document
@@ -91,26 +94,39 @@ export function CommentBubbles(props: {
     <aside data-slot="drive-bubbles" aria-label={ctx.t("drive.tab.comments")}>
       {/* By place, not by object: the rows are new at each scroll, and a button that stays takes the click. */}
       <Index each={bubbleRows(props.placed)}>
-        {(row) => (
-          <button
-            type="button"
-            data-slot="drive-bubble"
-            style={{ top: `${row().top}px` }}
-            title={row().threads.map(author).join(", ")}
-            aria-label={ctx.t("drive.bubble", { count: String(row().threads.length) })}
-            onClick={() => {
-              const first = row().threads[0]
-              if (first) props.onThread(first)
-            }}
-          >
-            <span data-slot="drive-avatars">
-              <Index each={row().threads.slice(0, 2)}>{(thread) => <Avatar name={author(thread())} size="small" />}</Index>
-            </span>
-            <Show when={row().threads.length > 2}>
-              <span data-slot="drive-bubble-more">+{row().threads.length - 2}</span>
-            </Show>
-          </button>
-        )}
+        {(row) => {
+          const faces = () => bubbleFaces(row().threads, drive.state.doc.thread)
+          return (
+            <div
+              data-slot="drive-bubble"
+              data-more={faces().more > 0 ? "" : undefined}
+              role="group"
+              style={{ top: `${row().top}px` }}
+              aria-label={ctx.t("drive.bubble", { count: String(row().threads.length) })}
+            >
+              <Index each={faces().faces}>
+                {(thread, index) => (
+                  <button
+                    type="button"
+                    data-slot="drive-bubble-face"
+                    data-state={thread() === drive.state.doc.thread ? "on" : undefined}
+                    aria-pressed={thread() === drive.state.doc.thread}
+                    aria-label={ctx.t("drive.bubble.thread", { name: author(thread()) })}
+                    style={{ "z-index": String(faces().faces.length - index) }}
+                    onClick={() => props.onThread(thread())}
+                  >
+                    <Avatar name={author(thread())} size="small" />
+                  </button>
+                )}
+              </Index>
+              <Show when={faces().more}>
+                <span data-slot="drive-bubble-more" aria-hidden="true">
+                  +{faces().more}
+                </span>
+              </Show>
+            </div>
+          )
+        }}
       </Index>
     </aside>
   )

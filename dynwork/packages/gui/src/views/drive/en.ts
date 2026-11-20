@@ -198,6 +198,7 @@ export default {
   "drive.share.nobody": "Nobody by that name or email",
   "drive.share.searching": "Searching…",
   "drive.bubble": "Comments here: {{count}}",
+  "drive.bubble.thread": "Comment by {{name}}",
   "drive.panel.title": "Artifacts",
   "drive.panel.add": "Add from the Drive",
   "drive.panel.empty": "This chat has no documents yet. When it creates, changes or attaches one, it shows here.",

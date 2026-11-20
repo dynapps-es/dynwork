@@ -204,6 +204,7 @@ export default {
   "drive.share.nobody": "Niemand met die naam of dat e-mailadres",
   "drive.share.searching": "Zoeken…",
   "drive.bubble": "Opmerkingen hier: {{count}}",
+  "drive.bubble.thread": "Opmerking van {{name}}",
   "drive.panel.title": "Artefacten",
   "drive.panel.add": "Toevoegen vanuit de Drive",
   "drive.panel.empty":

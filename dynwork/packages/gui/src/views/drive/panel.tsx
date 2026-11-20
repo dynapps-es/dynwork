@@ -166,7 +166,11 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
       },
     ),
   )
-  const thread = (found: Document, id: string) => ctx.dialogs.open(() => <ThreadDialog doc={found} thread={id} />)
+  // The thread opened in a dialog is the one open now: its bubble and its Markdown block show it.
+  const thread = (found: Document, id: string) => {
+    drive.focusThread(id)
+    ctx.dialogs.open(() => <ThreadDialog doc={found} thread={id} />)
+  }
   // Read again when the document gets a new head; the source is a string so a new object for it reads nothing.
   const [revisions] = createResource(
     () => drive.client() && `${props.id}:${doc()?.revision ?? ""}`,

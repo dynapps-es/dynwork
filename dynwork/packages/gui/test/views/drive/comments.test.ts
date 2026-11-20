@@ -4,6 +4,8 @@ import { DriveCapabilities } from "../../../src/drive/capabilities"
 import { isFailure, type Comment } from "../../../src/drive/contract"
 import {
   anchorsOf,
+  bubbleFaces,
+  bubbleRows,
   matchNodes,
   nodeLabel,
   pickable,
@@ -263,6 +265,24 @@ describe("comments in the store", () => {
     const refused = await store.comment(id, { kind: "node", node: "n9" }, "texto")
     expect(isFailure(refused)).toBe(true)
     expect(store.state.doc).toMatchObject({ thread: created.id, quiet: false })
+  })
+
+  test("a bubble's face opens its own thread, which goes to the front of the bubble, open and marked", async () => {
+    const { store, id } = await open()
+    // Two threads on one block: one bubble, the first one written in front.
+    const first = ok(await store.comment(id, { kind: "node", node: "n2" }, "Uno"))
+    const second = ok(await store.comment(id, { kind: "node", node: "n2", find: "redondeo" }, "Dos"))
+    const row = bubbleRows([
+      { thread: first.id, top: 120 },
+      { thread: second.id, top: 124 },
+    ])
+    expect(row).toEqual([{ top: 120, threads: [first.id, second.id] }])
+    // A click on a face opens that face's thread (`onThread` → `focusThread`), not the bubble's first one.
+    store.focusThread(second.id)
+    expect(store.state.doc).toMatchObject({ tab: "comments", thread: second.id, quiet: false })
+    expect(bubbleFaces(row[0]?.threads ?? [], store.state.doc.thread).faces).toEqual([second.id, first.id])
+    store.focusThread(first.id)
+    expect(bubbleFaces(row[0]?.threads ?? [], store.state.doc.thread).faces).toEqual([first.id, second.id])
   })
 
   test("what became of a comment that asked for the agent is the service's record of it", async () => {

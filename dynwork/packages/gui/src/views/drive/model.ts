@@ -437,6 +437,16 @@ export function bubbleRows(placed: readonly Placed[], size = 28) {
 }
 
 /**
+ * The faces of a bubble, front first: the thread open now when the bubble has it, then the others in their order. The
+ * first `folded` show while the bubble is folded; `more` counts the rest ("+N"), which show when it spreads apart.
+ */
+export function bubbleFaces(threads: readonly string[], active: string | undefined, folded = 2) {
+  const faces =
+    active !== undefined && threads.includes(active) ? [active, ...threads.filter((id) => id !== active)] : [...threads]
+  return { faces, more: Math.max(0, faces.length - folded) }
+}
+
+/**
  * Whether DynWork's own agent made a document: its first revision (the last of a newest-first list) is an agent's,
  * written through the API or the `documents` MCP server, on a document of the user's. That is the document the Dynapps
  * extension lets an attended agent share from 0.85 (`created_by_agent`, which the instance does not show: another agent

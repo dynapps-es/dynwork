@@ -202,6 +202,7 @@ export default {
   "drive.share.nobody": "Nadie con ese nombre o email",
   "drive.share.searching": "Buscando…",
   "drive.bubble": "Comentarios aquí: {{count}}",
+  "drive.bubble.thread": "Comentario de {{name}}",
   "drive.panel.title": "Artifacts",
   "drive.panel.add": "Añadir desde el Drive",
   "drive.panel.empty": "Este chat todavía no tiene documentos. Cuando cree, cambie o adjunte uno, aparecerá aquí.",

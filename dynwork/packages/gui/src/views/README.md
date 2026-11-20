@@ -174,7 +174,11 @@ in-memory Drive for the tests.
     the last one resolved does not make the document narrower or wider under the reader), a column of the app's own
     holds the comments' bubbles (`CommentBubbles`, as Google Docs): one beside each marked part with the initials of
     who wrote its thread (0.83 names no picture for anyone), threads at one height in one bubble (two faces and "+N",
-    `bubbleRows`), and a click opens the bubble's first thread, as its mark does. Where the marks sit comes from main's
+    `bubbleRows`). Each face is a button of its own and opens its own thread, as its mark does; the thread open now
+    (`drive.state.doc.thread`, picked in the Comments tab or opened in a chat's dialog) comes to the front of its bubble
+    (`bubbleFaces`) with a ring in the comments' accent, as its card and its Markdown block show it. Hovering or focusing
+    a bubble of several threads spreads all its faces apart in a column, the ones behind "+N" too, so each one is easy
+    to point at; "+N" itself is only a count. Where the marks sit comes from main's
     observer in the frame (an HTML page: ids and pixels, `../drive/README.md`) or from the app's own layout
     (Markdown). The column is outside the frame: no name, picture or text of a comment goes into a page.
   - Markdown from its source (`/content`, at the tab's version), drawn by the app's own renderer (`ctx.ui.Markdown`),
