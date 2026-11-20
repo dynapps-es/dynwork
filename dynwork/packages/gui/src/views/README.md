@@ -322,7 +322,7 @@ Electron's `sidebar` vibrancy in its inactive look, which also takes the desktop
 around the panels, the sidebar, the titlebar and its tabs. `./vibrancy.css` makes that token transparent across the
 shell, so the sidebar and the frame show the same material in every theme and layout; with Reduce transparency the
 shell's root paints the theme's color instead. What sits over the panels gets the opaque color back (the panels, the
-peeking sidebar, the narrow window's drawer). The sign-in screen's brand column gets the same material. Windows and
+peeking sidebar, the narrow window's drawer, a sidebar pill while it opens over the brand). The sign-in screen's brand column gets the same material. Windows and
 Linux keep the opaque window.
 
 ## The Dynapps look

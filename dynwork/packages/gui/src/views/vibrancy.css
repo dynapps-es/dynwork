@@ -34,8 +34,15 @@
 }
 
 /* What sits over the panels or the page stays opaque: the panels themselves, the sidebar while it peeks over a panel,
-   and the narrow window's drawer. */
-:root[data-vibrancy] :is(main, [data-slot="vertical-tabs-sidebar"][data-peek], [data-slot="mobile-drawer-content"]) {
+   the narrow window's drawer, and a sidebar pill while it opens leftward over the brand, whose wordmark would show
+   through it. */
+:root[data-vibrancy]
+  :is(
+    main,
+    [data-slot="vertical-tabs-sidebar"][data-peek],
+    [data-slot="mobile-drawer-content"],
+    [data-slot="titlebar-update"]:is(:hover, :focus-within)
+  ) {
   --v2-background-bg-deep: var(--dynwork-deep);
   --color-v2-background-bg-deep: var(--dynwork-deep);
 }
