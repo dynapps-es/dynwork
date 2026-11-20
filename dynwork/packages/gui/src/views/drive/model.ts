@@ -542,23 +542,69 @@ export function madeByAgent(doc: Pick<Document, "mine">, revisions: readonly Pic
 /**
  * What the Share popover offers on a document. `change` says whether invite, a level and remove are live here and,
  * when not, why:
- * - `live`: DynWork's agent made it (`made`), the user may share it (`own` or `share`: the instance takes nothing less
- *   for a share) and the agents' cap is `edit`: the policy that lets an attended agent share (Dynapps from 0.85). The
- *   instance still decides each call; a refusal shows inline (`afterShare`).
- * - `governance`: the user may share it, in Governance: a document DynWork's agent did not make, or under a lower cap.
+ * - `live`: the user may share it (`own` or `share`: the instance takes nothing less for a share) and either their own
+ *   session is on (`person`, G01: they act as themselves, on any document) or DynWork's agent made it (`made`) under
+ *   the agents' `edit` cap, the policy that lets an attended agent share (Dynapps from 0.85). The instance still decides
+ *   each call; a refusal shows inline (`afterShare`).
+ * - `sign-in`: the user may share it, as themselves, once they sign in (`person` `off`: the instance has a session for
+ *   DynWork, not started).
+ * - `governance`: the user may share it, in Governance: the instance has no session for DynWork, and DynWork's agent
+ *   did not make it, or under a lower cap.
  * - `level`: the user's access does not let them share it at all.
- * An access not read counts as `governance`. `copy` and `governance` offer the document's page in Governance, when the
- * account's instance is known: to copy, and to open it where the user can share. What a folder grants and the agents'
- * cap are never changed here (the cap needs `own`, which the instance keeps from agents).
+ * An access not read counts as `governance` (or `sign-in`). `copy` and `governance` offer the document's page in
+ * Governance, when the account's instance is known: to copy, and to open it where the user can share. What a folder
+ * grants and the agents' cap are never changed here.
  */
-export function sharing(input: { access: string | undefined; link: string | undefined; made?: boolean; cap?: string }) {
+export function sharing(input: {
+  access: string | undefined
+  link: string | undefined
+  made?: boolean
+  cap?: string
+  person?: Acting
+}) {
   const shares = input.access === undefined || input.access === "own" || input.access === "share"
-  const live = input.made === true && (input.access === "own" || input.access === "share") && input.cap === "edit"
-  return {
-    change: live ? ("live" as const) : shares ? ("governance" as const) : ("level" as const),
-    copy: input.link !== undefined,
-    governance: shares && input.link !== undefined,
-  }
+  const allowed = input.access === "own" || input.access === "share"
+  const live = allowed && (input.person === "on" || (input.made === true && input.cap === "edit"))
+  const change = live
+    ? ("live" as const)
+    : !shares
+      ? ("level" as const)
+      : input.person === "off"
+        ? ("sign-in" as const)
+        : ("governance" as const)
+  return { change, copy: input.link !== undefined, governance: shares && input.link !== undefined }
+}
+
+/** How the person's own session stands (G01), as the Drive's state says it (`DriveIpc.Acting`). */
+export type Acting = "on" | "off" | "unavailable"
+
+const ranks: Record<string, number> = { view: 0, comment: 1, edit: 2, share: 3, own: 4 }
+
+/**
+ * What the window offers for an action only the person may do (G01): moving to the trash and transferring (`own`),
+ * restoring a version and reviewing a proposal (`edit`).
+ * - `live`: their session is on, and their access allows it (or was not read): it goes as them.
+ * - `sign-in`: the instance has a session for DynWork, not started. The action stays in Governance, as before, and the
+ *   window offers the sign-in beside it: one the person cannot finish (production while G01 is blocked) must not stand
+ *   between them and the action.
+ * - `governance`: it has none: the action is in Governance, as before.
+ * - `level`: their access does not allow it, whoever acts.
+ */
+export function personOffer(input: { person: Acting | undefined; access: string | undefined; needs: "own" | "edit" }) {
+  const rank = input.access === undefined ? undefined : ranks[input.access]
+  if (rank !== undefined && rank < (ranks[input.needs] ?? 0)) return "level" as const
+  if (input.person === "on") return "live" as const
+  if (input.person === "off") return "sign-in" as const
+  return "governance" as const
+}
+
+/**
+ * The document's banner (D2, G01): `person` while the user acts as themselves; `signIn` while DynWork signs as its agent
+ * and the user could act as themselves after signing in; `agent` where the instance has no session for DynWork.
+ */
+export function bannerOf(person: Acting | undefined) {
+  if (person === "on") return "person" as const
+  return person === "off" ? ("signIn" as const) : ("agent" as const)
 }
 
 /**

@@ -91,7 +91,27 @@ agent. So the service says the rest:
   makes the write once more (`attributed`); nothing was written the first time. A second refusal reaches the window.
 
 What the instance keeps to a person (sharing, accepting proposals, restoring, deleting someone else's document) answers
-`person`: the window sends the user to Governance.
+`person`: the window sends the user to Governance. With the person's own session (G01, phase 26), see "Acting as the
+person" below.
+
+## Acting as the person (phase 26, G01)
+
+`DriveIpc.Options.person` gives the service the person's session per account (`DynWorkPerson`, kept by main): its
+status and a second backend over `withPerson`. The state says `person: on | off | unavailable` and `personActions` is on
+while the session is (`renewing` counts as on).
+
+- **A user's own act from a window** (`manual`): comment, reply, resolve, reopen, edit, upload, create, createFolder,
+  share and unshare go through the person's backend while it is on, with no "… by DynWork". A conversation's
+  `x-context-id` is still registered by the agent's backend (the UI token cannot reach the contexts route). Off, they go
+  as the agent, as before, and a refusal the instance keeps to the person answers `sign-in` instead of `person`.
+- **The owner's actions** (`owners`): `trash`, `transfer`, `restore` and `review` (accept or reject) go only as the
+  person; without the session nothing is sent and the answer is `sign-in` (`off`) or `person` (`unavailable`). The
+  backend's `revokeAll`, `transfer`, `trash`, `restore` (it reads the head first: the core restores only on it) and
+  `review` call `SpDrive`.
+- **A recent sign-in** the instance asks for (`RecentSignIn`) is handled by `withPerson`, which opens the browser again;
+  one that does not end signed in, and a session that ended meanwhile, answer `sign-in`.
+- **The agent's cards** (`DriveShare`): `perform` does what the user allowed as the person and returns what the agent
+  reads; a folder's grant, or a call missing what it needs, goes as the agent wrote it.
 
 ## The conversation index
 
@@ -307,9 +327,14 @@ documents_share ──execute.before──► plugin: confirm ──event──�
   `peopleByRest` is on). Only an exact match names them; a lookup that fails or takes over 3 seconds
   (`DriveShare.lookupWithin`) leaves the value as the agent gave it, and the card shows anyway. The card says «Name
   (email)», the email telling two people of one name apart.
-- **Allow in this conversation.** Kept in main, per conversation and kind of share (grant, transfer, revoke), while the
-  app runs: the next share of that kind there is allowed with no card, and the cards of that kind already waiting there
-  go too. Another conversation asks again; a restart asks again. A subagent's share shows in, and counts for, the
+- **The person's actions (G01).** The same card asks before `documents_trash`, a `restore` op in `documents_edit` and a
+  review in `documents_proposals` (`DynWorkDocuments.personal`). Allowed while the person's session is on, main does it
+  as them (`DriveShare.perform`) and sends the plugin `outcome`, which the agent reads as the call's error text in place
+  of the instance's answer (a `Tool.Error` is the only way `execute.before` answers in the tool's place); the call never
+  reaches the instance. Without the session the call goes on as the agent's.
+- **Allow in this conversation.** Shares (`grant`) only: kept in main, per conversation, while the app runs: the next
+  share there is allowed with no card, and the shares already waiting there go too. A transfer, a revocation of every
+  grant, a trash, a restore and a review are asked every time; the card shows no such button for them. Another conversation asks again; a restart asks again. A subagent's share shows in, and counts for, the
   conversation that started it; a conversation child (DynWork's runs, the chats) is a conversation of its own.
 - **Reject.** The call fails with a `Tool.Error` the agent reads ("The user declined to share document … with user …
   (edit): nothing was shared. Do not try again unless the user asks you to."), so the step goes on: it is not OpenCode's
@@ -458,7 +483,7 @@ still takes an option that forces a switch on or off over what was read.
 
 | Capability          | Gap | Off (0.83)                                                                               | On                                                                          |
 | ------------------- | --- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `personActions`     | G01 | A direct write is "`<user>` by DynWork"; person actions go to Governance                 | A direct write is the person's own, with no message                         |
+| `personActions`     | G01 | A direct write is "`<user>` by DynWork"; person actions ask to sign in or go to Governance | Every act from a window is the person's own, with no message; on with their session |
 | `conversationLabel` | G02 | The message names the conversation                                                       | Only the `x-context-id`; the instance names it, as do versions and comments |
 | `rangeComments`     | G08 | A comment on a cell range answers `unsupported` without a call                           | `{node, cells}` on a sheet node, the A1 range checked and upper-cased first |
 | `reopenComments`    | G12 | `reopen` answers `unsupported` without a call; a resolved thread stays resolved          | `POST …/comments/{id}/reopen`; the thread goes back to Open                 |
@@ -479,7 +504,7 @@ check (D22). `Anchor` has no `page` kind.
 
 Every method answers a `Failure` instead of rejecting, as routines do. The backend maps the client's errors to codes
 (`signed-out`, `unreachable`, `not-found`, `forbidden`, `person`, `suggest`, `conflict` with the `head` it lost to,
-`unsupported`, `invalid`, `unknown-context`, `failed`) with DynWork's own words: the instance's message never reaches a window. Only
+`unsupported`, `invalid`, `unknown-context`, `sign-in`, `failed`) with DynWork's own words: the instance's message never reaches a window. Only
 `unreachable` is retryable. A backend that rejects anyway is a bug; the service answers `failed` without its message.
 A resolved comment reopens only with `reopenComments` (G12): 0.83 has no route for it. A comment on a cell range goes only
 with `rangeComments` (G08), and only as an A1 range the core takes (`DriveCells.parse`, the core's `CellRange` rules:

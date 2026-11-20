@@ -4,7 +4,7 @@ import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { Effect } from "effect"
 import { SpClient, SpDrive, SpPerson } from "../src"
-import { startFake, startPerson } from "./fake"
+import { startDrive, startFake, startPerson } from "./fake"
 import alpha from "./fixtures/alpha.json"
 
 const fake = startFake()
@@ -228,5 +228,87 @@ describe("the Drive with the person's UI token", () => {
     // Reading needs no recent sign-in
     expect(await run(SpDrive.list(fake.url, latest.access))).toBeDefined()
     expect(fake.state.person.acted).toEqual(["POST /api/v1/document-folders", "GET /api/v1/documents"])
+  })
+
+  test("trashes, transfers, revokes every grant, restores and reviews as the person; the agent's JWT is refused", async () => {
+    fake.state.drive = startDrive()
+    fake.state.drive.version = "0.84"
+    fake.state.drive.people.set("u-luis", { user_id: "u-luis", name: "Luis Martín", email: "luis@example.com" })
+    const jwt = (await run(SpClient.mintJwt(fake.url, fake.issuePat()))).token
+    const flow = await signIn()
+    const tokens = await run(
+      SpPerson.exchange(fake.url, { code: flow.code, redirect: flow.loop.redirect, verifier: flow.grant.verifier }),
+    )
+    const made = (
+      await run(SpDrive.importFile(fake.url, jwt, { name: "q3.md", bytes: new TextEncoder().encode("# Q3"), mime: "text/markdown" }))
+    ).document
+    const first = made.head_revision_id
+    await run(SpDrive.edit(fake.url, jwt, made.id, { ops: [{ op: "append_markdown", markdown: "more" }] }))
+    const proposed = await run(
+      SpDrive.edit(fake.url, jwt, made.id, { ops: [{ op: "append_markdown", markdown: "maybe" }], mode: "propose" }),
+    )
+    const proposal = proposed._tag === "Proposed" ? proposed.proposal.id : ""
+
+    // DynWork's agent JWT meets the core's rules: the owner's actions and restoring are refused, nothing changes
+    const refusals = await Promise.all([
+      fail(SpDrive.trash(fake.url, jwt, made.id)),
+      fail(SpDrive.transfer(fake.url, jwt, made.id, "u-luis")),
+      fail(SpDrive.revokeAll(fake.url, jwt, made.id)),
+      fail(SpDrive.edit(fake.url, jwt, made.id, { ops: [{ op: "restore", revision_id: first }] })),
+    ])
+    refusals.forEach((refused) => expect(refused).toMatchObject({ _tag: "AgentRefused", errorKey: "agent_forbidden" }))
+
+    // The person's UI token does each, as the person
+    const head = (await run(SpDrive.get(fake.url, tokens.access, made.id))).head.id
+    const restored = await run(
+      SpDrive.edit(fake.url, tokens.access, made.id, { ops: [{ op: "restore", revision_id: first }], baseRevision: head }),
+    )
+    expect(restored).toMatchObject({
+      _tag: "Landed",
+      revision: { actor_kind: "user", parent_revision_id: head, client_id: "dynwork-desktop" },
+    })
+    expect(restored._tag === "Landed" ? restored.revision.agent_name : "?").toBeUndefined()
+    const accepted = await run(SpDrive.review(fake.url, tokens.access, made.id, proposal, { accept: true, note: "ok" }))
+    expect(accepted).toMatchObject({ proposal: { status: "accepted", note: "ok" }, revision: { actor_kind: "user" } })
+    expect(await fail(SpDrive.review(fake.url, tokens.access, made.id, proposal, { accept: false }))).toMatchObject({
+      _tag: "Conflict",
+    })
+    await run(SpDrive.share(fake.url, tokens.access, made.id, { kind: "user", value: "u-luis", level: "view", until: "2027-01-01T00:00:00Z" }))
+    expect(JSON.parse(fake.state.requests.findLast((entry) => entry.path.endsWith("/grants"))?.body ?? "")).toMatchObject({
+      valid_until: "2027-01-01T00:00:00Z",
+    })
+    await run(SpDrive.revokeAll(fake.url, tokens.access, made.id))
+    expect((await run(SpDrive.access(fake.url, tokens.access, made.id))).grants).toEqual([])
+    expect(await run(SpDrive.transfer(fake.url, tokens.access, made.id, "u-luis"))).toMatchObject({
+      id: made.id,
+      owner_user_id: "u-luis",
+    })
+    await run(SpDrive.trash(fake.url, tokens.access, made.id))
+    expect(await fail(SpDrive.get(fake.url, tokens.access, made.id))).toBeInstanceOf(SpClient.NotFound)
+    expect(fake.state.person.acted).toContain(`POST /api/v1/documents/${made.id}/transfer`)
+    expect(fake.state.person.acted).toContain(`DELETE /api/v1/documents/${made.id}`)
+  })
+
+  test("transfer and revoking every grant want a recent sign-in too", async () => {
+    jest.useFakeTimers()
+    const start = Date.now()
+    setSystemTime(new Date(start))
+    fake.state.drive = startDrive()
+    const jwt = (await run(SpClient.mintJwt(fake.url, fake.issuePat()))).token
+    const made = (
+      await run(SpDrive.importFile(fake.url, jwt, { name: "a.md", bytes: new TextEncoder().encode("a"), mime: "text/markdown" }))
+    ).document
+    const flow = await signIn()
+    const tokens = await run(
+      SpPerson.exchange(fake.url, { code: flow.code, redirect: flow.loop.redirect, verifier: flow.grant.verifier }),
+    )
+    setSystemTime(new Date(start + 280_000))
+    const later = await run(SpPerson.refresh(fake.url, tokens.refresh))
+    setSystemTime(new Date(start + 560_000))
+    const latest = await run(SpPerson.refresh(fake.url, later.refresh))
+    setSystemTime(new Date(start + 610_000))
+    expect(await fail(SpDrive.transfer(fake.url, latest.access, made.id, "u-luis"))).toBeInstanceOf(SpClient.RecentSignIn)
+    expect(await fail(SpDrive.revokeAll(fake.url, latest.access, made.id))).toBeInstanceOf(SpClient.RecentSignIn)
+    expect(await fail(SpDrive.trash(fake.url, latest.access, made.id))).toBeInstanceOf(SpClient.RecentSignIn)
   })
 })

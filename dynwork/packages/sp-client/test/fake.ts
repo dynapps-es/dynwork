@@ -77,6 +77,8 @@ export function startDrive() {
     csp: "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; form-action 'none'; frame-ancestors 'self'",
     // Every write is refused as an agent capped at `suggest` (what an unattended token gets), unless it proposes
     suggestOnly: false,
+    // The documents moved to the trash, by id: they leave every listing and read
+    trashed: new Set<string>(),
     // The grants of each document, by document id
     grants: new Map<string, Array<{ id: string; kind: string; value: string; name: string; level: string }>>(),
     // The Dynapps extension 0.85 lets an attended agent share what it created (every document here is the agent's);
@@ -110,9 +112,10 @@ function personRedirect(value: string) {
   return url !== undefined && url.protocol === "http:" && url.hostname === "127.0.0.1" && url.pathname === "/oauth/callback"
 }
 
-// The routes a UI session may call only within 600 s of its sign-in (0.84 `step_up.rs`)
+// The routes a UI session may call only within 600 s of its sign-in (0.84 `step_up.rs`): sharing, revoking all,
+// transfer, delete and agent caps
 function stepUp(method: string, path: string) {
-  if (/\/grants$/.test(path) || /\/agent-cap$/.test(path)) return method !== "GET"
+  if (/\/grants(\/all)?$/.test(path) || /\/agent-cap$/.test(path) || /\/transfer$/.test(path)) return method !== "GET"
   if (/^\/api\/v1\/(documents|document-folders)\/[^/]+$/.test(path)) return method === "DELETE"
   return false
 }
@@ -525,11 +528,14 @@ export function startFake() {
         parent_revision_id: parent,
         content_sha256: sha(bytes),
         author_user_id: user,
-        actor_kind: "agent",
+        // A person's UI session writes as the person (`user`, as 0.84 records it): no agent, its own OAuth client
+        actor_kind: ui ? "user" : "agent",
         origin_kind: "api",
         message,
         created_at: now(),
-        ...(at84 ? { context_id: context, agent_name: bridgeClient, client_id: bridgeClient } : {}),
+        ...(at84
+          ? { context_id: context, ...(ui ? { client_id: personClient } : { agent_name: bridgeClient, client_id: bridgeClient }) }
+          : {}),
       }
       entry.revisions.unshift(revision)
       entry.head_revision_id = revision.id
@@ -576,7 +582,8 @@ export function startFake() {
         Object.entries(entry).filter(([key]) => !["revisions", "bytes", "contexts"].includes(key)),
       ) as FakeDocument
     }
-    const found = (id: string | undefined) => (id === undefined ? undefined : drive.documents.get(id))
+    const found = (id: string | undefined) =>
+      id === undefined || drive.trashed.has(id) ? undefined : drive.documents.get(id)
     const quoted = (revision: string) => ({ etag: `"${revision}"` })
 
     if (route === "GET /api/v1/documents") {
@@ -799,6 +806,43 @@ export function startFake() {
             reason: "the dynapps-document-classes agent policy caps agents at edit",
           },
         })
+      // What the core keeps to the owner, and from an agent unless its policy lifts it: trash, transfer, revoke every
+      // grant. Only the person's UI session does them here.
+      const owners = (request.method === "DELETE" && (rest === "" || rest === "grants/all")) || rest === "transfer"
+      if (owners && !ui)
+        return refuse(403, "agent_forbidden", "agents may not do this to documents, whatever their access; ask the user")
+      if (request.method === "DELETE" && rest === "") {
+        drive.trashed.add(entry.id)
+        return new Response(null, { status: 204 })
+      }
+      if (request.method === "DELETE" && rest === "grants/all") {
+        drive.grants.set(entry.id, [])
+        return new Response(null, { status: 204 })
+      }
+      if (request.method === "POST" && rest === "transfer") {
+        const input = json() as { transfer_to?: string }
+        if (input.transfer_to === undefined || !state.drive.people.has(input.transfer_to))
+          return refuse(422, "unknown_subject", `no user ${input.transfer_to}`)
+        entry.owner_user_id = input.transfer_to
+        return Response.json(view(entry.id))
+      }
+      // A review, as the core does: accepting lands the proposed revision as the head (the fake's base is the head),
+      // rejecting records the reviewer and the note; a proposal reviewed before is closed.
+      const reviewed = /^proposals\/([^/]+)\/(accept|reject)$/.exec(rest)
+      if (request.method === "POST" && reviewed) {
+        const target = (drive.proposals.get(entry.id) ?? []).find((item) => item.id === reviewed[1])
+        if (target === undefined) return notFound("proposal")
+        if (target.status !== "open") return refuse(409, "proposal_closed", "the proposal was already reviewed")
+        const input = json() as { note?: string }
+        target.status = reviewed[2] === "accept" ? "accepted" : "rejected"
+        target.reviewer = user
+        target.reviewed_at = now()
+        target.note = input.note ?? null
+        if (reviewed[2] === "reject") return Response.json({ proposal: target })
+        const revision = revise(entry.id, entry.bytes, (target.message as string | null) ?? null, entry.head_revision_id)
+        target.landed_revision_id = revision.id
+        return Response.json({ proposal: target, revision })
+      }
       // The person's UI session shares as the person: the agent rules are not theirs
       if ((route.startsWith("POST") || route.startsWith("DELETE")) && rest === "grants" && !drive.agentShare && !ui)
         return refuse(
@@ -860,10 +904,20 @@ export function startFake() {
         )
       if (route.startsWith("POST") && rest === "edits") {
         const input = json() as {
-          ops?: Array<{ op: string; markdown?: string }>
+          ops?: Array<{ op: string; markdown?: string; revision_id?: string }>
           base_revision?: string
           mode?: string
           message?: string
+        }
+        // `restore` makes an earlier revision the head as a new one, on the head only; an agent meets the rule
+        const restore = input.ops?.length === 1 && input.ops[0]?.op === "restore" ? input.ops[0] : undefined
+        if (restore && ui) {
+          const earlier = entry.revisions.find((item) => item.id === restore.revision_id)
+          if (earlier === undefined) return notFound("revision")
+          if (input.base_revision !== entry.head_revision_id)
+            return refuse(409, "stale_base", "restore applies only on the head", { head_revision: entry.head_revision_id })
+          const revision = revise(entry.id, entry.bytes, input.message ?? null, entry.head_revision_id)
+          return Response.json({ revision })
         }
         const unknown = input.ops?.find((item) => item.op !== "append_markdown")
         if (unknown !== undefined)
@@ -945,7 +999,9 @@ export function startFake() {
           ...(input.parent_id === undefined ? {} : { parent_id: input.parent_id }),
           created_at: now(),
           // 0.84 records the agent of the token, the conversation and the client
-          ...(at84 ? { via_agent: bridgeClient, context_id: context, client_id: bridgeClient } : {}),
+          ...(at84
+            ? { context_id: context, ...(ui ? { client_id: personClient } : { via_agent: bridgeClient, client_id: bridgeClient }) }
+            : {}),
         }
         drive.comments.set(entry.id, [...all, comment])
         // 0.83 announces each mention on the stream, whatever its attention; 0.84 announces a mention of the author

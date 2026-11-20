@@ -29,6 +29,7 @@ import {
   type Scope,
   type Sort,
   type TypeFilter,
+  type Acting,
 } from "./model"
 
 export type DocTab = "details" | "comments" | "versions" | "proposals"
@@ -257,6 +258,8 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     status: () => remote()?.status ?? "none",
     /** What DynWork may do as the person (P1); off, it acts as an agent and the person's actions go to Governance. */
     person: () => capabilities()?.personActions === true,
+    /** How the person's own session stands (G01): `on`, `off` (they could sign in) or `unavailable`. */
+    acting: (): Acting => remote()?.person ?? "unavailable",
     /** The documents and folders the browser shows. */
     shown: () => visibleDocs(documents(), state.browse),
     shownFolders: () => visibleFolders(folders(), state.browse),
@@ -554,6 +557,47 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
       if (state.doc.thread === thread) setState("doc", "thread", undefined)
       return resolved
     },
+    // What only the person may do (G01): each goes as them, or answers `sign-in` or `person` without sending anything.
+    /** Moves a document to the trash; the browser reads its listing again, and an open one closes. */
+    async trash(id: string) {
+      const client = options.client()
+      if (!client) return disconnected
+      const done = await client.trash({ id })
+      if (isFailure(done)) return done
+      if (state.open === id) store.closeDoc()
+      if (state.browse.selected === id) setState("browse", "selected", undefined)
+      await reload()
+      return undefined
+    },
+    /** Makes `to` the document's owner; the user keeps `edit`. */
+    async transfer(id: string, to: string) {
+      const client = options.client()
+      if (!client) return disconnected
+      const done = await client.transfer({ id, to })
+      if (isFailure(done)) return done
+      setState("known", id, done)
+      if (state.open === id) await store.openDoc(id, { tab: state.doc.tab, ...fromChat() })
+      await reload()
+      return done
+    },
+    /** Makes an earlier version the current one again, as a new version; the open document reads its versions again. */
+    async restore(id: string, revision: string) {
+      const client = options.client()
+      if (!client) return disconnected
+      const done = await client.restore({ id, revision })
+      if (isFailure(done)) return done
+      if (state.open === id) await store.openDoc(id, { tab: "versions", ...fromChat() })
+      return done
+    },
+    /** Accepts or rejects a proposal; the open document reads its proposals and versions again. */
+    async review(id: string, proposal: string, accept: boolean) {
+      const client = options.client()
+      if (!client) return disconnected
+      const done = await client.review({ id, proposal, accept })
+      if (isFailure(done)) return done
+      if (state.open === id) await store.openDoc(id, { tab: "proposals", ...fromChat() })
+      return done
+    },
     /**
      * Opens a resolved thread again (G12, 0.84). It moves to Open, where the Comments tab follows it when it is the
      * document there, quietly: the user is already looking at it.
@@ -567,6 +611,12 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
       if (state.open === id) setState("doc", { thread, quiet: true, filter: "open" })
       return reopened
     },
+  }
+
+  // Where the open document came from, kept when it is read again in place.
+  function fromChat() {
+    const from = state.from
+    return from && "chat" in from ? { from: { ...from.chat } } : {}
   }
 
   // The people a document is granted to, by user id, for naming the authors of comments.
@@ -639,8 +689,8 @@ export function queriesOf(browse: { scope: Scope; folder: string | undefined; qu
 const unique = (documents: readonly Document[]) => [...new Map(documents.map((item) => [item.id, item])).values()]
 
 // The active account as the window entry follows it (`./register.tsx`): Governance's address and the user's name,
-// which the Drive's state does not carry.
-const [active, setActive] = createSignal<{ url: string; user?: string }>()
+// which the Drive's state does not carry, and how to start the person's sign-in for it (G01, the accounts Ipc).
+const [active, setActive] = createSignal<{ url: string; user?: string; signIn?: () => void }>()
 
 /** The active account's Governance address and user; undefined without one. */
 export const account = active
@@ -662,3 +712,11 @@ export const drive = createRoot(() =>
     },
   }),
 )
+
+/**
+ * Starts the person's sign-in in the system browser for the active account (G01), as Settings does: the Drive's state
+ * follows when it ends. Only ever on the user's click.
+ */
+export function signInAsYou() {
+  active()?.signIn?.()
+}

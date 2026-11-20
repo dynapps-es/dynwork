@@ -315,6 +315,14 @@ export const DriveProposals = Schema.Struct({ proposals: Schema.Array(DrivePropo
 // `mode: land` answers 200 with the new revision (`merged_from` when the base was behind and the edit merged on the
 // head); `mode: propose` answers 201 with the proposal and the revision it points at.
 export const DriveLanded = Schema.Struct({ revision: DriveRevision, merged_from: Nullable(Schema.String) })
+// A review answers the proposal as it now stands and, when accepted, the revision that landed (`rebased` when the head
+// had moved and its operations were applied again on it).
+export const DriveReviewed = Schema.Struct({
+  proposal: DriveProposal,
+  revision: Schema.optional(DriveRevision),
+  rebased: Schema.optional(Schema.Boolean),
+})
+
 export const DriveProposed = Schema.Struct({
   proposal: DriveProposal,
   revision: DriveRevision,

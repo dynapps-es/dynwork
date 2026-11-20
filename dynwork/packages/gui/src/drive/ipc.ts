@@ -19,6 +19,7 @@ import {
   type State,
 } from "./contract"
 import { DriveMentions } from "./mentions"
+import type { Person as PersonSession } from "../accounts/contract"
 
 /** The account the Drive shows: the active, signed-in one, and the name its direct writes are signed with. */
 export interface Account {
@@ -77,9 +78,23 @@ export interface Options<A extends Account = Account> {
    * itself (`DriveCapabilities.delivered`). Absent: what the instance delivers, as read.
    */
   capabilities?: (account: string) => Partial<DriveCapabilities.Capabilities>
+  /**
+   * The person's own session in each account's instance (G01, `DynWorkPerson`), kept by main: how it stands, and a
+   * backend that acts as the person with it. Absent, DynWork acts as its agent only, as before.
+   */
+  person?: {
+    status: (account: string) => PersonSession["status"]
+    backend: (account: A) => Backend
+  }
   timers?: Timers
   now?: () => number
 }
+
+/**
+ * How the person's session stands for the active account: `on` acts as them (renewing included); `off` could once they
+ * sign in; `unavailable` where the instance has no session for DynWork (before 0.84), or main keeps none.
+ */
+export type Acting = "on" | "off" | "unavailable"
 
 // The snapshot pushed to windows, tagged with the account it was read for. A switch of account replaces it whole.
 type Cache = Pick<State, "account" | "status" | "folders" | "documents" | "read">
@@ -130,6 +145,8 @@ export function make<A extends Account>(options: Options<A>) {
   const live: {
     account?: A
     backend?: Backend
+    // The person's backend for the account (G01): used only while their session is on
+    person?: Backend
     cache: Cache
     // The newest read begun, so that one answering late, or for an account that left, is dropped.
     reads: number
@@ -151,8 +168,20 @@ export function make<A extends Account>(options: Options<A>) {
   const capabilities = (): DriveCapabilities.Capabilities => ({
     ...DriveCapabilities.none,
     ...live.delivered,
+    personActions: acting() === "on",
     ...(live.account ? options.capabilities?.(live.account.id) : undefined),
   })
+
+  function acting(): Acting {
+    const account = live.account
+    if (!account || !options.person || !live.person) return "unavailable"
+    const status = options.person.status(account.id)
+    if (status === "on" || status === "renewing") return "on"
+    return status === "unavailable" ? "unavailable" : "off"
+  }
+
+  // The backend a user's own act goes through: the person's while their session is on (`personActions`).
+  const personal = () => (capabilities().personActions ? live.person : undefined)
 
   // Takes the active account; on a change, drops what the previous one left. Answers whether it changed.
   function follow() {
@@ -169,6 +198,7 @@ export function make<A extends Account>(options: Options<A>) {
     live.streaming = false
     live.account = account
     live.backend = account ? options.backend(account) : undefined
+    live.person = account ? options.person?.backend(account) : undefined
     live.cache = empty(account?.id)
     options.changed()
     listeners.account.forEach((listener) => listener(account))
@@ -264,6 +294,52 @@ export function make<A extends Account>(options: Options<A>) {
     if (!isFailure(answer)) await load()
     return answer
   }
+
+  /**
+   * A user's own act, from a window (G01). While the person's session is on it goes as the person (`actor`), signed with
+   * no "… by DynWork"; otherwise as DynWork's agent, as before, and what the instance keeps to the person then asks the
+   * user to sign in, where the instance has a session for DynWork. The agent's backend (`agent`) registers a
+   * conversation: the person's session does not reach the contexts route.
+   */
+  function manual<B>(
+    call: (actor: Backend, account: Account, agent: Backend, person: boolean) => Promise<B | Failure>,
+  ): Promise<B | Failure> {
+    return on(async (backend, account) => {
+      const person = personal()
+      const answer = await call(person ?? backend, account, backend, person !== undefined)
+      if (person === undefined && isFailure(answer) && answer.code === "person" && acting() === "off")
+        return fail("sign-in", "Sign in to act as you.")
+      return answer
+    })
+  }
+
+  /**
+   * What only the person can do (G01): trash, transfer, restore, review a proposal. As the person while their session is
+   * on; otherwise nothing is sent, and the window says to sign in, or, where the instance has no session for DynWork, to
+   * do it in Governance.
+   */
+  function owners<B>(call: (person: Backend) => Promise<B | Failure>): Promise<B | Failure> {
+    return on(async () => {
+      const person = personal()
+      if (person) return call(person)
+      return acting() === "off"
+        ? fail("sign-in", "Sign in to act as you.")
+        : fail("person", "Only you can do this, in Governance.")
+    })
+  }
+
+  // A user's own write with its conversation's attribution: the agent registers the conversation, the actor writes, and
+  // the person's write carries no "… by DynWork".
+  const signedBy = <B>(
+    agent: Backend,
+    account: Account,
+    conversation: Conversation | undefined,
+    person: boolean,
+    write: (signed: { contextId?: string; message?: string }) => Promise<B | Failure>,
+  ) =>
+    attributed(agent, account, conversation, (signed) =>
+      write(person ? { contextId: signed.contextId } : signed),
+    )
 
   // The id the instance gave a conversation of an account, once registered.
   function registered(account: string, conversation: string) {
@@ -417,6 +493,7 @@ export function make<A extends Account>(options: Options<A>) {
     state: () => ({
       ...live.cache,
       capabilities: capabilities(),
+      person: acting(),
       links: links(live.cache.account),
       mentions: mentions(live.cache.account),
       unimported: unimported(live.cache.account),
@@ -458,8 +535,35 @@ export function make<A extends Account>(options: Options<A>) {
       }),
     access: (input) => on((backend) => backend.access(input.id)),
     // A change of who has access is the user's own, from the window; the instance's agent policy decides (`share`).
-    share: (input) => on((backend) => backend.share(input.id, { kind: input.kind, value: input.value, level: input.level })),
-    unshare: (input) => on((backend) => backend.unshare(input.id, input.grant)),
+    share: (input) =>
+      manual((actor) => actor.share(input.id, { kind: input.kind, value: input.value, level: input.level })),
+    unshare: (input) => manual((actor) => actor.unshare(input.id, input.grant)),
+    // The owner's, and the person's only (G01): each goes as the person or not at all.
+    trash: async (input) => {
+      const done = await owners((person) => person.trash(input.id))
+      if (!isFailure(done)) await load()
+      return done
+    },
+    transfer: async (input) => {
+      const done = await owners((person) => person.transfer(input.id, input.to))
+      if (!isFailure(done)) await load()
+      return done
+    },
+    restore: async (input) => {
+      const done = await owners((person) => person.restore(input.id, input.revision))
+      if (!isFailure(done)) await load()
+      return done
+    },
+    review: async (input) => {
+      const done = await owners((person) =>
+        person.review(input.id, input.proposal, {
+          accept: input.accept,
+          ...(input.note === undefined ? {} : { note: input.note }),
+        }),
+      )
+      if (!isFailure(done)) await load()
+      return done
+    },
     // Over REST where the instance has it (0.84), otherwise through the `documents` MCP server's `documents_people`.
     findPeople: (input) =>
       on((backend) =>
@@ -468,11 +572,15 @@ export function make<A extends Account>(options: Options<A>) {
           : backend.findPeople(input.query, input.limit),
       ),
     agentCap: (input) => on((backend) => backend.agentCap(input)),
-    createFolder: (input) => changing((backend) => backend.createFolder(input)),
-    upload: (input) =>
-      changing(async (backend, account) => {
-        const created = await attributed(backend, account, input.conversation, (signed) =>
-          backend.upload({ ...input, ...signed }),
+    createFolder: async (input) => {
+      const made = await manual((actor) => actor.createFolder(input))
+      if (!isFailure(made)) await load()
+      return made
+    },
+    upload: async (input) => {
+      const created = await manual(async (actor, account, agent, person) => {
+        const created = await signedBy(agent, account, input.conversation, person, (signed) =>
+          actor.upload({ ...input, ...signed }),
         )
         if (!isFailure(created) && input.conversation)
           record(account.id, {
@@ -483,12 +591,15 @@ export function make<A extends Account>(options: Options<A>) {
             via: "rest",
           })
         return created
-      }),
+      })
+      if (!isFailure(created)) await load()
+      return created
+    },
     // 0.83 keeps no message on a document it makes from a template (C4), only the conversation's context; 0.84 keeps it.
-    create: (input) =>
-      changing(async (backend, account) => {
-        const created = await attributed(backend, account, input.conversation, (signed) =>
-          backend.create({ template: input.template, name: input.name, folder: input.folder, ...signed }),
+    create: async (input) => {
+      const created = await manual(async (actor, account, agent, person) => {
+        const created = await signedBy(agent, account, input.conversation, person, (signed) =>
+          actor.create({ template: input.template, name: input.name, folder: input.folder, ...signed }),
         )
         if (!isFailure(created) && input.conversation)
           record(account.id, {
@@ -499,11 +610,14 @@ export function make<A extends Account>(options: Options<A>) {
             via: "rest",
           })
         return created
-      }),
-    edit: (input) =>
-      changing(async (backend, account) => {
-        const edited = await attributed(backend, account, input.conversation, (signed) =>
-          backend.edit(input.id, { ops: input.ops, base: input.base, mode: input.mode, ...signed }),
+      })
+      if (!isFailure(created)) await load()
+      return created
+    },
+    edit: async (input) => {
+      const edited = await manual(async (actor, account, agent, person) => {
+        const edited = await signedBy(agent, account, input.conversation, person, (signed) =>
+          actor.edit(input.id, { ops: input.ops, base: input.base, mode: input.mode, ...signed }),
         )
         if (!isFailure(edited) && input.conversation)
           record(account.id, {
@@ -514,10 +628,13 @@ export function make<A extends Account>(options: Options<A>) {
             via: "rest",
           })
         return edited
-      }),
+      })
+      if (!isFailure(edited)) await load()
+      return edited
+    },
     // A comment carries no revision message (the instance names its agent from the token): only the conversation.
     comment: (input) =>
-      on(async (backend, account) => {
+      manual(async (actor, account, agent, person) => {
         if (!DriveCapabilities.anchorable(capabilities(), input.anchor))
           return fail("unsupported", "This kind of comment is not available yet.")
         // A cell range goes as the instance keeps it (`b2:d9` is `B2:D9`); one it would refuse does not go.
@@ -525,8 +642,8 @@ export function make<A extends Account>(options: Options<A>) {
         if (cells && "refused" in cells) return fail("invalid", "That is not a cell range such as B2 or B2:D9.")
         const anchor = cells ? { ...input.anchor, cells: cells.cells } : input.anchor
         const said = say(account, input.body)
-        const created = await attributed(backend, account, input.conversation, (signed) =>
-          backend.comment(input.id, {
+        const created = await signedBy(agent, account, input.conversation, person, (signed) =>
+          actor.comment(input.id, {
             body: said.body,
             anchor,
             contextId: signed.contextId,
@@ -537,10 +654,10 @@ export function make<A extends Account>(options: Options<A>) {
         return created
       }),
     reply: (input) =>
-      on(async (backend, account) => {
+      manual(async (actor, account, agent, person) => {
         const said = say(account, input.body)
-        const created = await attributed(backend, account, input.conversation, (signed) =>
-          backend.reply(input.id, {
+        const created = await signedBy(agent, account, input.conversation, person, (signed) =>
+          actor.reply(input.id, {
             body: said.body,
             parent: input.parent,
             contextId: signed.contextId,
@@ -550,11 +667,11 @@ export function make<A extends Account>(options: Options<A>) {
         if (!isFailure(created)) asked(account, input.id, created.id, said.agent)
         return created
       }),
-    resolve: (input) => on((backend) => backend.resolve(input.id, input.comment)),
+    resolve: (input) => manual((actor) => actor.resolve(input.id, input.comment)),
     reopen: (input) =>
-      on(async (backend) =>
+      manual(async (actor) =>
         capabilities().reopenComments
-          ? backend.reopen(input.id, input.comment)
+          ? actor.reopen(input.id, input.comment)
           : fail("unsupported", "Governance cannot reopen a comment yet."),
       ),
     people: (input) =>
@@ -734,6 +851,18 @@ export function make<A extends Account>(options: Options<A>) {
       if (account !== undefined && registered(account, conversation) === context) forget(account, conversation)
     },
     capabilities,
+    /** How the person's session stands for the active account (G01). */
+    acting,
+    /**
+     * The person's backend for the active account while their session is on, for main code that acts as them once the
+     * user allowed it (`DriveShare`); undefined otherwise. Its credential stays in main.
+     */
+    person: () => {
+      if (follow()) void load()
+      return personal()
+    },
+    /** The person's session changed (`DynWorkPerson`): windows read the state again. */
+    personChanged: () => options.changed(),
     /**
      * What the agent's `documents` rules and calls need of what `account`'s instance delivers (`DriveCapabilities.agent`),
      * for the server plugin; undefined while `account` is not the Drive's active one.

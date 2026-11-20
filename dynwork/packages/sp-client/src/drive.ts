@@ -22,6 +22,7 @@ import {
   DriveCreated,
   DriveDetail,
   DriveDiscovery,
+  DriveDocument,
   DriveErrorBody,
   DriveFolder,
   DriveGrantMade,
@@ -31,6 +32,7 @@ import {
   DrivePeople,
   DriveProposals,
   DriveProposed,
+  DriveReviewed,
   DriveRevisions,
   DriveUpload,
   DriveUploadPart,
@@ -333,7 +335,7 @@ export const share = Effect.fn("SpDrive.share")(function* (
   baseUrl: string,
   jwt: string,
   id: string,
-  grant: { readonly kind: string; readonly value: string; readonly level: string },
+  grant: { readonly kind: string; readonly value: string; readonly level: string; readonly until?: string },
 ) {
   return (yield* json(
     DriveGrantMade,
@@ -343,7 +345,12 @@ export const share = Effect.fn("SpDrive.share")(function* (
       endpoint: "POST /api/v1/documents/{id}/grants",
       baseUrl,
       jwt,
-      body: { subject_kind: grant.kind, subject_value: grant.value, level: grant.level },
+      body: {
+        subject_kind: grant.kind,
+        subject_value: grant.value,
+        level: grant.level,
+        ...(grant.until === undefined ? {} : { valid_until: grant.until }),
+      },
       limit: 1024 * 1024,
     },
     [201],
@@ -360,6 +367,77 @@ export const revoke = Effect.fn("SpDrive.revoke")(function* (baseUrl: string, jw
     baseUrl,
     jwt,
     expect: [204],
+    limit: 1024 * 1024,
+  })
+})
+
+/**
+ * Takes every grant of a document away: only its owner keeps access. The owner's alone, and with a person's UI session
+ * only within 600 s of the sign-in (`RecentSignIn`); an agent is refused (`AgentRefused`) unless its policy allows it.
+ */
+export const revokeAll = Effect.fn("SpDrive.revokeAll")(function* (baseUrl: string, jwt: string, id: string) {
+  yield* send({
+    method: "DELETE",
+    path: `${documents}/${encodeURIComponent(id)}/grants/all`,
+    endpoint: "DELETE /api/v1/documents/{id}/grants/all",
+    baseUrl,
+    jwt,
+    expect: [204],
+    limit: 1024 * 1024,
+  })
+})
+
+/**
+ * Makes `to` (a user id) the document's owner; the previous owner keeps `edit`. The owner's alone, with a recent
+ * sign-in as `revokeAll`. Answers the document as it is now.
+ */
+export const transfer = Effect.fn("SpDrive.transfer")(function* (baseUrl: string, jwt: string, id: string, to: string) {
+  return yield* json(DriveDocument, {
+    method: "POST",
+    path: `${documents}/${encodeURIComponent(id)}/transfer`,
+    endpoint: "POST /api/v1/documents/{id}/transfer",
+    baseUrl,
+    jwt,
+    body: { transfer_to: to },
+    limit: 1024 * 1024,
+  })
+})
+
+/**
+ * Moves a document to the trash, from where its owner can bring it back until the retention period ends. The owner's
+ * alone, with a recent sign-in as `revokeAll`.
+ */
+export const trash = Effect.fn("SpDrive.trash")(function* (baseUrl: string, jwt: string, id: string) {
+  yield* send({
+    method: "DELETE",
+    path: `${documents}/${encodeURIComponent(id)}`,
+    endpoint: "DELETE /api/v1/documents/{id}",
+    baseUrl,
+    jwt,
+    expect: [204],
+    limit: 1024 * 1024,
+  })
+})
+
+/**
+ * Accepts or rejects a proposal, with an optional note. Accepting needs `edit` and is never the proposer's own
+ * (`self_review`); it answers the revision that landed. A proposal already reviewed is a `Conflict`.
+ */
+export const review = Effect.fn("SpDrive.review")(function* (
+  baseUrl: string,
+  jwt: string,
+  id: string,
+  proposal: string,
+  input: { readonly accept: boolean; readonly note?: string },
+) {
+  const verb = input.accept ? "accept" : "reject"
+  return yield* json(DriveReviewed, {
+    method: "POST",
+    path: `${documents}/${encodeURIComponent(id)}/proposals/${encodeURIComponent(proposal)}/${verb}`,
+    endpoint: `POST /api/v1/documents/{id}/proposals/{proposal}/${verb}`,
+    baseUrl,
+    jwt,
+    body: input.note === undefined ? {} : { note: input.note },
     limit: 1024 * 1024,
   })
 })

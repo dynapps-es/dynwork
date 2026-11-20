@@ -641,14 +641,19 @@ export default Plugin.define({
     }
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
-        const share = DynWorkDocuments.sharing(event)
+        // What only the person may do waits for the user's card (D24, G01), and never runs in a scheduled task.
+        const share = DynWorkDocuments.personal(event)
         if (share) {
           if (DynWorkDocuments.unattended(share.session))
             return yield* new Tool.Error({ message: DynWorkDocuments.nobody })
           const outcome = yield* DynWorkDocuments.confirm(confirmer, share)
           if (outcome === "unheard") return yield* new Tool.Error({ message: DynWorkDocuments.unheard })
           if (outcome === "reject") return yield* new Tool.Error({ message: DynWorkDocuments.declined(share) })
-          return
+          // Main did it as the person: the call does not reach the instance, which would take it as the agent's, and
+          // the agent reads what happened. A tool error is the only way this hook has to answer in the tool's place.
+          if (typeof outcome === "object") return yield* new Tool.Error({ message: outcome.outcome })
+          // Allowed, as the agent: a restore and a review still carry their conversation, below.
+          if (share.kind !== "restore" && share.kind !== "accept" && share.kind !== "reject") return
         }
         const switches = store.current?.input.documents ?? {}
         const request = DynWorkDocuments.asking(event, switches)

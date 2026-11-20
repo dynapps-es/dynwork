@@ -5,9 +5,9 @@ import { Menu } from "@opencode/ui/menu"
 import { Tooltip } from "@opencode/ui/tooltip"
 import type { Document } from "../../drive/contract"
 import { openGovernance } from "./parts"
-import { copyLink, exportPdf } from "./row-menu"
+import { copyLink, exportPdf, OwnerItems } from "./row-menu"
 
-// The open document's More menu: export, link and Governance. Loaded on the client only (`./menus.tsx`), as Kobalte's
+// The open document's More menu: export, link, Governance and the owner's items (G01). Loaded on the client only (`./menus.tsx`), as Kobalte's
 // menu and tooltip run browser-only code when they load.
 
 export default function DocMenu(props: { doc: Document }) {
@@ -36,6 +36,8 @@ export default function DocMenu(props: { doc: Document }) {
             <Icon name="square-arrow-top-right" size="small" />
             {ctx.t("drive.governance")}
           </Menu.Item>
+          <Menu.Separator />
+          <OwnerItems doc={props.doc} />
         </Menu.Content>
       </Menu.Portal>
     </Menu>

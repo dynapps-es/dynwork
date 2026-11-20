@@ -11,7 +11,9 @@ import {
   mimeOf,
   pathOf,
   afterShare,
+  bannerOf,
   madeByAgent,
+  personOffer,
   sharing,
   revisionBy,
   size,
@@ -276,6 +278,49 @@ describe("what the Share popover offers", () => {
 
   test("without the document's page in Governance there is no link to copy or open", () => {
     expect(sharing({ access: "own", link: undefined })).toEqual({ change: "governance", copy: false, governance: false })
+  })
+})
+
+describe("acting as the person (G01)", () => {
+  const link = "https://governance.example/drive/d1"
+
+  test("the Share popover is live on any document the user may share while their session is on", () => {
+    expect(sharing({ access: "own", link, person: "on" })).toEqual({ change: "live", copy: true, governance: true })
+    expect(sharing({ access: "share", link, made: false, cap: "suggest", person: "on" }).change).toBe("live")
+    // Their access still decides: who may not share it is told so
+    expect(sharing({ access: "edit", link, person: "on" }).change).toBe("level")
+  })
+
+  test("without it, a document the agent did not make asks to sign in where the instance has a session for DynWork", () => {
+    expect(sharing({ access: "own", link, person: "off" })).toEqual({ change: "sign-in", copy: true, governance: true })
+    expect(sharing({ access: undefined, link, person: "off" }).change).toBe("sign-in")
+    // The agent's own document stays live as the agent, as before
+    expect(sharing({ access: "own", link, made: true, cap: "edit", person: "off" }).change).toBe("live")
+    expect(sharing({ access: "own", link, person: "unavailable" }).change).toBe("governance")
+  })
+
+  test("an action only the person may do is live as them, asks to sign in, or goes to Governance", () => {
+    expect(personOffer({ person: "on", access: "own", needs: "own" })).toBe("live")
+    expect(personOffer({ person: "on", access: undefined, needs: "own" })).toBe("live")
+    expect(personOffer({ person: "off", access: "own", needs: "own" })).toBe("sign-in")
+    expect(personOffer({ person: "unavailable", access: "own", needs: "own" })).toBe("governance")
+    expect(personOffer({ person: undefined, access: "edit", needs: "edit" })).toBe("governance")
+  })
+
+  test("what their access does not allow is shut, whoever acts: trash and transfer need own, restore and review edit", () => {
+    expect(personOffer({ person: "on", access: "share", needs: "own" })).toBe("level")
+    expect(personOffer({ person: "on", access: "edit", needs: "own" })).toBe("level")
+    expect(personOffer({ person: "on", access: "edit", needs: "edit" })).toBe("live")
+    expect(personOffer({ person: "off", access: "comment", needs: "edit" })).toBe("level")
+  })
+
+  test("the banner says who acts", () => {
+    expect([bannerOf("on"), bannerOf("off"), bannerOf("unavailable"), bannerOf(undefined)]).toEqual([
+      "person",
+      "signIn",
+      "agent",
+      "agent",
+    ])
   })
 })
 

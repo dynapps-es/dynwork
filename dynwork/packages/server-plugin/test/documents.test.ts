@@ -774,6 +774,91 @@ describe("what the user confirms before the agent shares", () => {
   })
 })
 
+describe("what else only the person may do waits for the user's card (G01)", () => {
+  const call = (tool: string, input: unknown, sessionID = "ses_q3") => ({
+    tool: `documents_documents_${tool}`,
+    sessionID,
+    id: "call_p",
+    input,
+  })
+
+  test("a trash, a restore among an edit's ops and a proposal's review are each asked about as what they are", () => {
+    expect(DynWorkDocuments.personal(call("trash", { document_id: "d1" }))).toEqual({
+      id: "call_p",
+      session: "ses_q3",
+      kind: "trash",
+      document: "d1",
+    })
+    expect(
+      DynWorkDocuments.personal(
+        call("edit", { document_id: "d1", base_revision: "r9", ops: [{ op: "restore", revision_id: "r2" }] }),
+      ),
+    ).toEqual({ id: "call_p", session: "ses_q3", kind: "restore", document: "d1", revision: "r2" })
+    expect(
+      DynWorkDocuments.personal(call("proposals", { document_id: "d1", proposal_id: "p1", action: "accept", note: "ok" })),
+    ).toEqual({ id: "call_p", session: "ses_q3", kind: "accept", document: "d1", proposal: "p1", note: "ok" })
+    expect(DynWorkDocuments.personal(call("proposals", { document_id: "d1", proposal_id: "p1", action: "reject" }))).toEqual(
+      { id: "call_p", session: "ses_q3", kind: "reject", document: "d1", proposal: "p1" },
+    )
+    // A share is one of them, as before
+    expect(DynWorkDocuments.personal(call("share", { document_id: "d1", revoke_all: true }))?.kind).toBe("revoke")
+  })
+
+  test("any other edit, a list of proposals and a read go as they are, with no card", () => {
+    for (const [tool, input] of [
+      ["edit", { document_id: "d1", ops: [{ op: "str_replace", old_str: "a", new_str: "b" }] }],
+      ["edit", { document_id: "d1", content_blob_ref: "blob-1", base_revision: "r1" }],
+      ["edit", "not a record"],
+      ["proposals", { document_id: "d1" }],
+      ["proposals", { document_id: "d1", action: "list" }],
+      ["untrash", { document_id: "d1" }],
+      ["read", { document_id: "d1" }],
+    ] as const)
+      expect(DynWorkDocuments.personal(call(tool, input))).toBeUndefined()
+    expect(DynWorkDocuments.personal({ ...call("trash", {}), tool: "drive_documents_trash" })).toBeUndefined()
+  })
+
+  test("a refusal names what the user declined, and the scheduled task's names every kind", () => {
+    const base = { id: "c", session: "ses_q3", document: "d1" }
+    expect(DynWorkDocuments.declined({ ...base, kind: "trash" })).toBe(
+      "The user declined to move document d1 to the trash: nothing changed. Do not try again unless the user asks you to.",
+    )
+    expect(DynWorkDocuments.declined({ ...base, kind: "restore", revision: "r2" })).toBe(
+      "The user declined to restore revision r2 of document d1: nothing changed. Do not try again unless the user asks you to.",
+    )
+    expect(DynWorkDocuments.declined({ ...base, kind: "reject", proposal: "p1" })).toBe(
+      "The user declined to reject proposal p1 on document d1: nothing changed. Do not try again unless the user asks you to.",
+    )
+    expect(DynWorkDocuments.nobody).toContain("trash, transfer, restore or proposal review")
+  })
+
+  test("main's word on what it did as the person is what the wait answers, and keeps its shape across the RPC", async () => {
+    const confirmer: DynWorkDocuments.Confirmer = { confirm: () => Effect.void, withdraw: () => Effect.void }
+    const running = Effect.runPromise(
+      DynWorkDocuments.confirm(confirmer, { id: "call_done", session: "ses_q3", kind: "trash", document: "d1" }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const decision = { id: "call_done", allow: true, outcome: "Done as the user: moved document d1 to the trash." }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Decision)(decision)).toEqual(decision)
+    expect(DynWorkDocuments.decide(decision)).toEqual({ accepted: true })
+    expect(await running).toEqual({ outcome: "Done as the user: moved document d1 to the trash." })
+    // A rejection never carries one
+    const refused = Effect.runPromise(
+      DynWorkDocuments.confirm(confirmer, { id: "call_no", session: "ses_q3", kind: "trash", document: "d1" }),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    DynWorkDocuments.decide({ id: "call_no", allow: false, outcome: "ignored" })
+    expect(await refused).toBe("reject")
+  })
+
+  test("the agent is told which calls wait for a card, and that a scheduled task never gets one", () => {
+    const text = DynWorkDocuments.instructions().replace(/\s+/g, " ")
+    expect(text).toContain("Before every documents_share, documents_trash, restore op and proposal accept or reject")
+    expect(text).toContain("Dynwork may do it as the user")
+    expect(text).toContain("Never in a scheduled task.")
+  })
+})
+
 describe("waiting for the user's decision on a share", () => {
   const shown: DynWorkDocuments.Share[] = []
   const withdrawn: string[] = []

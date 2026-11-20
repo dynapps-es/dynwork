@@ -3,6 +3,7 @@ export * as DriveMain from "./main"
 import type { OpenCodeClient } from "@opencode/client/promise"
 import type { MainContext } from "@opencode/plugin/gui/main"
 import type { DynWorkAccounts } from "../accounts/accounts"
+import type { DynWorkPerson } from "../accounts/person"
 import { DriveAgent } from "./agent"
 import { DriveBackend } from "./backend"
 import { Drive, Frames } from "./contract"
@@ -27,6 +28,11 @@ export interface Options {
   client?: () => OpenCodeClient | undefined
   /** Whether a window is open to show a share's card (`DriveShare`); absent, none is, and the agent's shares are refused. */
   attended?: () => boolean
+  /**
+   * The person's own session per account (G01, `DynWorkPerson`): the user's acts in a window and what they allow on an
+   * agent's card go as the person while it is on. Absent, DynWork acts as its agent only.
+   */
+  person?: Pick<DynWorkPerson.Service, "status" | "withPerson">
 }
 
 // The Drive's main side, set up by the `dynwork` built-in's main entry next to the routines: the `dynwork.drive` Ipc
@@ -38,6 +44,7 @@ export interface Options {
 // user's decision (`DriveShare`, the `dynwork.drive.shares` Ipc).
 export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, options: Options = {}) {
   const provider = { changed: () => {} }
+  const person = options.person
   const service = DriveIpc.make({
     account: () => {
       const active = accounts.list().find((account) => account.active && account.status === "signedIn")
@@ -58,6 +65,15 @@ export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, opti
     store: ctx.storage.store("drive", { schema: DriveIpc.Saved, initial: DriveIpc.initial }),
     changed: () => provider.changed(),
     capabilities: options.capabilities,
+    person: person && {
+      status: (account) => person.status(account).status,
+      backend: (account) =>
+        DriveBackend.remote({
+          url: account.url,
+          user: accounts.stored(account.id)?.userId,
+          withJwt: (use) => person.withPerson(account.id, use),
+        }),
+    },
     timers: options.timers,
   })
   ctx.onCleanup(service.dispose)

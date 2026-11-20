@@ -37,6 +37,9 @@ export interface Options {
 /** The agent 0.84 records for a write of DynWork's token, which has no purpose: its OAuth client. */
 export const agent = "sp_bridge"
 
+/** The OAuth client 0.84 records for a write of the person's own session (G01). */
+export const personClient = "dynwork-desktop"
+
 export interface Fake extends Backend {
   /** Answers every call with this failure until it is set back to undefined: signed out, offline. */
   down(failure: Failure | undefined): void
@@ -55,6 +58,15 @@ export interface Fake extends Backend {
   changed(): void
   /** The conversations registered (`createContext`): title by id. */
   readonly contexts: ReadonlyMap<string, string>
+  /**
+   * The same Drive through the person's own session (G01): what it writes is the person's (`actor: user`, no agent, the
+   * client `dynwork-desktop`, as 0.84 records it),
+   * the agent rules do not apply (`agentShare`, `suggestOnly`), and the owner's actions (`trash`, `transfer`,
+   * `revokeAll`, `restore`) go through, which DynWork's agent is refused as `person`.
+   */
+  person(): Backend
+  /** The methods the person's backend ran, in order. */
+  readonly acted: readonly string[]
   /** How many calls reached the backend, by method. */
   readonly calls: Readonly<Record<string, number>>
 }
@@ -84,18 +96,30 @@ export function make(options: Options = {}): Fake {
     suggestOnly: false,
     agentShare: false,
   }
+  // Set while a method of the person's backend runs (`person`): its bodies run before their first await, so the flag
+  // covers exactly that call.
+  const acting = { person: false }
+  const acted: string[] = []
+  const owners = () =>
+    acting.person ? undefined : fail("person", "Governance keeps this to a person: do it in Governance.")
   // The grants of each document, by document id.
   const grants = new Map<string, Access["grants"][number][]>()
   const shareable = (id: string) => {
     const entry = found(id)
     if (!("document" in entry)) return entry
-    if (!switches.agentShare) return fail("person", "Governance keeps this to a person: do it in Governance.")
+    if (!switches.agentShare && !acting.person)
+      return fail("person", "Governance keeps this to a person: do it in Governance.")
     return undefined
   }
   const calls: Record<string, number> = {}
   // What 0.84 records of a comment: the agent of the token, the conversation and the client.
   const attributed = (contextId: string | undefined) =>
-    at84 ? { via: agent, client: agent, ...(contextId === undefined ? {} : { context: contextId }) } : {}
+    at84
+      ? {
+          ...(acting.person ? { client: personClient } : { via: agent, client: agent }),
+          ...(contextId === undefined ? {} : { context: contextId }),
+        }
+      : {}
   const blobs = new Map<string, { bytes: Uint8Array; mime: string }>()
   const contexts = new Map<string, string>()
   // The open streams: each a queue of what was announced and the way to wake its reader.
@@ -120,11 +144,16 @@ export function make(options: Options = {}): Fake {
       parent: entry.revisions[0]?.id,
       sha256: createHash("sha256").update(bytes).digest("hex"),
       author: user,
-      actor: "agent",
+      actor: acting.person ? "user" : "agent",
       origin: "api",
       message: attribution.message,
       created: now(),
-      ...(at84 ? { agent, client: agent, ...(attribution.contextId === undefined ? {} : { context: attribution.contextId }) } : {}),
+      ...(at84
+        ? {
+            ...(acting.person ? { client: personClient } : { agent, client: agent }),
+            ...(attribution.contextId === undefined ? {} : { context: attribution.contextId }),
+          }
+        : {}),
     }
     entry.revisions.unshift(revision)
     entry.bytes = bytes
@@ -220,7 +249,9 @@ export function make(options: Options = {}): Fake {
     return { document: entry.document, revision: told(revision) }
   }
   const writable = (mode?: "land" | "propose") =>
-    switches.suggestOnly && mode !== "propose" ? fail("suggest", "Agents may only suggest here.") : undefined
+    switches.suggestOnly && mode !== "propose" && !acting.person
+      ? fail("suggest", "Agents may only suggest here.")
+      : undefined
 
   // Every method goes through here: counted, and answering the `down` failure while one is set.
   function method<A extends unknown[], R>(name: string, body: (...args: A) => R | Failure) {
@@ -324,7 +355,7 @@ export function make(options: Options = {}): Fake {
       return "document" in entry ? entry.comments.map(told) : entry
     }),
     access: method("access", (id) => accessOf(id)),
-    share: method("share", (id: string, input: { kind: string; value: string; level: string }) => {
+    share: method("share", (id: string, input: { kind: string; value: string; level: string; until?: string }) => {
       const refused = shareable(id)
       if (refused) return refused
       const name = input.kind === "user" ? options.people?.[input.value] : input.value
@@ -345,6 +376,56 @@ export function make(options: Options = {}): Fake {
         list.filter((item) => item.id !== grant),
       )
       return accessOf(id)
+    }),
+    revokeAll: method("revokeAll", (id: string) => {
+      const refused = owners()
+      if (refused) return refused
+      const entry = found(id)
+      if (!("document" in entry)) return entry
+      grants.set(id, [])
+      return accessOf(id)
+    }),
+    transfer: method("transfer", (id: string, to: string) => {
+      const refused = owners()
+      if (refused) return refused
+      const entry = found(id)
+      if (!("document" in entry)) return entry
+      if (options.people?.[to] === undefined) return fail("invalid", "No such person.")
+      entry.document = { ...entry.document, owner: to, mine: to === user, access: "edit" }
+      return entry.document
+    }),
+    trash: method("trash", (id: string) => {
+      const refused = owners()
+      if (refused) return refused
+      if (!entries.delete(id)) return fail("not-found", "It is not in the Drive.")
+      return undefined
+    }),
+    restore: method("restore", (id: string, at: string) => {
+      const refused = owners()
+      if (refused) return refused
+      const entry = found(id)
+      if (!("document" in entry)) return entry
+      if (!entry.revisions.some((item) => item.id === at)) return fail("not-found", "No such revision.")
+      return told(revise(entry, entry.bytes, {}))
+    }),
+    review: method("review", (id: string, target: string, input: { accept: boolean; note?: string }) => {
+      const entry = found(id)
+      if (!("document" in entry)) return entry
+      const index = entry.proposals.findIndex((item) => item.id === target)
+      const open = entry.proposals[index]
+      if (!open) return fail("not-found", "No such proposal.")
+      if (open.status !== "open") return fail("conflict", "The proposal was already reviewed.")
+      const landed = input.accept ? revise(entry, entry.bytes, { message: open.message }).id : undefined
+      const reviewed: Proposal = {
+        ...open,
+        status: input.accept ? "accepted" : "rejected",
+        reviewer: user,
+        reviewed: now(),
+        ...(input.note === undefined ? {} : { note: input.note }),
+        ...(landed === undefined ? {} : { landed }),
+      }
+      entry.proposals[index] = reviewed
+      return reviewed
     }),
     agentCap: method("agentCap", (target) => {
       const known = target.kind === "document" ? entries.has(target.id) : folders.has(target.id)
@@ -552,8 +633,26 @@ export function make(options: Options = {}): Fake {
     ),
   }
 
+  // The person's session over the same Drive: each method runs with `acting.person` set for its body.
+  const person = () =>
+    Object.fromEntries(
+      Object.entries(backend).map(([name, call]) => [
+        name,
+        (...args: unknown[]) => {
+          acting.person = true
+          acted.push(name)
+          // SAFETY: `call` is this backend's own method under its own name, called with the arguments it was given.
+          const answer = (call as (...input: unknown[]) => Promise<unknown>)(...args)
+          acting.person = false
+          return answer
+        },
+      ]),
+    ) as unknown as Backend
+
   return {
     ...backend,
+    person,
+    acted,
     stream: method("stream", (signal: AbortSignal) => stream(streams, signal)),
     announce,
     changed: () => send({ kind: "changed" }),
