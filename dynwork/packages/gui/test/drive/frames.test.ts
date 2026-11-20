@@ -282,7 +282,7 @@ function observeLive(html: string) {
           target.addEventListener(type, listener, options)
           added.push([type, listener, options])
         }
-      const value = Reflect.get(target, key, target)
+      const value = target[key as keyof Document]
       return typeof value === "function" ? value.bind(target) : value
     },
   })
