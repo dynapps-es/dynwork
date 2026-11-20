@@ -224,9 +224,11 @@ this conversation" is for sharing only. A scheduled task never gets a card and n
 refused with a message for the agent.
 
 **Without the session** the Drive acts as DynWork's agent, as before ("`<user>` by DynWork"). What only the person may do
-answers `sign-in` without a call where the instance has a session for DynWork (`person: off`), and the window offers "Sign
-in to act as you"; where it has none (0.83, `unavailable`) it answers `person` and goes to Governance, as before. A share
-the instance keeps from the agent says `sign-in` too.
+answers `sign-in` without a call where the instance has a session for DynWork (`person: off`), and `person` where it has
+none (0.83, `unavailable`). Either way the window keeps those actions in Governance, as before, and with `off` it also
+offers "Sign in to act as you" (the document's banner, the Share popover): in production, where the person cannot finish
+that sign-in yet (G01 blocked), nothing stands between the user and today's way. A share the instance keeps from the
+agent says `sign-in`.
 
 ### Managing instances
 

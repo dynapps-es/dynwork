@@ -274,7 +274,7 @@ function ShareBody(props: { doc: Document }) {
             {ctx.t("drive.menu.signIn")}
           </Button>
         </Show>
-        <Show when={offer().governance && offer().change !== "sign-in"}>
+        <Show when={offer().governance}>
           <Button
             variant="ghost"
             size="small"

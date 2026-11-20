@@ -584,7 +584,9 @@ const ranks: Record<string, number> = { view: 0, comment: 1, edit: 2, share: 3, 
  * What the window offers for an action only the person may do (G01): moving to the trash and transferring (`own`),
  * restoring a version and reviewing a proposal (`edit`).
  * - `live`: their session is on, and their access allows it (or was not read): it goes as them.
- * - `sign-in`: the instance has a session for DynWork, not started: the action asks the user to sign in.
+ * - `sign-in`: the instance has a session for DynWork, not started. The action stays in Governance, as before, and the
+ *   window offers the sign-in beside it: one the person cannot finish (production while G01 is blocked) must not stand
+ *   between them and the action.
  * - `governance`: it has none: the action is in Governance, as before.
  * - `level`: their access does not allow it, whoever acts.
  */

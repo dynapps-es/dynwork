@@ -451,16 +451,6 @@ function Versions(props: { doc: Document }) {
                     {ctx.t("drive.version.restore")}
                   </Button>
                 </Match>
-                <Match when={offer() === "sign-in"}>
-                  <Button
-                    variant="ghost"
-                    size="small"
-                    title={ctx.t("drive.version.restore.signIn")}
-                    onClick={signInAsYou}
-                  >
-                    {ctx.t("drive.version.restore")}
-                  </Button>
-                </Match>
               </Switch>
             </Show>
           </div>
@@ -473,7 +463,7 @@ function Versions(props: { doc: Document }) {
 
 /**
  * The proposals on the document: a person accepts or rejects them, here as themselves while their session is on (G01),
- * otherwise after signing in, or in Governance where the instance has no session for DynWork.
+ * otherwise in Governance, as before (the banner offers the sign-in).
  */
 function Proposals(props: { doc: Document }) {
   const ctx = usePlugin()
@@ -530,11 +520,6 @@ function Proposals(props: { doc: Document }) {
                       onClick={() => void review(proposal.id, true)}
                     >
                       {ctx.t("drive.proposals.accept")}
-                    </Button>
-                  </Match>
-                  <Match when={offer() === "sign-in"}>
-                    <Button variant="ghost" size="small" onClick={signInAsYou}>
-                      {ctx.t("drive.proposals.signIn")}
                     </Button>
                   </Match>
                 </Switch>

@@ -8,7 +8,7 @@ import { askAgent } from "./chat"
 import { isPdf, personOffer, stem } from "./model"
 import { TransferDialog, TrashDialog } from "./owner"
 import { failureText, openGovernance } from "./parts"
-import { drive, governance, signInAsYou } from "./store"
+import { drive, governance } from "./store"
 
 // Kobalte's menu runs browser-only code when it loads, and the tests render with Solid's server build: the views load
 // this module on the client only (`./menus.tsx`).
@@ -44,16 +44,15 @@ export async function copyLink(ctx: Host, doc: Document) {
 
 /**
  * The owner's items of a document's menu (G01): move to the trash and transfer the ownership. Each opens its own
- * confirmation while the user's session is on; otherwise it asks them to sign in, or opens Governance where the instance
- * has no session for DynWork. Who does not own the document does not get them live.
+ * confirmation while the user's session is on; otherwise it opens Governance, as before (a sign-in the person cannot
+ * finish, as in production while G01 is blocked, must not stand between them and the action). Who does not own the
+ * document does not get them.
  */
 export function OwnerItems(props: { doc: Document }) {
   const ctx = usePlugin()
   const offer = () => personOffer({ person: drive.acting(), access: props.doc.access, needs: "own" })
-  const hint = () => (offer() === "sign-in" ? ctx.t("drive.menu.signIn") : offer() === "live" ? undefined : "Governance")
   const act = (dialog: typeof TrashDialog) => {
     if (offer() === "live") return ctx.dialogs.open((handle) => dialog({ doc: props.doc, close: handle.close }))
-    if (offer() === "sign-in") return signInAsYou()
     openGovernance(ctx, props.doc)
   }
   return (
@@ -61,12 +60,16 @@ export function OwnerItems(props: { doc: Document }) {
       <Menu.Item disabled={offer() === "level"} onSelect={() => act(TransferDialog)}>
         <Icon name="outline-share" size="small" />
         {ctx.t("drive.transfer")}
-        <Show when={hint()}>{(text) => <span data-slot="drive-menu-hint">{text()}</span>}</Show>
+        <Show when={offer() !== "live"}>
+          <span data-slot="drive-menu-hint">Governance</span>
+        </Show>
       </Menu.Item>
       <Menu.Item disabled={offer() === "level"} onSelect={() => act(TrashDialog)}>
         <Icon name="trash" size="small" />
         {ctx.t("drive.trash")}
-        <Show when={hint()}>{(text) => <span data-slot="drive-menu-hint">{text()}</span>}</Show>
+        <Show when={offer() !== "live"}>
+          <span data-slot="drive-menu-hint">Governance</span>
+        </Show>
       </Menu.Item>
     </>
   )
