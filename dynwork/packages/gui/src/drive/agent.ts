@@ -26,8 +26,8 @@ export interface Session {
 }
 
 export interface Options {
-  /** The service's `using`, `changing`, `record`, `folder`, `author`, `message` and `capabilities`. */
-  service: Pick<DriveIpc.Service, "using" | "changing" | "record" | "folder" | "author" | "message" | "capabilities">
+  /** The service's `using`, `changing`, `record`, `folder`, `attributed`, `message` and `capabilities`. */
+  service: Pick<DriveIpc.Service, "using" | "changing" | "record" | "folder" | "attributed" | "message" | "capabilities">
   /** A conversation's session, or undefined when the service does not know it. */
   session: (id: string) => Promise<Session | undefined>
   /** What a conversation without a title is called. */
@@ -165,12 +165,9 @@ export function make(options: Options) {
       const conversation = { id: touch.session, name: clean(session?.title) ?? options.untitled }
       const folder = session ? await serial(() => place(backend, account.id, conversation, session)) : undefined
       if (folder !== undefined && isFailure(folder)) return folder
-      const created = await importing(backend, {
-        ...(await service.author(backend, account, conversation)),
-        blob,
-        name,
-        folder,
-      })
+      const created = await service.attributed(backend, account, conversation, (signed) =>
+        importing(backend, { ...signed, blob, name, folder }),
+      )
       if (!isFailure(created))
         service.record(account.id, {
           conversation: touch.session,

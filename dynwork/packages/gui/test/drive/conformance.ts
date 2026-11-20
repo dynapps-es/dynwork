@@ -66,6 +66,17 @@ export function conformance(name: string, make: () => Subject) {
       expect(detail.head.id).toBe(created.revision.id)
     })
 
+    test("discovery says the core's version and whether it announces the Drive, as 0.83 does by default", async () => {
+      const { backend } = make()
+      expect(await ok(backend.discovery())).toEqual({ version: "0.83.0", documents: false })
+    })
+
+    test("the directory is searched over REST by the start of a name", async () => {
+      const { backend, invitee } = make()
+      const found = await ok(backend.searchPeople("ana", 5))
+      expect(found.map((person) => [person.id, person.name])).toEqual([[invitee, "Ana Ruiz"]])
+    })
+
     test("folders nest, are listed with their parent, and hold what is uploaded into them", async () => {
       const { backend } = make()
       const parent = await ok(backend.createFolder({ name: `Parent ${randomUUID()}` }))

@@ -24,7 +24,16 @@ export interface Options {
   nameTaken?: boolean
   /** The people the instance names by id (`people`), by user id. */
   people?: Record<string, string>
+  /**
+   * The core it answers as: `0.83` (the default), or `0.84`, which announces the Drive in its discovery, keeps the
+   * message of a document it creates, records each write's conversation and agent, and refuses a conversation it did
+   * not issue (`unknown-context`).
+   */
+  version?: "0.83" | "0.84"
 }
+
+/** The agent 0.84 records for a write of DynWork's token, which has no purpose: its OAuth client. */
+export const agent = "sp_bridge"
 
 export interface Fake extends Backend {
   /** Answers every call with this failure until it is set back to undefined: signed out, offline. */
@@ -58,13 +67,14 @@ type Entry = {
 }
 
 /**
- * An in-memory Drive that behaves as the instance (0.83) does where DynWork can tell: a document created by upload
+ * An in-memory Drive that behaves as the instance (0.83, or 0.84 with `version`) does where DynWork can tell: a document created by upload
  * has an unnamed first revision, a comment anchors to a node of the outline only, an agent capped at `suggest` may
  * only propose, and a cell range is refused. For the conformance suite, the service's tests and the views' tests.
  */
 export function make(options: Options = {}): Fake {
   const user = options.user ?? "user-1"
   const now = options.now ?? Date.now
+  const at84 = options.version === "0.84"
   const folders = new Map<string, Folder>()
   const entries = new Map<string, Entry>()
   const switches: { down?: Failure; suggestOnly: boolean; agentShare: boolean } = {
@@ -80,6 +90,9 @@ export function make(options: Options = {}): Fake {
     return undefined
   }
   const calls: Record<string, number> = {}
+  // What 0.84 records of a comment: the agent of the token, the conversation and the client.
+  const attributed = (contextId: string | undefined) =>
+    at84 ? { via: agent, client: agent, ...(contextId === undefined ? {} : { context: contextId }) } : {}
   const blobs = new Map<string, { bytes: Uint8Array; mime: string }>()
   const contexts = new Map<string, string>()
   // The open streams: each a queue of what was announced and the way to wake its reader.
@@ -108,6 +121,7 @@ export function make(options: Options = {}): Fake {
       origin: "api",
       message: attribution.message,
       created: now(),
+      ...(at84 ? { agent, client: agent, ...(attribution.contextId === undefined ? {} : { context: attribution.contextId }) } : {}),
     }
     entry.revisions.unshift(revision)
     entry.bytes = bytes
@@ -116,6 +130,16 @@ export function make(options: Options = {}): Fake {
     return revision
   }
   const found = (id: string) => entries.get(id) ?? fail("not-found", "It is not in the Drive.")
+  // 0.84 writes nothing for a conversation it did not issue to the user.
+  const unknown = (contextId: string | undefined) =>
+    at84 && contextId !== undefined && !contexts.has(contextId)
+      ? fail("unknown-context", "Governance does not know the conversation this write named.")
+      : undefined
+  // What 0.84 tells its owner of a write's conversation: its title, as it is now.
+  const told = <A extends { context?: string }>(item: A): A => {
+    const name = item.context === undefined ? undefined : contexts.get(item.context)
+    return name === undefined ? item : { ...item, conversation: name }
+  }
   const accessOf = (id: string): Access | Failure => {
     const entry = found(id)
     if (!("document" in entry)) return entry
@@ -137,7 +161,8 @@ export function make(options: Options = {}): Fake {
       sha256: entry.revisions[0]?.sha256,
     }
   }
-  // A new document and its first revision, which 0.83 leaves unnamed whether it comes from a file or a template.
+  // A new document and its first revision, which 0.83 leaves unnamed whether it comes from a file or a template; 0.84
+  // keeps the message it is sent.
   const add = (input: {
     name: string
     bytes: Uint8Array
@@ -146,6 +171,7 @@ export function make(options: Options = {}): Fake {
     folder?: string
     template?: string
     contextId?: string
+    message?: string
   }) => {
     const id = randomUUID()
     const entry: Entry = {
@@ -171,8 +197,11 @@ export function make(options: Options = {}): Fake {
       contexts: [],
     }
     entries.set(id, entry)
-    const revision = revise(entry, input.bytes, { contextId: input.contextId })
-    return { document: entry.document, revision }
+    const revision = revise(entry, input.bytes, {
+      contextId: input.contextId,
+      message: at84 ? input.message : undefined,
+    })
+    return { document: entry.document, revision: told(revision) }
   }
   const writable = (mode?: "land" | "propose") =>
     switches.suggestOnly && mode !== "propose" ? fail("suggest", "Agents may only suggest here.") : undefined
@@ -186,6 +215,9 @@ export function make(options: Options = {}): Fake {
   }
 
   const backend: Backend = {
+    discovery: method("discovery", () =>
+      at84 ? { version: "0.84.0", documents: true } : { version: "0.83.0", documents: false },
+    ),
     list: method("list", (query) => {
       const scope = query.scope ?? "mine"
       const text = query.query?.toLowerCase()
@@ -265,7 +297,7 @@ export function make(options: Options = {}): Fake {
     }),
     revisions: method("revisions", (id) => {
       const entry = found(id)
-      return "document" in entry ? [...entry.revisions] : entry
+      return "document" in entry ? entry.revisions.map(told) : entry
     }),
     proposals: method("proposals", (id) => {
       const entry = found(id)
@@ -273,7 +305,7 @@ export function make(options: Options = {}): Fake {
     }),
     comments: method("comments", (id) => {
       const entry = found(id)
-      return "document" in entry ? [...entry.comments] : entry
+      return "document" in entry ? entry.comments.map(told) : entry
     }),
     access: method("access", (id) => accessOf(id)),
     share: method("share", (id: string, input: { kind: string; value: string; level: string }) => {
@@ -324,14 +356,14 @@ export function make(options: Options = {}): Fake {
     }),
     upload: method("upload", (input) => {
       if (input.folder !== undefined && !folders.has(input.folder)) return fail("not-found", "No such folder.")
-      const blocked = writable()
+      const blocked = unknown(input.contextId) ?? writable()
       if (blocked) return blocked
       const mime = input.mime ?? "application/octet-stream"
       return add({ ...input, mime, format: formatOf(input.name, mime) })
     }),
     importBlob: method("importBlob", (input) => {
       if (input.folder !== undefined && !folders.has(input.folder)) return fail("not-found", "No such folder.")
-      const blocked = writable()
+      const blocked = unknown(input.contextId) ?? writable()
       if (blocked) return blocked
       const blob = blobs.get(input.blob)
       if (!blob) return fail("invalid", "No such upload.")
@@ -344,7 +376,7 @@ export function make(options: Options = {}): Fake {
     }),
     create: method("create", (input) => {
       if (input.folder !== undefined && !folders.has(input.folder)) return fail("not-found", "No such folder.")
-      const blocked = writable()
+      const blocked = unknown(input.contextId) ?? writable()
       if (blocked) return blocked
       const made = templates[input.template]
       if (!made) return fail("invalid", "No such template.")
@@ -353,7 +385,7 @@ export function make(options: Options = {}): Fake {
     edit: method("edit", (id, input) => {
       const entry = found(id)
       if (!("document" in entry)) return entry
-      const blocked = writable(input.mode)
+      const blocked = unknown(input.contextId) ?? writable(input.mode)
       if (blocked) return blocked
       const added = input.ops.map((op) => (typeof op.markdown === "string" ? op.markdown : "")).join("\n")
       const bytes = new TextEncoder().encode(`${new TextDecoder().decode(entry.bytes)}\n${added}`)
@@ -376,12 +408,14 @@ export function make(options: Options = {}): Fake {
         return { kind: "proposed" as const, proposal, revision }
       }
       const merged = input.base !== undefined && input.base !== head ? head : undefined
-      return { kind: "landed" as const, revision: revise(entry, bytes, input), merged }
+      return { kind: "landed" as const, revision: told(revise(entry, bytes, input)), merged }
     }),
     comment: method("comment", (id, input) => {
       const entry = found(id)
       if (!("document" in entry)) return entry
       if (input.anchor.kind !== "node") return fail("unsupported", "This kind of comment is not available yet.")
+      const refused = unknown(input.contextId)
+      if (refused) return refused
       const anchor = { node: input.anchor.node, find: input.anchor.find }
       const target = nodes(entry).find((node) => node.id === anchor.node)
       // The instance checks a quote against the node's own text, markers and all
@@ -397,16 +431,19 @@ export function make(options: Options = {}): Fake {
         body: said.text,
         ...(said.agent ? { agent: true } : {}),
         created: now(),
+        ...attributed(input.contextId),
       }
       entry.comments.push(comment)
       if (input.agent) announce({ document: id, comment: comment.id, user, author: user })
-      return comment
+      return told(comment)
     }),
     reply: method("reply", (id, input) => {
       const entry = found(id)
       if (!("document" in entry)) return entry
       const parent = entry.comments.find((comment) => comment.id === input.parent)
       if (!parent) return fail("not-found", "No such comment.")
+      const refused = unknown(input.contextId)
+      if (refused) return refused
       const said = spoken(input.body, input.agent)
       if (isFailure(said)) return said
       const comment: Comment = {
@@ -418,10 +455,11 @@ export function make(options: Options = {}): Fake {
         ...(said.agent ? { agent: true } : {}),
         parent: parent.id,
         created: now(),
+        ...attributed(input.contextId),
       }
       entry.comments.push(comment)
       if (input.agent) announce({ document: id, comment: comment.id, user, author: user })
-      return comment
+      return told(comment)
     }),
     resolve: method("resolve", (id, target) => {
       const entry = found(id)
@@ -449,6 +487,17 @@ export function make(options: Options = {}): Fake {
         const name = options.people?.[id]
         return name === undefined ? [] : [{ id, name }]
       }),
+    ),
+    // As 0.84: every word of the query starts a word of the name, or the id starts with it.
+    searchPeople: method("searchPeople", (query: string, limit = 10) =>
+      Object.entries(options.people ?? {})
+        .filter(([id, name]) => {
+          const words = name.toLowerCase().split(/\s+/)
+          const asked = query.toLowerCase().split(/\s+/).filter(Boolean)
+          return id.startsWith(query) || asked.every((part) => words.some((word) => word.startsWith(part)))
+        })
+        .slice(0, limit)
+        .map(([id, name]) => ({ id, name })),
     ),
     findPeople: method("findPeople", (query: string, limit = 20) =>
       Object.entries(options.people ?? {})

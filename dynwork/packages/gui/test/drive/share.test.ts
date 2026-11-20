@@ -257,6 +257,26 @@ describe("a person the conversation never looked up", () => {
     expect(await subjects(at)).toEqual([{ kind: "user", value: "user-luis", name: "Luis Martín" }])
     expect(searched).toEqual([])
   })
+  test("with peopleByRest on, an email is searched over REST, not through the MCP server", async () => {
+    const asked: string[] = []
+    const at = await stand({
+      capabilities: { peopleByRest: true },
+      around: () => ({
+        findPeople: async () => {
+          throw new Error("looked up through the MCP server")
+        },
+        searchPeople: async (query) => {
+          asked.push(query)
+          return [{ id: "user-luis", name: "Luis Martín", email: "luis@dynapps.es" }]
+        },
+      }),
+    })
+    await at.logic.request(unseen("call_1", "luis@dynapps.es"))
+    expect(asked).toEqual(["luis@dynapps.es"])
+    expect(await subjects(at)).toEqual([
+      { kind: "user", value: "luis@dynapps.es", name: "Luis Martín", email: "luis@dynapps.es" },
+    ])
+  })
 })
 
 describe("the people the account met, kept across conversations and restarts", () => {

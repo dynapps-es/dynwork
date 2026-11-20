@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import type { Document, Folder, Link } from "../../../src/drive/contract"
+import { DriveCapabilities } from "../../../src/drive/capabilities"
+import type { Comment, Document, Folder, Link } from "../../../src/drive/contract"
 import {
   ago,
   bubbleFaces,
@@ -12,8 +13,11 @@ import {
   afterShare,
   madeByAgent,
   sharing,
+  revisionBy,
   size,
+  threadsOf,
   visibleDocs,
+  writerOf,
   visibleFolders,
   type Browse,
 } from "../../../src/views/drive/model"
@@ -303,5 +307,40 @@ describe("who has access after a change asked from the popover", () => {
   test("a refusal keeps the list as it was, and says why", () => {
     const refused = { code: "person" as const, message: "Governance keeps this to a person.", retryable: false }
     expect(afterShare(before, refused)).toEqual({ access: before, refusal: refused })
+  })
+})
+
+describe("who wrote a version or a comment (G02)", () => {
+  const labelled = { ...DriveCapabilities.none, conversationLabel: true }
+  const agentRevision = { actor: "agent", conversation: "Q3 report", agent: "sp_bridge", ours: true }
+
+  test("an agent's version is DynWork's while the instance tells nothing, and its conversation once it does", () => {
+    expect(revisionBy(DriveCapabilities.none, agentRevision)).toBe("DynWork")
+    expect(revisionBy(labelled, agentRevision)).toBe("Q3 report · DynWork")
+    expect(revisionBy(labelled, { actor: "agent", conversation: "Weekly", agent: "claude-code" })).toBe("Weekly · claude-code")
+    // 0.84 without a conversation's title and without DynWork's signature: the agent the instance names.
+    expect(revisionBy(labelled, { actor: "agent", agent: "claude-code" })).toBe("claude-code")
+    expect(revisionBy(labelled, { actor: "agent" })).toBe("DynWork")
+    expect(revisionBy(labelled, { actor: "human", conversation: "x" })).toBeUndefined()
+  })
+
+  test("the user's own comment from a conversation reads its conversation; the rest keep their words", () => {
+    const comment = (change: Partial<Comment>): Comment => ({
+      id: "c1",
+      anchor: { node: "n1" },
+      author: "user-ana",
+      mine: true,
+      body: "Hola",
+      created: 1,
+      ...change,
+    })
+    const [mine] = threadsOf([comment({ conversation: "Q3 report", via: "sp_bridge", ours: true })])
+    const message = mine?.messages[0]
+    expect(message).toMatchObject({ conversation: "Q3 report", via: "sp_bridge", ours: true })
+    expect(writerOf(labelled, message!)).toBe("Q3 report · DynWork")
+    expect(writerOf(DriveCapabilities.none, message!)).toBeUndefined()
+    // Typed in the Drive itself, or someone else's: "You" or their name, as before.
+    expect(writerOf(labelled, threadsOf([comment({})])[0]!.messages[0]!)).toBeUndefined()
+    expect(writerOf(labelled, { mine: false, conversation: "Theirs", via: "x" })).toBeUndefined()
   })
 })

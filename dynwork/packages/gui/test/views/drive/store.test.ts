@@ -164,7 +164,13 @@ describe("writing to the Drive", () => {
     expect(created.document).toMatchObject({ name: "Q3 report", format: "docx", folder: folder.id })
     expect(seen.at(-1)).toEqual({
       method: "create",
-      input: { template: "dynapps-word", name: "Q3 report", folder: folder.id, contextId: undefined },
+      input: {
+        template: "dynapps-word",
+        name: "Q3 report",
+        folder: folder.id,
+        message: "david@dynapps.es by DynWork",
+        contextId: undefined,
+      },
     })
     expect(names(store.shown())).toEqual(["Q3 report"])
   })
@@ -419,5 +425,35 @@ describe("Governance and the preview", () => {
     )
     expect(page).toContain("<body><p>Hola</p></body>")
     expect(frameOf({ html: "" }).srcdoc).toContain(`content="default-src 'none'"`)
+  })
+
+  // G11: the CSP 0.84 serves a page an agent wrote under `renderedHtml.agentAuthored` with scripts on and two remote
+  // origins, as `RenderedHtmlTier::csp` builds it (core `rendered_csp.rs`). The frame takes exactly what it grants.
+  test("a page an agent wrote, under 0.84's agentAuthored tier, runs its scripts with those origins and nothing more", () => {
+    const origins = "https://cdnjs.cloudflare.com https://cdn.jsdelivr.net"
+    const csp = [
+      "sandbox allow-scripts",
+      "default-src 'none'",
+      `script-src 'unsafe-inline' 'unsafe-eval' ${origins}`,
+      `style-src 'unsafe-inline' ${origins}`,
+      `img-src data: blob: ${origins}`,
+      `font-src data: ${origins}`,
+      `media-src data: blob: ${origins}`,
+      "form-action 'none'",
+      "base-uri 'none'",
+    ].join("; ")
+    const frame = frameOf({ html: "<h1>Chart</h1><script>draw()</script>", csp })
+    // Scripts, and never DynWork's origin, a popup, a form or the top window.
+    expect(frame.sandbox).toBe("allow-scripts")
+    expect(frame.srcdoc).toContain(
+      `<meta http-equiv="Content-Security-Policy" content="${csp.replace("sandbox allow-scripts; ", "")}">`,
+    )
+    expect(frame.srcdoc).toContain("<script>draw()</script>")
+    // The locked tier (agentAuthored off, 0.84's default) leaves the page without scripts.
+    const locked = frameOf({
+      html: "<script>draw()</script>",
+      csp: "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; form-action 'none'; base-uri 'none'",
+    })
+    expect(locked.sandbox).toBe("")
   })
 })

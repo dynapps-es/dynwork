@@ -125,12 +125,13 @@ export function make(options: Options) {
 
   // Who a share names, first found first: the conversation's own `documents_people` answer (the plugin adds it to the
   // share), the people the account met before (`DriveIpc` `known`: the agent's lookups in any conversation, and earlier
-  // cards, kept across restarts), then a lookup: by id over REST while the instance has it (`peopleByRest`, 0.84),
-  // otherwise through the `documents` MCP server's `documents_people`. That tool says it searches by "name, email or id",
-  // but 0.83.0 matches names and emails only (`search_active_by_prefix`): an email is named, an id finds nobody, which is
-  // why the agent is told to look a person up right before sharing (`DynWorkDocuments.instructions`). Only an exact
-  // match names them; a lookup that fails or takes longer than `lookupWithin` leaves the value as the agent gave it,
-  // and the card shows anyway. Whoever is named is remembered for the account.
+  // cards, kept across restarts), then a lookup: by id, or an email by search, over REST while the instance has it
+  // (`peopleByRest`, 0.84), otherwise through the `documents` MCP server's `documents_people`. That tool says it
+  // searches by "name, email or id", but 0.83.0 matches names and emails only (`search_active_by_prefix`): an email is
+  // named, an id finds nobody, which is why the agent is told to look a person up right before sharing on 0.83
+  // (`DynWorkDocuments.instructions`). Only an exact match names them; a lookup that fails or takes longer than
+  // `lookupWithin` leaves the value as the agent gave it, and the card shows anyway. Whoever is named is remembered for
+  // the account.
   async function person(subject: DynWorkDocuments.Subject) {
     if (subject.kind !== "user") return subject
     const account = options.service.current()?.id
@@ -144,7 +145,11 @@ export function make(options: Options) {
     const email = value.includes("@")
     const found = await within(
       options.service.using((backend) =>
-        options.service.capabilities().peopleByRest && !email ? backend.people([value]) : backend.findPeople(value, 1),
+        options.service.capabilities().peopleByRest
+          ? email
+            ? backend.searchPeople(value, 1)
+            : backend.people([value])
+          : backend.findPeople(value, 1),
       ),
     )
     const match =

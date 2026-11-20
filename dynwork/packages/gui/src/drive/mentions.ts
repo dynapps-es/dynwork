@@ -69,8 +69,11 @@ export interface Heard {
 export type Streamed = ({ kind: "mentioned" } & Heard) | { kind: "changed" }
 
 export interface Options {
-  /** The service's account, index, mention record, `using`, and `reread` for a change the stream announces. */
-  service: Pick<DriveIpc.Service, "using" | "current" | "linksOf" | "mention" | "listen" | "reread">
+  /**
+   * The service's account, index, mention record, `using`, `reread` for a change the stream announces, and `streamed`,
+   * told while the stream is open.
+   */
+  service: Pick<DriveIpc.Service, "using" | "current" | "linksOf" | "mention" | "listen" | "reread" | "streamed">
   /** Whether a conversation still exists (its session). */
   session: (id: string) => Promise<boolean>
   /** Prompts a conversation. Answers whether the service took it. */
@@ -182,11 +185,13 @@ export function make(options: Options) {
         return backend.stream?.(stop.signal) ?? fail("unsupported", "The Drive does not announce mentions.")
       })
       if (isFailure(events)) return
+      service.streamed(account, true)
       for await (const event of events) {
         if (event.kind === "changed") service.reread(account)
         else void heard(event).catch(() => undefined)
       }
     } finally {
+      service.streamed(account, false)
       clearTimeout(timer)
       life.removeEventListener("abort", end)
       off()

@@ -228,6 +228,7 @@ export default {
   "drive.failure.conflict": "Het document is intussen gewijzigd. Open het opnieuw.",
   "drive.failure.unsupported": "Governance staat dit nog niet toe.",
   "drive.failure.invalid": "Governance heeft het zo niet geaccepteerd.",
+  "drive.failure.unknown-context": "Governance kent dit gesprek niet meer. Probeer het opnieuw.",
   "drive.failure.failed": "Er ging iets mis met de Drive.",
   "drive.col.access": "Jouw toegang",
   "drive.owner.other": "Met jou gedeeld",

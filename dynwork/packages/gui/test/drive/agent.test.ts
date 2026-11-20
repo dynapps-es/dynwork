@@ -168,9 +168,11 @@ describe("before a write", () => {
     expect(fake.calls.createFolder).toBeUndefined()
   })
 
-  test("once the instance names the conversation itself there is no message, and once the agent files itself no folder", async () => {
+  test("the instance cannot name the conversation of an MCP write that carries no context, and once the agent files itself no folder", async () => {
+    // With conversationLabel on, the agent's MCP write still names its conversation in the message: it carries no
+    // context until contextByMcp, so the instance records none to show.
     const named = stand({ capabilities: { conversationLabel: true } })
-    expect((await named.asked("call_1", "ses_q3"))?.message).toBeUndefined()
+    expect((await named.asked("call_1", "ses_q3"))?.message).toBe("Q3 report by DynWork")
     expect((await named.asked("call_2", "ses_q3"))?.folder).toBeDefined()
     const filing = stand({ capabilities: { mcpFolders: true } })
     expect(await filing.asked("call_1", "ses_q3")).toEqual({ id: "call_1", message: "Q3 report by DynWork" })

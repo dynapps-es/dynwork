@@ -92,6 +92,14 @@ export class Conflict extends Schema.TaggedError<Conflict>("SpClient.Conflict")(
   baseRevisionId: Schema.optional(Schema.String),
 }) {}
 
+// `422 unknown_context` (0.84): a write named a conversation (`x-context-id`) the instance does not hold for this user,
+// one it never issued or another user's (both get the same answer). Nothing was written: register the conversation
+// again (`POST /api/v1/core/contexts`) and send the new id, or none.
+export class UnknownContext extends Schema.TaggedError<UnknownContext>("SpClient.UnknownContext")(
+  "UnknownContext",
+  Request,
+) {}
+
 export type SpError =
   | Unauthorized
   | RateLimited
@@ -104,3 +112,4 @@ export type SpError =
   | Forbidden
   | AgentRefused
   | Conflict
+  | UnknownContext

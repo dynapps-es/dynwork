@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto"
 import { Clock, Duration, Effect, Schema, SchemaIssue } from "effect"
-import { AgentRefused, Conflict, Forbidden, NotFound, Protocol, RateLimited, Unauthorized, Unreachable } from "./errors"
+import {
+  AgentRefused,
+  Conflict,
+  Forbidden,
+  NotFound,
+  Protocol,
+  RateLimited,
+  Unauthorized,
+  UnknownContext,
+  Unreachable,
+} from "./errors"
 import {
   DriveAccess,
   DriveAgentCap,
@@ -10,6 +20,7 @@ import {
   DriveContext,
   DriveCreated,
   DriveDetail,
+  DriveDiscovery,
   DriveErrorBody,
   DriveFolder,
   DriveGrantMade,
@@ -27,7 +38,7 @@ import {
   type DriveRevision,
 } from "./schema"
 
-// A client for the Drive of a systemprompt instance (core 0.83): the REST store of documents and folders that the
+// A client for the Drive of a systemprompt instance (core 0.83 and 0.84): the REST store of documents and folders that the
 // instance's web Drive uses, called with the JWT of the signed-in account. Like the rest of the package, every function
 // takes the instance base URL and the credential as plain values; nothing is stored, cached or logged here, and no error
 // carries a credential. DynWork's JWT acts as an agent (`actor_kind: agent`): what the instance reserves to a person
@@ -57,6 +68,22 @@ export type ListOptions = {
   /** `next_cursor` of the previous page. */
   readonly cursor?: string
 }
+
+/**
+ * What the instance's root discovery document (`GET /api/v1`, public: no credential is sent) says of the Drive: the
+ * core's version, and the Drive's block, which 0.84 announces (`{enabled}`, absent before 0.84). What an instance
+ * delivers is read from these, never from a version DynWork assumes.
+ */
+export const discovery = Effect.fn("SpDrive.discovery")(function* (baseUrl: string) {
+  const answer = yield* json(DriveDiscovery, {
+    method: "GET",
+    path: "/api/v1",
+    endpoint: "GET /api/v1",
+    baseUrl,
+    limit: 1024 * 1024,
+  })
+  return { version: answer.data.version, documents: answer.data.endpoints?.documents }
+})
 
 /** Documents (and, in a folder, its sub-folders) of one scope, a page at a time. */
 export const list = Effect.fn("SpDrive.list")(function* (baseUrl: string, jwt: string, options?: ListOptions) {
@@ -250,7 +277,10 @@ export const outline = Effect.fn("SpDrive.outline")(function* (
   }
 })
 
-/** The revisions of a document, newest first. The listing does not say which conversation wrote each. */
+/**
+ * The revisions of a document, newest first. From 0.84 each says the conversation it was written in, the agent and
+ * client of the token, and the conversation's title to its owner; 0.83 says none of them.
+ */
 export const revisions = Effect.fn("SpDrive.revisions")(function* (baseUrl: string, jwt: string, id: string) {
   return (yield* json(DriveRevisions, {
     method: "GET",
@@ -508,8 +538,8 @@ export type Import = Attribution & {
 
 /**
  * Creates a document from a local file: one multipart request up to `inlineLimit`, a resumable upload and an import of
- * its blob above it. The format is the instance's call, from the file's type and name. 0.83 does not record `message`
- * on a document it creates this way (the first revision stays unnamed).
+ * its blob above it. The format is the instance's call, from the file's type and name. 0.84 records `message` on the
+ * first revision; 0.83 does not (it stays unnamed).
  */
 export const importFile = Effect.fn("SpDrive.importFile")(function* (baseUrl: string, jwt: string, input: Import) {
   const mime = input.mime ?? "application/octet-stream"
@@ -547,12 +577,12 @@ export const importFile = Effect.fn("SpDrive.importFile")(function* (baseUrl: st
 
 /**
  * Creates a document from one of the instance's templates (`dynapps-word`, `blank-markdown`, ...). The instance has no
- * route that lists them. 0.83 ignores a `message` here (the first revision stays unnamed), so none is sent.
+ * route that lists them. 0.84 keeps the `message` on the first revision; 0.83 ignores it (the revision stays unnamed).
  */
 export const create = Effect.fn("SpDrive.create")(function* (
   baseUrl: string,
   jwt: string,
-  input: Pick<Attribution, "contextId"> & {
+  input: Attribution & {
     readonly templateId: string
     readonly name: string
     readonly folderId?: string
@@ -570,6 +600,7 @@ export const create = Effect.fn("SpDrive.create")(function* (
         template_id: input.templateId,
         name: input.name,
         ...(input.folderId === undefined ? {} : { folder_id: input.folderId }),
+        ...(input.message === undefined ? {} : { message: input.message }),
       },
       headers: context(input.contextId),
       limit: 1024 * 1024,
@@ -872,7 +903,8 @@ type Request = {
   // Method and path template only, never ids, a query or a credential
   readonly endpoint: string
   readonly baseUrl: string
-  readonly jwt: string
+  // Absent for a public route (discovery): no credential is sent
+  readonly jwt?: string
   readonly body?: unknown
   readonly form?: FormData
   readonly headers?: Record<string, string>
@@ -900,7 +932,7 @@ const send = Effect.fnUntraced(function* (request: Request) {
         method: request.method,
         headers: {
           accept: "application/json",
-          authorization: `Bearer ${request.jwt}`,
+          ...(request.jwt === undefined ? {} : { authorization: `Bearer ${request.jwt}` }),
           ...(request.body === undefined || request.body instanceof Uint8Array
             ? {}
             : { "content-type": "application/json" }),
@@ -966,6 +998,7 @@ const failure = Effect.fnUntraced(function* (
       retryAfterMs: retryAfter(response.headers, yield* Clock.currentTimeMillis),
     })
   if (response.status >= 500) return yield* new Unreachable({ endpoint, message, status: response.status })
+  if (response.status === 422 && errorKey === "unknown_context") return yield* new UnknownContext({ endpoint, message })
   if (response.status === 404) return yield* new NotFound({ endpoint, message, errorKey })
   if (response.status === 403 && errorKey?.startsWith("agent_"))
     return yield* new AgentRefused({ endpoint, message, errorKey, capability: needed[errorKey] })

@@ -57,6 +57,16 @@ export const Revision = Schema.Struct({
   /** "<conversation> by DynWork", "<user> by DynWork", or what a person wrote. */
   message: Schema.optional(Schema.String),
   created: Schema.Number,
+  /** The conversation the write named (its `x-context-id`), from 0.84. */
+  context: Schema.optional(Schema.String),
+  /** That conversation's title, which the instance tells its owner only (0.84). */
+  conversation: Schema.optional(Schema.String),
+  /** The agent of the token that wrote it, as the instance signs it (0.84): its purpose, else its OAuth client. */
+  agent: Schema.optional(Schema.String),
+  /** The OAuth client of the token that wrote it (0.84). */
+  client: Schema.optional(Schema.String),
+  /** Written from a conversation DynWork registered on this computer, or signed "… by DynWork": the service says so. */
+  ours: Schema.optional(Schema.Boolean),
 })
 export type Revision = typeof Revision.Type
 
@@ -164,8 +174,10 @@ export type Anchor = typeof Anchor.Type
 
 export const Comment = Schema.Struct({
   id: Schema.String,
-  /** A reply carries its thread's anchor. */
-  anchor: Schema.optional(Schema.Struct({ node: Schema.String, find: Schema.optional(Schema.String) })),
+  /** A reply carries its thread's anchor. `cells`: an A1 range of a sheet node, in place of a quote (0.84). */
+  anchor: Schema.optional(
+    Schema.Struct({ node: Schema.String, find: Schema.optional(Schema.String), cells: Schema.optional(Schema.String) }),
+  ),
   author: Schema.String,
   /** The author is the signed-in user (a write DynWork makes is the user's, signed as an agent). */
   mine: Schema.Boolean,
@@ -178,6 +190,17 @@ export const Comment = Schema.Struct({
   created: Schema.Number,
   resolved: Schema.optional(Schema.Number),
   resolver: Schema.optional(Schema.String),
+  /** When and by whom it was last reopened (0.84). */
+  reopened: Schema.optional(Schema.Number),
+  reopener: Schema.optional(Schema.String),
+  /** The agent that wrote it (`via_agent`, 0.84); absent for a person's own comment. */
+  via: Schema.optional(Schema.String),
+  /** The conversation it was written in, its title (to its owner only) and the OAuth client, from 0.84. */
+  context: Schema.optional(Schema.String),
+  conversation: Schema.optional(Schema.String),
+  client: Schema.optional(Schema.String),
+  /** Written from a conversation DynWork registered on this computer: the service says so. */
+  ours: Schema.optional(Schema.Boolean),
 })
 export type Comment = typeof Comment.Type
 
@@ -274,6 +297,7 @@ export type Mention = typeof Mention.Type
  * - `suggest`: agents may only suggest there; write with `mode: "propose"`.
  * - `conflict`: the document moved on (`head` is the revision it lost to), or a comment's node is gone.
  * - `unsupported`: the instance or a capability that is off does not allow it. `invalid`: the input is wrong.
+ * - `unknown-context`: the instance does not hold the conversation the write named (0.84); nothing was written.
  * - `failed`: anything else.
  */
 export const Failure = Schema.Struct({
@@ -287,6 +311,7 @@ export const Failure = Schema.Struct({
     "conflict",
     "unsupported",
     "invalid",
+    "unknown-context",
     "failed",
   ]),
   message: Schema.String,

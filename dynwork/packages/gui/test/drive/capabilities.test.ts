@@ -39,6 +39,14 @@ describe("the Drive capabilities", () => {
     })
   })
 
+  test("conversationLabel on: a conversation's write without its context still names it, the instance cannot", () => {
+    const author = { user: "ana@dynapps.es", conversation: { name: "Q3 report" } }
+    expect(DriveCapabilities.attribution(on("conversationLabel"), author)).toEqual({
+      contextId: undefined,
+      message: "Q3 report by DynWork",
+    })
+  })
+
   test("conversationLabel: a conversation's write names it in the message while off, and only by context when on", () => {
     const author = { user: "ana@dynapps.es", conversation: { name: "Q3 report", context: "ctx-1" } }
     expect(DriveCapabilities.attribution(DriveCapabilities.none, author)).toEqual({
@@ -79,11 +87,14 @@ describe("the Drive capabilities", () => {
     expect(DriveCapabilities.agentEdits(on("mcpFolders"), ops)).toBe(false)
   })
 
-  test("pushChanges: a watched Drive is polled every 20 s while off, and every 5 min when on", () => {
-    expect(DriveCapabilities.pollEvery(DriveCapabilities.none, false)).toBe(5 * 60_000)
-    expect(DriveCapabilities.pollEvery(DriveCapabilities.none, true)).toBe(20_000)
-    expect(DriveCapabilities.pollEvery(on("pushChanges"), true)).toBe(5 * 60_000)
-    expect(DriveCapabilities.pollEvery(on("pushChanges"), false)).toBe(5 * 60_000)
+  test("pushChanges: a watched Drive is polled every 20 s while off, and every 5 min when on with its stream open", () => {
+    expect(DriveCapabilities.pollEvery(DriveCapabilities.none, false, true)).toBe(5 * 60_000)
+    expect(DriveCapabilities.pollEvery(DriveCapabilities.none, true, true)).toBe(20_000)
+    expect(DriveCapabilities.pollEvery(on("pushChanges"), true, true)).toBe(5 * 60_000)
+    expect(DriveCapabilities.pollEvery(on("pushChanges"), false, true)).toBe(5 * 60_000)
+    // While the stream is down, nothing pushes: a watched Drive is polled fast again.
+    expect(DriveCapabilities.pollEvery(on("pushChanges"), true, false)).toBe(20_000)
+    expect(DriveCapabilities.pollEvery(on("pushChanges"), false, false)).toBe(5 * 60_000)
   })
 
   test("docsByContext: every write of a conversation is indexed here while off; with it on, REST writes are not", () => {
@@ -109,5 +120,42 @@ describe("the Drive capabilities", () => {
     expect(DriveCapabilities.agentFiling(on("mcpFolders"))).toBe("mcp")
     // Raw HTML alone does not file it: it is about changing a page, and the import still needs the MCP's.
     expect(DriveCapabilities.agentFiling(on("rawHtmlByMcp"))).toBe("rest")
+  })
+
+  test("delivered: a 0.83 discovery delivers nothing, as today", () => {
+    expect(DriveCapabilities.delivered({ version: "0.83.0", documents: false })).toEqual(DriveCapabilities.none)
+    expect(DriveCapabilities.delivered({ version: "0.82.0" })).toEqual(DriveCapabilities.none)
+  })
+
+  test("delivered: 0.84 turns on the REST side of G02, G09 and G13, and nothing the later phases turn on", () => {
+    const rest = on("conversationLabel", "pushChanges", "peopleByRest")
+    expect(DriveCapabilities.delivered({ version: "0.84.0", documents: true })).toEqual(rest)
+    // The Drive's block is 0.84's whatever version it says, and a version alone says it too.
+    expect(DriveCapabilities.delivered({ version: "0.83.9", documents: true })).toEqual(rest)
+    expect(DriveCapabilities.delivered({ version: "0.84.0" })).toEqual(rest)
+    expect(DriveCapabilities.delivered({ version: "v0.85.1-rc.1" })).toEqual(rest)
+    expect(DriveCapabilities.delivered({ version: "1.0.0" })).toEqual(rest)
+  })
+
+  test("delivered: a discovery that tells neither asks for the probe, which then decides", () => {
+    expect(DriveCapabilities.delivered({})).toBeUndefined()
+    expect(DriveCapabilities.delivered({ version: "unknown" })).toBeUndefined()
+    expect(DriveCapabilities.delivered({ people: true })).toEqual(on("conversationLabel", "pushChanges", "peopleByRest"))
+    expect(DriveCapabilities.delivered({ people: false })).toEqual(DriveCapabilities.none)
+    // The version decides before the probe does.
+    expect(DriveCapabilities.delivered({ version: "0.83.0", people: true })).toEqual(DriveCapabilities.none)
+  })
+
+  test("writer: nothing while conversationLabel is off; then the conversation and who wrote in it", () => {
+    const by = { conversation: "Q3 report", agent: "sp_bridge", ours: true }
+    expect(DriveCapabilities.writer(DriveCapabilities.none, by)).toBeUndefined()
+    const labelled = on("conversationLabel")
+    expect(DriveCapabilities.writer(labelled, by)).toBe("Q3 report · DynWork")
+    expect(DriveCapabilities.writer(labelled, { conversation: "Weekly", agent: "claude-code" })).toBe("Weekly · claude-code")
+    expect(DriveCapabilities.writer(labelled, { conversation: "Weekly" })).toBe("Weekly")
+    // No title (the instance tells it to the owner only): the agent's name, and DynWork for its own.
+    expect(DriveCapabilities.writer(labelled, { agent: "claude-code" })).toBe("claude-code")
+    expect(DriveCapabilities.writer(labelled, { agent: "sp_bridge", ours: true })).toBe("DynWork")
+    expect(DriveCapabilities.writer(labelled, {})).toBeUndefined()
   })
 })

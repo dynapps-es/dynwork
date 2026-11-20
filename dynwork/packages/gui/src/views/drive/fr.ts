@@ -229,6 +229,7 @@ export default {
   "drive.failure.conflict": "Le document a changé entre-temps. Rouvrez-le.",
   "drive.failure.unsupported": "Governance ne le permet pas encore.",
   "drive.failure.invalid": "Governance ne l'a pas accepté tel quel.",
+  "drive.failure.unknown-context": "Governance ne reconnaît plus cette conversation. Réessayez.",
   "drive.failure.failed": "Un problème est survenu avec le Drive.",
   "drive.col.access": "Votre accès",
   "drive.owner.other": "Partagé avec vous",

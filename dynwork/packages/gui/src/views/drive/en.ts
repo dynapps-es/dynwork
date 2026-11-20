@@ -220,6 +220,7 @@ export default {
   "drive.failure.conflict": "The document changed in the meantime. Open it again.",
   "drive.failure.unsupported": "Governance does not allow this yet.",
   "drive.failure.invalid": "Governance did not accept it as it is.",
+  "drive.failure.unknown-context": "Governance no longer knows this conversation. Try again.",
   "drive.failure.failed": "Something went wrong with the Drive.",
   "drive.col.access": "Your access",
   "drive.owner.other": "Shared with you",

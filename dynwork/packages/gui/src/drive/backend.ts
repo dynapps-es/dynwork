@@ -3,6 +3,7 @@ export * as DriveBackend from "./backend"
 import { Effect } from "effect"
 import { SpClient, SpDrive } from "@dynwork/sp-client"
 import { DynWorkAccounts } from "../accounts/accounts"
+import type { DriveCapabilities } from "./capabilities"
 import { isFailure } from "./contract"
 import { DriveMentions } from "./mentions"
 import type {
@@ -40,6 +41,11 @@ export type Attribution = { readonly message?: string; readonly contextId?: stri
  * `test/drive/conformance.ts` is the suite every backend passes.
  */
 export interface Backend {
+  /**
+   * What the instance says of itself in its discovery (`GET /api/v1`): whether it announces the Drive (0.84) and the
+   * core's version. `DriveCapabilities.delivered` reads what it gives from this.
+   */
+  discovery(): Promise<Omit<DriveCapabilities.Instance, "people"> | Failure>
   list(query: Query): Promise<Listing | Failure>
   /** Every folder the user can see, flat: `parent` says where each sits. Read from the roots down (see `children`). */
   folders(): Promise<readonly Folder[] | Failure>
@@ -70,10 +76,8 @@ export interface Backend {
    * a name taken in the folder answers `conflict`.
    */
   importBlob(input: Attribution & { blob: string; name: string; folder?: string }): Promise<Created | Failure>
-  /** A document from one of the instance's templates; the instance keeps no message on it (0.83). */
-  create(
-    input: Pick<Attribution, "contextId"> & { template: string; name: string; folder?: string },
-  ): Promise<Created | Failure>
+  /** A document from one of the instance's templates; 0.84 keeps its message, 0.83 does not. */
+  create(input: Attribution & { template: string; name: string; folder?: string }): Promise<Created | Failure>
   edit(
     id: string,
     input: Attribution & {
@@ -109,6 +113,11 @@ export interface Backend {
    * `documents_people` (0.83: its description says "or id", but 0.83.0 does not match ids).
    */
   findPeople(query: string, limit?: number): Promise<readonly Person[] | Failure>
+  /**
+   * The active people matching `query` word by word (name, email or id), at most `limit`, over REST
+   * (`GET /documents/people?query=`, 0.84, `peopleByRest`): the directory search `findPeople` makes through the MCP.
+   */
+  searchPeople(query: string, limit?: number): Promise<readonly Person[] | Failure>
   /**
    * Gives a subject (`user` and a user id, or a role) `level` on a document, or changes the level it has (one grant per
    * subject), and answers who has access then. `person` when the instance's agent policy does not let DynWork share it.
@@ -173,7 +182,11 @@ export function remote(options: Remote): Backend {
   })
   const comment = (wire: SpDriveComment): Comment => ({
     id: wire.id,
-    anchor: wire.anchor,
+    anchor: wire.anchor && {
+      node: wire.anchor.node,
+      find: wire.anchor.find,
+      ...(wire.anchor.cells ? { cells: wire.anchor.cells } : {}),
+    },
     author: wire.author_user_id,
     mine: mine(wire.author_user_id),
     ...bodyOf(wire.body, options.user),
@@ -181,6 +194,14 @@ export function remote(options: Remote): Backend {
     created: Date.parse(wire.created_at),
     resolved: wire.resolved_at ? Date.parse(wire.resolved_at) : undefined,
     resolver: wire.resolved_by ?? undefined,
+    ...defined({
+      reopened: wire.reopened_at ? Date.parse(wire.reopened_at) : undefined,
+      reopener: wire.reopened_by,
+      via: wire.via_agent,
+      context: wire.context_id,
+      conversation: wire.context_name,
+      client: wire.client_id,
+    }),
   })
   const page = (wire: SpDrive.Page): Page => ({
     html: wire.html,
@@ -220,6 +241,11 @@ export function remote(options: Remote): Backend {
       }),
     )
   return {
+    discovery: () =>
+      Effect.runPromise(SpDrive.discovery(url)).then(
+        (found) => ({ version: found.version, documents: found.documents !== undefined }),
+        failure,
+      ),
     list: (query) =>
       call(
         (jwt) => SpDrive.list(url, jwt, query),
@@ -326,6 +352,7 @@ export function remote(options: Remote): Backend {
             templateId: input.template,
             name: input.name,
             folderId: input.folder,
+            message: input.message,
             contextId: input.contextId,
           }),
         (created) => ({ document: document(created.document), revision: revision(created.revision) }),
@@ -401,6 +428,11 @@ export function remote(options: Remote): Backend {
         (jwt) => SpDrive.lookupPeople(url, jwt, query, limit),
         (list) => list.flatMap(personOf),
       ),
+    searchPeople: (query, limit) =>
+      call(
+        (jwt) => SpDrive.searchPeople(url, jwt, query, { limit }),
+        (list) => list.flatMap(personOf),
+      ),
     // The stream is opened with a JWT the account mints again when the instance refuses it; a stream that breaks later just ends.
     stream: (signal) => options.withJwt((jwt) => SpDrive.stream(url, jwt, signal)).catch(failure),
   }
@@ -438,6 +470,19 @@ function revision(wire: SpDriveRevision): Revision {
     origin: wire.origin_kind,
     message: wire.message ?? undefined,
     created: Date.parse(wire.created_at),
+    ...defined({
+      context: wire.context_id,
+      conversation: wire.context_name,
+      agent: wire.agent_name,
+      client: wire.client_id,
+    }),
+  }
+}
+
+// The keys whose value the instance sent: 0.83 sends none of these, and a window gets no key it did not.
+function defined<A extends Record<string, string | number | null | undefined>>(values: A) {
+  return Object.fromEntries(Object.entries(values).filter((entry) => entry[1] !== undefined && entry[1] !== null)) as {
+    [K in keyof A]?: Exclude<A[K], null>
   }
 }
 
@@ -487,6 +532,8 @@ function failure(error: unknown): Failure {
   if (error instanceof SpClient.AgentRefused) return fail("person", "Only you can do this, in Governance.")
   if (error instanceof SpClient.Conflict)
     return fail("conflict", "The document changed meanwhile.", error.headRevisionId)
+  if (error instanceof SpClient.UnknownContext)
+    return fail("unknown-context", "Governance does not know the conversation this write named.")
   if (error instanceof SpClient.Protocol && error.errorKey === "unsupported_op")
     return fail("unsupported", "Governance does not do this for this document.")
   if (error instanceof SpClient.Protocol && error.status === 400)

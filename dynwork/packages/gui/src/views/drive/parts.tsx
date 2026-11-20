@@ -1,8 +1,9 @@
 import { usePlugin, type Context } from "@opencode/plugin/gui"
 import { Icon } from "@opencode/ui/icon"
 import { For, Show, type JSX } from "solid-js"
+import { DriveCapabilities } from "../../drive/capabilities"
 import type { Document, Failure } from "../../drive/contract"
-import { ago, known, pathOf, size, stem, type Format, type Message } from "./model"
+import { ago, known, pathOf, size, stem, writerOf, type Format, type Message } from "./model"
 import { drive, governance } from "./store"
 import type { Present } from "./viewer"
 
@@ -148,10 +149,16 @@ export function Thumb(props: { doc?: Pick<Document, "name" | "format"> }) {
 }
 
 /**
- * Who wrote a comment: "You", or a name. The Drive names an author by an id only: the grants of the documents opened
- * name some, and the rest are "Someone".
+ * Who wrote a comment: the conversation it came from as the instance tells it (`writerOf`, 0.84), "You", or a name. The
+ * Drive names an author by an id only: the grants of the documents opened name some, the instance the rest once it
+ * names people by id (`peopleByRest`), and any left are "Someone".
  */
-export function authorName(ctx: Pick<Context, "t">, message: Pick<Message, "mine" | "author">) {
+export function authorName(
+  ctx: Pick<Context, "t">,
+  message: Pick<Message, "mine" | "author" | "conversation" | "via" | "ours">,
+) {
+  const writer = writerOf(drive.remote()?.capabilities ?? DriveCapabilities.none, message)
+  if (writer !== undefined) return writer
   return message.mine ? ctx.t("drive.you") : (drive.nameOf(message.author) ?? ctx.t("drive.comment.other"))
 }
 
