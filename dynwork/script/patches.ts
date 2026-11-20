@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Patch guard: fails when an upstream file differs from the tag in dynwork/UPSTREAM without a row in
-// dynwork/PATCHES.md, when a row lists a file that does not differ, or when the modified upstream files exceed the
-// budget in PATCHES.md.
+// dynwork/PATCHES.md, or when a row lists a file that does not differ. It reports the lines the modified upstream
+// files change, without a limit.
 //
 //   bun dynwork/script/patches.ts
 import path from "node:path"

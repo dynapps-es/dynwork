@@ -24,8 +24,22 @@ int napi_set_named_property(napi_env, napi_value, const char*, napi_value);
 
 // What one window holds, kept on the window itself so it goes when the window does.
 @interface DynWorkSidebarGlass : NSObject
+@property(strong) NSView* container;
 @property(strong) NSView* backing;
 @property(strong) NSSplitViewController* split;
+@end
+
+// The view the glass and its colour live in. Chromium sorts the content view's subviews whenever it attaches a native
+// view, such as the in-app browser's page, and puts the subviews it does not own above its own: the glass then covered
+// the whole page, and the window showed nothing but glass. This view draws behind its siblings wherever it sits among
+// them (its layer's `zPosition`), and lets every click through to the page.
+@interface DynWorkGlassContainer : NSView
+@end
+
+@implementation DynWorkGlassContainer
+- (NSView*)hitTest:(NSPoint)point {
+  return nil;
+}
 @end
 
 @implementation DynWorkSidebarGlass
@@ -76,6 +90,10 @@ static napi_value attach(napi_env env, napi_callback_info info) {
 
   NSView* content = window.contentView;
   holder = [DynWorkSidebarGlass new];
+  holder.container = [[DynWorkGlassContainer alloc] initWithFrame:content.bounds];
+  holder.container.wantsLayer = YES;
+  holder.container.layer.zPosition = -1;
+  holder.container.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
   holder.backing = [[NSView alloc] initWithFrame:content.bounds];
   holder.backing.wantsLayer = YES;
   holder.backing.layer.backgroundColor = color;
@@ -97,8 +115,9 @@ static napi_value attach(napi_env env, napi_callback_info info) {
   holder.split.view.frame = content.bounds;
   holder.split.view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 
-  [content addSubview:holder.split.view positioned:NSWindowBelow relativeTo:nil];
-  [content addSubview:holder.backing positioned:NSWindowBelow relativeTo:nil];
+  [holder.container addSubview:holder.backing];
+  [holder.container addSubview:holder.split.view];
+  [content addSubview:holder.container positioned:NSWindowBelow relativeTo:nil];
   objc_setAssociatedObject(window, &holderKey, holder, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   return undefined(env);
 }
@@ -111,8 +130,7 @@ static napi_value detach(napi_env env, napi_callback_info info) {
   NSWindow* window = windowOf(env, argv[0]);
   DynWorkSidebarGlass* holder = objc_getAssociatedObject(window, &holderKey);
   if (!holder) return undefined(env);
-  [holder.split.view removeFromSuperview];
-  [holder.backing removeFromSuperview];
+  [holder.container removeFromSuperview];
   objc_setAssociatedObject(window, &holderKey, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
   return undefined(env);
 }

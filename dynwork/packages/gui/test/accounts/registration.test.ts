@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test"
 import { runsOn } from "@opencode/plugin/gui/host"
 import { createRoot } from "solid-js"
 import { Accounts } from "../../src/accounts/contract"
+import { DriveClient } from "../../src/drive/client"
+import { Drive, Frames, Shares } from "../../src/drive/contract"
 import { Remote } from "../../src/remote/contract"
 import { RoutinesClient } from "../../src/routines/client"
 import { Chat, Routines } from "../../src/routines/contract"
@@ -59,21 +61,26 @@ describe("dynwork built-in", () => {
       t: (key: string) => key,
       layout: { ready: () => false },
       sessions: { current: () => undefined },
+      // The Drive opens how the user lays out a document; it has not loaded here.
+      storage: { store: () => ({ value: undefined, ready: () => false, update: () => {}, set: () => {} }) },
     }
     expect(definition).toBeObject()
     const dispose = createRoot((dispose) => {
-      // SAFETY: the setup reads only `desktop`, `use`, `add`, `t`, `layout.ready` and `sessions.current`, which the
-      // stand-in provides.
+      // SAFETY: the setup reads only `desktop`, `use`, `add`, `t`, `layout.ready`, `sessions.current` and
+      // `storage.store`, which the stand-in provides.
       renderer(ctx as unknown as Parameters<typeof renderer>[0])
       return dispose
     })
-    // Remote control, the routines and their chat cards ride on the same built-in
-    expect(used).toEqual([Accounts, Remote, Routines, Chat])
+    // The Drive, main's observer of its frames and the agent's share cards, remote control, the routines and their chat
+    // cards ride on the same built-in
+    expect(used).toEqual([Accounts, Drive, Frames, Shares, Remote, Routines, Chat])
     expect(connection()).toEqual({ status: "pending" })
+    expect(DriveClient.connection()).toEqual({ status: "pending" })
     expect(RoutinesClient.connection()).toEqual({ status: "pending" })
     expect(RoutinesClient.chatConnection()).toEqual({ status: "pending" })
     dispose()
     expect(connection()).toBeUndefined()
+    expect(DriveClient.connection()).toBeUndefined()
     expect(RoutinesClient.connection()).toBeUndefined()
     expect(RoutinesClient.chatConnection()).toBeUndefined()
   })
@@ -89,6 +96,7 @@ describe("dynwork built-in", () => {
     })
     expect(used).toEqual([])
     expect(connection()).toBeUndefined()
+    expect(DriveClient.connection()).toBeUndefined()
     expect(RoutinesClient.connection()).toBeUndefined()
     expect(RoutinesClient.chatConnection()).toBeUndefined()
   })

@@ -5,6 +5,7 @@ import { Dynamic } from "solid-js/web"
 export const views = new Map([
   ["agents", lazy(() => import("./agents"))],
   ["routines", lazy(() => import("./routines"))],
+  ["drive", lazy(() => import("./drive"))],
   ["brain", lazy(() => import("./brain"))],
 ])
 

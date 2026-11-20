@@ -19,10 +19,10 @@ function setup(path = "/") {
 }
 
 describe("the DynWork sidebar rows", () => {
-  test("show Scheduled and Brain, in that order; the governance settings are not a row", () => {
+  test("show Scheduled, Drive and Brain, in that order; the governance settings are not a row", () => {
     const view = setup()
-    expect(view.rows.map((row) => row.label())).toEqual(["Scheduled", "Brain"])
-    expect(view.rows.map((row) => row.icon)).toEqual([clock, "brain"])
+    expect(view.rows.map((row) => row.label())).toEqual(["Scheduled", "Drive", "Brain"])
+    expect(view.rows.map((row) => row.icon)).toEqual([clock, "folder", "brain"])
   })
 
   test("highlight the routed view's row and follow the route; Agents holds the routines too", () => {
@@ -32,6 +32,9 @@ describe("the DynWork sidebar rows", () => {
 
     view.route("/page/routines")
     expect(active()).toEqual(["agents"])
+
+    view.route("/page/drive")
+    expect(active()).toEqual(["drive"])
 
     view.route("/page/brain?from=search")
     expect(active()).toEqual(["brain"])
@@ -46,7 +49,7 @@ describe("the DynWork sidebar rows", () => {
   test("each row opens its page in the main area, never a settings page", () => {
     const view = setup()
     view.rows.forEach((row) => row.open())
-    expect(view.pages).toEqual(["agents", "brain"])
+    expect(view.pages).toEqual(["agents", "drive", "brain"])
     expect(view.settings).toEqual([])
   })
 })

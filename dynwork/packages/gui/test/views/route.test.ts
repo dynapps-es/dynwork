@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import agents from "../../src/views/agents"
 import brain from "../../src/views/brain"
+import drive from "../../src/views/drive"
 import routines from "../../src/views/routines"
 import en from "../../src/views/en"
 import { entries } from "../../src/views/entries"
@@ -10,6 +11,7 @@ describe("the page route", () => {
   test.each([
     ["agents", agents],
     ["routines", routines],
+    ["drive", drive],
     ["brain", brain],
   ] as const)("/page/%s mounts its view", async (id, view) => {
     const lazy = views.get(id)

@@ -1,7 +1,17 @@
 import { DynWorkIdentity } from "@dynwork/branding/identity"
 import { homedir, hostname } from "node:os"
-import { app, Notification, powerMonitor, powerSaveBlocker, safeStorage, shell } from "electron"
+import {
+  app,
+  BrowserWindow,
+  Notification,
+  powerMonitor,
+  powerSaveBlocker,
+  safeStorage,
+  shell,
+  webContents,
+} from "electron"
 import type { Plugin } from "@opencode/plugin/gui/main"
+import { DriveMain } from "../drive/main"
 import { RemoteMain } from "../remote/main"
 import { RoutinesChat } from "../routines/chat"
 import { RoutinesFarm } from "../routines/farm/backend"
@@ -25,6 +35,7 @@ const setup: Plugin.MainSetup = (ctx) => {
   }
   const engine: { current?: DynWorkSyncEngine.Engine } = {}
   const remote: { update: () => void } = { update: () => {} }
+  const drive: { account: () => void } = { account: () => {} }
   // The routines' clock looks again whenever the sync changes: it fires nothing until the provider is applied.
   // `applied` holds once a sync went through, until the account goes: a failed poll later keeps the provider applied.
   const routines: { check: () => void; pull: () => void; applied: boolean } = {
@@ -42,6 +53,7 @@ const setup: Plugin.MainSetup = (ctx) => {
       engine.current?.update()
       remote.update()
       routines.pull()
+      drive.account()
     },
     renewed: (id, session) => engine.current?.renewed(id, session),
   })
@@ -141,6 +153,13 @@ const setup: Plugin.MainSetup = (ctx) => {
   })
   routines.check = routinesMain.check
   routines.pull = routinesMain.pull
+  // The Drive: the active account's documents in Governance, read again whenever the accounts change.
+  drive.account = DriveMain.setup(ctx, accounts, {
+    frames: { app, contents: () => webContents.getAllWebContents() },
+    client: routinesMain.client,
+    // The agent's shares wait on a card only while a window can show it; otherwise they are refused at once.
+    attended: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed()),
+  }).account
   // Another computer changed a routine: Governance's hint arrives over the relay while remote control is connected.
   // Without it the sync still reads the feed every few minutes.
   ctx.onCleanup(

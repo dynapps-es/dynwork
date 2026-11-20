@@ -698,7 +698,8 @@ export function make(options: Options): Local {
       return !!stored && here(stored)
     },
     touched: (routine) => emit(routine ? { routine: ref(routine) } : {}),
-    going: runningOf,
+    // A manual start still inside `launch` counts too, so a scheduled run does not start beside it.
+    going: async (routine) => starting.has(routine) || runningOf(routine),
     take: (routine, plan) => {
       const stored = routineOf(routine)
       if (!stored) return

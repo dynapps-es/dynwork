@@ -16,7 +16,7 @@ to open a page (`BuiltinLayout.page`):
 - `ctx.layout.page(id)` (through `builtinContext`) routes to `/page/<id>`, the way `ctx.layout.settings(page)` opens
   settings.
 
-The sidebar has two rows: Agents and Brain. The governance accounts are reached from Settings only, and no visible string
+The sidebar has three rows: Scheduled (the Agents view), Drive and Brain. The governance accounts are reached from Settings only, and no visible string
 names the platform behind them.
 
 ## Agents
@@ -93,6 +93,156 @@ desktop's router follows a same-origin link in place, and its route machine open
 so a run opens under its routine's anchor with the breadcrumb "Routine › Run". History and Activity rows are such links,
 and Open conversation goes to the newest run, or to the anchor before any run (`routineHref`). Remote runs still open in
 the viewer.
+
+## Drive
+
+The account's Drive in Governance inside DynWork (`./drive`), over the `dynwork.drive` Ipc (`../drive`): the window
+reads and writes through main, where the account's credential stays. `store.ts` holds what the view shows over the live
+client (`DriveClient.attach`, from `register.tsx`); `test/views/drive/fixture.ts` stands it over the real service and an
+in-memory Drive for the tests.
+
+- **The view** (`/page/drive`): Home (the root's folders and loose files, then a folder's), Recent (the service's
+  snapshot, read every 5 minutes, every 20 s while the view is open), Mine, Shared with me and From my chats (the
+  conversation ↔ document index this computer keeps); type filters, a search by name in the user's and the shared
+  documents, list or grid, Show more for a long listing, and the selected document's facts. A banner says when there is
+  no account, Governance refused the session or does not answer, or a listing failed.
+- **Upload** (picked or dropped files) creates documents in the open folder, signed "<user> by DynWork" (D2). **New**
+  makes a folder, or a document from a Dynapps template (`dynapps-word`, `dynapps-sheet`, `dynapps-deck`,
+  `dynapps-html`, `blank-markdown`: the instance has no route that lists them, C9).
+- **A document** opens over the browser: its bar, the edition banner (DynWork counts as an agent; what it may do on the
+  document attended, and what a scheduled task could do unattended), its index, its viewer (below), and a drawer with
+  Info, Versions (numbered, with their "… by DynWork" message) and Proposals, on the selected tab's background.
+  Back returns where it was opened from (`store.ts` keeps it when it opens): the chat whose side panel opened it (its
+  tab, opened again when it was closed), else the browser's scope, folder and search as they were, else Home. The
+  index (`outline.ts`) lists the headings of an HTML page, a Markdown document or a Word preview, jumps to one, and
+  marks the one being read (the last whose top has passed the upper third of the document's area, else the first),
+  kept in sight in a long index; a sheet, a slide deck or a PDF has none and shows no column. In an HTML frame the
+  heading being read comes from main's observer (`../drive/README.md`, "The viewer's frames"). The bar shows and hides
+  the index, the drawer and the comments marked on the document (one button with the number of open threads inside it,
+  as the chat header counts its artifacts), and the inner edge of the index (180–420 px) and of the drawer (320–720 px)
+  resizes it (`@opencode/ui/resize-handle`), all kept in the window's storage (`panes.ts`). Share opens the Share
+  popover under it (below). Present shows the document alone with the window full screen: the canvas goes over the
+  whole window as a manual popover in the top layer (`data-presenting`: the app's panels contain their content, which
+  would hold a fixed element), still in its place in the page so its frame does not load again, while main holds the
+  window full screen (`Frames.present`, `../drive/present.ts`).
+  The Fullscreen API cannot do it: the app's windows give a page no `fullscreen` permission. Escape anywhere in the
+  window (main sees it before the page, the document's frame included), Exit, or the window leaving full screen returns
+  to the view as it was. Every
+  icon-only button carries a tooltip. Ask the agent opens the document beside the last chat with a composer chip. What
+  the Drive keeps to the person (sharing, restoring, accepting proposals, renaming, moving, trashing) opens the
+  document in Governance while `personActions` is off; Export as PDF and Copy link work here.
+- **Beside a chat** (`panel.tsx`, `register.tsx`): the chat header's button (`count.tsx`, in the `session.header` slot
+  before the context ring) shows how many documents the chat has in its Artifacts tab, none at 0, while an account has
+  a Drive, and opens that tab; it loads on the client only (Kobalte's tooltip). The + menu's Drive opens the Artifacts
+  tab, with the documents the chat made, changed or attached, newest first; Add from the Drive attaches one, and Upload to the Drive sends a file
+  the chat made to the Drive's root with the conversation's name and `x-context-id` (D2, D3). Each document opens in a
+  side panel tab of its own (`dynwork:drive.<id>`), several at once (D6), with its viewer and a version picker (the
+  head unless the tab picks another). Its header shows and hides the comments marked on the document, opens Share (the
+  same popover as the Drive's), Presents the document and opens it in the Drive; a click on a comment's mark or its
+  bubble opens its thread in a dialog, to read, reply and resolve. Use in a chat attaches a document to the routed chat (a
+  composer chip and its tab) and records it in the index; opening the chip routes its link (`origin: dynwork-drive`)
+  back to the document's tab. A restored tab whose document the window has not read yet stays hidden until the Drive
+  answers, and shows as missing, so it can be closed, when the Drive no longer has it.
+- **The viewer** (`viewer.tsx`), the same in the workspace and in a tab, by format. While a document loads, the app's
+  loading indicator (`ctx.ui.Loader`, large, as OpenCode shows a pane that loads: no text, which a screen reader reads
+  from its label) sits in the middle of where it will show (`DocLoading`): until its content is read, for HTML and the
+  previews until the frame has loaded its first page (the frame's `load`), and for a PDF until pdf.js has opened it. A
+  page loaded again (a comment added or resolved, the marks shown or hidden) shows no indicator: the document was already
+  in view. Another document or version in the same viewer (a chat's panel shows each tab's document in one) loads anew,
+  with the indicator and a frame of its own, and never shows under the previous one's name (`answerFor`); a new head of
+  the same document keeps the page in view until the new one is read.
+  - HTML as designed (`/rendered`, the preview on an instance without it), in an `iframe` with `srcdoc`. The frame
+    mirrors the policy the instance served the page with (D5): its `sandbox` flags are the ones that response's
+    `sandbox` directive grants (none without one, so no scripts), and the rest of that policy goes first in the page's
+    head as a meta tag, less `frame-ancestors` and `report-*`, which only a header carries. sp-local sends `sandbox`
+    with no flags (no scripts, no network but `data:`); production sends `sandbox allow-scripts` with `https:`, so
+    animations and libraries from a CDN run as on the web. It is never more than the instance allowed, and never
+    `allow-same-origin`, `allow-top-navigation*` or `allow-popups-to-escape-sandbox`, whatever the instance sends.
+    The page is read into an inert document (`DOMParser`: nothing runs or loads) to give each heading an id, and written
+    back whole with the policy first in its head; the index jumps by navigating the frame to `about:srcdoc#<id>`, a
+    same-document navigation that main's frame guard lets through. At the head, while the marks show, the open
+    comments are marked there too (`marks.ts`): blocks matched to nodes by their text, the quote (or the block's text)
+    wrapped in `<mark data-dynwork-comment>` with a style under the page's policy (the browser's own `mark` look when
+    it keeps inline styles out); a quote or node the page does not show marks nothing. A mark carries the thread's id
+    and nothing of the comment: the page's scripts may reach the network, so the text stays in the app, where a click
+    on the mark opens it. A comment added or resolved writes a new `srcdoc`, which loads the page again from its top:
+    the frame keeps showing the page it has until main has armed the new one to start at the pixel where the reader
+    was (`Frames.restore`, from the scroll main's observer reported, `../drive/README.md`), and only then loads it, so
+    the reader sees no jump. Without main's observer for the frame, it goes back to the heading being read instead.
+    Only the page's own scroller is kept: a page that scrolls an inner box of its own starts that box at its top.
+  - Beside an HTML page or Markdown at its head, while the marks show (with or without a thread, so a first comment or
+    the last one resolved does not make the document narrower or wider under the reader), a column of the app's own
+    holds the comments' bubbles (`CommentBubbles`, as Google Docs): one beside each marked part with the initials of
+    who wrote its thread (0.83 names no picture for anyone), threads at one height in one bubble (two faces and "+N",
+    `bubbleRows`). Each face is a button of its own and opens its own thread, as its mark does; the thread open now
+    (`drive.state.doc.thread`, picked in the Comments tab or opened in a chat's dialog) comes to the front of its bubble
+    (`bubbleFaces`) with a ring in the comments' accent, as its card and its Markdown block show it. Hovering or focusing
+    a bubble of several threads spreads all its faces apart in a column, the ones behind "+N" too, so each one is easy
+    to point at; "+N" itself is only a count. Where the marks sit comes from main's
+    observer in the frame (an HTML page: ids and pixels, `../drive/README.md`) or from the app's own layout
+    (Markdown). The column is outside the frame: no name, picture or text of a comment goes into a page.
+  - Markdown from its source (`/content`, at the tab's version), drawn by the app's own renderer (`ctx.ui.Markdown`),
+    as the timeline draws a message.
+  - PDF in DynWork's own viewer (`pdf-viewer.tsx` over pdf.js, `pdf.ts` for its arithmetic and options), loaded with
+    pdf.js only when a PDF opens; Vite bundles pdf.js's worker with the app. A PDF is a document of format `pdf` or of
+    type `application/pdf`: the instance keeps an uploaded PDF as a `file`, and renders only its own formats to PDF
+    (`?format=pdf`), so the viewer reads the stored bytes (`/content`). pdf.js gets them as data: no URL, no fetch, no
+    font, CMap or decoder URL, no XFA, and no PDF JavaScript (that is pdf.js's viewer scripting, not used). Pages draw
+    to canvases at the screen's pixel ratio, only those in view and one on each side, with a text layer to select and
+    copy; they stay white in a dark theme, while the toolbar (pages, zoom with fit width by default, download) and the
+    page area follow it. Keys: ←/→ or PageUp/PageDown, ⌘+/⌘−/⌘0.
+  - Word, Excel and PowerPoint as the Drive previews them (`/preview`), in the same frame as HTML under that
+    response's policy, which runs no scripts.
+  - The frame never gets DynWork: the account's JWT stays in main and only the page crosses the Ipc; without
+    `allow-same-origin` the frame's origin is opaque (no DynWork storage, cookies or DOM); the preload does not run in
+    sub-frames, so it has no Ipc, and the window's Ipc handshake only takes messages from the window itself; main adds
+    the sidecar's credential only to the top frame's requests; and the page sends no referrer.
+- **Comments** (`comments.tsx`, the pure reads in `model.ts`): the Comments tab of the drawer lists the threads (open and
+  resolved), takes replies and resolves; there is no reopen, 0.83 has no route for it (G12). The instance anchors a
+  comment to a node and a quote inside it, read from the `text` view (every node, blank ones too). A Markdown document is
+  drawn by the app, so `CommentMarks` matches its blocks to the nodes by their text, marks the commented ones and offers
+  Comment on a selection. A page in a frame (HTML, Word, Excel, PowerPoint) has an opaque origin the app cannot read, so
+  the tab lists its nodes to pick from; an HTML page shows its marks (above), and a click on one opens its thread. Picking
+  a thread in the tab brings its mark into view.
+  - **Commenting in place** (phase 18, `spot.ts`, `comment-popup.tsx`): while the marks show and the user may comment,
+    a selection on an HTML page or Markdown, in the Drive and beside a chat, opens a popup right beside it to comment
+    on the quote (the part in the first block when it crosses blocks); a click without a selection on a block with a
+    node comments on the whole block. A click on a mark opens its thread, and one on a link, a button or a control does
+    its own. The popup is the standard Popover anchored to the picked rectangle (below, or above without room, inside
+    the window) with the Comments tab's own form (`CommentForm`: what it points at, @Agent, Cancel and Comment, the
+    Drive's refusals in line). Sent, the new thread is marked on the document and the document stays where it was, at
+    the pixel: no jump to the new mark, and no drawer opens. The Drive selects the thread in the Comments tab quietly
+    (`drive.comment`: `quiet`, so a hidden drawer stays hidden), while beside a chat nothing opens over the
+    conversation. A thread the user picks (its mark, its bubble, its card in the tab, the index) still brings it into view. Escape and Cancel close it without a comment; a click outside closes it only while nothing is
+    written, and a pick elsewhere does not move a popup with text in it, so a stray click loses nothing. In the Drive a
+    quote also offers to ask the agent, as the selection toolbar does. With the marks hidden, Markdown keeps the
+    selection toolbar in the Drive, and comment mode (C) stays the Drive's; beside a chat, C and Escape stay the chat's.
+    Nothing opens while the document is presented. HTML picks come from main's observer (`drive/README.md`). The previews of Word, Excel and PowerPoint, and a PDF, show no marks. A quote is only sent when it is in the node's own text (Markdown syntax
+  included); otherwise the comment anchors to the node. A cell range is offered only with `rangeComments`; a PDF takes
+  no comment (D22). An author no grant names reads "Someone", unless the instance names people by id (`peopleByRest`).
+
+- **Share** (`share-popover.tsx`, the decisions in `model.ts`: `madeByAgent`, `sharing`, `afterShare`): a popover
+  under the Share button (`@opencode/ui/popover`), the same beside a chat and in the Drive's bar, which replaces the
+  drawer's Share tab. It reads who has access, the agents' cap and the revisions when it opens: the document's title
+  and a close, Invite by name or email, the people with access (the owner; each grant with its level in a select;
+  what a folder grants in grey, never changed here; the agents' cap, attended and unattended, never changed here: it
+  needs `own`, which the instance keeps from agents), a note, Copy link (the document's page in Governance) and Open in
+  Governance. The list scrolls inside the popover; 0.83 has no access for everyone and no public link, so there is no
+  General access section.
+  - **Live on a document DynWork's agent made.** The Dynapps extension 0.85 lets an attended agent share a document
+    that agent created (`created_by_agent`, Direct channel, cap `edit`). The instance does not show
+    `created_by_agent`, so the popover takes a document of the user's whose first revision an agent wrote through the
+    API or the `documents` MCP (`madeByAgent`), with the user's access `own` or `share` (the instance takes nothing
+    less for a share) and the agents' cap `edit`.
+  - **What can be done there.** Invite (the directory by name or email, `findPeople`, at `view`), change a level and
+    remove (the select's last choice): each is the user's own act in the window (`dynwork.drive` `share`, `unshare`),
+    sent with DynWork's credential, never the agent's tool or its card.
+  - **When the instance refuses.** An older extension, or another agent of the user's that made the document, answers
+    `person`: the popover keeps the list as it was and says why beside it, with Open in Governance.
+  - **Every other document.** Invite and the levels are shut, with a tooltip that says why: the user does it in
+    Governance when their access lets them share, and otherwise its owner can.
+
+The menus, the Share popover and the comment popup load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does.
 
 ## Runs
 
@@ -202,7 +352,7 @@ Electron's `sidebar` vibrancy in its inactive look, which also takes the desktop
 around the panels, the sidebar, the titlebar and its tabs. `./vibrancy.css` makes that token transparent across the
 shell, so the sidebar and the frame show the same material in every theme and layout; with Reduce transparency the
 shell's root paints the theme's color instead. What sits over the panels gets the opaque color back (the panels, the
-peeking sidebar, the narrow window's drawer). The sign-in screen's brand column gets the same material. Windows and
+peeking sidebar, the narrow window's drawer, a sidebar pill while it opens over the brand). The sign-in screen's brand column gets the same material. Windows and
 Linux keep the opaque window.
 
 ## The Dynapps look

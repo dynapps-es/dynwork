@@ -1,0 +1,1896 @@
+/* The Drive view (`./index.tsx`) and the Drive beside a chat (`./panel.tsx`). Tailwind does not scan dynwork/, so it
+   styles itself with the theme's v2 tokens. Documents keep their own paper colors in both themes, as a page does. */
+
+:root {
+  --drive-agent: #7b00dc;
+  --drive-comment: #f0b400;
+  --drive-highlight: rgb(255 196 0 / 0.28);
+  --drive-highlight-on: rgb(255 196 0 / 0.5);
+  /* A speech bubble with a plus, the comment mode's cursor. */
+  --drive-comment-cursor:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='26' height='26'><path d='M3 2h18a3 3 0 0 1 3 3v11a3 3 0 0 1-3 3H10l-7 6z' fill='%23f0b400' stroke='white' stroke-width='1.6'/><path d='M12 6v8M8 10h8' stroke='white' stroke-width='2'/></svg>")
+      3 24,
+    crosshair;
+}
+
+/* ── Shared pieces ── */
+
+[data-slot="drive-format"] {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: #4d4b63;
+  color: #fff;
+  font: 700 8px/1 var(--v2-font-family-code, monospace);
+  letter-spacing: -0.02em;
+
+  &[data-size="large"] {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    font-size: 10px;
+  }
+
+  &[data-format="docx"] {
+    background: #2b5fd9;
+  }
+  &[data-format="xlsx"] {
+    background: #1e8a4c;
+  }
+  &[data-format="pptx"] {
+    background: #d4561e;
+  }
+  &[data-format="html"] {
+    background: var(--drive-agent);
+  }
+  &[data-format="pdf"] {
+    background: #c8262d;
+  }
+  &[data-format="folder"] {
+    background: transparent;
+    color: var(--v2-icon-icon-muted);
+  }
+}
+
+[data-slot="drive-avatar"] {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  /* A person's initial on the theme's own text color, so it reads in light and dark. */
+  background: var(--v2-text-text-muted);
+  color: var(--v2-background-bg-base);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: 0 0 0 2px var(--v2-background-bg-base);
+
+  &[data-size="small"] {
+    width: 20px;
+    height: 20px;
+    font-size: 8.5px;
+  }
+
+  &[data-agent] {
+    background: linear-gradient(135deg, #7b00dc, #f13c42);
+    color: #fff;
+  }
+}
+
+[data-slot="drive-avatars"] {
+  display: inline-flex;
+  flex: none;
+
+  [data-slot="drive-avatar"] + [data-slot="drive-avatar"] {
+    margin-left: -5px;
+  }
+}
+
+[data-slot="drive-tag"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--v2-background-bg-layer-02);
+  color: var(--v2-text-text-muted);
+  font-size: 11.5px;
+  line-height: 20px;
+  white-space: nowrap;
+
+  &[data-tone="agent"] {
+    background: color-mix(in srgb, var(--drive-agent) 12%, transparent);
+    color: color-mix(in srgb, var(--drive-agent) 80%, var(--v2-text-text-base));
+  }
+  &[data-tone="info"] {
+    background: var(--v2-state-bg-info);
+    color: var(--v2-state-fg-info);
+  }
+  &[data-tone="warning"] {
+    background: var(--v2-state-bg-warning);
+    color: var(--v2-state-fg-warning);
+  }
+  &[data-tone="danger"] {
+    background: var(--v2-state-bg-danger);
+    color: var(--v2-state-fg-danger);
+  }
+  &[data-tone="success"] {
+    background: var(--v2-state-bg-success);
+    color: var(--v2-state-fg-success);
+  }
+}
+
+[data-slot="drive-decision"] {
+  flex: none;
+  padding: 0 4px;
+  border: 1px dashed var(--v2-state-fg-warning);
+  border-radius: 4px;
+  color: var(--v2-state-fg-warning);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+}
+
+[data-slot="drive-grow"] {
+  flex: 1;
+}
+
+[data-slot="drive-faint"] {
+  color: var(--v2-text-text-faint);
+  font-size: 12px;
+}
+
+[data-slot="drive-note"] {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--v2-background-bg-layer-01);
+  color: var(--v2-text-text-muted);
+  font-size: 12px;
+  line-height: 17px;
+
+  &[data-tone="warning"] {
+    background: var(--v2-state-bg-warning);
+    color: var(--v2-state-fg-warning);
+  }
+  &[data-tone="info"] {
+    background: var(--v2-state-bg-info);
+    color: var(--v2-state-fg-info);
+  }
+  &[data-tone="agent"] {
+    background: color-mix(in srgb, var(--drive-agent) 9%, transparent);
+  }
+
+  [data-slot="icon-svg"] {
+    display: inline-block;
+    vertical-align: -3px;
+  }
+}
+
+[data-slot="drive-section"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 6px;
+  color: var(--v2-text-text-muted);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+[data-slot="drive-chips"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+[data-slot="drive-chip"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px 0 6px;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--v2-border-border-muted);
+  color: var(--v2-text-text-muted);
+  font: inherit;
+  font-size: 12px;
+
+  &:hover {
+    background: var(--v2-overlay-simple-overlay-hover);
+  }
+
+  &[aria-pressed="true"] {
+    background: var(--v2-text-text-base);
+    box-shadow: none;
+    color: var(--v2-background-bg-base);
+  }
+
+  [data-slot="drive-format"] {
+    width: 16px;
+    height: 16px;
+    font-size: 6.5px;
+  }
+}
+
+[data-slot="drive-chat-mark"] {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+[data-slot="drive-links"] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+[data-slot="drive-link-row"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v2-text-text-base);
+  font: inherit;
+  text-align: start;
+
+  &:hover {
+    background: var(--v2-overlay-simple-overlay-hover);
+  }
+
+  > span:not([data-slot]) {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="drive-faint"] {
+    flex: none;
+    white-space: nowrap;
+  }
+}
+
+[data-slot="drive-row-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+[data-slot="drive-facts"] {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 6px 10px;
+  margin: 0;
+  font-size: 12.5px;
+
+  dt {
+    color: var(--v2-text-text-faint);
+  }
+
+  dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}
+
+[data-slot="drive-level"] {
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--v2-background-bg-layer-01);
+  color: var(--v2-text-text-base);
+  font: inherit;
+  font-size: 12px;
+}
+
+[data-component="dynwork-demo-badge"] {
+  padding: 0 6px;
+  border: 1px dashed var(--v2-state-fg-warning);
+  border-radius: 4px;
+  color: var(--v2-state-fg-warning);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+/* A thread's lines: who, when, how, and the text. */
+[data-slot="drive-message"] {
+  display: flex;
+  gap: 8px;
+}
+
+[data-slot="drive-message-body"] {
+  flex: 1;
+  min-width: 0;
+}
+
+[data-slot="drive-message-who"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 6px;
+  font-size: 12.5px;
+
+  b {
+    font-weight: 550;
+  }
+
+  > span:not([data-slot]) {
+    color: var(--v2-text-text-faint);
+    font-size: 11.5px;
+  }
+}
+
+[data-slot="drive-via"] {
+  flex-basis: 100%;
+  color: var(--v2-text-text-faint);
+  font-size: 11.5px;
+}
+
+[data-slot="drive-message-text"] {
+  color: var(--v2-text-text-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+[data-slot="drive-mention"] {
+  color: var(--drive-agent);
+  font-weight: 550;
+}
+
+[data-slot="drive-anchor"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--v2-text-text-faint);
+  font-size: 12px;
+
+  [data-slot="icon-svg"] {
+    flex: none;
+  }
+}
+
+[data-slot="drive-anchor-label"] {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes drive-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+[data-slot="drive-del"] {
+  border-radius: 2px;
+  background: #fde3e3;
+  color: #9b1d22;
+  text-decoration: line-through;
+}
+
+[data-slot="drive-ins"] {
+  border-radius: 2px;
+  background: #dff5e6;
+  color: #11602f;
+  text-decoration: none;
+}
+
+[data-slot="drive-banner"] {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--v2-state-border-info);
+  background: var(--v2-state-bg-info);
+  color: var(--v2-state-fg-info);
+  font-size: 12px;
+  line-height: 17px;
+
+  b {
+    font-weight: 600;
+  }
+
+  &[data-tone="success"] {
+    border-bottom-color: var(--v2-state-border-success);
+    background: var(--v2-state-bg-success);
+    color: var(--v2-state-fg-success);
+  }
+
+  &[data-tone="warning"] {
+    border-bottom-color: var(--v2-state-border-warning);
+    background: var(--v2-state-bg-warning);
+    color: var(--v2-state-fg-warning);
+  }
+
+  &[data-tone="comment"] {
+    border-bottom-color: rgb(240 180 0 / 0.45);
+    background: rgb(255 196 0 / 0.14);
+    color: var(--v2-text-text-base);
+  }
+}
+
+/* ── Thumbnails ── */
+
+[data-slot="drive-thumb"] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  height: 92px;
+  overflow: hidden;
+  padding: 10px 18px 0;
+  border-radius: 8px;
+  background: var(--v2-background-bg-layer-01);
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset: 10px 14px 0;
+    border-radius: 3px 3px 0 0;
+    background: #fff;
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 0.06);
+  }
+
+  > * {
+    position: relative;
+  }
+
+  i {
+    display: block;
+    height: 4px;
+    margin-inline: 8px;
+    border-radius: 2px;
+    background: #d9dbe6;
+  }
+
+  i:first-child {
+    margin-top: 8px;
+  }
+
+  &[data-format="docx"] i[data-heading] {
+    width: 55%;
+    height: 6px;
+    background: #2b5fd9;
+  }
+
+  &[data-format="xlsx"]::before {
+    background-color: #fff;
+    background-image:
+      linear-gradient(#e4e6ee 1px, transparent 1px), linear-gradient(90deg, #e4e6ee 1px, transparent 1px);
+    background-size:
+      100% 11px,
+      28px 100%;
+  }
+
+  &[data-format="pptx"]::before {
+    inset: 12px 16px;
+    border-radius: 4px;
+    background: linear-gradient(135deg, #050543, #3b1a8c);
+  }
+
+  &[data-format="pptx"] {
+    padding: 22px 26px;
+    color: #fff;
+    font-size: 9px;
+    font-weight: 600;
+    line-height: 12px;
+
+    i {
+      width: 40%;
+      height: 3px;
+      margin: 6px 0 0;
+      background: #ff911f;
+    }
+  }
+
+  &[data-format="html"] {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    align-content: start;
+    gap: 4px;
+    padding: 18px 20px 0;
+
+    b {
+      grid-column: 1 / -1;
+      height: 22px;
+      border-radius: 3px;
+      background: linear-gradient(90deg, #7b00dc33, #7b00dc11);
+    }
+
+    i {
+      height: 14px;
+      margin: 0;
+      background: #efe6fb;
+    }
+  }
+
+  &[data-format="markdown"] {
+    padding: 18px 22px 0;
+    color: #4d4b63;
+    font: 600 9px/13px var(--v2-font-family-code, monospace);
+  }
+
+  &[data-format="pdf"] {
+    padding-inline: 34px;
+
+    &::before {
+      inset-inline: 30px;
+    }
+
+    &::after {
+      content: "PDF";
+      position: absolute;
+      right: 36px;
+      bottom: 6px;
+      color: #c8262d;
+      font-size: 9px;
+      font-weight: 700;
+    }
+  }
+
+  &[data-format="folder"] {
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--v2-icon-icon-faint);
+
+    &::before {
+      display: none;
+    }
+  }
+}
+
+/* ── The browser ── */
+
+[data-component="dynwork-view"][data-view="drive"] {
+  .drive-search {
+    width: 280px;
+  }
+
+  [data-slot="view-actions"] {
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  [data-slot="drive-browser"] {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+  }
+
+  [data-slot="drive-toolbar"] {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+
+    /* The app's tabs fill their parent's height, which a toolbar does not have. */
+    > [data-component="tabs-v2"] {
+      flex: none;
+      width: auto;
+      height: auto;
+    }
+  }
+
+  [data-slot="drive-browser-body"] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 20px;
+  }
+
+  [data-slot="drive-main"] {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    min-height: 240px;
+  }
+
+  [data-slot="drive-drop"] {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: grid;
+    place-items: center;
+    border: 2px dashed var(--dynwork-primary);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--dynwork-primary) 8%, transparent);
+    color: var(--v2-text-text-base);
+    font-weight: 600;
+  }
+
+  [data-slot="drive-crumbs"] {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--v2-text-text-muted);
+
+    button {
+      padding: 2px 4px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: inherit;
+      font: inherit;
+
+      &:hover {
+        background: var(--v2-overlay-simple-overlay-hover);
+        color: var(--v2-text-text-base);
+      }
+    }
+
+    b {
+      color: var(--v2-text-text-base);
+      font-weight: 600;
+    }
+
+    [data-slot="drive-tag"] {
+      margin-left: 8px;
+    }
+  }
+
+  [data-slot="drive-quick"],
+  [data-slot="drive-grid"] {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  [data-slot="drive-card"] {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    padding: 8px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--v2-border-border-muted);
+    color: var(--v2-text-text-base);
+    font: inherit;
+    text-align: start;
+
+    &:hover {
+      background: var(--v2-overlay-simple-overlay-hover);
+    }
+
+    &[data-state="selected"] {
+      box-shadow: inset 0 0 0 2px var(--dynwork-primary);
+    }
+  }
+
+  [data-slot="drive-card-name"] {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-weight: 550;
+
+    [data-slot="drive-name"] {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  [data-slot="drive-card-meta"] {
+    overflow: hidden;
+    color: var(--v2-text-text-faint);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="drive-files"] {
+    width: 100%;
+    border-collapse: collapse;
+
+    &[data-compact] {
+      table-layout: fixed;
+
+      td:first-child {
+        width: 40%;
+      }
+    }
+
+    th {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--v2-border-border-muted);
+      color: var(--v2-text-text-faint);
+      font-size: 12px;
+      font-weight: 500;
+      text-align: start;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--v2-border-border-muted);
+      color: var(--v2-text-text-muted);
+      white-space: nowrap;
+    }
+
+    td:first-child {
+      color: var(--v2-text-text-base);
+      white-space: normal;
+    }
+  }
+
+  [data-slot="drive-row"] {
+    cursor: default;
+
+    &:hover {
+      background: var(--v2-overlay-simple-overlay-hover);
+    }
+
+    &[aria-selected="true"] {
+      background: color-mix(in srgb, var(--dynwork-primary) 9%, transparent);
+    }
+  }
+
+  [data-slot="drive-name-cell"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  [data-slot="drive-name-stack"] {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  [data-slot="drive-name"] {
+    font-weight: 500;
+
+    mark {
+      border-radius: 2px;
+      background: var(--drive-highlight-on);
+      color: inherit;
+    }
+  }
+
+  [data-slot="drive-snippet"] {
+    overflow: hidden;
+    color: var(--v2-text-text-faint);
+    font-size: 11.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    mark {
+      background: var(--drive-highlight-on);
+      color: inherit;
+    }
+  }
+
+  [data-slot="drive-origin"] {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--v2-text-text-muted);
+  }
+
+  [data-slot="drive-views"] {
+    display: flex;
+    gap: 2px;
+  }
+
+  [data-slot="drive-row-menu"] {
+    width: 36px;
+  }
+
+  [data-slot="drive-chat-group"] {
+    margin-bottom: 14px;
+
+    [data-slot="drive-section"] {
+      color: var(--v2-text-text-base);
+    }
+  }
+
+  [data-slot="drive-empty"] {
+    padding: 48px 16px;
+    border: 1px dashed var(--v2-border-border-muted);
+    border-radius: 10px;
+    color: var(--v2-text-text-faint);
+    text-align: center;
+  }
+
+  [data-slot="drive-preview"] {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    width: 300px;
+    max-height: calc(100vh - 180px);
+    overflow: hidden;
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px var(--v2-border-border-muted);
+  }
+
+  [data-slot="drive-preview-head"] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 10px 8px 12px;
+    border-bottom: 1px solid var(--v2-border-border-muted);
+  }
+
+  [data-slot="drive-preview-title"] {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="drive-preview-body"] {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    overflow-y: auto;
+
+    [data-slot="drive-thumb"] {
+      flex: none;
+      height: 130px;
+    }
+  }
+
+  &[data-layout="narrow"] [data-slot="drive-preview"],
+  &[data-layout="medium"] [data-slot="drive-preview"] {
+    display: none;
+  }
+}
+
+[data-component="drive-new"] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 18px 8px;
+
+  [data-slot="drive-templates"] {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  [data-slot="drive-template"] {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--v2-border-border-base);
+    color: var(--v2-text-text-base);
+    font: inherit;
+    text-align: start;
+
+    &:hover,
+    &[aria-pressed="true"] {
+      box-shadow: inset 0 0 0 2px var(--dynwork-primary);
+    }
+
+    > span:not([data-slot]) {
+      color: var(--v2-text-text-faint);
+      font-size: 11.5px;
+      line-height: 15px;
+    }
+  }
+}
+
+/* ── The open document ── */
+
+[data-component="dynwork-view"][data-view="drive"]:has([data-slot="drive-workspace"]) {
+  [data-slot="view-main"] {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  [data-slot="view-content"] {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+[data-slot="drive-workspace"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+[data-slot="drive-ws-top"] {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+
+  [data-slot="drive-comment-toggle"][aria-pressed="true"] {
+    background: var(--drive-comment);
+    color: #1d1c2b;
+    box-shadow: none;
+  }
+}
+
+[data-slot="drive-ws-name"] {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 16px;
+}
+
+[data-slot="drive-ws-title"] {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-slot="drive-ws-path"],
+[data-slot="drive-ws-saved"] {
+  overflow: hidden;
+  color: var(--v2-text-text-faint);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-slot="drive-ws-saved"] {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+[data-slot="drive-ws-body"] {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The index is as wide as its edge was dragged (`panes.ts`), and never takes more than a third of the view. */
+[data-slot="drive-rail-pane"] {
+  position: relative;
+  display: flex;
+  flex: none;
+  width: 196px;
+  max-width: 33%;
+  min-height: 0;
+  border-right: 1px solid var(--v2-border-border-muted);
+}
+
+[data-slot="drive-rail"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 12px 8px;
+  overflow-y: auto;
+
+  button {
+    flex: none;
+    padding: 4px 8px;
+    overflow: hidden;
+    line-height: 18px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--v2-text-text-muted);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: start;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &:hover {
+      background: var(--v2-overlay-simple-overlay-hover);
+      color: var(--v2-text-text-base);
+    }
+
+    &[data-level="2"] {
+      padding-inline-start: 18px;
+    }
+
+    &[data-level="3"] {
+      padding-inline-start: 28px;
+    }
+
+    &[data-state="pressed"] {
+      background: var(--v2-overlay-simple-overlay-pressed);
+      color: var(--v2-text-text-base);
+    }
+
+    /* The heading being read. */
+    &[data-state="active"] {
+      background: var(--v2-overlay-simple-overlay-pressed);
+      color: var(--v2-text-text-base);
+      font-weight: 550;
+    }
+  }
+}
+
+[data-slot="drive-rail-title"] {
+  padding: 8px 8px 6px;
+  color: var(--v2-text-text-faint);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* The drawer is as wide as its edge was dragged (`panes.ts`), and never takes more than most of the view. Its content
+   sits on the background of the selected tab, so the tab and what it shows read as one piece. */
+[data-slot="drive-drawer"] {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 400px;
+  max-width: 70%;
+  min-height: 0;
+  border-left: 1px solid var(--v2-border-border-muted);
+  background-color: var(--background-stronger);
+
+  > [data-component="tabs"] {
+    flex: none;
+    height: auto;
+
+    [data-slot="tabs-list"] {
+      height: 40px;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    [data-slot="tabs-trigger-wrapper"] {
+      flex: none;
+    }
+
+    [data-slot="tabs-trigger"] {
+      padding-inline: 6px;
+      font-size: 12px;
+    }
+  }
+
+  [data-slot="drive-count"] {
+    margin-left: 4px;
+    padding: 0 5px;
+    border-radius: 8px;
+    background: var(--v2-background-bg-layer-02);
+    color: var(--v2-text-text-faint);
+    font-size: 10.5px;
+  }
+}
+
+[data-slot="drive-drawer-body"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+[data-slot="drive-thread"] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--v2-background-bg-layer-01);
+  cursor: pointer;
+
+  &[data-state="on"] {
+    border-color: var(--drive-comment);
+    background: var(--v2-background-bg-base);
+    box-shadow: var(--v2-elevation-raised);
+  }
+
+  &[data-resolved] {
+    opacity: 0.65;
+  }
+}
+
+[data-slot="drive-thread-anchor"] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 2px solid var(--drive-comment);
+
+  [data-slot="drive-anchor"] {
+    flex: 1;
+  }
+}
+
+[data-slot="drive-reply"] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+[data-slot="drive-diff"] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+[data-slot="drive-version"] {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 6px;
+
+  &[data-current] {
+    background: var(--v2-background-bg-layer-01);
+  }
+
+  [data-slot="drive-faint"] {
+    font-size: 11.5px;
+    line-height: 16px;
+  }
+}
+
+[data-slot="drive-version-title"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+[data-slot="drive-person"] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+[data-slot="drive-person-name"] {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Who has access through a folder: shown, changed only on the folder. */
+[data-slot="drive-person"][data-inherited] {
+  color: var(--v2-text-text-faint);
+}
+
+/* The comment popup, beside what was picked on a document: the comment's form, as in the Comments tab. Its anchor is a
+   point of no size; the popover places itself by the picked rectangle. */
+[data-component="popover-content"].drive-comment-popup {
+  width: 340px;
+  max-width: calc(100vw - 24px);
+}
+
+[data-slot="drive-popup"] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 18px;
+
+  [data-slot="drive-note"] {
+    margin: 0;
+  }
+
+  [data-component="textarea-v2"] {
+    width: 100%;
+  }
+}
+
+[data-slot="popover-trigger"].drive-popup-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* The Share popover: invite, the people with access in a list that scrolls, the reason and Copy link. */
+[data-component="popover-content"].drive-share {
+  width: 360px;
+  max-width: calc(100vw - 24px);
+}
+
+[data-slot="drive-share"] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 18px;
+
+  [data-slot="drive-note"] {
+    margin: 0;
+  }
+
+  /* Invite takes the popover's width, inside the tooltip that says why it is shut. */
+  > [data-component="tooltip-v2-trigger"] {
+    display: flex;
+
+    > * {
+      flex: 1;
+    }
+  }
+}
+
+[data-slot="drive-share-title"] {
+  color: var(--v2-text-text-muted);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+/* The people an invite finds, under the field: each a row to pick. */
+[data-slot="drive-share-found"] {
+  display: flex;
+  flex-direction: column;
+  max-height: 180px;
+  overflow: auto;
+
+  button[data-slot="drive-person"] {
+    width: 100%;
+    padding: 4px 6px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      background: var(--v2-overlay-simple-overlay-hover);
+    }
+
+    [data-slot="drive-faint"] {
+      display: block;
+    }
+  }
+}
+
+[data-slot="drive-share-people"] {
+  max-height: min(50vh, 300px);
+  overflow: auto;
+}
+
+[data-slot="drive-share-foot"] {
+  display: flex;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px solid var(--v2-border-border-muted);
+}
+
+[data-slot="drive-invite"] {
+  display: flex;
+  gap: 6px;
+
+  input {
+    flex: 1;
+    height: 28px;
+    padding: 0 8px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--v2-background-bg-base);
+    box-shadow: var(--v2-elevation-input);
+    color: var(--v2-text-text-base);
+    font: inherit;
+  }
+}
+
+/* The canvas: the document, its comment marks and the selection's toolbar. */
+[data-slot="drive-canvas"] {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: var(--v2-background-bg-layer-01);
+
+  &:has([data-slot="drive-frame"]),
+  &:has([data-component="drive-pdf"]),
+  &:has([data-slot="drive-markdown"]),
+  &:has([data-slot="drive-loading"]) {
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* Present: the document alone over the whole window, which main holds full screen, with Exit over it. It is a manual
+   popover meanwhile, in the top layer: the app's panels contain their content, which would hold a fixed element. */
+[data-slot="drive-canvas"][data-presenting],
+[data-slot="drive-panel-content"][data-presenting] {
+  position: fixed;
+  inset: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--v2-background-bg-base);
+  color: inherit;
+}
+
+[data-slot="drive-present-exit"] {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 2;
+}
+
+/* Show or hide the comments marked on the document: one button, its icon and how many threads are open inside it. */
+[data-slot="drive-marks-toggle"] {
+  flex: none;
+  padding: 0 6px;
+}
+
+/* The document and, beside it, the column of its comments' bubbles. */
+[data-slot="drive-sheet"] {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+
+  > :first-child {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+[data-slot="drive-bubbles"] {
+  position: relative;
+  flex: none;
+  width: 44px;
+  overflow: hidden;
+  border-left: 1px solid var(--v2-border-border-muted);
+  background: var(--v2-background-bg-base);
+}
+
+/* A bubble: the faces of the threads at one height, two of them overlapped and "+N" while folded. Each face is a button
+   of its own; the thread open now comes first, in front, ringed in the comments' accent as its card and its mark are.
+   Hovered, or reached with the keyboard, a bubble of several threads spreads all its faces apart, over the bubbles below
+   it; a face clicked keeps the focus, but not the spread. */
+[data-slot="drive-bubble"] {
+  position: absolute;
+  left: 6px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  border-radius: 12px 12px 12px 3px;
+  background: var(--v2-background-bg-layer-02);
+  color: var(--v2-text-text-muted);
+  font-size: 10px;
+
+  [data-slot="drive-avatar"] {
+    box-shadow: 0 0 0 1.5px var(--v2-background-bg-layer-02);
+  }
+
+  &:is(:hover, :has(:focus-visible)):has([data-slot="drive-bubble-face"] + [data-slot="drive-bubble-face"]) {
+    z-index: 2;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: var(--v2-elevation-raised);
+
+    [data-slot="drive-bubble-face"] {
+      display: inline-grid;
+      margin: 0;
+    }
+
+    [data-slot="drive-bubble-more"] {
+      display: none;
+    }
+  }
+
+  &:not(:hover, :has(:focus-visible)) [data-slot="drive-bubble-face"]:nth-of-type(n + 3) {
+    display: none;
+  }
+}
+
+[data-slot="drive-bubble-face"] {
+  position: relative;
+  display: inline-grid;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+
+  & + & {
+    margin-left: -5px;
+  }
+
+  &:hover [data-slot="drive-avatar"] {
+    filter: brightness(1.15);
+  }
+
+  &[data-state="on"] [data-slot="drive-avatar"] {
+    box-shadow:
+      0 0 0 1.5px var(--v2-background-bg-layer-02),
+      0 0 0 3px var(--drive-comment);
+  }
+}
+
+[data-slot="drive-bubble-more"] {
+  padding: 0 2px 0 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A thread or the sharing of a document beside a chat, in a dialog. */
+[data-component="drive-dialog"] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 20px 20px;
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* A page's frame, with the loading indicator over it until its first page has loaded. */
+[data-slot="drive-frame-box"] {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+
+  > [data-slot="drive-loading"] {
+    position: absolute;
+    inset: 0;
+  }
+}
+
+[data-slot="drive-frame"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* A document loading: the app's indicator in the middle of where the document will show, on its reading surface. */
+[data-slot="drive-loading"] {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  background: var(--v2-background-bg-base);
+}
+
+/* A Markdown document, drawn by the app's own renderer on the theme's reading surface. */
+[data-slot="drive-markdown"] {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 24px 32px;
+  background: var(--v2-background-bg-base);
+  color: var(--v2-text-text-base);
+}
+
+/* The PDF viewer: the theme's chrome around pages that stay as the PDF draws them. */
+[data-component="drive-pdf"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  outline: none;
+}
+
+[data-slot="drive-pdf-bar"] {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+  background: var(--v2-background-bg-base);
+  color: var(--v2-text-text-muted);
+  font-size: 12px;
+}
+
+[data-slot="drive-pdf-pages"] {
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+[data-slot="drive-pdf-scroll"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  /* Centered, but a page wider than the room still scrolls to its left edge. */
+  align-items: safe center;
+  gap: 16px;
+  min-height: 0;
+  padding: 24px;
+  overflow: auto;
+  /* A scrollbar that comes and goes would change the room `fit` measures, and the fit again. */
+  scrollbar-gutter: stable;
+  background: var(--v2-background-bg-layer-01);
+}
+
+[data-slot="drive-pdf-page"] {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  border-radius: 6px;
+  /* The page's own paper: a PDF has no dark version. */
+  background: white;
+  box-shadow: var(--v2-elevation-raised);
+
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+[data-slot="drive-pdf-texts"] {
+  position: absolute;
+  inset: 0;
+}
+
+/* pdf.js's text layer: transparent text over the canvas, there to select and copy (pdf.js's own rules, trimmed). */
+[data-slot="drive-pdf-text"] {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+
+  :is(span, br) {
+    position: absolute;
+    color: transparent;
+    white-space: pre;
+    cursor: text;
+    transform-origin: 0% 0%;
+    user-select: text;
+  }
+
+  > :not(.markedContent),
+  .markedContent span:not(.markedContent) {
+    z-index: 1;
+    --font-height: 0;
+    font-size: calc(var(--text-scale-factor) * var(--font-height));
+    --scale-x: 1;
+    --rotate: 0deg;
+    transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+  }
+
+  .markedContent {
+    display: contents;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, AccentColor, transparent 50%);
+    color: transparent;
+  }
+
+  br::selection {
+    background: transparent;
+  }
+
+  .endOfContent {
+    position: absolute;
+    inset: 100% 0 0;
+    display: block;
+    user-select: none;
+    cursor: default;
+  }
+}
+
+[data-slot="drive-selection"] {
+  position: absolute;
+  z-index: 20;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: var(--v2-background-bg-base);
+  box-shadow: var(--v2-elevation-overlay);
+  white-space: nowrap;
+}
+
+[data-slot="drive-card-who"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+[data-slot="drive-card-row"] {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Beside a chat ── */
+
+[data-component="drive-panel"] {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--v2-background-bg-base);
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+[data-slot="drive-panel-head"] {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--v2-border-border-muted);
+}
+
+[data-slot="drive-panel-meta"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 17px;
+
+  [data-slot="drive-faint"] {
+    overflow: hidden;
+    font-size: 11.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  [data-slot="drive-tag"] {
+    height: 16px;
+    font-size: 10.5px;
+    line-height: 16px;
+  }
+}
+
+[data-slot="drive-panel-title"] {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-slot="drive-panel-body"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+[data-slot="drive-panel-empty"] {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 6px;
+  color: var(--v2-text-text-muted);
+
+  p {
+    margin: 0;
+  }
+}
+
+[data-slot="drive-change"] {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--v2-border-border-muted);
+  border-radius: 10px;
+  background: var(--v2-background-bg-layer-01);
+  color: var(--v2-text-text-base);
+  font: inherit;
+  text-align: start;
+
+  &:hover {
+    background: var(--v2-background-bg-base);
+    box-shadow: var(--v2-elevation-raised);
+  }
+
+  > [data-slot="icon-svg"] {
+    color: var(--v2-icon-icon-faint);
+  }
+}
+
+[data-slot="drive-change-body"] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+[data-slot="drive-change-title"] {
+  overflow: hidden;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-slot="drive-change-meta"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+[data-slot="drive-version-pill"] {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--v2-background-bg-layer-02);
+  color: var(--v2-text-text-muted);
+  font-size: 11px;
+}
+
+[data-slot="drive-panel-content"] {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+  background: var(--v2-background-bg-layer-01);
+}
+
+/* A menu item only people can use from v2 says where it happens meanwhile. */
+[data-slot="drive-menu-hint"] {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--v2-text-text-faint);
+  font-size: 11px;
+}
+
+/* The Comments tab: the filter and New comment, the picker of where a comment goes. */
+[data-slot="drive-comments-bar"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  button {
+    white-space: nowrap;
+  }
+}
+
+[data-slot="drive-picks"] {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+[data-slot="drive-pick"] {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--v2-text-text-base);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--v2-background-bg-layer-02);
+  }
+}
+
+/* A comment's mark on a Markdown document: a bar in the margin of the block, and its thread on a click. */
+[data-slot="drive-markdown"] [data-thread] {
+  border-radius: 2px;
+  box-shadow: -10px 0 0 -7px var(--drive-comment);
+  background: var(--drive-highlight);
+  cursor: pointer;
+
+  &[data-on] {
+    background: var(--drive-highlight-on);
+  }
+
+  &[data-resolved] {
+    box-shadow: none;
+    background: transparent;
+  }
+}
+
+/* Comment mode: the block a click would comment on is outlined, under the comment cursor. */
+[data-slot="drive-canvas"][data-commenting] [data-slot="drive-markdown"] {
+  [data-node]:not([data-thread]):hover {
+    border-radius: 2px;
+    outline: 2px dashed rgb(240 180 0 / 0.75);
+    outline-offset: 2px;
+    cursor: var(--drive-comment-cursor);
+  }
+}
+
+/* A document's tab in the side panel (`tab-label.tsx`): its glyph, and its name cut with an ellipsis. The app's strip lets
+   every tab shrink to 72px before it scrolls, which leaves a name unreadable: a document's tab keeps room for a few
+   letters, and the strip scrolls sooner. The extra selector parts only win over the app's rule for the tabs of the strip. */
+:root
+  body
+  #review-panel
+  [data-component="tabs"][data-variant="normal"][data-orientation="horizontal"]
+  [data-slot="tabs-list"][data-pane-strip]
+  > [data-pane-tab^="dynwork:drive"] {
+  min-width: 132px;
+}
+
+[data-slot="drive-tab"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+[data-slot="drive-tab-name"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

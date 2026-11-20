@@ -23,7 +23,8 @@ export function composerProviderName(
 ) {
   const provider = catalog.get(providerID)
 
-  if (!provider) return providerID
+  // DynWork: its gateway provider (`systemprompt`) shows as Governance while the service does not list it.
+  if (!provider) return providerID === "systemprompt" ? "Governance" : providerID
 
   if (native(provider)) return
   const all = [...catalog.values()]

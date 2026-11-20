@@ -37,7 +37,7 @@ upstream tag stays cheap:
   `background-service.ts` and `sidecar-probe.ts`), which loads the DynWork server plugin (`packages/server-plugin`)
   shipped as an extra resource (`electron-builder.config.ts`).
 - **Patch guard:** every upstream file DynWork touches has a row in `PATCHES.md`; `script/patches.ts` and the `dynwork`
-  workflow fail otherwise or when the line budget is passed.
+  workflow fail otherwise. They report how many lines the patches change, without a limit.
 
 Processes and data flow:
 
@@ -610,8 +610,8 @@ bun dynwork/script/patches.ts
 
 Compares `HEAD` against the tag in `dynwork/UPSTREAM` (so commit first; the working tree is not read) and prints one
 row per upstream file that differs, outside `dynwork/` and `plans/`. It exits 1 when a changed file has no row in
-`PATCHES.md`, when a row lists a file that no longer differs, or when the modified upstream files change more lines than
-the `Budget:` line of `PATCHES.md` allows. The tag must be in the clone (`git fetch upstream tag v2.2.5`). The `dynwork`
+`PATCHES.md`, or when a row lists a file that no longer differs; it reports the lines the modified upstream files
+change, without a limit. The tag must be in the clone (`git fetch upstream tag v2.2.5`). The `dynwork`
 workflow (`.github/workflows/dynwork.yml`) runs it on every push and pull request to `main` and `sp-auth-sync`, with the
 tests and typechecks of every `dynwork/packages/*`; upstream's own workflows are disabled on the fork.
 

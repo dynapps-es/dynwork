@@ -264,7 +264,8 @@ describe("the remote tunnel", () => {
     w.remote.setEnabled(true)
     await until(() => w.remote.state().status === "connected")
     const phone = await pairPhone(w.alpha, (await w.remote.pair()).qr)
-    await until(() => w.remote.state().phones[0]?.online === true)
+    // The name arrives with the phone's claim, after the link is up: leaving earlier logs the fingerprint instead
+    await until(() => w.remote.state().phones[0]?.online === true && w.remote.state().phones[0]?.name === "Pixel")
     phone.link.close()
     await until(() => w.remote.state().phones[0]?.online === false)
     await until(() => w.remote.state().audit[0]?.event === "disconnected")

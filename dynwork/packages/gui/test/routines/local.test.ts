@@ -94,6 +94,15 @@ describe("the local backend", () => {
     await ok(backend.start(routine.ref.id))
   })
 
+  test("a manual start still launching counts as going, so a scheduled run does not start beside it", async () => {
+    const { backend } = setup()
+    const routine = await ok(backend.create(prompt()))
+    const started = backend.start(routine.ref.id)
+    expect(await backend.going(routine.ref.id)).toBe(true)
+    await ok(started)
+    expect(await backend.going(routine.ref.id)).toBe(true)
+  })
+
   test("start creates the anchor once, then a child session per run with the routine's fields", async () => {
     const { backend, service, time } = setup()
     const routine = await ok(
@@ -211,7 +220,7 @@ describe("the local backend", () => {
     time.advance(MINUTE)
     service.finish("failed")
     await until(() => backend.running() === 0)
-    await until(() => service.sessions.get(anchor)?.metadata?.dynwork !== undefined && notices.length > 0)
+    await until(() => service.sessions.get(anchor)?.metadata?.dynwork?.last !== undefined && notices.length > 0)
     expect(service.sessions.get(anchor)?.metadata).toMatchObject({
       dynwork: { routine: routine.ref.id, role: "anchor", last: { run: run.ref.id, state: "failed" } },
     })

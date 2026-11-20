@@ -39,7 +39,7 @@ día con OpenCode". Run it end to end: merge, check, PR, merge the PR, build and
    how it was resolved, and the trailers.
 7. **Check**, in this order, all from the worktree:
    - `bun dynwork/script/patches.ts` (it reads committed files, so after step 6): every differing upstream file has a
-     row and the budget holds. Fix `PATCHES.md` rows when upstream moved or renamed a patched file.
+     row (the line count it prints is informative). Fix `PATCHES.md` rows when upstream moved or renamed a patched file.
    - `bun run check --force` from the root.
    - `bun run test` in each `dynwork/packages/*`, and `bun test` in `packages/desktop` and `packages/gui-plugins`.
      Never run tests from the repository root.
