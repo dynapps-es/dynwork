@@ -20,7 +20,7 @@ describe("the views' strings", () => {
 
   test("have every key the Agents view builds from data", () => {
     const keys = [
-      ...[...RunState.literals, "waiting"].map((state) => `agents.run.${state}`),
+      ...[...RunState.literals, "waiting", "asking"].map((state) => `agents.run.${state}`),
       ...statuses.map((status) => `agents.filter.${status}`),
       ...wheres.map((where) => `agents.where.${where}`),
       ...tabs.map((tab) => `agents.tab.${tab}`),

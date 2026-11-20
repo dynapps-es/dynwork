@@ -17,6 +17,7 @@ function subject(build: (now: () => number) => RoutinesFake.Fake): () => Subject
         time.advance(10 * MINUTE)
         backend.settle()
       },
+      ask: async (run, question) => backend.ask(run, question),
     }
   }
 }
@@ -143,7 +144,11 @@ describe("paging", () => {
     })
     const list = await backend.create(await sample(backend, "Paged"))
     if (isFailure(list)) throw new Error(list.message)
-    await Promise.all([1, 2, 3, 4, 5].map(() => backend.start(list.ref.id)))
+    for (const _ of [1, 2, 3, 4, 5]) {
+      await backend.start(list.ref.id)
+      time.advance(10 * MINUTE)
+      backend.settle()
+    }
     const first = await backend.runs({})
     if (isFailure(first)) throw new Error(first.message)
     expect(first.items).toHaveLength(2)
@@ -203,5 +208,72 @@ describe("what the fakes keep of the real backends' behavior", () => {
     const backend = RoutinesDemo.remote(clock().now)
     const found = await backend.options("agents", "MR")
     expect(isFailure(found) ? [] : found.map((choice) => choice.value)).toEqual(["mr-review"])
+  })
+})
+
+describe("the demo's remote run that waits on a question", () => {
+  test("is a running run with the reason `question`, and answering it lets it finish", async () => {
+    const time = clock()
+    const backend = RoutinesDemo.remote(time.now)
+    const page = await backend.runs({})
+    if (isFailure(page)) throw new Error(page.message)
+    const waiting = page.items.find((run) => run.question)
+    const question = waiting?.question
+    if (!waiting || !question) throw new Error("the demo has no waiting run")
+    expect(waiting.state).toBe("running")
+    expect(waiting.reason).toBe("question")
+    expect(waiting.unread).toBe(true)
+    expect(question.choices.length).toBeGreaterThan(1)
+
+    // Waiting runs do not finish by themselves.
+    time.advance(10 * MINUTE)
+    backend.settle()
+    const still = await backend.runs({})
+    if (isFailure(still)) throw new Error(still.message)
+    expect(still.items.find((run) => run.ref.id === waiting.ref.id)).toMatchObject({ state: "running" })
+
+    const choice = question.choices[0] ?? ""
+    expect(await backend.answerQuestion?.({ run: waiting.ref.id, question: question.id, choice })).toBeUndefined()
+    const after = await backend.runs({})
+    if (isFailure(after)) throw new Error(after.message)
+    const answered = after.items.find((run) => run.ref.id === waiting.ref.id)
+    expect(answered).toMatchObject({ state: "running", unread: false })
+    expect(answered?.question).toBeUndefined()
+    expect(answered?.reason).toBeUndefined()
+  })
+})
+
+describe("a reply on the fakes", () => {
+  test("the remote fake resumes: a new run of the same routine, the old one untouched", async () => {
+    const backend = RoutinesDemo.remote(clock().now)
+    const page = await backend.runs({})
+    if (isFailure(page)) throw new Error(page.message)
+    const finished = page.items.find((run) => run.state === "ok" && run.routine)
+    if (!finished) throw new Error("no finished run")
+    const next = await backend.reply?.({ run: finished.ref.id, text: "Now do the same for the other repository." })
+    if (!next || isFailure(next)) throw new Error("reply failed")
+    expect(next.routine).toEqual(finished.routine)
+    expect(next.ref.id).not.toBe(finished.ref.id)
+    expect(next.state).toBe("running")
+    const after = await backend.runs({})
+    if (isFailure(after)) throw new Error(after.message)
+    expect(after.items.find((run) => run.ref.id === finished.ref.id)).toEqual(finished)
+  })
+
+  test("the local fake keeps the conversation in place, so it has no reply to give", async () => {
+    const backend = RoutinesDemo.local(clock().now)
+    const page = await backend.runs({})
+    if (isFailure(page)) throw new Error(page.message)
+    const run = page.items[0]
+    expectFailure(await backend.reply?.({ run: run?.ref.id ?? "", text: "More." }), "unsupported")
+    expectFailure(await backend.answerQuestion?.({ run: run?.ref.id ?? "", question: "q", choice: "Yes" }), "conflict")
+  })
+
+  test("a run with a question waiting is answered, not replied to", async () => {
+    const backend = RoutinesDemo.remote(clock().now)
+    const page = await backend.runs({})
+    if (isFailure(page)) throw new Error(page.message)
+    const waiting = page.items.find((run) => run.question)
+    expectFailure(await backend.reply?.({ run: waiting?.ref.id ?? "", text: "Go on." }), "conflict")
   })
 })

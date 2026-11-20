@@ -45,6 +45,8 @@ export const Definition = Schema.Struct({
   enabled: Schema.Boolean,
   /** The backend's own fields, by `Field.key`. Keys never collide with the common ones above. */
   options: Schema.Record(Schema.String, Schema.Json),
+  /** The template the routine was activated from, at the revision it follows. */
+  template: Schema.optional(Schema.Struct({ id: Schema.String, revision: Schema.Number })),
 })
 export type Definition = typeof Definition.Type
 
@@ -88,12 +90,29 @@ export const RunState = Schema.Literals([
 ])
 export type RunState = typeof RunState.Type
 
+/**
+ * What a running run asks the user, and waits for: one of `choices` answers it (`answerQuestion`). While it is set the
+ * run is `running` with the reason `question`, which the views read as "waiting for your answer".
+ */
+export const Question = Schema.Struct({
+  /** Identifies this question; an answer names it, so a late answer to an earlier one is refused. */
+  id: Schema.String,
+  text: Schema.String,
+  choices: Schema.Array(Schema.String),
+  /** After this the question is no longer waiting for an answer. Absent: it does not expire. */
+  expires: Schema.optional(Schema.Number),
+})
+export type Question = typeof Question.Type
+
 export const Run = Schema.Struct({
   ref: Ref,
   /** The routine it belongs to; a farm task started outside DynWork has none. */
   routine: Schema.optional(Ref),
   state: RunState,
-  /** Machine code for the state, such as `timeout`, `closed`, `overlap`, `quota`, `permission`, `restart`. */
+  /**
+   * Machine code for the state, such as `timeout`, `closed`, `overlap`, `quota`, `permission`, `restart`; `question`
+   * while `question` is set.
+   */
   reason: Schema.optional(Schema.String),
   trigger: Schema.Literals(["schedule", "manual", "catch-up"]),
   /** The slot it was due at; absent for a manual run. */
@@ -105,6 +124,8 @@ export const Run = Schema.Struct({
   cost: Schema.optional(Schema.Struct({ amount: Schema.Number, currency: Schema.String })),
   /** Finished and not opened yet, or waiting for the user's answer. */
   unread: Schema.Boolean,
+  /** Set while the run waits for the user's answer to it. */
+  question: Schema.optional(Question),
   conversation: Conversation,
 })
 export type Run = typeof Run.Type
@@ -328,11 +349,27 @@ export const Routines = Ipc.define({
     remove: { input: Schema.Struct(OnRoutine), output: Done },
     pause: { input: Schema.Struct(OnRoutine), output: Done },
     resume: { input: Schema.Struct(OnRoutine), output: Done },
-    /** Starts a run now, whatever the schedule says. */
+    /**
+     * Starts a run now and never moves the schedule. While a run of this routine is still going it answers `conflict`,
+     * unless the routine allows overlap.
+     */
     start: { input: Schema.Struct(OnRoutine), output: Outcome(Run) },
     /** Makes this device the one that runs a routine of another device; `unsupported` for a backend without owners. */
     move: { input: Schema.Struct(OnRoutine), output: Done },
     cancel: { input: Schema.Struct({ ...OnBackend, run: Schema.String }), output: Done },
+    /**
+     * Continues a finished run with the user's words, where `actions.reply` is `resume`: the answer is the new run, of
+     * the same routine. `unsupported` for a backend that continues in place, or never.
+     */
+    reply: {
+      input: Schema.Struct({ ...OnBackend, run: Schema.String, text: Schema.String }),
+      output: Outcome(Run),
+    },
+    /** Answers the question a run waits on with one of its choices; `unsupported` for a backend that never asks. */
+    answerQuestion: {
+      input: Schema.Struct({ ...OnBackend, run: Schema.String, question: Schema.String, choice: Schema.String }),
+      output: Done,
+    },
     /** Newest first. Without `routine`: every run the backend knows (Activity). */
     runs: {
       input: Schema.Struct({

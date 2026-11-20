@@ -134,7 +134,7 @@ describe("the Ipc methods", () => {
     const { client } = setup()
     await client.refresh()
     const routine = routinesIn(client).find(
-      (item) => item.ref.backend === "farm" && item.definition.schedule,
+      (item) => item.ref.backend === "farm" && item.definition.schedule && item.last?.state !== "running",
     ) as Routine
     const run = await client.start({ backend: "farm", id: routine.ref.id })
     if (isFailure(run)) throw new Error(run.message)
@@ -146,6 +146,45 @@ describe("the Ipc methods", () => {
     const transcript = await client.transcript({ backend: "farm", run: run.ref.id })
     expect(isFailure(transcript)).toBe(false)
     await client.viewed({ backend: "farm", run: run.ref.id })
+  })
+
+  test("reply and answerQuestion reach the backend, and a backend without them answers unsupported", async () => {
+    const { client, local } = setup()
+    await client.refresh()
+    const page = await client.runs({ backend: "farm" })
+    if (isFailure(page)) throw new Error(page.message)
+    const finished = page.items.find((run) => run.state === "ok" && run.routine)
+    const waiting = page.items.find((run) => run.question)
+    if (!finished || !waiting?.question) throw new Error("the demo lacks a finished run or a waiting one")
+
+    const next = await client.reply({ backend: "farm", run: finished.ref.id, text: "Go on." })
+    if (isFailure(next)) throw new Error(next.message)
+    expect(next.routine).toEqual(finished.routine)
+    expect(routinesIn(client).find((item) => item.ref.id === finished.routine?.id)?.last?.ref).toEqual(next.ref)
+
+    const answered = await client.answerQuestion({
+      backend: "farm",
+      run: waiting.ref.id,
+      question: waiting.question.id,
+      choice: waiting.question.choices[0] ?? "",
+    })
+    expect(answered).toBeUndefined()
+    const after = await client.runs({ backend: "farm" })
+    expect(
+      isFailure(after) ? undefined : after.items.find((run) => run.ref.id === waiting.ref.id)?.question,
+    ).toBeUndefined()
+
+    const bare: Backend = { ...local, reply: undefined, answerQuestion: undefined }
+    const { client: other } = (() => {
+      const registry = RoutinesBackend.make()
+      registry.register(bare)
+      return connect(registry)
+    })()
+    expectFailure(await other.reply({ backend: "local", run: "x", text: "Go on." }), "unsupported")
+    expectFailure(
+      await other.answerQuestion({ backend: "local", run: "x", question: "q", choice: "Yes" }),
+      "unsupported",
+    )
   })
 
   test("validate answers a failure with its fields, or nothing", async () => {
@@ -269,7 +308,7 @@ describe("watching", () => {
     expect(fake.open.count).toBe(0)
     expect(real.open.count).toBe(1)
 
-    const routine = routinesIn(client).find((item) => item.definition.schedule) as Routine
+    const routine = routinesIn(client).find((item) => item.definition.schedule && item.last?.state !== "running") as Routine
     await real.backend.start(routine.ref.id)
     await flush()
     expect(events).toHaveLength(1)

@@ -19,12 +19,16 @@ const broken: readonly RunState[] = ["failed", "blocked"]
 
 export const isLive = (run?: Run) => !!run && live.includes(run.state)
 
-/** A run that waits for the user's answer to a permission request: it runs, and will not go on alone. */
-export const waiting = (run: Pick<Run, "state" | "reason">) => run.state === "running" && run.reason === "permission"
+/**
+ * A run that waits for the user: for the answer to a permission request (`permission`) or to a question it asks
+ * (`question`, with `Run.question`). It runs, and will not go on alone.
+ */
+export const waiting = (run: Pick<Run, "state" | "reason">) =>
+  run.state === "running" && (run.reason === "permission" || run.reason === "question")
 
-/** The message key of a run's state: "Waiting for your permission" while it waits, else its state's. */
+/** The message key of a run's state: "Waiting for your permission" or "...your answer" while it waits, else its state's. */
 export const stateKey = (run: Pick<Run, "state" | "reason">) =>
-  waiting(run) ? "agents.run.waiting" : `agents.run.${run.state}`
+  waiting(run) ? (run.reason === "question" ? "agents.run.asking" : "agents.run.waiting") : `agents.run.${run.state}`
 
 /** The tone a run's state is drawn in. */
 export function runTone(state: RunState, reason?: string): Tone | undefined {

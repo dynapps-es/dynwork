@@ -168,3 +168,13 @@ describe("a run waiting for a permission", () => {
     ])
   })
 })
+
+describe("a run waiting for the user's answer to a question", () => {
+  test("is a running run with the reason `question`: its own words, the warning tone, and nothing else is", () => {
+    const asking = { state: "running", reason: "question" } as const
+    expect([waiting(asking), waiting({ state: "failed", reason: "question" })]).toEqual([true, false])
+    expect(t(stateKey(asking))).toBe("Waiting for your answer")
+    expect(t(stateKey({ state: "running", reason: "permission" }))).toBe("Waiting for your permission")
+    expect([runTone("running", "question"), runTone("failed", "question")]).toEqual(["warning", "danger"])
+  })
+})

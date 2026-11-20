@@ -9,6 +9,7 @@ import {
   type Definition,
   type Failure,
   type Field,
+  type Question,
 } from "../../src/routines/contract"
 import { crossing } from "./wire"
 
@@ -17,6 +18,11 @@ export interface Subject {
   readonly backend: Backend
   /** Brings every run that is going to a terminal state, however the backend does it (a clock, a poll, a service). */
   finish(): Promise<void>
+  /**
+   * Makes a run that is going wait on `question`, as the backend does when its agent asks the user something. A backend
+   * that cannot be made to ask in a test leaves it out, and the question cases are skipped.
+   */
+  ask?(run: string, question: Question): Promise<void>
 }
 
 // The keys the form keeps for itself: a backend field with one of them would shadow it in `Failure.fields`.
@@ -128,7 +134,9 @@ export function conformance(name: string, make: () => Promise<Subject> | Subject
       const subject = await make()
       const { backend } = subject
       const created = await ok(backend.create(await sample(backend, "Pages")))
-      const started = [await ok(backend.start(created.ref.id)), await ok(backend.start(created.ref.id))]
+      const first = await ok(backend.start(created.ref.id))
+      await subject.finish()
+      const started = [first, await ok(backend.start(created.ref.id))]
       await subject.finish()
 
       const seen: string[] = []
@@ -148,6 +156,21 @@ export function conformance(name: string, make: () => Promise<Subject> | Subject
       expect(new Set(seen).size).toBe(seen.length)
       expect(seen.slice(0, 2)).toEqual(started.map((run) => run.ref.id).reverse())
       expect(times).toEqual([...times].sort((left, right) => right - left))
+    })
+
+    test("a start while a run is going answers conflict", async () => {
+      const subject = await make()
+      const { backend } = subject
+      const created = await ok(backend.create(await sample(backend, "Going")))
+      const run = await ok(backend.start(created.ref.id))
+      expectFailure(await backend.start(created.ref.id), "conflict")
+      expect((await ok(backend.runs({ routine: created.ref.id }))).items.map((item) => item.ref.id)).toEqual([
+        run.ref.id,
+      ])
+
+      await subject.finish()
+      const next = await ok(backend.start(created.ref.id))
+      expect(next.ref).not.toEqual(run.ref)
     })
 
     test("a running run is cancelled once, where the backend can", async () => {
@@ -259,6 +282,85 @@ export function conformance(name: string, make: () => Promise<Subject> | Subject
         return
       }
       expectFailure(answer, "unsupported")
+    })
+
+    test("a template link goes in with the definition, comes back intact and survives an update", async () => {
+      const { backend } = await make()
+      const template = { id: "weekly-report", revision: 4 }
+      const created = await ok(backend.create({ ...(await sample(backend, "Linked")), template }))
+      expect(created.definition.template).toEqual(template)
+      expect((await ok(backend.get(created.ref.id))).definition.template).toEqual(template)
+      expect(crossing(Routine, created)).toEqual(created)
+      const updated = await ok(backend.update(created.ref.id, { ...created.definition, name: "Linked, renamed" }))
+      expect(updated.definition.template).toEqual(template)
+      expect((await ok(backend.get(updated.ref.id))).definition.template).toEqual(template)
+    })
+
+    test("an edit in place keeps the routine's id and the runs it has", async () => {
+      const subject = await make()
+      const { backend } = subject
+      if ((await backend.capabilities()).actions.edit !== "in-place") return
+      const created = await ok(backend.create(await sample(backend, "Kept")))
+      const run = await ok(backend.start(created.ref.id))
+      const before = (await listed(backend)).map((routine) => routine.ref.id)
+      const updated = await ok(backend.update(created.ref.id, { ...created.definition, name: "Kept, edited" }))
+      expect(updated.ref).toEqual(created.ref)
+      expect((await listed(backend)).map((routine) => routine.ref.id)).toEqual(before)
+      expect((await ok(backend.runs({ routine: created.ref.id }))).items.map((item) => item.ref.id)).toContain(
+        run.ref.id,
+      )
+    })
+
+    test("a reply continues a finished run as a new run of the same routine, where the backend resumes", async () => {
+      const subject = await make()
+      const { backend } = subject
+      const capabilities = await backend.capabilities()
+      const created = await ok(backend.create(await sample(backend, "Continue")))
+      const run = await ok(backend.start(created.ref.id))
+      await subject.finish()
+      if (capabilities.actions.reply !== "resume") {
+        if (backend.reply) expectFailure(await backend.reply({ run: run.ref.id, text: "Go on." }), "unsupported")
+        return
+      }
+      if (!backend.reply) throw new Error("A backend that resumes answers `reply`.")
+      const next = await ok(backend.reply({ run: run.ref.id, text: "Go on." }))
+      expect(next.ref.backend).toBe(backend.id)
+      expect(next.ref.id).not.toBe(run.ref.id)
+      expect(next.routine).toEqual(created.ref)
+      expect(["queued", "running"]).toContain(next.state)
+      expect((await ok(backend.runs({ routine: created.ref.id }))).items[0]?.ref).toEqual(next.ref)
+      expectFailure(await backend.reply({ run: "nope", text: "Go on." }), "not-found")
+      expectFailure(await backend.reply({ run: run.ref.id, text: "   " }), "invalid")
+      expectFailure(await backend.reply({ run: next.ref.id, text: "Too soon." }), "conflict")
+    })
+
+    test("a question is answered with one of its choices, once, and the run goes on without it", async () => {
+      const subject = await make()
+      const { backend } = subject
+      if (!subject.ask || !backend.answerQuestion) return
+      const created = await ok(backend.create(await sample(backend, "Ask")))
+      const run = await ok(backend.start(created.ref.id))
+      const question = { id: "q-1", text: "Delete the old branch?", choices: ["Yes", "No"] }
+      await subject.ask(run.ref.id, question)
+      const waiting = (await ok(backend.runs({ routine: created.ref.id }))).items[0]
+      expect(waiting?.question).toEqual(question)
+      expect(waiting?.state).toBe("running")
+      expect(waiting?.unread).toBe(true)
+      const page = await ok(backend.runs({}))
+      expect(crossing(RunPage, page)).toEqual(page)
+
+      expectFailure(await backend.answerQuestion({ run: run.ref.id, question: "q-1", choice: "Maybe" }), "invalid")
+      expectFailure(await backend.answerQuestion({ run: run.ref.id, question: "q-0", choice: "Yes" }), "conflict")
+      expectFailure(await backend.answerQuestion({ run: "nope", question: "q-1", choice: "Yes" }), "not-found")
+      expect((await ok(backend.runs({ routine: created.ref.id }))).items[0]?.question).toEqual(question)
+
+      expect(await backend.answerQuestion({ run: run.ref.id, question: "q-1", choice: "No" })).toBeUndefined()
+      const answered = (await ok(backend.runs({ routine: created.ref.id }))).items[0]
+      expect(answered?.question).toBeUndefined()
+      expect(answered?.state).toBe("running")
+      expectFailure(await backend.answerQuestion({ run: run.ref.id, question: "q-1", choice: "No" }), "conflict")
+      await subject.finish()
+      expect((await ok(backend.runs({ routine: created.ref.id }))).items[0]?.state).toBe("ok")
     })
 
     test("everything it answers survives the wire", async () => {

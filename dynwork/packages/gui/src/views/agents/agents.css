@@ -707,6 +707,27 @@
     overflow-wrap: anywhere;
   }
 
+  [data-slot="agents-viewer-question"] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--v2-state-border-warning);
+    border-radius: 8px;
+    background: var(--v2-state-bg-warning);
+
+    p {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  [data-slot="agents-viewer-choices"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
   [data-slot="agents-viewer-foot"] {
     display: flex;
     flex-wrap: wrap;
@@ -719,6 +740,10 @@
 
     [data-slot="agents-hint"] {
       flex: 1 1 200px;
+    }
+
+    textarea {
+      flex: 1 1 100%;
     }
   }
 }

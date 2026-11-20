@@ -233,6 +233,20 @@ describe("an update", () => {
     )
   })
 
+  test("on a backend that edits in place keeps the routine's id, and makes and removes nothing", async () => {
+    const subject = stand()
+    const ids = async () => {
+      const list = await subject.local.list()
+      if (isFailure(list)) throw new Error(list.message)
+      return list.map((routine) => routine.ref.id)
+    }
+    const before = await ids()
+    await subject.chat.request(ask("call_place", "update", "local:tickets", { name: "Renamed in place" }))
+    expect(await subject.chat.decide("call_place", true)).toBeUndefined()
+    expect(await ids()).toEqual(before)
+    expect((await subject.routine("tickets")).definition.name).toBe("Renamed in place")
+  })
+
   test("of the time keeps how often it runs, and keeps the backend's other options", async () => {
     const subject = stand()
     const before = await subject.routine("tests")

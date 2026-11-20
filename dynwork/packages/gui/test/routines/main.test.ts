@@ -201,20 +201,22 @@ describe("main", () => {
     await main.call("refresh")
     const list = await main.call("list", { backend: "farm" })
     if (isFailure(list) || !Array.isArray(list)) throw new Error("no routines")
-    const started = (await main.call("start", { backend: "farm", id: list[0].ref.id })) as Run
+    // The seeded running routine would answer conflict: start one that is not going.
+    const target = list.find((item) => item.last?.state !== "running")
+    const started = (await main.call("start", { backend: "farm", id: target.ref.id })) as Run
     expect(started.state).toBe("running")
 
     setSystemTime(new Date(Date.UTC(2026, 10, 16, 9, 0) + 2 * MINUTE))
     jest.advanceTimersByTime(5_000)
-    const page = (await main.call("runs", { backend: "farm", routine: list[0].ref.id })) as { items: Run[] }
+    const page = (await main.call("runs", { backend: "farm", routine: target.ref.id })) as { items: Run[] }
     expect(page.items[0]).toMatchObject({ ref: started.ref, state: "ok" })
 
     main.cleanups.forEach((cleanup) => cleanup())
     setSystemTime(new Date(Date.UTC(2026, 10, 16, 9, 0) + 4 * MINUTE))
-    const second = (await main.call("start", { backend: "farm", id: list[0].ref.id })) as Run
+    const second = (await main.call("start", { backend: "farm", id: target.ref.id })) as Run
     setSystemTime(new Date(Date.UTC(2026, 10, 16, 9, 0) + 10 * MINUTE))
     jest.advanceTimersByTime(60_000)
-    const after = (await main.call("runs", { backend: "farm", routine: list[0].ref.id })) as { items: Run[] }
+    const after = (await main.call("runs", { backend: "farm", routine: target.ref.id })) as { items: Run[] }
     // The cleanup stopped the timer: nothing settles the second run.
     expect(after.items[0]).toMatchObject({ ref: second.ref, state: "running" })
   })

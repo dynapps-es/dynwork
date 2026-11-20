@@ -10,6 +10,7 @@ import type {
   Definition,
   Failure,
   Owner,
+  Question,
   Routine,
   Run,
   Transcript,
@@ -49,6 +50,8 @@ export interface Options {
 export interface Fake extends Backend {
   /** Finishes every run whose time has come by the fake's clock, and pushes what changed. */
   settle(): void
+  /** Makes a running run wait on a question, as a farm task does when its agent asks the user, and pushes it. */
+  ask(run: string, question: Question): void
   /** Makes the backend answer as if signed out or offline, or ready again. */
   setStatus(status: Capabilities["status"], detail?: string): void
 }
@@ -128,6 +131,11 @@ export function make(options: Options): Fake {
   const backend: Fake = {
     id: options.id,
     capabilities,
+    ask: (id, question) => {
+      const run = runs.find((candidate) => candidate.ref.id === id)
+      if (!run || run.state !== "running") throw new Error(`No running run ${id} to ask on.`)
+      emit({ routine: run.routine, run: patchRun(run, { question, reason: "question", unread: true }) })
+    },
     setStatus: (value, detail) => {
       status.value = value
       status.detail = detail
@@ -188,6 +196,9 @@ export function make(options: Options): Fake {
     start: async (id) => {
       const routine = findRoutine(id)
       if (isFailure(routine)) return routine
+      const overlap = routine.definition.options.overlap === "allow"
+      if (!overlap && runs.some((run) => run.routine?.id === id && (run.state === "running" || run.state === "queued")))
+        return fail("conflict", "A run of this task is still going.")
       const ref = { backend: options.id, id: nextId("run") }
       const run: Run = {
         ref,
@@ -213,6 +224,48 @@ export function make(options: Options): Fake {
       if (run.state !== "running" && run.state !== "queued") return fail("conflict", "The run has already finished.")
       const cancelled = patchRun(run, { state: "cancelled", reason: "user", finished: options.now() })
       emit({ routine: run.routine, run: cancelled })
+      return undefined
+    },
+    reply: async (input) => {
+      const previous = findRun(input.run)
+      if (isFailure(previous)) return previous
+      if (options.capabilities.actions.reply !== "resume")
+        return fail("unsupported", "Tasks here continue in their own conversation.")
+      if (!input.text.trim()) return fail("invalid", "Write what to ask next.", { text: "Write what to ask next." })
+      if (previous.state === "running" || previous.state === "queued")
+        return fail("conflict", previous.question ? "The run is waiting for your answer." : "The run is still going.")
+      const ref = { backend: options.id, id: nextId("run") }
+      const run: Run = {
+        ref,
+        routine: previous.routine,
+        state: "running",
+        trigger: "manual",
+        started: options.now(),
+        title: `Continuation of ${previous.title}`,
+        unread: false,
+        conversation:
+          previous.conversation.kind === "session"
+            ? { ...previous.conversation, session: `ses-${ref.id}` }
+            : { kind: "transcript" },
+      }
+      runs.unshift(run)
+      emit({ routine: run.routine, run })
+      return run
+    },
+    answerQuestion: async (input) => {
+      const run = findRun(input.run)
+      if (isFailure(run)) return run
+      const question = run.question
+      if (!question || question.id !== input.question)
+        return fail("conflict", "The run is not waiting for that question.")
+      if (question.expires !== undefined && question.expires <= options.now())
+        return fail("conflict", "The question expired.")
+      if (!question.choices.includes(input.choice))
+        return fail("invalid", "That is not one of the choices.", { choice: "Pick one of the choices." })
+      const { question: _asked, reason: _why, ...answered } = run
+      const next: Run = { ...answered, unread: false }
+      runs[runs.indexOf(run)] = next
+      emit({ routine: run.routine, run: next })
       return undefined
     },
     runs: async (input) => {
@@ -241,7 +294,10 @@ export function make(options: Options): Fake {
       return () => void watchers.delete(changed)
     },
     settle: () => {
-      const due = runs.filter((run) => run.state === "running" && (run.started ?? 0) + duration <= options.now())
+      // A run that waits on a question does not go on by itself.
+      const due = runs.filter(
+        (run) => run.state === "running" && !run.question && (run.started ?? 0) + duration <= options.now(),
+      )
       due.forEach((run) => {
         const finished = patchRun(run, {
           state: "ok",

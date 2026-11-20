@@ -120,6 +120,7 @@ export default {
   "agents.run.queued": "In de wachtrij",
   "agents.run.running": "Bezig",
   "agents.run.waiting": "Wacht op je toestemming",
+  "agents.run.asking": "Wacht op je antwoord",
   "agents.run.ok": "Klaar",
   "agents.run.late": "Te laat",
   "agents.run.failed": "Mislukt",
@@ -290,6 +291,9 @@ export default {
   "agents.viewer.turns": "{{turns}} beurten",
   "agents.viewer.continue": "Doorgaan",
   "agents.viewer.continueHint": "De sessie blijft bewaard: doorgaan start een nieuwe uitvoering van deze taak.",
+  "agents.viewer.question": "De taak stelt een vraag",
+  "agents.viewer.reply": "Je bericht",
+  "agents.viewer.replyHint": "Zeg wat er hierna moet gebeuren",
   "agents.viewer.loading": "Uitvoering laden…",
 
   "agents.notify.finished": "{{name}} is klaar",

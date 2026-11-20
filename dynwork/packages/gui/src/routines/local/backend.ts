@@ -265,6 +265,18 @@ export function make(options: Options): Local {
   const routineOf = (routine: string) => saved().routines.find((stored) => stored.id === routine && mine(stored))
   const recordOf = (run: string) => saved().runs.find((stored) => stored.id === run)
   const inflight = () => saved().runs.filter((record) => !ended(record.state))
+  // Whether a run of the routine has not ended, after reading each such run from the service.
+  const runningOf = async (routine: string) => {
+    const read = await Promise.all(
+      inflight()
+        .filter((record) => record.routine === routine)
+        .map(refresh),
+    )
+    return read.some((record) => !ended(record.state))
+  }
+  // The routines a manual start is launching: a run is recorded only after the awaits of `launch`, so two starts at
+  // once would both find none going. The second one meets this set instead.
+  const starting = new Set<string>()
   // An unclaimed routine (`owner: null`) is no computer's: nothing runs it until Governance takes this one's claim.
   const here = (stored: SavedRoutine) =>
     stored.owner === undefined || (stored.owner !== null && stored.owner.device === options.device?.()?.id)
@@ -661,7 +673,14 @@ export function make(options: Options): Local {
       if (!stored) return missing("routine", routine)
       if (!here(stored))
         return fail("conflict", stored.owner ? `It runs on ${stored.owner.name}.` : "No computer has claimed it yet.")
-      return launch(stored, { trigger: "manual" })
+      if (starting.has(routine)) return fail("conflict", "A run of this task is still going.")
+      starting.add(routine)
+      try {
+        if (await runningOf(routine)) return fail("conflict", "A run of this task is still going.")
+        return await launch(stored, { trigger: "manual" })
+      } finally {
+        starting.delete(routine)
+      }
     },
     // The same write as an edit: the owner goes to Governance with the routine's revision. Nothing missed before now.
     move: async (routine) => {
@@ -679,14 +698,8 @@ export function make(options: Options): Local {
       return !!stored && here(stored)
     },
     touched: (routine) => emit(routine ? { routine: ref(routine) } : {}),
-    going: async (routine) => {
-      const read = await Promise.all(
-        inflight()
-          .filter((record) => record.routine === routine)
-          .map(refresh),
-      )
-      return read.some((record) => !ended(record.state))
-    },
+    // A manual start still inside `launch` counts too, so a scheduled run does not start beside it.
+    going: async (routine) => starting.has(routine) || runningOf(routine),
     take: (routine, plan) => {
       const stored = routineOf(routine)
       if (!stored) return

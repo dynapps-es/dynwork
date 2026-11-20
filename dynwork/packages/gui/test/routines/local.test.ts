@@ -78,12 +78,41 @@ describe("the local backend's permissions field", () => {
 })
 
 describe("the local backend", () => {
+  test("two starts at once launch one run: the second answers conflict", async () => {
+    const { backend, service, time } = setup()
+    const routine = await ok(backend.create(prompt()))
+    const answers = await Promise.all([backend.start(routine.ref.id), backend.start(routine.ref.id)])
+    expect(answers.filter((answer) => !isFailure(answer))).toHaveLength(1)
+    expect(answers.filter((answer) => isFailure(answer))).toMatchObject([
+      { code: "conflict", message: "A run of this task is still going." },
+    ])
+    expect(backend.running()).toBe(1)
+    // Neither start left the routine marked: once the run ends, it starts again.
+    time.advance(5 * MINUTE)
+    service.finish()
+    await until(() => backend.running() === 0)
+    await ok(backend.start(routine.ref.id))
+  })
+
+  test("a manual start still launching counts as going, so a scheduled run does not start beside it", async () => {
+    const { backend } = setup()
+    const routine = await ok(backend.create(prompt()))
+    const started = backend.start(routine.ref.id)
+    expect(await backend.going(routine.ref.id)).toBe(true)
+    await ok(started)
+    expect(await backend.going(routine.ref.id)).toBe(true)
+  })
+
   test("start creates the anchor once, then a child session per run with the routine's fields", async () => {
-    const { backend, service } = setup()
+    const { backend, service, time } = setup()
     const routine = await ok(
       backend.create(prompt({ agent: "build", model: "anthropic/claude-sonnet-5-5" }, { folder: "/work/portal" })),
     )
     const first = await ok(backend.start(routine.ref.id))
+    expectFailure(await backend.start(routine.ref.id), "conflict")
+    time.advance(5 * MINUTE)
+    service.finish()
+    await until(() => backend.running() === 0)
     const second = await ok(backend.start(routine.ref.id))
 
     const created = service.received.filter((request) => request.method === "POST" && request.path === "/api/session")

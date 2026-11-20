@@ -223,6 +223,42 @@ export function createAgentsModel(input: {
         return failure
       }),
 
+    /**
+     * Continues the run the viewer shows with the user's words, where its backend resumes: the new run opens in the
+     * viewer and joins the lists. Nothing happens for words that are blank.
+     */
+    async reply(text: string) {
+      const run = state.viewer?.run
+      const words = text.trim()
+      if (!run || !words) return
+      await act(`reply/${refKey(run.ref)}`, async (client) => {
+        const next = await client.reply({ backend: run.ref.backend, run: run.ref.id, text: words })
+        if (isFailure(next)) return next
+        model.received(next)
+        await model.open(next)
+        return undefined
+      })
+    },
+
+    /** Answers the question the viewer's run waits on with one of its choices. */
+    async answer(choice: string) {
+      const run = state.viewer?.run
+      const question = run?.question
+      if (!run || !question) return
+      await act(`answer/${refKey(run.ref)}`, async (client) => {
+        const failure = await client.answerQuestion({
+          backend: run.ref.backend,
+          run: run.ref.id,
+          question: question.id,
+          choice,
+        })
+        if (failure) return failure
+        const { question: _asked, ...rest } = run
+        model.received({ ...rest, reason: run.reason === "question" ? undefined : run.reason, unread: false })
+        return undefined
+      })
+    },
+
     cancel: (run: Run) =>
       act(`cancel/${refKey(run.ref)}`, (client) => client.cancel({ backend: run.ref.backend, run: run.ref.id })),
   }

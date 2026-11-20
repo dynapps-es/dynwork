@@ -118,6 +118,7 @@ export default {
   "agents.run.queued": "Queued",
   "agents.run.running": "Running",
   "agents.run.waiting": "Waiting for your permission",
+  "agents.run.asking": "Waiting for your answer",
   "agents.run.ok": "Done",
   "agents.run.late": "Late",
   "agents.run.failed": "Failed",
@@ -288,6 +289,9 @@ export default {
   "agents.viewer.turns": "{{turns}} turns",
   "agents.viewer.continue": "Continue",
   "agents.viewer.continueHint": "The session is kept: continuing starts a new run of this task.",
+  "agents.viewer.question": "The task is asking",
+  "agents.viewer.reply": "Your message",
+  "agents.viewer.replyHint": "Say what to do next",
   "agents.viewer.loading": "Loading the run…",
 
   "agents.notify.finished": "{{name}} finished",
