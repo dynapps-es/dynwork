@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Effect, Fiber, Schema } from "effect"
+import type { DynWorkSync } from "../src/contract"
 import { DynWorkDocuments } from "../src/documents"
 import { DynWorkInstructions } from "../src/instructions"
 import { DynWorkMapping } from "../src/mapping"
@@ -394,6 +395,47 @@ describe("folders the agent makes (mcpFolders, 0.84)", () => {
   test("the folder ask and its answer keep their shape across the RPC", () => {
     const ask = { id: "call_7:taken", session: "ses_q3", verb: "folder" as const, name: "Billing", parent: "f-art" }
     expect(Schema.decodeUnknownSync(DynWorkDocuments.Ask)(ask)).toEqual(ask)
+    const making = { ...ask, id: "call_7", making: true }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Ask)(making)).toEqual(making)
+    const named = { id: "call_7", name: "Q3 report" }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Answer)(named)).toEqual(named)
+  })
+
+  test("with mcpFolders, a folder about to be made inside another asks main for its name; at the root, or on 0.83, not", () => {
+    const making = (input: unknown, switches: DynWorkSync.Documents = { mcpFolders: true }) =>
+      DynWorkDocuments.asking(
+        { tool: "documents_documents_folder", sessionID: "ses_q3", id: "call_7", input },
+        switches,
+      )
+    expect(making({ action: "create", name: "Sales", parent_id: "f-bill" })).toEqual({
+      id: "call_7",
+      session: "ses_q3",
+      verb: "folder",
+      name: "Sales",
+      parent: "f-bill",
+      making: true,
+    })
+    expect(making({ action: "create", name: "Artifacts" })).toBeUndefined()
+    expect(making({ action: "create", name: "Artifacts", parent_id: null })).toBeUndefined()
+    expect(making({ action: "update", folder_id: "f", name: "Sales", parent_id: "f-bill" })).toBeUndefined()
+    expect(making({ action: "create", parent_id: "f-bill" })).toBeUndefined()
+    expect(making({ action: "create", name: "Sales", parent_id: "f-bill" }, {})).toBeUndefined()
+    expect(making({ action: "create", name: "Sales", parent_id: "f-bill" }, { contextByMcp: true })).toBeUndefined()
+  })
+
+  test("the folder takes the name main gives it, whatever the agent wrote; without one it keeps the agent's", () => {
+    const input = { action: "create", name: "VAT analysis", parent_id: "f-bill" }
+    expect(DynWorkDocuments.apply("folder", input, { id: "call_7", name: "Q3 report" })).toEqual({
+      action: "create",
+      name: "Q3 report",
+      parent_id: "f-bill",
+    })
+    expect(DynWorkDocuments.apply("folder", input, { id: "call_7" })).toEqual(input)
+    // A name is only ever a folder's: no other write takes it.
+    expect(DynWorkDocuments.apply("create", { name: "a.md" }, { id: "x", name: "Q3 report" })).toEqual({ name: "a.md" })
+    expect(
+      DynWorkDocuments.apply("folder", { action: "update", folder_id: "f", name: "Mine" }, { id: "x", name: "Q3 report" }),
+    ).toEqual({ action: "update", folder_id: "f", name: "Mine" })
   })
 })
 
@@ -759,6 +801,9 @@ describe("the rules about the server", () => {
     expect(text).toContain("documents_folder {action: create, name, parent_id}")
     expect(text).toContain("refused as name_taken with its folder_id")
     expect(text).toContain("never make a second one under another name")
+    // DynWork names the project's and the conversation's folders (phase 23): the agent no longer picks a title.
+    expect(text).toContain("<conversation> the conversation's title, and Dynwork gives both folders their exact names")
+    expect(text).not.toContain("a short title for what the conversation is about")
     expect(text).toContain("call documents_import once with the returned blob_ref, the same name and the conversation's folder_id")
     expect(text).not.toContain("Dynwork files every document you create")
     expect(text).not.toContain("do not import it yourself")

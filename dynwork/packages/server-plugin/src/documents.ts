@@ -32,8 +32,9 @@ export type Verb = (typeof verbs)[number]
 
 /**
  * What main is asked about before a call runs: a creation, an import and an edit, which it adds to or may refuse; with
- * `contextByMcp`, the other writes that take a `context_id` (a comment, a proposal's review, a copy); and, after a
- * folder was refused as `name_taken`, which folder of that name is there (`folder`).
+ * `contextByMcp`, the other writes that take a `context_id` (a comment, a proposal's review, a copy); with `mcpFolders`,
+ * a folder about to be made in another one, whose name main may set (`folder`, `making`); and, after a folder was
+ * refused as `name_taken`, which folder of that name is there (`folder`).
  */
 const askable = ["create", "edit", "import", "comment", "proposals", "copy", "folder"] as const
 export type Askable = (typeof askable)[number]
@@ -104,7 +105,8 @@ export type Touch = typeof Touch.Type
 /**
  * A call about to run, or a folder name the instance refused: published as the `ask` event; main answers with
  * `answer`. An edit names its `document`, and `replace` when it rewrites the whole content from a blob rather than by
- * ops. A `folder` ask names the folder that was refused (`name`, in `parent`, the root when absent).
+ * ops. A `folder` ask names the folder that was refused (`name`, in `parent`, the root when absent), or, with
+ * `making`, the folder about to be made (`name`, in `parent`).
  */
 export const Ask = Schema.Struct({
   id: Schema.String,
@@ -114,6 +116,7 @@ export const Ask = Schema.Struct({
   replace: Schema.optional(Schema.Boolean),
   name: Schema.optional(Schema.String),
   parent: Schema.optional(Schema.String),
+  making: Schema.optional(Schema.Boolean),
 })
 export type Ask = typeof Ask.Type
 
@@ -121,7 +124,8 @@ export type Ask = typeof Ask.Type
  * What main adds to the call: the folder for a new document, the revision message and the conversation's `context`
  * (the id DynWork registered for it in the instance, 0.84). Each only when it applies. `refuse` stops the call before
  * it reaches the instance, and is what the agent reads instead of an answer. To a `folder` ask, `folder` is the one of
- * that name already there.
+ * that name already there; to one `making` a folder, `name` is the name it takes: the project's in `Artifacts`, the
+ * conversation's in the project's folder (D8), whatever the agent wrote.
  */
 export const Answer = Schema.Struct({
   id: Schema.String,
@@ -129,6 +133,7 @@ export const Answer = Schema.Struct({
   message: Schema.optional(Schema.String),
   context: Schema.optional(Schema.String),
   refuse: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
 })
 export type Answer = typeof Answer.Type
 export const Accepted = Schema.Struct({ accepted: Schema.Boolean })
@@ -160,8 +165,10 @@ export function touch(event: Executed): Touch | undefined {
 
 /**
  * What main is asked about a call about to run: a creation, an import and an edit always; with `contextByMcp` (0.84),
- * also a comment that writes, a proposal's acceptance or rejection and a copy, so that each carries its conversation.
- * Reading comments or proposals writes nothing, and is not asked about.
+ * also a comment that writes, a proposal's acceptance or rejection and a copy, so that each carries its conversation;
+ * with `mcpFolders` (0.84), a folder made inside another one, which may be the project's or the conversation's under
+ * `Artifacts` (main names those). Reading comments or proposals writes nothing, and is not asked about; nor is a folder
+ * made at the root.
  */
 export function asking(
   event: {
@@ -180,6 +187,15 @@ export function asking(
     ((write === "comment" && given?.action !== "list") ||
       (write === "proposals" && (given?.action === "accept" || given?.action === "reject")) ||
       write === "copy")
+  const parent = given?.parent_id
+  if (
+    switches.mcpFolders === true &&
+    write === "folder" &&
+    given?.action === "create" &&
+    given.name !== undefined &&
+    typeof parent === "string"
+  )
+    return { id: event.id, session: event.sessionID, verb: "folder", name: given.name, parent, making: true }
   if (write === undefined || (!always && !attributed)) return undefined
   return {
     id: event.id,
@@ -227,7 +243,8 @@ export function answer(input: Answer) {
  * The input of a write with what main added: the folder only for a new document the agent left unplaced (a folder the
  * agent chose stays), the message after the agent's own, so the revision says which conversation wrote it, and the
  * conversation's `context_id`. A `context_id` the agent wrote itself never goes: it can only name a conversation main
- * did not give this call, another one's included. Main not answering is an answer with nothing (`{ id }`).
+ * did not give this call, another one's included. A folder made as the project's or the conversation's takes main's
+ * `name` in place of the agent's. Main not answering is an answer with nothing (`{ id }`).
  */
 export function apply(write: Askable, input: unknown, answered: Answer) {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return input
@@ -240,11 +257,13 @@ export function apply(write: Askable, input: unknown, answered: Answer) {
   const placed = write === "create" || write === "import"
   const folder = placed && given.value.folder_id === undefined ? answered.folder : undefined
   const context = signed.includes(write) ? answered.context : undefined
+  const name = write === "folder" && given.value.action === "create" ? answered.name : undefined
   return {
     ...Object.fromEntries(Object.entries(input).filter((entry) => entry[0] !== "context_id")),
     ...(folder === undefined ? {} : { folder_id: folder }),
     ...(message === undefined ? {} : { message }),
     ...(context === undefined ? {} : { context_id: context }),
+    ...(name === undefined ? {} : { name }),
   }
 }
 
@@ -554,7 +573,8 @@ export function instructions(switches: Switches = {}) {
   const folder = switches.mcpFolders
     ? [
         "Each conversation keeps what you make in its own folder, Artifacts/<project>/<conversation>: <project> is the name of",
-        "the working directory, <conversation> a short title for what the conversation is about. Before its first document,",
+        "the working directory, <conversation> the conversation's title, and Dynwork gives both folders their exact names,",
+        "so use the name and folder_id the call returns. Before its first document,",
         "make the three with documents_folder {action: create, name, parent_id} (no parent_id for Artifacts). A folder that is",
         "already there is refused as name_taken with its folder_id (or find it with documents_list {folder_id: <parent>}):",
         "use it, never make a second one under another name. Pass the conversation's folder_id to every documents_import and",

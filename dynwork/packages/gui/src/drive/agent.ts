@@ -18,8 +18,9 @@ import type { DriveIpc } from "./ipc"
 //
 // On 0.84 the agent does it through the MCP:
 // - `mcpFolders`: it makes the conversation's folders with `documents_folder` and imports its upload with
-//   `documents_import`; DynWork makes no folder and imports nothing. It still fills in the folder of a conversation it
-//   already knows when the agent leaves it out, and it tells the agent which folder a `name_taken` refusal meant.
+//   `documents_import`; DynWork makes no folder and imports nothing. It names the project's and the conversation's
+//   folders as it does itself before 0.84 (`folderName`), keeps the conversation's once made, fills it in when the
+//   agent leaves it out, and tells the agent which folder a `name_taken` refusal meant.
 // - `rawHtmlByMcp`: it rewrites a page whole with `documents_edit {content_blob_ref}`, an edit of that document like any
 //   other, and an edit by ops of a page goes to the instance, which refuses one that would strip it.
 // - `contextByMcp`: each write carries the context DynWork registered for its conversation, the one its own session
@@ -70,6 +71,11 @@ export function make(options: Options) {
   }
   // What was imported, so that a call seen twice is not imported twice.
   const imported = new Set<string>()
+  // The project's folder name: the session directory's.
+  const projectOf = (session: Session) => clean(basename(session.directory)) ?? options.untitled
+  // The agent's `documents_folder` creates named as a conversation's folder (0.84), by call id, with that conversation:
+  // the folder it makes, or the one of that name a `name_taken` refusal points to, becomes the conversation's.
+  const naming = new Map<string, string>()
 
   /** What to add to the write the plugin is about to run: where a new document goes, what its revision says, whose it is. */
   async function ask(request: DynWorkDocuments.Ask) {
@@ -78,7 +84,7 @@ export function make(options: Options) {
   }
 
   async function answered(request: DynWorkDocuments.Ask): Promise<Omit<DynWorkDocuments.Answer, "id">> {
-    if (request.verb === "folder") return taken(request)
+    if (request.verb === "folder") return request.making ? named(request) : taken(request)
     if (await refused(request)) return { refuse: htmlRefused }
     const session = await options.session(request.session)
     if (!session) return {}
@@ -108,12 +114,66 @@ export function make(options: Options) {
     return isFailure(answer) ? {} : answer
   }
 
-  /** The folder of that name already there, where the agent's `documents_folder` was refused as `name_taken` (0.84). */
+  /**
+   * The folder of that name already there, where the agent's `documents_folder` was refused as `name_taken` (0.84). When
+   * the refused folder was the conversation's (`named`), the one there becomes it.
+   */
   async function taken(request: DynWorkDocuments.Ask) {
     const name = request.name
     if (name === undefined) return {}
-    const found = await service.using((backend) => find(backend, request.parent, name))
-    return isFailure(found) || found === undefined ? {} : { folder: found.id }
+    const answer = await service.using(async (backend, account) => {
+      const found = await find(backend, request.parent, name)
+      if (isFailure(found) || found === undefined) return {}
+      const conversation = naming.get(request.id.replace(/:taken$/, ""))
+      if (conversation !== undefined) service.folder.set(account.id, conversation, found.id)
+      return { folder: found.id }
+    })
+    return isFailure(answer) ? {} : answer
+  }
+
+  /**
+   * The name a folder the agent is about to make takes, when it is one of the conversation's (0.84, `mcpFolders`): in
+   * `Artifacts`, the project's; in a project's folder there, the conversation's (`folderName`). These are the names
+   * DynWork gives the folders it makes itself before 0.84 (`place`), so old and new conversations look the same. Any
+   * other folder keeps the agent's name. The Drive is read for it: `Artifacts`, and its folders when the parent is not
+   * `Artifacts` itself.
+   */
+  async function named(request: DynWorkDocuments.Ask) {
+    const parent = request.parent
+    if (parent === undefined) return {}
+    const session = await options.session(request.session)
+    if (!session) return {}
+    const conversation = { id: request.session, name: clean(session.title) ?? options.untitled }
+    const answer = await service.using(async (backend, account) => {
+      const top = await find(backend, undefined, root)
+      if (isFailure(top) || top === undefined) return {}
+      if (parent === top.id) return { name: projectOf(session) }
+      const projects = await backend.children(top.id)
+      if (isFailure(projects) || !projects.some((folder) => folder.id === parent)) return {}
+      const name = await folderName(backend, account.id, conversation, parent)
+      if (isFailure(name)) return {}
+      naming.set(request.id, conversation.id)
+      return { name }
+    })
+    return isFailure(answer) ? {} : answer
+  }
+
+  /**
+   * The name of a conversation's folder in its project's folder (D8): its title, or, when another conversation of the
+   * account already holds a folder of that title there, its title and the end of its session id.
+   */
+  async function folderName(
+    backend: Backend,
+    account: string,
+    conversation: { id: string; name: string },
+    project: string,
+  ) {
+    const same = await find(backend, project, conversation.name)
+    if (isFailure(same)) return same
+    const others = Object.entries(service.folder.all(account)).filter((entry) => entry[0] !== conversation.id)
+    return same !== undefined && others.some((entry) => entry[1] === same.id)
+      ? `${conversation.name} (${conversation.id.slice(-6)})`
+      : conversation.name
   }
 
   /**
@@ -147,17 +207,12 @@ export function make(options: Options) {
     }
     const top = await folderIn(backend, undefined, root)
     if (isFailure(top)) return top
-    const project = await folderIn(backend, top.id, clean(basename(session.directory)) ?? options.untitled)
+    const project = await folderIn(backend, top.id, projectOf(session))
     if (isFailure(project)) return project
     // A folder of that name another conversation holds is not this one's: its name says which it is.
-    const same = await find(backend, project.id, conversation.name)
-    if (isFailure(same)) return same
-    const taken = same !== undefined && Object.values(service.folder.all(account)).includes(same.id)
-    const made = await folderIn(
-      backend,
-      project.id,
-      taken ? `${conversation.name} (${conversation.id.slice(-6)})` : conversation.name,
-    )
+    const name = await folderName(backend, account, conversation, project.id)
+    if (isFailure(name)) return name
+    const made = await folderIn(backend, project.id, name)
     if (isFailure(made)) return made
     service.folder.set(account, conversation.id, made.id)
     return made.id
@@ -166,8 +221,15 @@ export function make(options: Options) {
   /** What a write the agent made touched: its document enters the conversation's index, and an uploaded page is imported. */
   async function touched(touch: DynWorkDocuments.Touch) {
     if (touch.verb === "upload") return upload(touch)
-    // A folder the agent made or moved: the Drive is read again for it, and nothing is indexed.
-    if (touch.verb === "folder") return void (await service.changing(async () => undefined))
+    // A folder the agent made or moved: the Drive is read again for it, and nothing is indexed. The one made as the
+    // conversation's (`named`) is kept as its folder.
+    if (touch.verb === "folder")
+      return void (await service.changing(async (_, account) => {
+        const conversation = naming.get(touch.call)
+        const folder = touch.output.folder_id
+        if (conversation !== undefined && folder !== undefined) service.folder.set(account.id, conversation, folder)
+        return undefined
+      }))
     const made = touch.verb === "create" || touch.verb === "copy" || touch.verb === "import"
     const document = made ? touch.output.document_id : touch.input.document_id
     if (document === undefined) return

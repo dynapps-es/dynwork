@@ -134,7 +134,9 @@ in-memory Drive for the tests.
 - **Beside a chat** (`panel.tsx`, `register.tsx`): the chat header's button (`count.tsx`, in the `session.header` slot
   before the context ring) shows how many documents the chat has in its Artifacts tab, none at 0, while an account has
   a Drive, and opens that tab; it loads on the client only (Kobalte's tooltip). The + menu's Drive opens the Artifacts
-  tab, with the documents the chat made, changed or attached, newest first; Add from the Drive attaches one, and Upload to the Drive sends a file
+  tab, with the documents the chat made, changed or attached, newest first: the index merged with what the instance
+  lists for the chat on 0.84 (`docsByContext`, G07), which both read again after each read of the Drive
+  (`followChat`); an instance that fails leaves the index alone, with no error; Add from the Drive attaches one, and Upload to the Drive sends a file
   the chat made to the Drive's root with the conversation's name and `x-context-id` (D2, D3). Each document opens in a
   side panel tab of its own (`dynwork:drive.<id>`), several at once (D6), with its viewer and a version picker (the
   head unless the tab picks another). Its header shows and hides the comments marked on the document, opens Share (the

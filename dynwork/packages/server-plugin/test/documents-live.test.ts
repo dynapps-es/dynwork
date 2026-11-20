@@ -175,7 +175,9 @@ const decision = { allow: false, listening: true }
 // On 0.84 main gives each write its conversation's context: here `ctx-<session>`.
 const main = { contexts: false }
 const answerOf = (ask: DynWorkDocuments.Ask): DynWorkDocuments.Answer =>
-  ask.verb === "folder"
+  ask.verb === "folder" && ask.making
+    ? { id: ask.id, name: "Chat" }
+    : ask.verb === "folder"
     ? { id: ask.id, folder: `folder-${ask.name}` }
     : {
         id: ask.id,
@@ -485,6 +487,19 @@ describe("on a 0.84 instance", () => {
     )
     expect(asks.at(-1)).toMatchObject({ verb: "folder", name: "Artifacts" })
     expect(gateway.at(-1)?.messages).toContain("It is folder_id folder-Artifacts: use that folder.")
+  }, 60_000)
+
+  test("a folder the agent makes inside another takes the name main gives it, and main hears it under that name", async () => {
+    const done = await run(
+      `return await tools.documents.documents_folder({ action: "create", name: "VAT analysis", parent_id: "f-bill" })`,
+    )
+    expect(asks.at(-1)).toMatchObject({ verb: "folder", name: "VAT analysis", parent: "f-bill", making: true })
+    expect(done.calls.map((call) => [call.name, call.arguments?.name])).toEqual([["documents_folder", "Chat"]])
+    await until(
+      async () => touches.filter((touch) => touch.session === done.id && touch.verb === "folder"),
+      (found) => found.length > 0,
+    )
+    expect(touches.findLast((touch) => touch.session === done.id)?.input).toMatchObject({ name: "Chat", parent_id: "f-bill" })
   }, 60_000)
 
   test("a write refused for a context the instance does not know tells main which one to forget", async () => {

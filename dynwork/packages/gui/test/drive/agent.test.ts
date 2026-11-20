@@ -430,6 +430,95 @@ describe("folders the agent makes (mcpFolders, 0.84)", () => {
     expect(subject.answers).toEqual([{ id: "call_1:taken" }, { id: "call_2:taken" }])
   })
 
+  // `Artifacts/Billing` as the agent finds it, with the folder ask it makes before `documents_folder {action: create}`.
+  async function project(subject: ReturnType<typeof stand>) {
+    const artifacts = await ok(subject.fake.createFolder({ name: "Artifacts" }))
+    const billing = await ok(subject.fake.createFolder({ name: "Billing", parent: artifacts.id }))
+    const making = async (id: string, session: string, parent: string, name: string) => {
+      await subject.agent.ask({ id, session, verb: "folder", name, parent, making: true })
+      return subject.answers.find((answer) => answer.id === id)
+    }
+    return { artifacts, billing, making }
+  }
+
+  test("the folders the agent makes under Artifacts take the project's and the conversation's names, not its own", async () => {
+    const subject = stand({ capabilities: { mcpFolders: true } })
+    const { artifacts, billing, making } = await project(subject)
+    expect(await making("call_1", "ses_q3", artifacts.id, "billing-module")).toEqual({ id: "call_1", name: "Billing" })
+    expect(await making("call_2", "ses_q3", billing.id, "VAT analysis")).toEqual({ id: "call_2", name: "Q3 report" })
+    // Asking makes nothing: the agent's call does.
+    expect(subject.fake.calls.createFolder).toBe(2)
+  })
+
+  test("a folder elsewhere keeps the agent's name, and without Artifacts there is nothing to name", async () => {
+    const subject = stand({ capabilities: { mcpFolders: true } })
+    const internal = await ok(subject.fake.createFolder({ name: "Internal" }))
+    await subject.agent.ask({ id: "call_1", session: "ses_q3", verb: "folder", name: "Notes", parent: internal.id, making: true })
+    const { billing, making } = await project(subject)
+    const q3 = await ok(subject.fake.createFolder({ name: "Q3 report", parent: billing.id }))
+    // Inside the conversation's own folder: a subfolder of the agent's.
+    expect(await making("call_2", "ses_q3", q3.id, "Charts")).toEqual({ id: "call_2" })
+    expect(subject.answers.find((answer) => answer.id === "call_1")).toEqual({ id: "call_1" })
+    // A conversation the service does not know is not named.
+    expect(await making("call_3", "ses_unknown", billing.id, "Charts")).toEqual({ id: "call_3" })
+  })
+
+  test("the folder the agent makes as the conversation's is kept as its folder, and a namesake is told apart by its id", async () => {
+    const subject = stand({ capabilities: { mcpFolders: true } })
+    subject.sessions.ses_other = { directory: "/Users/ana/work/Billing", title: "Q3 report" }
+    const { billing, making } = await project(subject)
+    expect((await making("call_1", "ses_q3", billing.id, "Q3"))?.name).toBe("Q3 report")
+    const made = await ok(subject.fake.createFolder({ name: "Q3 report", parent: billing.id }))
+    await subject.agent.touched(
+      subject.touch({
+        call: "call_1",
+        verb: "folder",
+        input: { action: "create", name: "Q3 report", parent_id: billing.id },
+        output: { folder_id: made.id },
+      }),
+    )
+    // The conversation's next document goes there when the agent leaves the folder out.
+    expect((await subject.asked("call_2", "ses_q3", "create"))?.folder).toBe(made.id)
+    // The same title in another conversation is not this one's folder: the end of its session id tells it apart.
+    expect((await making("call_3", "ses_other", billing.id, "Q3 report"))?.name).toBe("Q3 report (_other)")
+    // The conversation that holds it is named as before.
+    expect((await making("call_4", "ses_q3", billing.id, "Q3 report"))?.name).toBe("Q3 report")
+  })
+
+  test("a conversation's folder refused as name_taken becomes the one already there", async () => {
+    const subject = stand({ capabilities: { mcpFolders: true } })
+    const { billing, making } = await project(subject)
+    const there = await ok(subject.fake.createFolder({ name: "Q3 report", parent: billing.id }))
+    expect((await making("call_1", "ses_q3", billing.id, "Q3"))?.name).toBe("Q3 report")
+    await subject.agent.ask({
+      id: "call_1:taken",
+      session: "ses_q3",
+      verb: "folder",
+      name: "Q3 report",
+      parent: billing.id,
+    })
+    expect(subject.answers.at(-1)).toEqual({ id: "call_1:taken", folder: there.id })
+    expect((await subject.asked("call_2", "ses_q3", "create"))?.folder).toBe(there.id)
+  })
+
+  test("0.83 and 0.84 name a conversation's folder alike: a namesake made over REST tells the new one apart", async () => {
+    const subject = stand()
+    subject.sessions.ses_other = { directory: "/Users/ana/work/Billing", title: "Q3 report" }
+    await subject.asked("call_1", "ses_q3", "create")
+    expect(await subject.paths()).toContain("Artifacts/Billing/Q3 report")
+    subject.capabilities.value = { mcpFolders: true }
+    const billing = await subject.folderAt("Artifacts/Billing")
+    await subject.agent.ask({
+      id: "call_2",
+      session: "ses_other",
+      verb: "folder",
+      name: "Q3",
+      parent: billing,
+      making: true,
+    })
+    expect(subject.answers.at(-1)).toEqual({ id: "call_2", name: "Q3 report (_other)" })
+  })
+
   test("a folder the agent made has the Drive read again, and indexes nothing", async () => {
     const subject = stand({ capabilities: { mcpFolders: true } })
     await flush()
@@ -496,13 +585,12 @@ describe("after a write", () => {
     expect(links()).toEqual([])
   })
 
-  test("the index leaves to the Drive what the Drive knows by conversation, and keeps the MCP's until it carries it too", async () => {
-    const listed = stand({ capabilities: { docsByContext: true } })
-    await listed.agent.touched(listed.touch({ verb: "create", output: { document_id: "doc-1" } }))
-    expect(listed.links()).toHaveLength(1)
-    const carried = stand({ capabilities: { docsByContext: true, contextByMcp: true } })
-    await carried.agent.touched(carried.touch({ verb: "create", output: { document_id: "doc-1" } }))
-    expect(carried.links()).toEqual([])
+  test("the index keeps the MCP's writes also where the Drive lists by conversation and the MCP carries it (G07)", async () => {
+    for (const capabilities of [{ docsByContext: true }, { docsByContext: true, contextByMcp: true }]) {
+      const subject = stand({ capabilities })
+      await subject.agent.touched(subject.touch({ verb: "create", output: { document_id: "doc-1" } }))
+      expect(subject.links()).toEqual([expect.objectContaining({ document: "doc-1", act: "created", via: "mcp" })])
+    }
   })
 })
 

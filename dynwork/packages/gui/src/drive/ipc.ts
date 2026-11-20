@@ -2,6 +2,7 @@ export * as DriveIpc from "./ipc"
 
 import { Schema } from "effect"
 import type { IpcImpl, Persisted } from "@opencode/plugin/gui/main"
+import { DriveArtifacts } from "./artifacts"
 import { fail, type Backend } from "./backend"
 import { DriveCapabilities } from "./capabilities"
 import { DriveCells } from "./cells"
@@ -91,7 +92,7 @@ const empty = (account: string | undefined): Cache => ({
  * - When the active account changes (`account()`, which main calls on every change of the accounts), the snapshot
  *   and the backend go and the new account's Drive is read.
  * - Every write carries its attribution (`DriveCapabilities.attribution`); a write from a conversation enters the
- *   index while the Drive cannot answer it (`DriveCapabilities.indexed`).
+ *   index, which the instance's own list of the conversation's documents completes where it has one (`docsByContext`).
  * - What the account's instance delivers (`capabilities`) is read from its discovery when the account becomes active
  *   and each time it answers again after failing (`detect`), and pushed to windows with the snapshot.
  */
@@ -358,8 +359,9 @@ export function make<A extends Account>(options: Options<A>) {
     hinted.reading = false
   }
 
+  // The index keeps every write of a conversation, also where the instance lists them by conversation: it is what opens
+  // a new document beside its chat, what `@Agent` wakes a conversation by, and what answers when the instance does not.
   function record(account: string, link: Omit<Link, "at" | "via"> & { via: "rest" | "mcp" }) {
-    if (!DriveCapabilities.indexed(capabilities(), link.via)) return
     const sameAct = (entry: Link) =>
       entry.conversation === link.conversation && entry.document === link.document && entry.act === link.act
     options.store.update((draft) => {
@@ -543,28 +545,25 @@ export function make<A extends Account>(options: Options<A>) {
         return undefined
       }),
     documentsOf: (input) =>
-      on(async (backend, account) => {
-        const local = links(account.id).filter((link) => link.conversation === input.conversation)
-        const id = registered(account.id, input.conversation)
-        if (!capabilities().docsByContext || !backend.byContext || id === undefined) return local
-        const listed = await backend.byContext(id)
-        if (isFailure(listed)) return listed
-        // The Drive does not say what the conversation did, only that it wrote: `edited`, unless the index knows more.
-        const known = new Set(local.map((link) => link.document))
-        const server = listed
-          .filter((document) => !known.has(document.id))
-          .map(
-            (document): Link => ({
-              conversation: input.conversation,
-              document: document.id,
-              act: "edited",
-              revision: document.revision,
-              via: "server",
-              at: document.updated,
-            }),
-          )
-        return [...local, ...server].toSorted((a, b) => b.at - a.at)
-      }),
+      on(async (backend, account) =>
+        DriveArtifacts.merge(
+          input.conversation,
+          links(account.id).filter((link) => link.conversation === input.conversation),
+          await listed(backend, account.id, input.conversation),
+        ),
+      ),
+    byContext: (input) => on((backend, account) => listed(backend, account.id, input.conversation)),
+  }
+
+  /**
+   * What the instance lists for a conversation (G07): only where it lists by conversation and this computer registered
+   * the conversation. A failure, `unknown-context` included, is none: the index answers alone, and no window shows it.
+   */
+  async function listed(backend: Backend, account: string, conversation: string) {
+    const id = registered(account, conversation)
+    if (!capabilities().docsByContext || id === undefined) return []
+    const answer = await guard(async () => (await backend.byContext?.(id)) ?? [])
+    return isFailure(answer) ? [] : answer
   }
 
   follow()
@@ -578,7 +577,7 @@ export function make<A extends Account>(options: Options<A>) {
      */
     using: on,
     changing,
-    /** Enters what a conversation did into the index, where the Drive cannot answer it (`DriveCapabilities.indexed`). */
+    /** Enters what a conversation did into the index. */
     record,
     /** The Drive's folder a conversation's files go to, once made (by session id). */
     folder: {

@@ -98,19 +98,6 @@ describe("the Drive capabilities", () => {
     expect(DriveCapabilities.pollEvery(on("pushChanges"), false, false)).toBe(5 * 60_000)
   })
 
-  test("docsByContext: every write of a conversation is indexed here while off; with it on, REST writes are not", () => {
-    expect(DriveCapabilities.indexed(DriveCapabilities.none, "rest")).toBe(true)
-    expect(DriveCapabilities.indexed(DriveCapabilities.none, "mcp")).toBe(true)
-    expect(DriveCapabilities.indexed(on("docsByContext"), "rest")).toBe(false)
-  })
-
-  test("contextByMcp: with the Drive listing by conversation, an MCP write is indexed here until the MCP carries it", () => {
-    expect(DriveCapabilities.indexed(on("docsByContext"), "mcp")).toBe(true)
-    expect(DriveCapabilities.indexed(on("docsByContext", "contextByMcp"), "mcp")).toBe(false)
-    // Without listing by conversation, the index is still the only place that knows.
-    expect(DriveCapabilities.indexed(on("contextByMcp"), "mcp")).toBe(true)
-  })
-
   test("mcpFolders: the agent's files are filed by DynWork over REST while off, and by the agent when on", () => {
     expect(DriveCapabilities.agentFiling(DriveCapabilities.none)).toBe("rest")
     expect(DriveCapabilities.agentFiling(on("mcpFolders"))).toBe("mcp")
@@ -128,7 +115,7 @@ describe("the Drive capabilities", () => {
     expect(DriveCapabilities.delivered({ version: "0.82.0" })).toEqual(DriveCapabilities.none)
   })
 
-  test("delivered: 0.84 turns on G02, G09 and G13 over REST, G04, G05 and G06 through the MCP, G08 and G12 for comments, and nothing the later phases turn on", () => {
+  test("delivered: 0.84 turns on G02, G09 and G13 over REST, G04, G05 and G06 through the MCP, G08 and G12 for comments, G07 for a conversation's documents, and nothing the later phases turn on", () => {
     const rest = on(
       "conversationLabel",
       "pushChanges",
@@ -138,6 +125,7 @@ describe("the Drive capabilities", () => {
       "contextByMcp",
       "rangeComments",
       "reopenComments",
+      "docsByContext",
     )
     expect(DriveCapabilities.delivered({ version: "0.84.0", documents: true })).toEqual(rest)
     // The Drive's block is 0.84's whatever version it says, and a version alone says it too.
@@ -160,6 +148,7 @@ describe("the Drive capabilities", () => {
         "contextByMcp",
         "rangeComments",
         "reopenComments",
+        "docsByContext",
       ),
     )
     expect(DriveCapabilities.delivered({ people: false })).toEqual(DriveCapabilities.none)

@@ -127,7 +127,11 @@ export interface Backend {
   share(id: string, input: { kind: string; value: string; level: string }): Promise<Access | Failure>
   /** Takes one grant away, by its id, and answers who has access then. `person` as for `share`. */
   unshare(id: string, grant: string): Promise<Access | Failure>
-  /** The documents written with `contextId`, newest first: only where the instance lists by conversation (P3). */
+  /**
+   * The documents the conversation `contextId` wrote a revision or a comment on, newest first, as far as the user can
+   * still see them: only where the instance lists by conversation (0.84 `scope=context`, `docsByContext`). A context
+   * the instance does not hold for the user is `unknown-context`. The newest `byContextLimit`.
+   */
   byContext?(contextId: string): Promise<readonly Document[] | Failure>
   /**
    * The bridge stream: the mentions of the user and, from 0.84, that the Drive changed, as the instance announces them
@@ -135,6 +139,9 @@ export interface Backend {
    */
   stream?(signal: AbortSignal): Promise<AsyncIterable<DriveMentions.Streamed> | Failure>
 }
+
+/** How many documents of one conversation the Drive lists for it (`byContext`): one page, the newest. */
+export const byContextLimit = 100
 
 /** A failure. It is retryable only when `unreachable`, the one code that clears up by itself. */
 export function fail(code: Failure["code"], message: string, head?: string): Failure {
@@ -257,6 +264,11 @@ export function remote(options: Remote): Backend {
           documents: listing.documents.map(document),
           next: listing.next_cursor ?? undefined,
         }),
+      ),
+    byContext: (contextId) =>
+      call(
+        (jwt) => SpDrive.list(url, jwt, { scope: "context", contextId, sort: "updated", limit: byContextLimit }),
+        (listing) => listing.documents.map(document),
       ),
     children,
     folders: async () => {

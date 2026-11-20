@@ -1,5 +1,6 @@
-import { createRoot, createSignal } from "solid-js"
+import { createEffect, createRoot, createSignal } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
+import { DriveArtifacts } from "../../drive/artifacts"
 import { DriveClient } from "../../drive/client"
 import {
   isFailure,
@@ -108,6 +109,8 @@ const PAGE = 100
  * - Recent is the service's snapshot, polled in main; Home, Mine, Shared and a search are read when chosen.
  * - From my chats is the conversation ↔ document index the service keeps; a document it names that no listing
  *   holds is read by id.
+ * - A chat's artifacts are its index merged with what the instance lists for the chat (`docsByContext`, G07), read
+ *   while its header or its Artifacts tab is shown (`followChat`).
  * - A read that answers after the user moved on is dropped.
  */
 export function createDriveStore(options: { client: () => DriveClient.Client | undefined }) {
@@ -139,9 +142,12 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     discussion: {} as Record<string, Discussion>,
     /** The names of the people the window has seen, by user id: the grants of the documents it opened. */
     people: {} as Record<string, string>,
+    /** What the instance listed for each chat the window shows (G07), by session id, and the account it was read for. */
+    listed: {} as Record<string, { account: string; documents: Document[] }>,
   })
-  // The newest listing, open document and comments read asked for, so a late answer for an older one is dropped.
-  const asked = { listing: 0, open: 0, discussion: new Map<string, number>() }
+  // The newest listing, open document and comments read asked for, so a late answer for an older one is dropped; and,
+  // by chat, the account and the Drive's read its instance listing was last asked for.
+  const asked = { listing: 0, open: 0, discussion: new Map<string, number>(), chats: new Map<string, string>() }
 
   const remote = () => options.client()?.state()
   const folders = () => remote()?.folders ?? []
@@ -194,6 +200,33 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     })
   }
 
+  /**
+   * Reads what the instance lists for a chat (G07), once per read of the Drive: the service reads it again after each
+   * write and poll, and the snapshot's `read` says so. Nothing is asked without `docsByContext`. An answer for an older
+   * read is dropped. The documents listed are known by id from then on: the instance names them.
+   */
+  async function readChat(conversation: string) {
+    const client = options.client()
+    const state = remote()
+    if (!client || !state?.capabilities.docsByContext || state.account === undefined) return
+    const account = state.account
+    const key = `${account}:${state.read ?? 0}`
+    if (asked.chats.get(conversation) === key) return
+    asked.chats.set(conversation, key)
+    const answer = await client.byContext({ conversation })
+    if (asked.chats.get(conversation) !== key) return
+    const documents = isFailure(answer) ? [] : [...answer]
+    documents.forEach((document) => setState("known", document.id, document))
+    setState("listed", conversation, { account, documents })
+  }
+
+  // What the instance listed for a chat, while it is for the active account and the capability is on.
+  const listedOf = (conversation: string) => {
+    const listed = state.listed[conversation]
+    if (!listed || !capabilities()?.docsByContext || listed.account !== remote()?.account) return []
+    return listed.documents
+  }
+
   // Reads by id the documents no listing holds, for From my chats and restored tabs; answers why any could not be read.
   async function learn(ids: readonly string[]) {
     const client = options.client()
@@ -233,8 +266,26 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     mentionOf: (comment: string) => remote()?.mentions.find((entry) => entry.comment === comment),
     /** What one conversation did, newest first. */
     linksOf: (conversation: string) => links().filter((link) => link.conversation === conversation),
-    /** A conversation's artifacts: one link per document, its latest. */
-    artifactsOf: (conversation: string) => latest(links().filter((link) => link.conversation === conversation)),
+    /**
+     * A conversation's artifacts: one link per document, its latest, from the index and from what the instance lists
+     * for the conversation (`DriveArtifacts.merge`). The chat header counts them.
+     */
+    artifactsOf: (conversation: string) =>
+      latest(
+        DriveArtifacts.merge(
+          conversation,
+          links().filter((link) => link.conversation === conversation),
+          listedOf(conversation),
+        ),
+      ),
+    readChat,
+    /**
+     * Keeps what the instance lists for a chat read while the calling component lives: now, and again after each read
+     * of the Drive, of another account, or once the capability turns on (`readChat` reads all three before it waits).
+     */
+    followChat(conversation: () => string) {
+      createEffect(() => void readChat(conversation()))
+    },
     /** A document's comment threads, newest first. */
     threadsOf: (id: string) => threadsOf(state.discussion[id]?.comments ?? []),
     thread: (id: string) =>
