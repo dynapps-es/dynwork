@@ -34,6 +34,15 @@ describe("which sub-frame navigations go ahead", () => {
     expect(DriveFrames.allows({ ...viewer, url: "about:srcdoc#more" })).toBe(false)
   })
 
+  // G11: with scripts on, 0.84 says a page can send its content out by navigating its own frame, remote origins or
+  // not: the guard holds the frame whatever the page's policy lets it load.
+  test("a scripted page cannot carry its content out through its frame, not even to an origin its policy lists", () => {
+    const viewer = { name: DriveFrames.name, known: true, sameDocument: false }
+    expect(DriveFrames.allows({ ...viewer, url: "https://cdn.jsdelivr.net/?q=the-document" })).toBe(false)
+    expect(DriveFrames.allows({ ...viewer, url: "https://cdnjs.cloudflare.com/ajax/libs/x.js" })).toBe(false)
+    expect(DriveFrames.allows({ ...viewer, name: `${DriveFrames.name}:2`, url: "https://cdn.jsdelivr.net/" })).toBe(false)
+  })
+
   test("a link to a heading of the same page stays in it", () => {
     expect(
       DriveFrames.allows({ name: DriveFrames.name, known: true, url: "about:srcdoc#more", sameDocument: true }),

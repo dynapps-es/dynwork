@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, jest, test } from "bun:test"
 import { fail, type Backend } from "../../src/drive/backend"
-import type { DriveCapabilities } from "../../src/drive/capabilities"
+import { DriveCapabilities } from "../../src/drive/capabilities"
 import { DriveFake } from "../../src/drive/fake"
 import { DriveIpc } from "../../src/drive/ipc"
 import { storage } from "../routines/fixture"
@@ -25,6 +25,8 @@ function stand(
     capabilities?: Partial<DriveCapabilities.Capabilities>
     backend?: (fake: DriveFake.Fake) => Backend
     store?: ReturnType<typeof storage<typeof DriveIpc.Saved>>
+    /** The core each account's fake answers as; 0.83 when absent. */
+    version?: (account: string) => "0.83" | "0.84"
   } = {},
 ) {
   const timers = manualTimers()
@@ -37,7 +39,9 @@ function stand(
   const service = DriveIpc.make({
     account: () => active.account,
     backend: (account) => {
-      const fake = fakes.get(account.id) ?? DriveFake.make({ user: `user-${account.id}`, contexts: true })
+      const fake =
+        fakes.get(account.id) ??
+        DriveFake.make({ user: `user-${account.id}`, contexts: true, version: options.version?.(account.id) })
       fakes.set(account.id, fake)
       const spied: Backend = {
         ...fake,
@@ -186,13 +190,35 @@ describe("polling", () => {
     expect(timers.pending()).toEqual([5 * 60_000])
   })
 
-  test("with pushChanges on, a watched Drive keeps the 5-minute poll only", async () => {
+  test("with pushChanges on, a watched Drive keeps the 5-minute poll only while its stream is open", async () => {
+    const { client, timers, service } = stand({ capabilities: { pushChanges: true } })
+    await flush()
+    service.streamed(ana.id, true)
+    const window = new AbortController()
+    const watching = client.watch({ signal: window.signal })
+    await flush()
+    expect(timers.pending()).toEqual([5 * 60_000])
+    // The stream drops: the fast poll is back at once, and the read after it covers the gap.
+    service.streamed(ana.id, false)
+    expect(timers.pending()).toEqual([20_000])
+    service.streamed(ana.id, true)
+    timers.fire()
+    await flush()
+    expect(timers.pending()).toEqual([5 * 60_000])
+    // Another account's stream says nothing of this one.
+    service.streamed(ben.id, false)
+    expect(timers.pending()).toEqual([5 * 60_000])
+    window.abort()
+    await watching
+  })
+
+  test("with pushChanges on and no stream, a watched Drive is polled every 20 s", async () => {
     const { client, timers } = stand({ capabilities: { pushChanges: true } })
     await flush()
     const window = new AbortController()
     const watching = client.watch({ signal: window.signal })
     await flush()
-    expect(timers.pending()).toEqual([5 * 60_000])
+    expect(timers.pending()).toEqual([20_000])
     window.abort()
     await watching
   })
@@ -272,8 +298,15 @@ describe("attribution", () => {
       backend: (fake) => ({ ...fake, create: (input) => (made.push(input), fake.create(input)) }),
     })
     const created = await ok(client.create({ template: "dynapps-word", name: "Q3", conversation: chat }))
+    // The message goes too: 0.84 keeps it on the first revision, 0.83 ignores it.
     expect(made).toEqual([
-      { template: "dynapps-word", name: "Q3", folder: undefined, contextId: service.context(chat.id) },
+      {
+        template: "dynapps-word",
+        name: "Q3",
+        folder: undefined,
+        message: "Q3 report by DynWork",
+        contextId: service.context(chat.id),
+      },
     ])
     expect(client.state().documents.map((document) => document.id)).toEqual([created.document.id])
     expect(client.state().links.map((link) => [link.document, link.act])).toEqual([[created.document.id, "created"]])
@@ -453,7 +486,170 @@ describe("changes the stream announces (G09)", () => {
   })
 })
 
+describe("what the account's instance delivers", () => {
+  const rest = { conversationLabel: true, pushChanges: true, peopleByRest: true }
+
+  test("a 0.83 instance delivers nothing: every capability stays off, as today", async () => {
+    const { client, fake } = stand()
+    await flush()
+    expect(client.state().capabilities).toEqual(DriveCapabilities.none)
+    expect(fake().calls.discovery).toBe(1)
+    expect(fake().calls.people).toBeUndefined()
+  })
+
+  test("a 0.84 instance turns on the REST side, pushed to the windows", async () => {
+    const { client, pushes } = stand({ version: () => "0.84" })
+    const before = pushes.count
+    await flush()
+    expect(client.state().capabilities).toEqual({ ...DriveCapabilities.none, ...rest })
+    expect(pushes.count).toBeGreaterThan(before)
+  })
+
+  test("read again when the account changes, and when the instance answers again after failing", async () => {
+    const { client, fake, active, service } = stand({ version: (account) => (account === ben.id ? "0.84" : "0.83") })
+    await flush()
+    expect(client.state().capabilities.pushChanges).toBe(false)
+    active.account = ben
+    service.account()
+    await flush()
+    expect(client.state()).toMatchObject({ account: ben.id, capabilities: { ...DriveCapabilities.none, ...rest } })
+    active.account = ana
+    service.account()
+    await flush()
+    expect(client.state().capabilities).toEqual(DriveCapabilities.none)
+    const asked = fake().calls.discovery
+    await client.refresh()
+    expect(fake().calls.discovery).toBe(asked)
+    fake().down({ code: "unreachable", message: "down", retryable: true })
+    await client.refresh()
+    fake().down(undefined)
+    await client.refresh()
+    await flush()
+    expect(fake().calls.discovery).toBe((asked ?? 0) + 1)
+  })
+
+  test("a discovery that does not answer leaves what was read, and the next read asks again", async () => {
+    const answers = { down: true }
+    const { client, fake } = stand({
+      version: () => "0.84",
+      backend: (fake) => ({
+        ...fake,
+        discovery: () =>
+          answers.down ? Promise.resolve(fail("unreachable", "Governance did not answer.")) : fake.discovery(),
+      }),
+    })
+    await flush()
+    expect(client.state().capabilities).toEqual(DriveCapabilities.none)
+    answers.down = false
+    await client.refresh()
+    await flush()
+    expect(client.state().capabilities).toEqual({ ...DriveCapabilities.none, ...rest })
+    expect(fake().calls.list).toBe(2)
+  })
+
+  test("where discovery tells neither its version nor the Drive, the user's own id is looked up to tell", async () => {
+    const silent = (fake: DriveFake.Fake): Backend => ({ ...fake, discovery: async () => ({}) })
+    const at84 = stand({
+      account: { ...ana, userId: "user-ana" },
+      backend: () => silent(DriveFake.make({ user: "user-ana", people: { "user-ana": "Ana" } })),
+    })
+    await flush()
+    expect(at84.client.state().capabilities).toEqual({ ...DriveCapabilities.none, ...rest })
+    const at83 = stand({
+      account: { ...ana, userId: "user-ana" },
+      backend: (fake) => ({ ...silent(fake), people: async () => fail("not-found", "No such route.") }),
+    })
+    await flush()
+    expect(at83.client.state().capabilities).toEqual(DriveCapabilities.none)
+    // Without the user's id there is nothing to look up: nothing is delivered, and nothing is asked.
+    const unknown = stand({ backend: silent })
+    await flush()
+    expect(unknown.client.state().capabilities).toEqual(DriveCapabilities.none)
+    expect(unknown.fake().calls.people).toBeUndefined()
+  })
+
+  test("what the main entry forces stays forced over what the instance delivers", async () => {
+    const { client } = stand({ version: () => "0.84", capabilities: { pushChanges: false, rangeComments: true } })
+    await flush()
+    expect(client.state().capabilities).toMatchObject({ pushChanges: false, rangeComments: true, peopleByRest: true })
+  })
+})
+
+describe("on a 0.84 instance (G02)", () => {
+  test("a conversation's write carries its context and no message; the instance keeps a direct one's", async () => {
+    const { client, seen, service } = stand({ version: () => "0.84" })
+    await flush()
+    const created = await ok(client.upload({ name: "c.md", bytes: text("x"), mime: "text/markdown", conversation: chat }))
+    expect(seen[0]?.input).toMatchObject({ message: undefined, contextId: service.context(chat.id) })
+    const direct = await ok(client.create({ template: "blank-markdown", name: "Notes" }))
+    expect(direct.revision.message).toBe("ana@dynapps.es by DynWork")
+    expect(created.revision.message).toBeUndefined()
+  })
+
+  test("revisions and comments of DynWork's conversations say so, with their title; another conversation's do not", async () => {
+    const { client, fake } = stand({ version: () => "0.84" })
+    await flush()
+    const created = await ok(client.upload({ name: "c.md", bytes: text("# a\nb"), mime: "text/markdown", conversation: chat }))
+    const id = created.document.id
+    // Another of the user's agents, in a conversation DynWork did not register here
+    const elsewhere = await ok(fake().createContext("Weekly"))
+    await ok(fake().edit(id, { ops: [{ op: "append_markdown", markdown: "c" }], contextId: elsewhere }))
+    await ok(client.comment({ id, body: "Mine", anchor: { kind: "node", node: "n1" }, conversation: chat }))
+    const revisions = await ok(client.revisions({ id }))
+    expect(revisions.map((revision) => [revision.conversation, revision.ours, revision.agent])).toEqual([
+      ["Weekly", undefined, DriveFake.agent],
+      ["Q3 report", true, DriveFake.agent],
+    ])
+    const comments = await ok(client.comments({ id }))
+    expect(comments[0]).toMatchObject({ conversation: "Q3 report", ours: true, via: DriveFake.agent })
+  })
+
+  test("a context the instance no longer holds is registered again and the write made once more", async () => {
+    const store = storage(DriveIpc.Saved, DriveIpc.initial)
+    const gone = "0b7c2a7e-0d4f-4b8e-9a51-6f3e2d1c0b9a"
+    store.update((draft) => {
+      draft.accounts[ana.id] = { contexts: { [chat.id]: { id: gone, name: chat.name } }, links: [] }
+    })
+    const { client, seen, service, fake } = stand({ version: () => "0.84", store })
+    await flush()
+    const created = await ok(client.upload({ name: "c.md", bytes: text("x"), conversation: chat }))
+    expect(seen.map((entry) => (entry.input as { contextId?: string }).contextId)).toEqual([gone, service.context(chat.id)])
+    expect(service.context(chat.id)).not.toBe(gone)
+    expect(fake().contexts.get(service.context(chat.id) ?? "")).toBe("Q3 report")
+    expect(created.document.name).toBe("c.md")
+  })
+
+  test("a refusal that comes back after registering again reaches the window, once", async () => {
+    const { client, seen } = stand({
+      version: () => "0.84",
+      backend: (fake) => ({
+        ...fake,
+        upload: async (input) => (seen.push({ method: "upload", input }), fail("unknown-context", "No.")),
+      }),
+    })
+    await flush()
+    expectFailure(await client.upload({ name: "c.md", bytes: text("x"), conversation: chat }), "unknown-context")
+    expect(seen).toHaveLength(2)
+    // A direct write names no conversation: nothing to register again.
+    expectFailure(await client.upload({ name: "d.md", bytes: text("x") }), "unknown-context")
+    expect(seen).toHaveLength(3)
+  })
+})
+
 describe("people by id (G13)", () => {
+  test("the directory search goes over REST with peopleByRest, and through the MCP server without it", async () => {
+    const people = { "user-bob": "Bob Martín Ruiz" }
+    const off = stand({ backend: () => DriveFake.make({ user: "user-account-ana", people }) })
+    await flush()
+    expect(await ok(off.client.findPeople({ query: "bob", limit: 5 }))).toEqual([{ id: "user-bob", name: "Bob Martín Ruiz" }])
+    const on = stand({ version: () => "0.84" })
+    await flush()
+    await ok(on.client.findPeople({ query: "bob ruiz", limit: 5 }))
+    expect(on.fake().calls.searchPeople).toBe(1)
+    expect(on.fake().calls.findPeople).toBeUndefined()
+    expect(off.client.state().capabilities.peopleByRest).toBe(false)
+  })
+
   test("peopleByRest off: unsupported, without a call; on, the instance names whom it knows", async () => {
     const people = { "user-bob": "Bob Martín" }
     const off = stand()

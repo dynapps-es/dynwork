@@ -1,11 +1,12 @@
-import { afterAll, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { createHash, randomUUID } from "node:crypto"
 import { DynWorkAccounts } from "../../src/accounts/accounts"
 import { DriveBackend } from "../../src/drive/backend"
 import { DriveFake } from "../../src/drive/fake"
 import { startFake } from "../../../sp-client/test/fake"
-import { isFailure } from "../../src/drive/contract"
+import { Comment, isFailure, Revision } from "../../src/drive/contract"
 import { conformance, expectFailure, ok } from "./conformance"
+import { crossing } from "./wire"
 
 // The real backend runs against sp-client's fake instance, which answers the Drive routes as sp-local 0.83 does.
 const instance = startFake()
@@ -102,6 +103,8 @@ describe("the Governance backend", () => {
     { status: 503, key: "unavailable", code: "unreachable" },
     { status: 400, key: "invalid_params", code: "invalid" },
     { status: 400, key: "unsupported_op", code: "unsupported" },
+    { status: 422, key: "unknown_context", code: "unknown-context" },
+    { status: 422, key: "integrity_mismatch", code: "failed" },
     { status: 418, key: "teapot", code: "failed" },
   ] as const)("the instance's $status $key answers $code, without its own words", async (row) => {
     instance.state.override = {
@@ -275,5 +278,103 @@ describe("the Governance backend", () => {
     expect(created.document.mine).toBe(true)
     const stranger = DriveBackend.remote({ url: instance.url, user: "someone-else", withJwt: (use) => use(issued()) })
     expect((await ok(stranger.get(created.document.id))).document.mine).toBe(false)
+  })
+})
+
+describe("the Governance backend on 0.83 and 0.84", () => {
+  beforeEach(() => {
+    instance.state.drive.version = "0.84"
+  })
+  afterEach(() => {
+    instance.state.drive.version = "0.83"
+  })
+
+  test("discovery says whether the instance announces the Drive, and its version", async () => {
+    expect(await ok(remote().discovery())).toEqual({ version: "0.84.0", documents: true })
+    instance.state.drive.version = "0.83"
+    expect(await ok(remote().discovery())).toEqual({ version: "0.83.0", documents: false })
+  })
+
+  test("0.84 revisions and comments read their conversation, its title, the agent and the client", async () => {
+    const backend = remote()
+    const context = await ok(backend.createContext("Q3 report"))
+    const created = await ok(
+      backend.upload({
+        name: `q3-${randomUUID()}.md`,
+        bytes: new TextEncoder().encode("# Q3"),
+        mime: "text/markdown",
+        message: "Q3 report by DynWork",
+        contextId: context,
+      }),
+    )
+    // 0.84 keeps the message of the document it makes
+    expect(created.revision.message).toBe("Q3 report by DynWork")
+    const revisions = (await ok(backend.revisions(created.document.id))).map((item) => crossing(Revision, item))
+    expect(revisions[0]).toMatchObject({ context, conversation: "Q3 report", agent: "sp_bridge", client: "sp_bridge" })
+    await ok(backend.comment(created.document.id, { body: "Check", anchor: { kind: "node", node: "n1" }, contextId: context }))
+    const comments = (await ok(backend.comments(created.document.id))).map((item) => crossing(Comment, item))
+    expect(comments[0]).toMatchObject({ context, conversation: "Q3 report", via: "sp_bridge", client: "sp_bridge" })
+  })
+
+  test("0.83 revisions and comments carry none of those keys", async () => {
+    instance.state.drive.version = "0.83"
+    const backend = remote()
+    const created = await ok(
+      backend.upload({ name: `old-${randomUUID()}.md`, bytes: new TextEncoder().encode("# x"), mime: "text/markdown" }),
+    )
+    const revision = (await ok(backend.revisions(created.document.id)))[0]
+    expect(Object.keys(revision ?? {}).toSorted()).toEqual(
+      ["actor", "author", "created", "document", "id", "message", "origin", "parent", "sha256"].toSorted(),
+    )
+    await ok(backend.comment(created.document.id, { body: "x", anchor: { kind: "node", node: "n1" } }))
+    const comment = (await ok(backend.comments(created.document.id)))[0]
+    expect(comment).not.toHaveProperty("via")
+    expect(comment).not.toHaveProperty("conversation")
+  })
+
+  test("a comment on a cell range and a reopened one read their range and who reopened it", async () => {
+    const backend = remote()
+    const created = await ok(
+      backend.upload({ name: `sheet-${randomUUID()}.md`, bytes: new TextEncoder().encode("x"), mime: "text/markdown" }),
+    )
+    instance.state.drive.comments.set(created.document.id, [
+      {
+        id: "c-range",
+        anchor: { node: "sheet[Sales]", cells: "B2:D9" },
+        author_user_id: user,
+        body: "Range",
+        created_at: "2026-11-20T09:00:00Z",
+        reopened_at: "2026-11-20T10:00:00Z",
+        reopened_by: "someone",
+      },
+    ])
+    const comment = crossing(Comment, (await ok(backend.comments(created.document.id)))[0])
+    expect(comment).toMatchObject({
+      anchor: { node: "sheet[Sales]", cells: "B2:D9" },
+      reopened: Date.parse("2026-11-20T10:00:00Z"),
+      reopener: "someone",
+    })
+  })
+
+  test("a conversation the instance did not issue answers unknown-context, and nothing is written", async () => {
+    const before = instance.state.drive.documents.size
+    const answer = await remote().upload({
+      name: "x.md",
+      bytes: new TextEncoder().encode("x"),
+      contextId: randomUUID(),
+    })
+    expectFailure(answer, "unknown-context")
+    expect(instance.state.drive.documents.size).toBe(before)
+  })
+
+  test("a template's document keeps the message it is sent", async () => {
+    const created = await ok(remote().create({ template: "blank-markdown", name: "Notes", message: "Ana by DynWork" }))
+    expect(created.revision.message).toBe("Ana by DynWork")
+  })
+
+  test("the directory is searched over REST, word by word", async () => {
+    const found = await ok(remote().searchPeople("ana", 5))
+    expect(found).toEqual([{ id: invitee, name: "Ana Ruiz", email: "ana@example.com" }])
+    expect(instance.state.requests.at(-1)).toMatchObject({ path: "/api/v1/documents/people", query: "?query=ana&limit=5" })
   })
 })

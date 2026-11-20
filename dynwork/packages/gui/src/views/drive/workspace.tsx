@@ -4,8 +4,10 @@ import { Icon } from "@opencode/ui/icon"
 import { ResizeHandle } from "@opencode/ui/resize-handle"
 import { Tabs } from "@opencode/ui/tabs"
 import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js"
+import { DriveCapabilities } from "../../drive/capabilities"
 import type { Document } from "../../drive/contract"
 import { askAgent, back, sessionOf, titleOf } from "./chat"
+import { revisionBy } from "./model"
 import { canComment, CommentMarks, CommentsTab, MarksToggle } from "./comments"
 import { CommentPopup, DocMenu, SharePopover } from "./menus"
 import { drawerWidth, outlineWidth, panes } from "./panes"
@@ -361,18 +363,22 @@ function Details(props: { doc: Document }) {
   )
 }
 
-/** The revisions, newest first, numbered from the first: who wrote each, and its message ("… by DynWork"). */
+/**
+ * The revisions, newest first, numbered from the first: who wrote each (the conversation and the agent, as the instance
+ * tells them from 0.84, `revisionBy`), and its message ("… by DynWork").
+ */
 function Versions(props: { doc: Document }) {
   const ctx = usePlugin()
   const names = useNames()
   const list = () => drive.state.opened.revisions ?? []
+  const capabilities = () => drive.remote()?.capabilities ?? DriveCapabilities.none
   return (
     <>
       <For each={list()}>
         {(revision, index) => (
           <div data-slot="drive-version" data-current={index() === 0 ? "" : undefined}>
             <Avatar
-              name={revision.actor === "agent" ? "DynWork" : names.owner(props.doc)}
+              name={revisionBy(capabilities(), revision) ?? names.owner(props.doc)}
               agent={revision.actor === "agent"}
               size="small"
             />
@@ -384,6 +390,9 @@ function Versions(props: { doc: Document }) {
                   <Tag tone="agent">{ctx.t("drive.agent")}</Tag>
                 </Show>
               </div>
+              <Show when={capabilities().conversationLabel && revisionBy(capabilities(), revision)}>
+                {(by) => <div data-slot="drive-version-by">{by()}</div>}
+              </Show>
               <div data-slot="drive-faint">{revision.message ?? ctx.t("drive.version.unnamed")}</div>
               <div data-slot="drive-faint">{names.ago(revision.created)}</div>
             </div>

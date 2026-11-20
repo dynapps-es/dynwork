@@ -37,12 +37,13 @@ function stand(options: Standing = {}) {
   const active: { value: Standing["account"] } = { value: options.account ?? ana }
   const clock = { value: 1_000 }
   const store = options.store ?? storage(DriveIpc.Saved, DriveIpc.initial)
+  const timers = manualTimers()
   const service = DriveIpc.make({
     account: () => active.value,
     backend: (account) => backends[account.id] ?? DriveFake.make(),
     store,
     changed: () => {},
-    timers: manualTimers(),
+    timers,
     capabilities: () => options.capabilities ?? {},
     // Each write is a moment later than the one before, so that "the last" is not a tie
     now: () => (clock.value += 1),
@@ -75,7 +76,7 @@ function stand(options: Standing = {}) {
     ).document.id
   const ask = (id: string, body = "@Agent resume esto") => ok(client.comment({ id, body, anchor: node }))
   const state = () => client.state()
-  return { backends, active, store, service, sessions, woken, mentions, client, document, ask, state, off }
+  return { backends, active, store, service, sessions, woken, mentions, client, document, ask, state, off, timers }
 }
 
 describe("the text of a comment", () => {
@@ -403,6 +404,35 @@ describe("following the stream", () => {
     expect(subject.backends[ana.id].calls.list).toBe(reads + 1)
     expect(subject.woken).toEqual([])
     life.abort()
+  })
+
+  test("on a 0.84 instance, the change it announces reads the Drive, and a watched Drive drops its fast poll while the stream is open", async () => {
+    const subject = stand({
+      backends: { [ana.id]: DriveFake.make({ user: ana.userId, version: "0.84" }) },
+    })
+    await flush()
+    expect(subject.state().capabilities.pushChanges).toBe(true)
+    const window = new AbortController()
+    const watching = subject.client.watch({ signal: window.signal })
+    await flush()
+    expect(subject.timers.pending()).toEqual([20_000])
+    const life = new AbortController()
+    void subject.mentions.follow(life.signal, quick)
+    await until(() => (subject.backends[ana.id].calls.stream ?? 0) === 1)
+    // The poll armed before the stream opened still fires, and reads what the stream could not have told.
+    subject.timers.fire()
+    await flush()
+    expect(subject.timers.pending()).toEqual([5 * 60_000])
+    const reads = subject.backends[ana.id].calls.list ?? 0
+    await subject.backends[ana.id].upload({ name: "web.md", bytes: text("x"), mime: "text/markdown" })
+    subject.backends[ana.id].changed()
+    await until(() => subject.state().documents.some((document) => document.name === "web.md"))
+    expect(subject.backends[ana.id].calls.list).toBe(reads + 1)
+    // The stream ends: the fast poll is back.
+    life.abort()
+    await until(() => subject.timers.pending()[0] === 20_000)
+    window.abort()
+    await watching
   })
 
   test("pushChanges off: a change is heard and nothing is read; the mentions after it are still attended", async () => {

@@ -57,7 +57,10 @@ export interface Options<A extends Account = Account> {
   store: Persisted<Saved, Saved>
   /** The state changed: the provider's `changed()`. */
   changed: () => void
-  /** What the account's instance has delivered. Absent: nothing (`DriveCapabilities.none`). */
+  /**
+   * Switches to force on or off over what the account's instance delivers, which the service reads from the instance
+   * itself (`DriveCapabilities.delivered`). Absent: what the instance delivers, as read.
+   */
   capabilities?: (account: string) => Partial<DriveCapabilities.Capabilities>
   timers?: Timers
   now?: () => number
@@ -88,6 +91,8 @@ const empty = (account: string | undefined): Cache => ({
  *   and the backend go and the new account's Drive is read.
  * - Every write carries its attribution (`DriveCapabilities.attribution`); a write from a conversation enters the
  *   index while the Drive cannot answer it (`DriveCapabilities.indexed`).
+ * - What the account's instance delivers (`capabilities`) is read from its discovery when the account becomes active
+ *   and each time it answers again after failing (`detect`), and pushed to windows with the snapshot.
  */
 export function make<A extends Account>(options: Options<A>) {
   const now = options.now ?? Date.now
@@ -111,7 +116,12 @@ export function make<A extends Account>(options: Options<A>) {
     reads: number
     watching: number
     stop?: () => void
-  } = { cache: empty(undefined), reads: 0, watching: 0 }
+    // What the instance delivers, once read (`detect`); the newest reading begun, so a late one is dropped
+    delivered?: DriveCapabilities.Capabilities
+    detections: number
+    // The account's stream is open (`DriveMentions`): with `pushChanges`, the fast poll is not needed
+    streaming: boolean
+  } = { cache: empty(undefined), reads: 0, watching: 0, detections: 0, streaming: false }
   // The registrations under way, by account and conversation: the writes of one conversation share one.
   const registering = new Map<string, Promise<string | undefined>>()
   // A read the stream asked for (`reread`): one at a time, and one more after it when another change came meanwhile.
@@ -119,6 +129,7 @@ export function make<A extends Account>(options: Options<A>) {
 
   const capabilities = (): DriveCapabilities.Capabilities => ({
     ...DriveCapabilities.none,
+    ...live.delivered,
     ...(live.account ? options.capabilities?.(live.account.id) : undefined),
   })
 
@@ -132,6 +143,9 @@ export function make<A extends Account>(options: Options<A>) {
     live.stop?.()
     live.stop = undefined
     live.reads++
+    live.detections++
+    live.delivered = undefined
+    live.streaming = false
     live.account = account
     live.backend = account ? options.backend(account) : undefined
     live.cache = empty(account?.id)
@@ -152,6 +166,9 @@ export function make<A extends Account>(options: Options<A>) {
     ])
     if (read !== live.reads) return
     const failure = [folders, listing].find(isFailure)
+    // The instance answers again (or for the first time): what it delivers may have changed with it.
+    if (failure === undefined && (live.cache.status !== "ready" || live.delivered === undefined))
+      void detect(backend, account)
     // A read that failed keeps the last answer: a window does not blank because Governance is away for a moment.
     live.cache = {
       account: account.id,
@@ -166,7 +183,47 @@ export function make<A extends Account>(options: Options<A>) {
 
   function arm() {
     live.stop?.()
-    live.stop = timers.set(() => void load(), DriveCapabilities.pollEvery(capabilities(), live.watching > 0))
+    live.stop = timers.set(
+      () => void load(),
+      DriveCapabilities.pollEvery(capabilities(), live.watching > 0, live.streaming),
+    )
+  }
+
+  /**
+   * Reads what the account's instance delivers from its discovery (`DriveCapabilities.delivered`), probing
+   * `GET /documents/people?ids=` with the user's own id only where discovery tells neither its version nor the Drive.
+   * An instance that does not answer leaves what was read before, and the next read that succeeds asks again.
+   */
+  async function detect(backend: Backend, account: A) {
+    const run = ++live.detections
+    const said = await guard(() => backend.discovery())
+    if (isFailure(said)) return
+    const read = DriveCapabilities.delivered(said) ?? (await probe(backend, account))
+    if (run !== live.detections || live.account?.id !== account.id) return
+    const before = capabilities()
+    live.delivered = read
+    if (live.stop) arm()
+    const after = capabilities()
+    if (DriveCapabilities.keys.some((key) => before[key] !== after[key])) options.changed()
+  }
+
+  async function probe(backend: Backend, account: A) {
+    const user = account.userId
+    if (user === undefined) return DriveCapabilities.none
+    const found = await guard(() => backend.people([user]))
+    if (isFailure(found) && found.code === "unreachable") return undefined
+    return DriveCapabilities.delivered({ people: !isFailure(found) }) ?? DriveCapabilities.none
+  }
+
+  /**
+   * The account's stream opened or closed (`DriveMentions`). Closed, the poll is armed again at once, the fast one if a
+   * window watches. Opened, the poll already armed still fires, and the read it makes covers what the stream missed
+   * while it was closed (it keeps no history); the next one is armed for the push.
+   */
+  function streamed(account: string, open: boolean) {
+    if (live.account?.id !== account || live.streaming === open) return
+    live.streaming = open
+    if (!open && live.stop) arm()
   }
 
   // The backend of the active account, or the failure that says there is none.
@@ -220,6 +277,13 @@ export function make<A extends Account>(options: Options<A>) {
     return id
   }
 
+  // The instance refused the conversation's context (0.84, `unknown-context`): the next write registers it again.
+  function forget(account: string, conversation: string) {
+    options.store.update((draft) => {
+      if (draft.accounts[account]) delete draft.accounts[account].contexts[conversation]
+    })
+  }
+
   function keep(account: string, conversation: string, context: typeof Context.Type) {
     options.store.update((draft) => {
       draft.accounts[account] ??= { contexts: {}, links: [] }
@@ -234,6 +298,35 @@ export function make<A extends Account>(options: Options<A>) {
       user: account.user,
       conversation: conversation && { name: conversation.name, context: id },
     })
+  }
+
+  /**
+   * A write with its author (`author`). When the instance does not hold the conversation's context any more (0.84,
+   * `unknown-context`: deleted in Governance, say), it is registered again and the write is made once more; nothing was
+   * written the first time.
+   */
+  async function attributed<B>(
+    backend: Backend,
+    account: Account,
+    conversation: Conversation | undefined,
+    write: (signed: Awaited<ReturnType<typeof author>>) => Promise<B | Failure>,
+  ) {
+    const first = await write(await author(backend, account, conversation))
+    if (!conversation || !isFailure(first) || first.code !== "unknown-context") return first
+    forget(account.id, conversation.id)
+    return write(await author(backend, account, conversation))
+  }
+
+  // What the instance answers of a revision or a comment, with whether it is DynWork's own: written from a conversation
+  // it registered for the account, or signed "… by DynWork" (a revision written without the conversation's context).
+  function owned<B extends { context?: string; message?: string; conversation?: string }>(account: string, item: B) {
+    const known = Object.values(options.store.value.accounts[account]?.contexts ?? {}).find(
+      (context) => typeof context === "object" && context.id === item.context,
+    )
+    const ours = typeof known === "object" || item.message?.endsWith(" by DynWork") === true
+    if (!ours) return item
+    // The instance tells the title to the conversation's owner only; DynWork knows its own anyway.
+    return { ...item, ours, conversation: item.conversation ?? (typeof known === "object" ? known.name : undefined) }
   }
 
   // The revision message alone, for a write that carries no context: the agent's through the MCP (`contextByMcp` off).
@@ -322,19 +415,35 @@ export function make<A extends Account>(options: Options<A>) {
     content: (input) => on((backend) => backend.content(input.id, input.revision)),
     pdf: (input) => on((backend) => backend.pdf(input.id, input.revision)),
     outline: (input) => on((backend) => backend.outline(input.id)),
-    revisions: (input) => on((backend) => backend.revisions(input.id)),
+    revisions: (input) =>
+      on(async (backend, account) => {
+        const list = await backend.revisions(input.id)
+        return isFailure(list) ? list : list.map((revision) => owned(account.id, revision))
+      }),
     proposals: (input) => on((backend) => backend.proposals(input.id)),
-    comments: (input) => on((backend) => backend.comments(input.id)),
+    comments: (input) =>
+      on(async (backend, account) => {
+        const list = await backend.comments(input.id)
+        return isFailure(list) ? list : list.map((comment) => owned(account.id, comment))
+      }),
     access: (input) => on((backend) => backend.access(input.id)),
     // A change of who has access is the user's own, from the window; the instance's agent policy decides (`share`).
     share: (input) => on((backend) => backend.share(input.id, { kind: input.kind, value: input.value, level: input.level })),
     unshare: (input) => on((backend) => backend.unshare(input.id, input.grant)),
-    findPeople: (input) => on((backend) => backend.findPeople(input.query, input.limit)),
+    // Over REST where the instance has it (0.84), otherwise through the `documents` MCP server's `documents_people`.
+    findPeople: (input) =>
+      on((backend) =>
+        capabilities().peopleByRest
+          ? backend.searchPeople(input.query, input.limit)
+          : backend.findPeople(input.query, input.limit),
+      ),
     agentCap: (input) => on((backend) => backend.agentCap(input)),
     createFolder: (input) => changing((backend) => backend.createFolder(input)),
     upload: (input) =>
       changing(async (backend, account) => {
-        const created = await backend.upload({ ...input, ...(await author(backend, account, input.conversation)) })
+        const created = await attributed(backend, account, input.conversation, (signed) =>
+          backend.upload({ ...input, ...signed }),
+        )
         if (!isFailure(created) && input.conversation)
           record(account.id, {
             conversation: input.conversation.id,
@@ -345,15 +454,12 @@ export function make<A extends Account>(options: Options<A>) {
           })
         return created
       }),
-    // The instance keeps no message on a document it makes from a template (C4): only the conversation's context.
+    // 0.83 keeps no message on a document it makes from a template (C4), only the conversation's context; 0.84 keeps it.
     create: (input) =>
       changing(async (backend, account) => {
-        const created = await backend.create({
-          template: input.template,
-          name: input.name,
-          folder: input.folder,
-          contextId: (await author(backend, account, input.conversation)).contextId,
-        })
+        const created = await attributed(backend, account, input.conversation, (signed) =>
+          backend.create({ template: input.template, name: input.name, folder: input.folder, ...signed }),
+        )
         if (!isFailure(created) && input.conversation)
           record(account.id, {
             conversation: input.conversation.id,
@@ -366,12 +472,9 @@ export function make<A extends Account>(options: Options<A>) {
       }),
     edit: (input) =>
       changing(async (backend, account) => {
-        const edited = await backend.edit(input.id, {
-          ops: input.ops,
-          base: input.base,
-          mode: input.mode,
-          ...(await author(backend, account, input.conversation)),
-        })
+        const edited = await attributed(backend, account, input.conversation, (signed) =>
+          backend.edit(input.id, { ops: input.ops, base: input.base, mode: input.mode, ...signed }),
+        )
         if (!isFailure(edited) && input.conversation)
           record(account.id, {
             conversation: input.conversation.id,
@@ -388,24 +491,28 @@ export function make<A extends Account>(options: Options<A>) {
         if (!DriveCapabilities.anchorable(capabilities(), input.anchor))
           return fail("unsupported", "This kind of comment is not available yet.")
         const said = say(account, input.body)
-        const created = await backend.comment(input.id, {
-          body: said.body,
-          anchor: input.anchor,
-          contextId: (await author(backend, account, input.conversation)).contextId,
-          ...(said.agent ? { agent: true } : {}),
-        })
+        const created = await attributed(backend, account, input.conversation, (signed) =>
+          backend.comment(input.id, {
+            body: said.body,
+            anchor: input.anchor,
+            contextId: signed.contextId,
+            ...(said.agent ? { agent: true } : {}),
+          }),
+        )
         if (!isFailure(created)) asked(account, input.id, created.id, said.agent)
         return created
       }),
     reply: (input) =>
       on(async (backend, account) => {
         const said = say(account, input.body)
-        const created = await backend.reply(input.id, {
-          body: said.body,
-          parent: input.parent,
-          contextId: (await author(backend, account, input.conversation)).contextId,
-          ...(said.agent ? { agent: true } : {}),
-        })
+        const created = await attributed(backend, account, input.conversation, (signed) =>
+          backend.reply(input.id, {
+            body: said.body,
+            parent: input.parent,
+            contextId: signed.contextId,
+            ...(said.agent ? { agent: true } : {}),
+          }),
+        )
         if (!isFailure(created)) asked(account, input.id, created.id, said.agent)
         return created
       }),
@@ -472,10 +579,14 @@ export function make<A extends Account>(options: Options<A>) {
     },
     /** The author of a write, as the service signs it (`DriveCapabilities.attribution`), the conversation registered. */
     author,
+    /** A write with its author, registered again and made once more when the instance no longer holds its context. */
+    attributed,
     /** The revision message alone, for a write without the conversation's context: the agent's through the MCP. */
     message,
     /** The stream says the account's Drive changed. */
     reread: (account: string) => void reread(account),
+    /** The account's stream opened (`true`) or closed: the push replaces the fast poll only while it is open. */
+    streamed,
     /** Main calls it on every change of the accounts: a new active account replaces the snapshot. */
     account: () => {
       if (follow()) void load()

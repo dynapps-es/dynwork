@@ -614,6 +614,118 @@ describe("conversations", () => {
   })
 })
 
+describe("what each core answers (0.83 and 0.84)", () => {
+  test("discovery says the core's version, and 0.84 announces the Drive; no credential goes to it", async () => {
+    expect(await run(SpDrive.discovery(fake.url))).toEqual({ version: "0.83.0", documents: undefined })
+    fake.state.drive.version = "0.84"
+    expect(await run(SpDrive.discovery(fake.url))).toEqual({ version: "0.84.0", documents: { enabled: true } })
+    expect(sent("/api/v1", "GET").map((request) => request.headers.authorization)).toEqual([undefined, undefined])
+  })
+
+  test("a discovery without the Drive's block or a version still reads, and one that is not discovery is a Protocol error", async () => {
+    fake.state.override = { path: "/api/v1", status: 200, body: { data: { endpoints: { documents: { enabled: false } } } } }
+    expect(await run(SpDrive.discovery(fake.url))).toEqual({ version: undefined, documents: { enabled: false } })
+    fake.state.override = { path: "/api/v1", status: 200, body: { version: "0.84.0" } }
+    expect(await fail(SpDrive.discovery(fake.url))).toMatchObject({ _tag: "Protocol", endpoint: "GET /api/v1" })
+  })
+
+  test("0.83 revisions name no conversation, agent or client", async () => {
+    const context = await run(SpDrive.createContext(fake.url, state.jwt, "Q3 report"))
+    const created = await run(
+      SpDrive.importFile(fake.url, state.jwt, { name: "q3.md", bytes: text("# Q3"), message: "m", contextId: context }),
+    )
+    const revisions = await run(SpDrive.revisions(fake.url, state.jwt, created.document.id))
+    expect(revisions[0]).not.toHaveProperty("context_id")
+    expect(revisions[0]).not.toHaveProperty("context_name")
+    expect(revisions[0]?.message).toBeNull()
+  })
+
+  test("0.84 revisions name the conversation, its title to its owner, the agent and the client; the first keeps its message", async () => {
+    fake.state.drive.version = "0.84"
+    const context = await run(SpDrive.createContext(fake.url, state.jwt, "Q3 report"))
+    const created = await run(
+      SpDrive.importFile(fake.url, state.jwt, {
+        name: "q3.md",
+        bytes: text("# Q3"),
+        mime: "text/markdown",
+        message: "Q3 report by DynWork",
+        contextId: context,
+      }),
+    )
+    expect(created.revision).toMatchObject({ message: "Q3 report by DynWork", context_id: context, context_name: "Q3 report" })
+    await run(SpDrive.edit(fake.url, state.jwt, created.document.id, { ops: [{ op: "append_markdown", markdown: "x" }] }))
+    const revisions = await run(SpDrive.revisions(fake.url, state.jwt, created.document.id))
+    expect(revisions.map((revision) => [revision.context_id, revision.context_name])).toEqual([
+      [null, null],
+      [context, "Q3 report"],
+    ])
+    expect(revisions[1]).toMatchObject({ agent_name: "sp_bridge", client_id: "sp_bridge" })
+  })
+
+  test("create and import send the message; 0.84 keeps it on the first revision", async () => {
+    fake.state.drive.version = "0.84"
+    const made = await run(
+      SpDrive.create(fake.url, state.jwt, { templateId: "blank-markdown", name: "Notes", message: "Notes by DynWork" }),
+    )
+    expect(JSON.parse(sent("/api/v1/documents", "POST").at(-1)?.body ?? "{}").message).toBe("Notes by DynWork")
+    expect(made.revision.message).toBe("Notes by DynWork")
+    const ref = "a".repeat(64)
+    fake.state.drive.blobs.set(ref, { bytes: text("<p>x</p>"), mime: "text/html" })
+    const imported = await run(
+      SpDrive.importBlob(fake.url, state.jwt, { blobRef: ref, name: "x.html", message: "Page by DynWork" }),
+    )
+    expect(imported.revision.message).toBe("Page by DynWork")
+  })
+
+  test("0.84 comments say the agent, the conversation and its title, the client and the reopening", async () => {
+    fake.state.drive.version = "0.84"
+    const context = await run(SpDrive.createContext(fake.url, state.jwt, "Review"))
+    const created = await upload("a.html", html)
+    const made = await run(
+      SpDrive.createComment(fake.url, state.jwt, created.id, { body: "Check", anchor: { node: "n1" }, contextId: context }),
+    )
+    expect(made).toMatchObject({ via_agent: "sp_bridge", context_id: context, client_id: "sp_bridge" })
+    fake.state.drive.comments.get(created.id)?.push({
+      id: "c-range",
+      anchor: { node: "sheet[Sales]", cells: "B2:D9" },
+      author_user_id: "someone",
+      body: "Range",
+      created_at: new Date().toISOString(),
+      reopened_at: "2026-11-20T10:00:00Z",
+      reopened_by: "someone",
+    })
+    const all = await run(SpDrive.comments(fake.url, state.jwt, created.id))
+    expect(all[0]).toMatchObject({ context_id: context, context_name: "Review", via_agent: "sp_bridge" })
+    expect(all[1]).toMatchObject({
+      anchor: { node: "sheet[Sales]", cells: "B2:D9" },
+      reopened_at: "2026-11-20T10:00:00Z",
+      reopened_by: "someone",
+    })
+  })
+
+  test("0.83 comments carry none of it, and still decode", async () => {
+    const created = await upload("a.html", html)
+    const made = await run(
+      SpDrive.createComment(fake.url, state.jwt, created.id, { body: "Check", anchor: { node: "n1", find: "Hola" } }),
+    )
+    expect(made).not.toHaveProperty("via_agent")
+    expect((await run(SpDrive.comments(fake.url, state.jwt, created.id)))[0]).not.toHaveProperty("context_name")
+  })
+
+  test("0.84 refuses a conversation it did not issue to the user as UnknownContext, and writes nothing", async () => {
+    fake.state.drive.version = "0.84"
+    const error = await fail(
+      SpDrive.importFile(fake.url, state.jwt, { name: "x.md", bytes: text("x"), contextId: crypto.randomUUID() }),
+    )
+    expect(error).toBeInstanceOf(SpClient.UnknownContext)
+    expect(error).toMatchObject({ endpoint: "POST /api/v1/documents" })
+    expect(fake.state.drive.documents.size).toBe(0)
+    // Another 422 is not that one
+    fake.state.override = { status: 422, body: { error_key: "integrity_mismatch", message: "m" } }
+    expect(await fail(SpDrive.list(fake.url, state.jwt))).toMatchObject({ _tag: "Protocol", status: 422 })
+  })
+})
+
 describe("people through the documents MCP server (0.83)", () => {
   const luis = { user_id: "e51c808f-4246", name: "Luis Martín", email: "luis@dynapps.es" }
 

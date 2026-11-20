@@ -270,6 +270,12 @@ export const DriveRevision = Schema.Struct({
   origin_kind: Schema.String,
   message: Nullable(Schema.String),
   created_at: Schema.String,
+  // 0.84: the conversation the write named (`x-context-id` or the MCP's `context_id`), the agent and the OAuth client
+  // of the token that wrote it, and the conversation's title, only for the user who owns it. 0.83 sends none of them.
+  context_id: Nullable(Schema.String),
+  agent_name: Nullable(Schema.String),
+  client_id: Nullable(Schema.String),
+  context_name: Nullable(Schema.String),
 })
 export type DriveRevision = typeof DriveRevision.Type
 
@@ -315,8 +321,13 @@ export const DriveProposed = Schema.Struct({
   superseded: Schema.optional(Schema.Array(Schema.String)),
 })
 
-// The node id and the quoted text a comment is pinned to; a range anchor is not offered by 0.83 (the server keeps the node)
-export const DriveAnchor = Schema.Struct({ node: Schema.String, find: Schema.optional(Schema.String) })
+// The node id and the quoted text a comment is pinned to. From 0.84 a spreadsheet's sheet node may carry an A1 cell range
+// (`cells`, `B2:D9`) in place of a quote; 0.83 has no ranges.
+export const DriveAnchor = Schema.Struct({
+  node: Schema.String,
+  find: Schema.optional(Schema.String),
+  cells: Nullable(Schema.String),
+})
 export type DriveAnchor = typeof DriveAnchor.Type
 
 // `GET /{id}/read?view=outline`: one line per node, `<node id>:<hash8>| <text>`
@@ -335,6 +346,14 @@ export const DriveComment = Schema.Struct({
   created_at: Schema.String,
   resolved_at: Nullable(Schema.String),
   resolved_by: Nullable(Schema.String),
+  // 0.84: the agent that wrote it (`via_agent`, none for a person's own comment), its conversation and OAuth client,
+  // the conversation's title for its owner only, and who reopened it last and when. 0.83 sends none of them.
+  via_agent: Nullable(Schema.String),
+  context_id: Nullable(Schema.String),
+  client_id: Nullable(Schema.String),
+  context_name: Nullable(Schema.String),
+  reopened_at: Nullable(Schema.String),
+  reopened_by: Nullable(Schema.String),
 })
 export type DriveComment = typeof DriveComment.Type
 
@@ -425,6 +444,18 @@ export const DriveBlob = Schema.Struct({
   deduplicated: Schema.optional(Schema.Boolean),
 })
 export type DriveBlob = typeof DriveBlob.Type
+
+// The root discovery document (`GET /api/v1`), in the platform's `data` envelope: the core's version and, from 0.84, the
+// Drive's block (`endpoints.documents`: `{enabled: false}` while the store is off, its routes, limits and rendered-HTML
+// policy otherwise). 0.83 has no such block. Only what DynWork reads of it.
+export const DriveDiscovery = Schema.Struct({
+  data: Schema.Struct({
+    version: Schema.optional(Schema.String),
+    endpoints: Schema.optional(
+      Schema.Struct({ documents: Schema.optional(Schema.Struct({ enabled: Schema.Boolean })) }),
+    ),
+  }),
+})
 
 // A conversation registered in the instance (`/api/v1/core/contexts`), inside the platform's `data` envelope, as
 // sp-local 0.83 answers it. Its id is what a write's `x-context-id` names.

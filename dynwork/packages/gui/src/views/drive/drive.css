@@ -1185,6 +1185,15 @@
   font-weight: 550;
 }
 
+/* Who wrote it, as the instance tells it (0.84): "<conversation> · DynWork" */
+[data-slot="drive-version-by"] {
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 [data-slot="drive-person"] {
   display: flex;
   align-items: center;

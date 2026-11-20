@@ -4,9 +4,9 @@ import { Schema } from "effect"
 import type { Anchor } from "./contract"
 
 // What the Drive does differently once the instance delivers what DynWork asked for (`docs/ed/` of the Drive plan).
-// Each one is a switch per account, off until the instance gives it; how it gets switched on (the core's version or
-// an announcement in the manifest) is decided when the first one arrives. Every decision a switch changes is a pure
-// function here, so both states are tested without an instance.
+// Each one is a switch per account, off until the instance gives it. What an instance gives is read from its own
+// discovery (`delivered`), per account, when the account becomes active and when it reconnects. Every decision a switch
+// changes is a pure function here, so both states are tested without an instance.
 
 export const Capabilities = Schema.Struct({
   /** P1: DynWork acts as the person. Off: as an agent, and what the instance keeps to a person goes to Governance. */
@@ -51,6 +51,39 @@ export const none: Capabilities = {
   peopleByRest: false,
 }
 
+/**
+ * What the instance's discovery (`GET /api/v1`) says, and what a probe found where it says neither:
+ * - `documents`: discovery announces the Drive (`endpoints.documents`), which only 0.84 does, whether the store is on;
+ * - `version`: the core's version, as discovery spells it;
+ * - `people`: `GET /documents/people?ids=` answered (0.84), asked only when discovery tells neither of the other two.
+ */
+export interface Instance {
+  documents?: boolean
+  version?: string
+  people?: boolean
+}
+
+/**
+ * What an instance delivers, from what it says of itself: 0.84 gives the REST side of G02, G09 and G13
+ * (`conversationLabel`, `pushChanges`, `peopleByRest`); 0.83 and older, none. Undefined when nothing tells, which asks
+ * for the probe. The rest of 0.84 is turned on by the phases that use it.
+ */
+export function delivered(instance: Instance): Capabilities | undefined {
+  const rest = instance.documents === true || (atLeast(instance.version, 84) ?? instance.people)
+  if (rest === undefined) return undefined
+  return { ...none, conversationLabel: rest, pushChanges: rest, peopleByRest: rest }
+}
+
+// Whether a `0.<minor>` version (a `v` and a pre-release suffix allowed) is at least `minor`; undefined when unreadable.
+function atLeast(version: string | undefined, minor: number) {
+  const parts = version === undefined ? undefined : /^v?(\d+)\.(\d+)(?:[.+-]|$)/.exec(version.trim())
+  if (!parts) return undefined
+  return Number(parts[1]) > 0 || Number(parts[2]) >= minor
+}
+
+/** Every capability's name. */
+export const keys = Object.keys(none) as Key[]
+
 /** How often the Drive is read for changes. */
 export const POLL = 5 * 60_000
 /** How often while a window watches it (the Drive view or a document tab is open). */
@@ -60,7 +93,9 @@ export const WATCHED = 20_000
  * Who a write is attributed to (D2): the instance names the agent from the signed token, so DynWork says the rest in
  * the revision message, and gives a conversation's writes its `x-context-id` (the instance's id for it, D20; none while
  * it is not registered).
- * - From a conversation: "<conversation> by DynWork", until the instance shows the conversation itself (`conversationLabel`).
+ * - From a conversation: "<conversation> by DynWork", until the instance records and shows the conversation itself
+ *   (`conversationLabel`): then only for a write that does not carry the conversation's context, which the instance
+ *   cannot name (one whose registration failed, or the agent's through the MCP until it carries it).
  * - Direct: "<user> by DynWork", until DynWork acts as the person (`personActions`), when it needs no message.
  */
 export function attribution(
@@ -70,7 +105,10 @@ export function attribution(
   if (author.conversation)
     return {
       contextId: author.conversation.context,
-      message: capabilities.conversationLabel ? undefined : `${author.conversation.name} by DynWork`,
+      message:
+        capabilities.conversationLabel && author.conversation.context !== undefined
+          ? undefined
+          : `${author.conversation.name} by DynWork`,
     }
   return { contextId: undefined, message: capabilities.personActions ? undefined : `${author.user} by DynWork` }
 }
@@ -91,12 +129,26 @@ export function agentEdits(capabilities: Capabilities, edit: { format: string; r
 }
 
 /**
- * The time to the next read (D10). With the instance's push, a watched Drive needs no fast poll: the slow one stays as
- * the net for a change the push missed.
+ * The time to the next read (D10). With the instance's push and its stream open (`pushed`), a watched Drive needs no
+ * fast poll: the slow one stays as the net for a change the push missed. While the stream is down, the fast one is back.
  */
-export function pollEvery(capabilities: Capabilities, watched: boolean) {
-  if (watched && !capabilities.pushChanges) return WATCHED
+export function pollEvery(capabilities: Capabilities, watched: boolean, pushed: boolean) {
+  if (watched && !(capabilities.pushChanges && pushed)) return WATCHED
   return POLL
+}
+
+/**
+ * Who wrote a revision or a comment, as the instance tells it once it records the conversation (`conversationLabel`,
+ * 0.84): "<conversation> · DynWork" for one of DynWork's own (`ours`), "<conversation> · <agent>" for another agent's
+ * conversation of the user, the agent's name alone where there is no conversation's title (the instance tells it to
+ * the conversation's owner only), and "DynWork" for DynWork's own without one. Undefined while off, or when the
+ * instance names neither: the view keeps its own words.
+ */
+export function writer(capabilities: Capabilities, by: { conversation?: string; agent?: string; ours?: boolean }) {
+  if (!capabilities.conversationLabel) return undefined
+  const agent = by.ours ? "DynWork" : by.agent
+  if (by.conversation === undefined) return agent
+  return agent === undefined ? by.conversation : `${by.conversation} · ${agent}`
 }
 
 /**

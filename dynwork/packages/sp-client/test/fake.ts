@@ -45,10 +45,20 @@ export type FakeRevision = {
   origin_kind: string
   message: string | null
   created_at: string
+  // 0.84 records who wrote it: the conversation, and the token's agent and OAuth client
+  context_id?: string | null
+  agent_name?: string
+  client_id?: string
 }
+
+// The OAuth client of DynWork's token (`docs/06-live-checks.md`), which 0.84 records as the agent too: the token has no
+// `purpose`.
+export const bridgeClient = "sp_bridge"
 
 export function startDrive() {
   return {
+    // The core the Drive answers as: 0.83, or 0.84 with its discovery block, its attribution and `unknown_context`
+    version: "0.83" as "0.83" | "0.84",
     folders: new Map<string, Record<string, unknown>>(),
     documents: new Map<string, FakeDocument & { revisions: FakeRevision[]; bytes: Uint8Array; contexts: string[] }>(),
     comments: new Map<string, Array<Record<string, unknown>>>(),
@@ -143,6 +153,36 @@ export function startFake() {
     },
   })
 
+  // The root discovery document as each core answers it: 0.84 adds the Drive's block (`endpoints.documents`)
+  const rootDiscovery = (base: string) => {
+    const documents = {
+      enabled: true,
+      href: `${base}/api/v1/documents`,
+      folders: `${base}/api/v1/document-folders`,
+      uploads: `${base}/api/v1/uploads`,
+      limits: { maxUploadBytes: 104_857_600, inlineMaxBytes: 8_388_608, uploadPartBytes: state.drive.partSize },
+      renderedHtml: {
+        scripts: true,
+        remoteOrigins: ["https://cdnjs.cloudflare.com", "https://cdn.jsdelivr.net"],
+        agentAuthored: { scripts: true, remoteOrigins: ["https://cdnjs.cloudflare.com", "https://cdn.jsdelivr.net"] },
+      },
+    }
+    const at84 = state.drive.version === "0.84"
+    return {
+      data: {
+        name: "Alpha API",
+        version: at84 ? "0.84.0" : "0.83.0",
+        build: { name: "core", version: at84 ? "0.84.0" : "0.83.0" },
+        endpoints: {
+          health: `${base}/api/v1/health`,
+          core: { href: `${base}/api/v1/core` },
+          ...(at84 ? { documents } : {}),
+        },
+      },
+      meta: { timestamp: new Date().toISOString(), version: "1.0.0" },
+    }
+  }
+
   const issuePat = () => {
     const pat = `sp-live-${randomBytes(24).toString("hex")}`
     state.pats.add(pat)
@@ -166,6 +206,7 @@ export function startFake() {
         : Response.json(state.discovery)
     if (route === "GET /v1/auth/bridge/capabilities") return Response.json(alpha.capabilities.body)
     if (route === "GET /api/v1/health") return Response.json(alpha.health.body)
+    if (route === "GET /api/v1") return Response.json(rootDiscovery(new URL(request.url).origin))
     if (route === "GET /v1/bridge/pubkey") return Response.json({ pubkey: state.key.public })
     if (route === "POST /v1/auth/bridge/session-pat") {
       if (request.headers.get("content-type") !== "application/json")
@@ -401,6 +442,14 @@ export function startFake() {
     const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex")
     const now = () => new Date().toISOString()
 
+    const at84 = drive.version === "0.84"
+    // 0.84 writes nothing for a conversation the user does not own, or one that does not exist
+    if (at84 && context !== null && request.method !== "GET" && !state.drive.contexts.has(context))
+      return refuse(422, "unknown_context", `context ${context} is not one of the caller's conversations`)
+    // What 0.84 tells about a write: its conversation's title, to its owner only (every conversation here is the user's)
+    const named = (context_id: string | null | undefined) =>
+      at84 ? { context_name: context_id ? (state.drive.contexts.get(context_id) ?? null) : null } : {}
+
     if (drive.suggestOnly && request.method !== "GET")
       return refuse(
         403,
@@ -420,6 +469,7 @@ export function startFake() {
         origin_kind: "api",
         message,
         created_at: now(),
+        ...(at84 ? { context_id: context, agent_name: bridgeClient, client_id: bridgeClient } : {}),
       }
       entry.revisions.unshift(revision)
       entry.head_revision_id = revision.id
@@ -428,7 +478,14 @@ export function startFake() {
       if (context !== null) entry.contexts.push(context)
       return revision
     }
-    const create = (name: string, folder: unknown, declared: string, bytes: Uint8Array, template: string | null) => {
+    const create = (
+      name: string,
+      folder: unknown,
+      declared: string,
+      bytes: Uint8Array,
+      template: string | null,
+      message: unknown,
+    ) => {
       const id = crypto.randomUUID()
       // A multipart file type may carry parameters (`text/html;charset=utf-8`); the instance keeps the bare type
       const mime = declared.split(";")[0] ?? declared
@@ -449,8 +506,9 @@ export function startFake() {
         bytes: new Uint8Array(),
         contexts: [],
       })
-      const revision = revise(id, bytes, null, null)
-      return Response.json({ document: view(id), revision }, { status: 201 })
+      // 0.83 keeps no message on a document it creates; 0.84 keeps the one sent
+      const revision = revise(id, bytes, at84 && typeof message === "string" ? message : null, null)
+      return Response.json({ document: view(id), revision: { ...revision, ...named(revision.context_id) } }, { status: 201 })
     }
     const view = (id: string) => {
       const entry = drive.documents.get(id)!
@@ -524,7 +582,14 @@ export function startFake() {
         const file = form.get("file")
         if (!(file instanceof File)) return refuse(400, "invalid_request", "invalid request body")
         const name = String(form.get("name") ?? file.name)
-        return create(name, form.get("folder_id"), file.type, new Uint8Array(await file.arrayBuffer()), null)
+        return create(
+          name,
+          form.get("folder_id"),
+          file.type,
+          new Uint8Array(await file.arrayBuffer()),
+          null,
+          form.get("message"),
+        )
       }
       const input = json()
       return create(
@@ -533,13 +598,14 @@ export function startFake() {
         "text/markdown",
         new TextEncoder().encode("# Untitled\n"),
         String(input.template_id),
+        input.message,
       )
     }
     if (route === "POST /api/v1/documents/import") {
       const input = json()
       const blob = drive.blobs.get(String(input.blob_ref))
       if (blob === undefined) return refuse(400, "invalid_request", "invalid request body")
-      return create(String(input.name), input.folder_id, blob.mime, blob.bytes, null)
+      return create(String(input.name), input.folder_id, blob.mime, blob.bytes, null, input.message)
     }
 
     // As 0.84 answers it: a search by name, email or id prefix, or a lookup of at most 20 ids, never both
@@ -626,7 +692,10 @@ export function startFake() {
               : ["n1:3639efcd| # Hola", "gap 2 nodes", ...(text.length > 0 ? ["n2:9a8b7c6d| second"] : [])],
         })
       }
-      if (route.startsWith("GET") && rest === "revisions") return Response.json({ revisions: entry.revisions })
+      if (route.startsWith("GET") && rest === "revisions")
+        return Response.json({
+          revisions: entry.revisions.map((revision) => ({ ...revision, ...named(revision.context_id) })),
+        })
       if (route.startsWith("GET") && rest === "proposals")
         return Response.json({ proposals: drive.proposals.get(entry.id) ?? [] })
       if (route.startsWith("GET") && rest === "agent-cap")
@@ -759,7 +828,8 @@ export function startFake() {
       }
       if (rest === "comments") {
         const all = drive.comments.get(entry.id) ?? []
-        if (request.method === "GET") return Response.json({ comments: all })
+        if (request.method === "GET")
+          return Response.json({ comments: all.map((comment) => ({ ...comment, ...named(comment.context_id as string) })) })
         const input = json() as {
           body?: string
           anchor?: { node: string; find?: string }
@@ -783,6 +853,8 @@ export function startFake() {
           body: input.body,
           ...(input.parent_id === undefined ? {} : { parent_id: input.parent_id }),
           created_at: now(),
+          // 0.84 records the agent of the token, the conversation and the client
+          ...(at84 ? { via_agent: bridgeClient, context_id: context, client_id: bridgeClient } : {}),
         }
         drive.comments.set(entry.id, [...all, comment])
         // The instance announces each mention on the stream, whatever its attention

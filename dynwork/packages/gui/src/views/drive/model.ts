@@ -190,6 +190,41 @@ export interface Message {
   readonly text: string
   /** Epoch milliseconds. */
   readonly created: number
+  /** The conversation it was written in, the agent that wrote it and whether the conversation is DynWork's (0.84). */
+  readonly conversation?: string
+  readonly via?: string
+  readonly ours?: boolean
+}
+
+/**
+ * Who wrote a message, as the instance tells it once it records the conversation (`DriveCapabilities.writer`): for the
+ * user's own comment written from a conversation, "<conversation> · DynWork" (or the other agent). Undefined for the
+ * rest, which read "You" or the author's name.
+ */
+export function writerOf(
+  capabilities: DriveCapabilities.Capabilities,
+  message: Pick<Message, "mine" | "conversation" | "via" | "ours">,
+) {
+  if (!message.mine || message.conversation === undefined) return undefined
+  return DriveCapabilities.writer(capabilities, { conversation: message.conversation, agent: message.via, ours: message.ours })
+}
+
+/**
+ * Who wrote an agent's revision: as the instance tells it (`DriveCapabilities.writer`), and "DynWork" where it tells
+ * nothing, as before 0.84. Undefined for a person's revision.
+ */
+export function revisionBy(
+  capabilities: DriveCapabilities.Capabilities,
+  revision: Pick<Revision, "actor" | "conversation" | "agent" | "ours">,
+) {
+  if (revision.actor !== "agent") return undefined
+  return (
+    DriveCapabilities.writer(capabilities, {
+      conversation: revision.conversation,
+      agent: revision.agent,
+      ours: revision.ours,
+    }) ?? "DynWork"
+  )
 }
 
 /** A comment and its replies, by the node and the quote it points at. */
@@ -218,6 +253,9 @@ export function threadsOf(comments: readonly Comment[]): Thread[] {
     mine: comment.mine,
     text: comment.body,
     created: comment.created,
+    ...(comment.conversation === undefined ? {} : { conversation: comment.conversation }),
+    ...(comment.via === undefined ? {} : { via: comment.via }),
+    ...(comment.ours ? { ours: true } : {}),
   })
   return comments
     .filter((comment) => comment.parent === undefined || !byId.has(comment.parent))

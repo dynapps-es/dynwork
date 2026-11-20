@@ -419,6 +419,26 @@ id", but 0.83.0 compares the query as a prefix with display name, name, full nam
 (`search_active_by_prefix`): a user id, whole or a prefix, finds nobody (observed on sp-local 0.83.0). The caller keeps
 only an exact match.
 
+### What 0.84 adds (from core `0.84.0`, not observed yet)
+
+Read from the core's `CHANGELOG.md` `[0.84.0]`, `documentation/documents.md` and its sources at `092f75529f`; sp-local
+and production still run 0.83/0.82, so the fake instance (`test/fake.ts`, `drive.version = "0.84"`) answers as they say.
+
+- **Discovery.** `GET /api/v1` (public, no credential; `SpDrive.discovery`) answers `{data: {version, build, endpoints},
+  meta}` on every core; 0.84 adds `endpoints.documents`: `{enabled: false}` with the store off, otherwise `enabled`,
+  `href`, `folders`, `uploads`, `limits` and `renderedHtml` (`scripts`, `remoteOrigins`, `agentAuthored`). 0.83 has no
+  such block (production 0.82.0 checked: none). The client reads `version` and whether the block is there.
+- **Attribution.** `GET /{id}/revisions` answers `context_id`, `agent_name`, `client_id`, and `context_name` to the
+  conversation's owner only; comment listings `via_agent`, `context_id`, `client_id`, the owner-only `context_name`,
+  `reopened_at` and `reopened_by`, and an `anchor.cells` A1 range on a sheet node. All optional in the schemas: 0.83 sends
+  none. The agent is the token's `purpose`, else its `client_id` (`sp_bridge` for DynWork's token).
+- **Message on create.** The multipart create, the template create (JSON `message`, `SpDrive.create`) and the import keep
+  `message` on the first revision.
+- **`422 unknown_context`.** A write whose `x-context-id` is not a conversation the user owns (unknown or another user's)
+  writes nothing: `UnknownContext`.
+- **People.** `GET /api/v1/documents/people?query=&limit=&document_id=` or `?ids=` (at most 20): `{people: [{user_id,
+  name, email, access?}]}` (`SpDrive.searchPeople`, `SpDrive.people`). 0.83 answers it as a document id: not found.
+
 ### How Drive answers map to the client's errors
 
 On top of the table in section 9:
@@ -429,6 +449,7 @@ On top of the table in section 9:
 | `403` with an `error_key` starting `agent_`                                       | `AgentRefused`. `agent_suggest_only` (the cap is `suggest`; write with `mode: propose`) has `capability: "edit"`; `agent_forbidden` (replace content, share: reserved to a person) has `capability: "person"` |
 | any other `403`                                                                   | `Forbidden`                                                                                                                                                                                                   |
 | `409`                                                                             | `Conflict`, with `error_key` and, when the body gives them (top level or under `detail`), `head_revision_id`, `head_content_sha256` and `base_revision_id`                                                    |
+| `422` `unknown_context` (0.84)                                                    | `UnknownContext`: nothing was written; register the conversation again                                                                                                                                        |
 | `429`, `401`, `5xx`, a body that does not decode, a response above its size limit | `RateLimited`, `Unauthorized`, `Unreachable` and `Protocol`, as in section 9                                                                                                                                  |
 
 `PUT /{id}/content` and every `set_html`/`replace_content` edit are `403` `agent_forbidden` to DynWork: the instance

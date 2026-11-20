@@ -14,9 +14,9 @@ window                                main process
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `contract.ts`     | The Schema data (`Document`, `Folder`, `Revision`, `Comment`, `Anchor`, `Link`, `Failure`, `State`) and the `dynwork.drive` Ipc  |
 | `backend.ts`      | `interface Backend` (one account's Drive), `fail`, and `remote`: the real one over `SpDrive` from `@dynwork/sp-client`           |
-| `capabilities.ts` | The switches for what the instance has not delivered yet, and every decision they change, as pure functions                      |
+| `capabilities.ts` | The switches for what an instance delivers, read from its discovery, and every decision they change, as pure functions           |
 | `ipc.ts`          | The service: the active account, its snapshot and polling, attribution, the conversation index, failures as data                 |
-| `fake.ts`         | An in-memory Drive that behaves as 0.83 where DynWork can tell: `DriveFake.make(options)`                                        |
+| `fake.ts`         | An in-memory Drive that behaves as 0.83, or 0.84 with `version`, where DynWork can tell: `DriveFake.make(options)`               |
 | `agent.ts`        | What the agent does with the `documents` MCP tools: its folder, its signature, its index, its uploaded pages (phase 07)          |
 | `mentions.ts`     | `@Agent` in a comment: written as a real mention, followed on the bridge stream, and woken to the linked conversation (phase 08) |
 | `share.ts`        | The agent's shares: each `documents_share` call waits on a card in its conversation for the user's decision (D24)                |
@@ -37,6 +37,10 @@ when the active account is another one (or none), the snapshot and the backend g
 (or `none`) with nothing of the previous account in it, and the new account's Drive is read. A call from a window also
 notices a switch before it reaches a backend.
 
+What the account's instance delivers (its capabilities) goes with the switch too, and is read again from the instance
+itself once its Drive answers: on the first read that succeeds, and on each one that succeeds after one that failed (a
+reconnect, or an upgrade that restarted the instance). See [Capabilities](#capabilities).
+
 ## State and polling (D10)
 
 `state` is a snapshot: the account's folders and the first page of its `recent` documents, the conversation index,
@@ -48,8 +52,11 @@ for an account that already left is dropped. Listings, searches and pages of a f
 From 0.84 the bridge stream says `document.drive.changed` (`{v: 1}`, no ids) to everyone who can see a document that
 got a revision. `DriveMentions` follows that one stream for mentions already, and hands each change to the service's
 `reread(account)`: with `pushChanges` on, the account's Drive is read at once (a burst of changes makes at most one more
-read) and the poll slows to 5 minutes; off, the event changes nothing and the poll stays as it is. 0.83 sends no such
-event.
+read); off, the event changes nothing and the poll stays as it is. 0.83 sends no such event. `DriveMentions` also tells
+the service while the stream is open (`streamed(account, open)`): with `pushChanges` on and the stream open, a watched
+Drive keeps the 5-minute poll only, as the net for a change the push missed; while the stream is down the 20 s poll is
+back at once. The stream keeps no history, so the poll armed before it opened still fires once and reads what it could
+not have told.
 
 ## Who wrote it (D2)
 
@@ -67,7 +74,20 @@ agent. So the service says the rest:
   and replaced at the conversation's next write (the index keys conversations by session id, so no link is lost).
 - A direct write carries "`<user>` by DynWork", the user's email or name.
 - A comment carries no message (the instance has no field for one), only the conversation's `x-context-id`.
-- 0.83 records no message on a document it creates from a file; the message is sent anyway.
+- 0.83 records no message on a document it creates from a file or a template; the message is sent anyway, and 0.84
+  keeps it on the first revision.
+- 0.84 records the conversation itself (`conversationLabel`): a write that carries the conversation's `x-context-id`
+  goes without the message, and the instance answers each revision's and comment's `context_id`, `agent_name`
+  (`via_agent` on a comment), `client_id` and, to the conversation's owner only, `context_name`. A write without the
+  context (its registration failed, or the agent's through the MCP until `contextByMcp`) keeps "`<conversation>` by
+  DynWork". The service marks what is DynWork's own (`ours`: a context it registered for the account, or a revision
+  signed "… by DynWork") and fills the title it knows. Versions show "`<conversation>` · DynWork" (or the other agent),
+  the agent's name where there is no title, and "DynWork" where the instance says nothing; a comment of the user's own
+  from a conversation shows "`<conversation>` · DynWork" in place of "You" (`DriveCapabilities.writer`,
+  `views/drive/model.ts` `revisionBy` and `writerOf`).
+- 0.84 refuses a write whose `x-context-id` it does not hold for the user (`422 unknown_context`, `SpClient.UnknownContext`,
+  failure `unknown-context`): deleted there, say. The service forgets the context, registers the conversation again and
+  makes the write once more (`attributed`); nothing was written the first time. A second refusal reaches the window.
 
 What the instance keeps to a person (sharing, accepting proposals, restoring, deleting someone else's document) answers
 `person`: the window sends the user to Governance.
@@ -208,8 +228,9 @@ documents_share ──execute.before──► plugin: confirm ──event──�
   conversation's own `documents_people` answer (the plugin keeps it per conversation, `DynWorkDocuments.heard`, and adds
   it to the share); the people the account met (`DriveIpc` `known`: every `documents_people` answer of the agent,
   which the plugin sends as the `people` event, and everyone a card named, in the Drive's store on this computer, the
-  latest 500, id, name and email only, so it survives restarts and crosses conversations); then a lookup, by id over
-  REST while `peopleByRest` is on (0.84), otherwise through the `documents` MCP server's `documents_people`
+  latest 500, id, name and email only, so it survives restarts and crosses conversations); then a lookup, by id (or an
+  email by search, `Backend.searchPeople`) over REST while `peopleByRest` is on (0.84), otherwise through the
+  `documents` MCP server's `documents_people`
   (`Backend.findPeople`, `SpDrive.lookupPeople`). That tool says it searches by "name, email or id", but 0.83.0 compares
   only display name, name, full name and email (`search_active_by_prefix`): an email is named, an id finds nobody. So
   on 0.83 the agent's rules ask it to look a person up with `documents_people` right before each share (dropped once
@@ -242,8 +263,8 @@ documents_share ──execute.before──► plugin: confirm ──event──�
 
 The Share popover (`views/drive/share-popover.tsx`) changes who has access with the window's own Ipc calls, `share`
 (an upsert: `POST /documents/{id}/grants`, kind, value, level) and `unshare` (`DELETE …/grants?grant_id=`), each
-answering who has access then; `findPeople` searches the directory to invite (the `documents` MCP's
-`documents_people`). They are the user's acts, not the agent's: no card, no plugin RPC. The instance decides each with
+answering who has access then; `findPeople` searches the directory to invite: over REST with `peopleByRest` (0.84,
+`GET /documents/people?query=`, word by word, accents ignored), otherwise the `documents` MCP's `documents_people`. They are the user's acts, not the agent's: no card, no plugin RPC. The instance decides each with
 DynWork's credential, an attended agent's: the Dynapps extension lets it share a document that agent created from 0.85
 (`created_by_agent`, Direct channel, cap `edit`); anything else, and every share on 0.83, is `person`. The popover
 offers them live only where that should hold (`madeByAgent`, `sharing`) and shows a refusal beside the list it keeps.
@@ -257,6 +278,14 @@ under the policy the instance served it with (D5); its scripts may run, and an a
 cannot read it, but the index follows the heading being read, a click on a comment's mark opens its thread, and the
 comments' bubbles sit beside their marks. What the window learns of the frame is ids it gave the page and numbers, and
 nothing of DynWork reaches the page:
+
+0.84 serves a page an agent has ever written under its own tier (`renderedHtml.agentAuthored`: `scripts`,
+`remoteOrigins`, never wider than the top level), as a different `Content-Security-Policy` on the same `/rendered`
+answer. Nothing changes here: the frame takes that answer's `sandbox` flags and the rest as its meta policy
+(`frameOf`), so a page with scripts on and `remoteOrigins` cdnjs and jsdelivr runs its scripts and loads from those two
+only, and the navigation guard keeps it on its `srcdoc` whatever the policy lets it load (0.84 says a scripted page can
+send its content out by navigating its own frame; tests in `test/views/drive/store.test.ts` and
+`test/drive/frames.test.ts`).
 
 - **Where it runs.** Electron 44 runs a sandboxed frame out of process, so the window's `webFrame` cannot reach it.
   `WebFrameMain.executeJavaScript` runs in the page's own world, where its scripts see and can replace what runs, and
@@ -343,22 +372,30 @@ in the top layer), and also ends it on an Escape the window itself receives.
 
 ## Capabilities
 
-Each is a switch per account, off today, with its decisions in `capabilities.ts` and a test in both states
-(`test/drive/capabilities.test.ts`, and the service's in `ipc.test.ts`). How one gets switched on, by the core's version
-or an announcement in the manifest, is decided when the first one arrives; until then `DriveMain.setup` takes them as an
-option.
+Each is a switch per account, with its decisions in `capabilities.ts` and a test in both states
+(`test/drive/capabilities.test.ts`, and the service's in `ipc.test.ts`). The service reads what an instance delivers from
+the instance itself, in one place (`DriveCapabilities.delivered`), never from a version DynWork assumes:
 
-| Capability          | Gap | Off (today)                                                                              | On                                                                         |
-| ------------------- | --- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `personActions`     | G01 | A direct write is "`<user>` by DynWork"; person actions go to Governance                 | A direct write is the person's own, with no message                        |
-| `conversationLabel` | G02 | The message names the conversation                                                       | Only the `x-context-id`; Governance shows the conversation                 |
-| `rangeComments`     | G08 | A comment on a cell range answers `unsupported` without a call                           | It reaches the backend                                                     |
-| `rawHtmlByMcp`      | G04 | Its edits by ops of an HTML document are refused; a changed page is a new document       | `documents_edit {content_blob_ref}` rewrites the page in the same document |
-| `mcpFolders`        | G05 | DynWork makes `Artifacts/<project>/<conversation>` and imports the agent's files by REST | The agent imports with `documents_import` (DynWork gives it the folder)    |
-| `contextByMcp`      | G06 | An MCP write enters the local index                                                      | Left to the Drive, once it also lists by conversation                      |
-| `docsByContext`     | G07 | `documentsOf` reads the local index only                                                 | REST writes are left to the Drive, which adds its list by `x-context-id`   |
-| `pushChanges`       | G09 | 20 s poll while watched, 5 min otherwise; `document.drive.changed` is ignored            | Each change reads the Drive; 5 min poll only, as the net for a miss        |
-| `peopleByRest`      | G13 | `people` answers `unsupported`; authors no grant names read "Someone"                    | The window asks the instance for those authors' names by id (20 a call)    |
+1. its root discovery (`GET /api/v1`, public, `SpDrive.discovery`): 0.84 announces the Drive there
+   (`endpoints.documents`, whether the store is on), which 0.83 does not; and the core's `version`;
+2. only where discovery tells neither, a probe: `GET /documents/people?ids=<the user's own id>` answering (0.84) or not.
+
+0.84 turns on `conversationLabel`, `pushChanges` and `peopleByRest` (the REST side of G02, G09 and G13); 0.83 and older,
+none. The rest of what 0.84 delivers is turned on by the phases that use it. An instance whose discovery does not answer
+keeps what was read before (nothing, for a new account), and the next read that succeeds asks again. `DriveMain.setup`
+still takes an option that forces a switch on or off over what was read.
+
+| Capability          | Gap | Off (0.83)                                                                               | On                                                                          |
+| ------------------- | --- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `personActions`     | G01 | A direct write is "`<user>` by DynWork"; person actions go to Governance                 | A direct write is the person's own, with no message                         |
+| `conversationLabel` | G02 | The message names the conversation                                                       | Only the `x-context-id`; the instance names it, as do versions and comments |
+| `rangeComments`     | G08 | A comment on a cell range answers `unsupported` without a call                           | It reaches the backend                                                      |
+| `rawHtmlByMcp`      | G04 | Its edits by ops of an HTML document are refused; a changed page is a new document       | `documents_edit {content_blob_ref}` rewrites the page in the same document  |
+| `mcpFolders`        | G05 | DynWork makes `Artifacts/<project>/<conversation>` and imports the agent's files by REST | The agent imports with `documents_import` (DynWork gives it the folder)     |
+| `contextByMcp`      | G06 | An MCP write enters the local index                                                      | Left to the Drive, once it also lists by conversation                       |
+| `docsByContext`     | G07 | `documentsOf` reads the local index only                                                 | REST writes are left to the Drive, which adds its list by `x-context-id`    |
+| `pushChanges`       | G09 | 20 s poll while watched, 5 min otherwise; `document.drive.changed` is ignored            | Each change reads the Drive; 5 min poll only while the stream is open       |
+| `peopleByRest`      | G13 | `people` answers `unsupported`; authors no grant names read "Someone"; search by MCP     | Authors named by id (20 a call); the directory and the cards over REST      |
 
 `agentFiling(capabilities)` is the decision phase 07 reads for `mcpFolders` (HTML included: an import keeps the scripts), and
 `agentEdits(capabilities, edit)` the one the edit guard reads. The real backend has no `byContext` yet: with
@@ -371,6 +408,6 @@ check (D22). `Anchor` has no `page` kind.
 
 Every method answers a `Failure` instead of rejecting, as routines do. The backend maps the client's errors to codes
 (`signed-out`, `unreachable`, `not-found`, `forbidden`, `person`, `suggest`, `conflict` with the `head` it lost to,
-`unsupported`, `invalid`, `failed`) with DynWork's own words: the instance's message never reaches a window. Only
+`unsupported`, `invalid`, `unknown-context`, `failed`) with DynWork's own words: the instance's message never reaches a window. Only
 `unreachable` is retryable. A backend that rejects anyway is a bug; the service answers `failed` without its message.
 There is no reopen for a resolved comment: 0.83 has no route for it (G12).
