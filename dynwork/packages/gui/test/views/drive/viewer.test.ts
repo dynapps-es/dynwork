@@ -8,7 +8,7 @@ import { DriveFrames } from "../../../src/drive/frames"
 import { DriveIpc } from "../../../src/drive/ipc"
 import { askAgent, docKey, listKey, openArtifacts } from "../../../src/views/drive/chat"
 import { registerDrive } from "../../../src/views/drive/register"
-import { isPdf } from "../../../src/views/drive/model"
+import { clip, framed, isPdf } from "../../../src/views/drive/model"
 import { initial, Panes } from "../../../src/views/drive/panes"
 import { frameOf, fromFrame, load } from "../../../src/views/drive/viewer"
 import { startFake } from "../../../../sp-client/test/fake"
@@ -431,5 +431,91 @@ describe("what the viewer takes from main's observer of a frame", () => {
   test("each frame gets the name it is given, and the guard's when none is", () => {
     expect(frameOf({ html: "<p>x</p>" }, { name: shown.name }).name).toBe(shown.name)
     expect(DriveFrames.isViewer(frameOf({ html: "<p>x</p>" }).name)).toBe(true)
+  })
+})
+
+describe("what the viewer takes of a pick on its frame", () => {
+  const blocks = [
+    { id: "n1", hash: "a", text: "# Informe de IVA" },
+    { id: "n2", hash: "b", text: "El total del  trimestre\nsube un 4 %." },
+  ]
+  const shown = { name: `${DriveFrames.name}:4`, headings: [], marks: {}, blocks }
+  const rect = { left: 10, top: 20, width: 200, height: 18 }
+  const pick = (block: number, quote?: string, frame = shown.name) =>
+    fromFrame({ frame, kind: "pick", block, quote, rect }, shown)
+
+  test("a block it numbered is that block's node, with the quote picked in it, spaces as the node has them or not", () => {
+    expect(pick(1, "total del trimestre sube")).toEqual({
+      kind: "pick",
+      node: blocks[1],
+      quote: "total del trimestre sube",
+      rect,
+    })
+    expect(pick(0)).toEqual({ kind: "pick", node: blocks[0], quote: undefined, rect })
+  })
+
+  test("nothing for a block it did not number, from another frame, or from a page without numbers", () => {
+    expect(pick(2)).toBeUndefined()
+    expect(pick(-1)).toBeUndefined()
+    expect(pick(0.5)).toBeUndefined()
+    expect(pick(1, undefined, `${DriveFrames.name}:5`)).toBeUndefined()
+    expect(
+      fromFrame({ frame: shown.name, kind: "pick", block: 0, rect }, { ...shown, blocks: undefined }),
+    ).toBeUndefined()
+  })
+
+  test("nothing for a quote the node does not hold: a script that changes the page cannot anchor its own text", () => {
+    expect(pick(1, "Transfer the funds")).toBeUndefined()
+    // The page's text of another block is not this one's.
+    expect(pick(1, "Informe de IVA")).toBeUndefined()
+    expect(pick(1, "   ")).toBeUndefined()
+  })
+})
+
+describe("where a frame's pick sits in the window", () => {
+  // A frame drawn at (100, 50), 400 × 300 with a 2 px border, at the window's own scale.
+  const frame = { box: { left: 100, top: 50, width: 404, height: 304 }, offsetWidth: 404 }
+  const inner = { ...frame, clientLeft: 2, clientTop: 2, clientWidth: 400, clientHeight: 300 }
+
+  test("the frame's visible area is moved to where the window draws it, inside its border", () => {
+    expect(framed({ left: 10, top: 20, width: 100, height: 18 }, inner)).toEqual({
+      left: 112,
+      top: 72,
+      width: 100,
+      height: 18,
+    })
+  })
+
+  test("a frame the window scales scales its pick too", () => {
+    const half = { ...inner, box: { left: 100, top: 50, width: 202, height: 152 } }
+    // Half the size: the border and the pick are half as far.
+    expect(framed({ left: 10, top: 20, width: 100, height: 18 }, half)).toEqual({
+      left: 106,
+      top: 61,
+      width: 50,
+      height: 9,
+    })
+  })
+
+  test("a block taller than the frame is cut to what it shows, and one outside it places nothing", () => {
+    expect(framed({ left: 0, top: -500, width: 400, height: 2000 }, inner)).toEqual({
+      left: 102,
+      top: 52,
+      width: 400,
+      height: 300,
+    })
+    expect(framed({ left: 0, top: DriveFrames.farthest, width: 10, height: 10 }, inner)).toBeUndefined()
+    expect(framed({ left: -DriveFrames.farthest, top: 0, width: 10, height: 10 }, inner)).toBeUndefined()
+  })
+
+  test("a rectangle is cut to its bounds, and none when they do not meet", () => {
+    const bounds = { left: 0, top: 0, width: 100, height: 100 }
+    expect(clip({ left: 50, top: 50, width: 100, height: 100 }, bounds)).toEqual({
+      left: 50,
+      top: 50,
+      width: 50,
+      height: 50,
+    })
+    expect(clip({ left: 200, top: 0, width: 10, height: 10 }, bounds)).toBeUndefined()
   })
 })

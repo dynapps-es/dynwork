@@ -157,6 +157,7 @@ export default {
   "drive.mention.failed": "De chat kon niet worden bereikt. Verstuur het opnieuw.",
   "drive.comment.mode": "Opmerkingenmodus: klik op een alinea. Esc om te stoppen.",
   "drive.comment.mode.hint": "Druk op C en klik op een alinea om erop te reageren.",
+  "drive.comment.inline.hint": "Selecteer tekst of klik op een alinea in het document om er meteen op te reageren.",
   "drive.comment.send": "Verzenden",
   "drive.comment.resolve": "Oplossen",
   "drive.comment.resolved": "Opgelost",

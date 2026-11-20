@@ -274,16 +274,30 @@ nothing of DynWork reaches the page:
   thread sits when that changes (on scroll, resize and load: the thread's id and its top in whole pixels from the top
   of the frame's visible area, clamped to `DriveFrames.farthest`, the first `DriveFrames.maxMarks` of the page); and the
   comment of a mark the user clicked, only for a trusted click, so the page's scripts cannot click one for the user.
-  Nothing else.
+  With the marks shown it also reports a pick (phase 18), for the comment popup: a selection, read on the trusted
+  click that ends it (Chromium sends it after the mouseup has settled the selection, to the common ancestor after a
+  drag; a timer is not needed, and a frame's timers did not run in the hidden development window), or a trusted
+  click without one that lands on no mark, link or control (`DriveFrames.controls`), inside a block the viewer
+  numbered (`data-dynwork-block`, an opaque index the viewer gave the page, never a node id). A pick is
+  `{ kind: "pick", block, quote?, rect }`: the block's index, the part of the selection inside its first block (spaces
+  collapsed, `DriveFrames.maxQuote` at most) and where that part or the block sits, in whole pixels of the frame's
+  visible area clamped like the marks. The observer only listens, in the capture phase: it never calls
+  `preventDefault` or `stopPropagation`, so the page's own click and selection handlers work as before. Nothing else.
 - **What main takes.** A binding call from a viewer frame's session whose name a call of that window watches, at most
   32 KB, parsed as `{ kind: "heading" | "mark", id }` with an id of 1 to 256 characters, or as
   `{ kind: "marks", items: [{ id, top }] }` with at most `maxMarks` items, each such an id and a whole number within
-  `farthest`, and not a key more (`DriveWatch.report`); anything else is dropped whole. It goes to that window alone,
+  `farthest`, or as `{ kind: "pick", block, quote?, rect: { left, top, width, height } }` with a whole block index up
+  to `DriveFrames.maxBlocks`, a quote of 1 to `maxQuote` characters, sides that are whole numbers within `farthest`
+  (sizes from 0), and not a key more, at any level (`DriveWatch.report`); anything else is dropped whole. It goes to that window alone,
   as the `seen` event of `dynwork.drive.frames`.
 - **What the window takes** (`views/drive/viewer.tsx`, `fromFrame`): a report for its own frame's name whose id is a
-  heading id or a mark it gave that page; of a `marks` report, the items whose id is a thread it marked there. A page
-  that forges a report can at most move the index to one of its own headings, open one of its own threads, or move
-  the bubble of one of its own threads. The bubbles' names and initials are drawn by the window, beside the frame:
+  heading id or a mark it gave that page; of a `marks` report, the items whose id is a thread it marked there; of a
+  `pick`, a block index it numbered in that page (its node from the table `frameOf` keeps, `blocks`) and a quote that,
+  spaces collapsed, is in the text the app knows of that node (`holds`). The window then moves the rectangle into its
+  own coordinates (the frame's place and scale, cut to what the frame shows: `framed`) to place the popup. A page
+  that forges a report can at most move the index to one of its own headings, open one of its own threads, move
+  the bubble of one of its own threads, or open the comment popup on one of the document's own nodes and quotes,
+  where the user still writes and sends the comment. The bubbles' names and initials are drawn by the window, beside the frame:
   nothing of a comment goes into the page, nor comes out of it.
 - **When it stops.** When the window's last frame stops watching, main detaches if it attached; if another client had
   attached first (the force-focus helper), main leaves it attached and lets its own sessions go. If another client

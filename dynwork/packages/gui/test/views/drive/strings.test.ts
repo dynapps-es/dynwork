@@ -61,6 +61,17 @@ describe("the Drive's strings", () => {
     ).toEqual([])
   })
 
+  test("every string the comment popup names is in every language, and the comments view's hint to comment in place", async () => {
+    const source = await Bun.file(new URL("../../../src/views/drive/comment-popup.tsx", import.meta.url)).text()
+    const keys = [...new Set([...source.matchAll(/"(drive\.[\w.]+)"/g)].map((match) => match[1] ?? ""))]
+    expect(keys).toContain("drive.ask.quote")
+    expect(
+      Object.entries(locales).flatMap(([locale, table]) =>
+        [...keys, "drive.comment.inline.hint"].filter((key) => !table[key]).map((key) => `${locale} ${key}`),
+      ),
+    ).toEqual([])
+  })
+
   test("every key of the share card is in every language, and each sentence names all it shows", async () => {
     const source = await Bun.file(new URL("../../../src/views/drive/share.tsx", import.meta.url)).text()
     const keys = [...new Set([...source.matchAll(/"(drive\.[\w.]+)"/g)].map((match) => match[1] ?? ""))]

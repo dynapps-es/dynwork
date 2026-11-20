@@ -505,9 +505,10 @@ export const Shares = Ipc.define({
 
 /**
  * What a viewer frame was seen doing (`frames.ts`), by the ids the viewer gave the page: the heading the reader is at,
- * the comment mark they clicked, or where the first mark of each thread sits, in pixels from the top of the frame's
- * visible area (`marks`), for the comments' bubbles beside it. `frame` is the frame's name. Nothing else ever comes out
- * of a frame.
+ * the comment mark they clicked, where the first mark of each thread sits, in pixels from the top of the frame's
+ * visible area (`marks`), for the comments' bubbles beside it, or what the user picked to comment on (`pick`): a block
+ * the viewer numbered, the part of a selection in it, and where that sits in the frame's visible area. `frame` is the
+ * frame's name. Nothing else ever comes out of a frame.
  */
 export const Seen = Schema.Union([
   Schema.Struct({ frame: Schema.String, kind: Schema.Literals(["heading", "mark"]), id: Schema.String }),
@@ -515,6 +516,13 @@ export const Seen = Schema.Union([
     frame: Schema.String,
     kind: Schema.Literal("marks"),
     items: Schema.Array(Schema.Struct({ id: Schema.String, top: Schema.Number })),
+  }),
+  Schema.Struct({
+    frame: Schema.String,
+    kind: Schema.Literal("pick"),
+    block: Schema.Number,
+    quote: Schema.optional(Schema.String),
+    rect: Schema.Struct({ left: Schema.Number, top: Schema.Number, width: Schema.Number, height: Schema.Number }),
   }),
 ])
 export type Seen = typeof Seen.Type

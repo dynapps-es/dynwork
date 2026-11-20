@@ -135,6 +135,54 @@ describe("main's observer of the viewer's frames", () => {
     expect(DriveWatch.report(JSON.stringify({ kind: "marks", id: "t1" }))).toBeUndefined()
   })
 
+  test("a pick is a block's number, an optional short quote and a rectangle of whole pixels, nothing more", () => {
+    const rect = { left: 40, top: -12, width: 300, height: 22 }
+    const pick = (value: Record<string, unknown>) => DriveWatch.report(JSON.stringify({ kind: "pick", ...value }))
+    expect(pick({ block: 7, quote: "total del trimestre", rect })).toEqual({
+      kind: "pick",
+      block: 7,
+      quote: "total del trimestre",
+      rect,
+    })
+    expect(pick({ block: 0, rect })).toEqual({ kind: "pick", block: 0, rect })
+    expect(pick({ block: DriveFrames.maxBlocks, quote: "x".repeat(DriveFrames.maxQuote), rect })?.kind).toBe("pick")
+    // A block that is not a whole number from 0 to `maxBlocks`, or a node's id instead.
+    expect(pick({ block: -1, rect })).toBeUndefined()
+    expect(pick({ block: 1.5, rect })).toBeUndefined()
+    expect(pick({ block: DriveFrames.maxBlocks + 1, rect })).toBeUndefined()
+    expect(pick({ block: "7", rect })).toBeUndefined()
+    expect(pick({ node: "n1", rect })).toBeUndefined()
+    // A quote that is empty, too long or not text.
+    expect(pick({ block: 7, quote: "", rect })).toBeUndefined()
+    expect(pick({ block: 7, quote: "x".repeat(DriveFrames.maxQuote + 1), rect })).toBeUndefined()
+    expect(pick({ block: 7, quote: 42, rect })).toBeUndefined()
+    // A rectangle out of range, not whole pixels, missing a side or with more than its four.
+    expect(pick({ block: 7, rect: { ...rect, left: DriveFrames.farthest + 1 } })).toBeUndefined()
+    expect(pick({ block: 7, rect: { ...rect, top: -DriveFrames.farthest - 1 } })).toBeUndefined()
+    expect(pick({ block: 7, rect: { ...rect, width: -1 } })).toBeUndefined()
+    expect(pick({ block: 7, rect: { ...rect, height: DriveFrames.farthest + 1 } })).toBeUndefined()
+    expect(pick({ block: 7, rect: { ...rect, left: 4.5 } })).toBeUndefined()
+    expect(pick({ block: 7, rect: { left: 1, top: 1, width: 1 } })).toBeUndefined()
+    expect(pick({ block: 7, rect: { ...rect, url: "https://evil.example/" } })).toBeUndefined()
+    expect(pick({ block: 7 })).toBeUndefined()
+    // A key more than a pick has: the whole report is dropped.
+    expect(pick({ block: 7, rect, text: "Revisar este punto" })).toBeUndefined()
+    expect(pick({ block: 7, rect, id: "t1" })).toBeUndefined()
+  })
+
+  test("sends the window what the user picked in its frame", async () => {
+    const main = stand()
+    const held = new AbortController()
+    void main.watch.watch(1, viewer, held.signal)
+    await main.frame("s1", viewer)
+    const rect = { left: 10, top: 20, width: 30, height: 40 }
+    main.call("s1", JSON.stringify({ kind: "pick", block: 3, quote: "Riesgos", rect }))
+    main.call("s1", JSON.stringify({ kind: "pick", block: 3, quote: "x".repeat(40 * 1024), rect }))
+    main.call("s9", JSON.stringify({ kind: "pick", block: 3, rect }))
+    expect(main.seen).toEqual([{ window: 1, seen: { frame: viewer, kind: "pick", block: 3, quote: "Riesgos", rect } }])
+    held.abort()
+  })
+
   test("sends the window where its frame's marks sit", async () => {
     const main = stand()
     const held = new AbortController()

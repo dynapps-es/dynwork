@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { markId } from "../../../src/views/drive/marks"
+import { blockAttribute, markId } from "../../../src/views/drive/marks"
 import type { Thread } from "../../../src/views/drive/model"
 import { frameOf } from "../../../src/views/drive/viewer"
 
@@ -117,6 +117,49 @@ describe("comments marked on an HTML page", () => {
     expect(doc.getElementById(markId("t1"))?.textContent).toBe("trimestre")
     expect(doc.getElementById(markId("t2"))?.textContent).toContain("del ")
     expect(frame.marks).toEqual({ t1: markId("t1"), t2: markId("t2") })
+  })
+
+  test("each block matched to a node carries an opaque number, and the frame keeps the node of each number", () => {
+    const frame = frameOf(page, { marks: { nodes, threads: [] } })
+    const doc = body(frame.srcdoc)
+    const numbered = [...doc.querySelectorAll(`[${blockAttribute}]`)]
+    // Numbers from 0 in reading order, never a node's id.
+    expect(numbered.map((element) => element.getAttribute(blockAttribute))).toEqual(
+      numbered.map((_, index) => String(index)),
+    )
+    expect(frame.srcdoc).not.toMatch(/data-dynwork-block="n\d"/)
+    expect(numbered.map((element) => element.tagName)).toEqual(["H1", "P", "LI", "LI", "TABLE", "TR", "TD", "TD"])
+    expect(frame.blocks.map((node) => node.id)).toEqual(["n1", "n2", "n3", "n4", "n5", "n6", "n7", "n8"])
+    expect(frame.blocks[Number(doc.querySelector("p")?.getAttribute(blockAttribute))]?.id).toBe("n2")
+    expect(frame.blocks[Number(doc.querySelector("td + td")?.getAttribute(blockAttribute))]?.id).toBe("n8")
+    // No threads: nothing marked, no style for marks, and the page reads as it did.
+    expect(frame.srcdoc).not.toContain("<mark")
+    expect(doc.querySelector("p")?.textContent).toBe("El total del trimestre   sube un 4 %.")
+  })
+
+  test("a block no node names is not numbered, and hidden marks number nothing", () => {
+    const frame = frameOf(
+      { html: `<p>Hola mundo</p><p>Pintado por un script</p><p>Adiós</p>` },
+      {
+        marks: {
+          nodes: [
+            { id: "n1", hash: "a", text: "Hola mundo" },
+            { id: "n2", hash: "b", text: "Adiós" },
+          ],
+          threads: [],
+        },
+      },
+    )
+    const doc = body(frame.srcdoc)
+    expect([...doc.querySelectorAll("p")].map((element) => element.getAttribute(blockAttribute))).toEqual([
+      "0",
+      null,
+      "1",
+    ])
+    expect(frame.blocks.map((node) => node.id)).toEqual(["n1", "n2"])
+    const hidden = frameOf(page)
+    expect(hidden.srcdoc).not.toContain(blockAttribute)
+    expect(hidden.blocks).toEqual([])
   })
 
   test("marking runs none of the page", () => {

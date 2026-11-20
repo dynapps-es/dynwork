@@ -4,13 +4,14 @@ import { Icon } from "@opencode/ui/icon"
 import { SegmentedControl, SegmentedControlItem } from "@opencode/ui/segmented-control"
 import { TextInput } from "@opencode/ui/text-input"
 import { Textarea } from "@opencode/ui/textarea"
-import { createEffect, createSignal, For, Index, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createSignal, For, Index, onCleanup, onMount, Show, type JSX } from "solid-js"
 import { isFailure, type Anchor, type Document, type Failure, type Mention } from "../../drive/contract"
 import { DriveCapabilities } from "../../drive/capabilities"
 import { askAgent, sessionOf, titleOf } from "./chat"
 import {
   anchorsOf,
   bubbleRows,
+  clip,
   marked,
   matchNodes,
   nodeLabel,
@@ -22,6 +23,7 @@ import {
 } from "./model"
 import { panes } from "./panes"
 import { AnchorLine, authorName, Avatar, failureText, MessageLine } from "./parts"
+import { clicked, selected, type Spot } from "./spot"
 import { drive } from "./store"
 
 // Comments on a document (D11). The instance anchors a comment to a node (a paragraph, a table cell, a slide's box) and
@@ -34,7 +36,7 @@ import { drive } from "./store"
 const SHOWN = 80
 
 /** The user may comment unless the document is theirs to read only: by the open document's detail when it is that one. */
-const canComment = (doc: Document) => {
+export const canComment = (doc: Document) => {
   const detail = drive.state.opened.detail
   return (detail?.document.id === doc.id ? detail.access : doc.access) !== "view"
 }
@@ -153,7 +155,14 @@ export function CommentsTab(props: { doc: Document; onReveal?: (thread: string) 
             {ctx.t("drive.comment.new")}
           </Button>
         </div>
-        <Show when={props.doc.format === "markdown" && canComment(props.doc)}>
+        <Show when={marked(props.doc) && panes.marks() && canComment(props.doc) && !drive.state.doc.commenting}>
+          <p data-slot="drive-note">{ctx.t("drive.comment.inline.hint")}</p>
+        </Show>
+        <Show
+          when={
+            props.doc.format === "markdown" && canComment(props.doc) && (!panes.marks() || drive.state.doc.commenting)
+          }
+        >
           <p data-slot="drive-note" data-tone={drive.state.doc.commenting ? "info" : undefined}>
             {ctx.t(drive.state.doc.commenting ? "drive.comment.mode" : "drive.comment.mode.hint")}
           </p>
@@ -190,7 +199,7 @@ export function CommentsTab(props: { doc: Document; onReveal?: (thread: string) 
 }
 
 /** What an anchor points at, as a line: its quote, the node's own text or a cell range. */
-function Pointing(props: { doc: Document; anchor: Anchor }) {
+export function Pointing(props: { doc: Document; anchor: Anchor }) {
   const ctx = usePlugin()
   const line = () => {
     const anchor = props.anchor
@@ -395,6 +404,8 @@ function AgentButton(props: { field: () => HTMLTextAreaElement | undefined }) {
         const field = props.field()
         if (!field) return
         field.value = `${field.value.trimEnd()}${field.value ? " " : ""}@Agent `
+        // What listens to the box hears it, as it hears typing: the comment popup keeps what is written.
+        field.dispatchEvent(new Event("input", { bubbles: true }))
         field.focus()
       }}
     >
@@ -412,8 +423,28 @@ function Said(props: { failure: Failure }) {
   )
 }
 
-/** The new comment: what it points at, who signs it, the text. */
+/** The new comment in the Comments tab: a card with the comment's form. */
 function Composer(props: { doc: Document; anchor: Anchor }) {
+  return (
+    <div data-slot="drive-thread" data-state="on">
+      <CommentForm doc={props.doc} anchor={props.anchor} onCancel={() => drive.cancelComment()} />
+    </div>
+  )
+}
+
+/**
+ * A new comment's form, in the Comments tab and in the popup on the document: what it points at, who signs it, the
+ * text with the agent's mention, Cancel and Comment. What the Drive refuses shows below it, the text kept to try again.
+ * `onSent` hears the new thread; `onInput`, what is written, for a popup that keeps it; `extra` goes beside @Agent.
+ */
+export function CommentForm(props: {
+  doc: Document
+  anchor: Anchor
+  onCancel: () => void
+  onSent?: (thread: string) => void
+  onInput?: (text: string) => void
+  extra?: JSX.Element
+}) {
   const ctx = usePlugin()
   const [failure, setFailure] = createSignal<Failure>()
   const [busy, setBusy] = createSignal(false)
@@ -426,9 +457,10 @@ function Composer(props: { doc: Document; anchor: Anchor }) {
     const answer = await drive.comment(props.doc.id, props.anchor, text)
     setBusy(false)
     setFailure(isFailure(answer) ? answer : undefined)
+    if (!isFailure(answer)) props.onSent?.(answer.id)
   }
   return (
-    <div data-slot="drive-thread" data-state="on">
+    <>
       <div data-slot="drive-thread-anchor">
         <Pointing doc={props.doc} anchor={props.anchor} />
       </div>
@@ -445,14 +477,16 @@ function Composer(props: { doc: Document; anchor: Anchor }) {
         surface="layer-1"
         aria-label={ctx.t("drive.comment.placeholder")}
         placeholder={ctx.t("drive.comment.placeholder")}
+        onInput={(event) => props.onInput?.(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void send()
         }}
       />
       <div data-slot="drive-card-row">
         <AgentButton field={() => field} />
+        {props.extra}
         <span data-slot="drive-grow" />
-        <Button variant="ghost" size="small" onClick={() => drive.cancelComment()}>
+        <Button variant="ghost" size="small" onClick={() => props.onCancel()}>
           {ctx.t("drive.cancel")}
         </Button>
         <Button variant="contrast" size="small" title="⌘↵" disabled={busy()} onClick={() => void send()}>
@@ -460,7 +494,7 @@ function Composer(props: { doc: Document; anchor: Anchor }) {
         </Button>
       </div>
       <Show when={failure()}>{(found) => <Said failure={found()} />}</Show>
-    </div>
+    </>
   )
 }
 
@@ -574,11 +608,18 @@ const textOf = (element: Element) =>
 /**
  * The marks and the selection toolbar of a Markdown document, over the element that holds it (the workspace's canvas, a
  * chat's panel): each block the document's nodes name carries its node and, while the user shows the marks, its
- * thread; a click on a marked block opens the thread (`onThread`, else the Comments tab). In the workspace
- * (`interactive`) a selection offers to comment on it and comment mode (C) comments on a block. It matches the
- * document's blocks to its nodes by their text, in reading order (`matchNodes`).
+ * thread; a click on a marked block opens the thread (`onThread`, else the Comments tab). While the marks show and the
+ * user may comment, a selection or a click on another block goes to `onSpot`, which opens the comment popup there. In
+ * the workspace (`interactive`) comment mode (C) comments on a block, and with the marks hidden a selection offers the
+ * toolbar to comment on it or ask the agent. Keys stay the workspace's: beside a chat, C and Escape are the chat's. It
+ * matches the document's blocks to its nodes by their text, in reading order (`matchNodes`).
  */
-export function CommentMarks(props: { doc: Document; interactive?: boolean; onThread?: (thread: string) => void }) {
+export function CommentMarks(props: {
+  doc: Document
+  interactive?: boolean
+  onThread?: (thread: string) => void
+  onSpot?: (spot: Spot) => void
+}) {
   const ctx = usePlugin()
   let mark!: HTMLSpanElement
   const [picked, setPicked] = createSignal<{
@@ -617,6 +658,10 @@ export function CommentMarks(props: { doc: Document; interactive?: boolean; onTh
   }
 
   const interactive = () => props.interactive !== false
+  // A pick goes to the popup while the marks show and the user may comment; the rest is as before.
+  const spotting = () => props.onSpot !== undefined && panes.marks() && canComment(props.doc)
+  // Where a block or a selection sits, within what the document shows.
+  const placed = (rect: DOMRect, root: HTMLElement) => clip(rect, root.getBoundingClientRect()) ?? rect
   createEffect(() => canvas()?.toggleAttribute("data-commenting", interactive() && drive.state.doc.commenting))
 
   // What the marks depend on: the nodes, the threads, the open one and whether they show.
@@ -636,47 +681,45 @@ export function CommentMarks(props: { doc: Document; interactive?: boolean; onTh
     observer.observe(outer, { childList: true, subtree: true, characterData: true })
     const mouseup = (event: MouseEvent) =>
       setTimeout(() => {
-        if (!interactive()) return
         const target = event.target instanceof Element ? event.target : undefined
         if (target?.closest("[data-slot=drive-selection]")) return
         setPicked(undefined)
         const root = host()
         const selection = window.getSelection()
         if (!root || !selection || selection.isCollapsed || !canComment(props.doc)) return
-        const range = selection.getRangeAt(0)
-        const start =
-          range.startContainer instanceof Element ? range.startContainer : range.startContainer.parentElement
-        const block = start?.closest<HTMLElement>("[data-node]")
-        if (!block || !root.contains(block)) return
-        const node = drive.nodesOf(props.doc.id).find((item) => item.id === block.dataset.node)
-        if (!node) return
-        // The first line of a selection that crosses blocks is the part of the first one.
-        const text =
-          selection
-            .toString()
-            .split("\n")
-            .find((line) => line.trim()) ?? ""
-        const at = range.getBoundingClientRect()
+        const found = selected(selection.getRangeAt(0), root)
+        const node = found && drive.nodesOf(props.doc.id).find((item) => item.id === found.node)
+        if (!found || !node) return
+        const at = found.part.getBoundingClientRect()
+        if (spotting()) return props.onSpot?.({ node, quote: found.quote, rect: placed(at, root) })
+        if (!interactive()) return
         // The toolbar sits in the canvas, which is not scrolled: the markdown inside it is.
         const outerAt = outer.getBoundingClientRect()
         setPicked({
           node,
-          quote: quoteIn(node, text),
-          text: text.trim(),
+          quote: quoteIn(node, found.quote),
+          text: found.quote,
           left: Math.max(8, at.left - outerAt.left),
           top: Math.max(8, at.top - outerAt.top - 40),
         })
       }, 0)
-    // A click on a marked block opens its thread; in comment mode, one on any block opens a comment there.
+    // A click on a marked block opens its thread; with the marks shown, one on any other block opens the popup there,
+    // and in comment mode, with them hidden, a comment in the Comments tab.
     const click = (event: MouseEvent) => {
-      if (window.getSelection()?.isCollapsed === false) return
-      const target = event.target instanceof Element ? event.target : undefined
-      const block = target?.closest<HTMLElement>("[data-node]")
-      const thread = target?.closest<HTMLElement>("[data-thread]")?.dataset.thread
-      if (thread) return props.onThread ? props.onThread(thread) : drive.focusThread(thread)
-      if (!interactive() || !drive.state.doc.commenting || !block?.dataset.node || !canComment(props.doc)) return
+      const root = host()
+      if (!root || window.getSelection()?.isCollapsed === false) return
+      const found = clicked(event.target instanceof Element ? event.target : undefined, root)
+      if (found?.kind === "thread")
+        return props.onThread ? props.onThread(found.thread) : drive.focusThread(found.thread)
+      if (found?.kind !== "block" || !canComment(props.doc)) return
+      const node = drive.nodesOf(props.doc.id).find((item) => item.id === found.node)
+      if (spotting() && node) {
+        if (interactive() && drive.state.doc.commenting) drive.setCommenting(false)
+        return props.onSpot?.({ node, rect: placed(found.block.getBoundingClientRect(), root) })
+      }
+      if (!interactive() || !drive.state.doc.commenting) return
       drive.setCommenting(false)
-      drive.startComment({ kind: "node", node: block.dataset.node })
+      drive.startComment({ kind: "node", node: found.node })
     }
     // C toggles comment mode while no field has the focus; Escape leaves it.
     const keys = (event: KeyboardEvent) => {

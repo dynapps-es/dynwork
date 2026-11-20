@@ -12,8 +12,8 @@ import { DriveFrames } from "./frames"
 // main's own: while a window shows a frame and asks for it (`watch`), main attaches to the window, auto-attaches to its
 // sub-frames, keeps the viewer's and lets the others go, and in each viewer frame adds the observer to every new
 // document in `DriveFrames.world`, with a binding that exists only in that world. Neither reaches the page: its
-// scripts cannot see, call or replace them. What the binding receives is parsed here (a kind and one short id, or
-// bounded mark positions) and sent to that window alone, which keeps only ids it gave the page. When the window stops watching, main detaches,
+// scripts cannot see, call or replace them. What the binding receives is parsed here (a kind and one short id,
+// bounded mark positions, or a pick of a block index, a short quote and a bounded rectangle) and sent to that window alone, which keeps only ids it gave the page. When the window stops watching, main detaches,
 // unless another client had attached first, which it then leaves attached.
 
 /** What `make` needs of a window's contents. */
@@ -27,22 +27,26 @@ export interface Options {
 }
 
 const Id = Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(256))
+const Px = Schema.Int.check(Schema.isBetween({ minimum: -DriveFrames.farthest, maximum: DriveFrames.farthest }))
+const Size = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: DriveFrames.farthest }))
 
 /**
- * What a window's frame may report through the binding, as JSON, nothing else: a kind and one id, or where at most
- * `DriveFrames.maxMarks` marks sit, each an id and a whole number of pixels within `DriveFrames.farthest`.
+ * What a window's frame may report through the binding, as JSON, nothing else: a kind and one id; where at most
+ * `DriveFrames.maxMarks` marks sit, each an id and a whole number of pixels within `DriveFrames.farthest`; or a pick,
+ * a block's index, an optional quote of `DriveFrames.maxQuote` at most and a rectangle of whole pixels.
  */
 const Report = Schema.fromJsonString(
   Schema.Union([
     Schema.Struct({ kind: Schema.Literals(["heading", "mark"]), id: Id }),
     Schema.Struct({
       kind: Schema.Literal("marks"),
-      items: Schema.Array(
-        Schema.Struct({
-          id: Id,
-          top: Schema.Int.check(Schema.isBetween({ minimum: -DriveFrames.farthest, maximum: DriveFrames.farthest })),
-        }),
-      ).check(Schema.isMaxLength(DriveFrames.maxMarks)),
+      items: Schema.Array(Schema.Struct({ id: Id, top: Px })).check(Schema.isMaxLength(DriveFrames.maxMarks)),
+    }),
+    Schema.Struct({
+      kind: Schema.Literal("pick"),
+      block: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: DriveFrames.maxBlocks })),
+      quote: Schema.optional(Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(DriveFrames.maxQuote))),
+      rect: Schema.Struct({ left: Px, top: Px, width: Size, height: Size }),
     }),
   ]),
 )

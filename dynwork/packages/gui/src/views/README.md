@@ -187,7 +187,19 @@ in-memory Drive for the tests.
   drawn by the app, so `CommentMarks` matches its blocks to the nodes by their text, marks the commented ones and offers
   Comment on a selection. A page in a frame (HTML, Word, Excel, PowerPoint) has an opaque origin the app cannot read, so
   the tab lists its nodes to pick from; an HTML page shows its marks (above), and a click on one opens its thread. Picking
-  a thread in the tab brings its mark into view. The previews of Word, Excel and PowerPoint, and a PDF, show no marks. A quote is only sent when it is in the node's own text (Markdown syntax
+  a thread in the tab brings its mark into view.
+  - **Commenting in place** (phase 18, `spot.ts`, `comment-popup.tsx`): while the marks show and the user may comment,
+    a selection on an HTML page or Markdown, in the Drive and beside a chat, opens a popup right beside it to comment
+    on the quote (the part in the first block when it crosses blocks); a click without a selection on a block with a
+    node comments on the whole block. A click on a mark opens its thread, and one on a link, a button or a control does
+    its own. The popup is the standard Popover anchored to the picked rectangle (below, or above without room, inside
+    the window) with the Comments tab's own form (`CommentForm`: what it points at, @Agent, Cancel and Comment, the
+    Drive's refusals in line). Sent, the new thread opens where threads open: the Comments tab in the Drive, the thread's
+    dialog beside a chat. Escape and Cancel close it without a comment; a click outside closes it only while nothing is
+    written, and a pick elsewhere does not move a popup with text in it, so a stray click loses nothing. In the Drive a
+    quote also offers to ask the agent, as the selection toolbar does. With the marks hidden, Markdown keeps the
+    selection toolbar in the Drive, and comment mode (C) stays the Drive's; beside a chat, C and Escape stay the chat's.
+    Nothing opens while the document is presented. HTML picks come from main's observer (`drive/README.md`). The previews of Word, Excel and PowerPoint, and a PDF, show no marks. A quote is only sent when it is in the node's own text (Markdown syntax
   included); otherwise the comment anchors to the node. A cell range is offered only with `rangeComments`; a PDF takes
   no comment (D22). An author no grant names reads "Someone", unless the instance names people by id (`peopleByRest`).
 
@@ -212,7 +224,7 @@ in-memory Drive for the tests.
   - **Every other document.** Invite and the levels are shut, with a tooltip that says why: the user does it in
     Governance when their access lets them share, and otherwise its owner can.
 
-The menus and the Share popover load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does.
+The menus, the Share popover and the comment popup load on the client only (`menus.tsx`), as `agents/new-menu.tsx` does.
 
 ## Runs
 

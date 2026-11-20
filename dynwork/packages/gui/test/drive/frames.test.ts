@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
 import { EventEmitter } from "node:events"
 import { DriveFrames } from "../../src/drive/frames"
 
@@ -263,5 +263,173 @@ describe("main's observer in a frame", () => {
     }
     new Function(...Object.keys(scope), DriveFrames.observer)(...Object.values(scope))
     expect(listen.calls).toBe(0)
+  })
+})
+
+// A pick needs the window's own document: happy-dom gives ranges and a selection to that one only. The observer's
+// listeners on it are taken off after each test, with what the test put in its body and selected.
+const live: Array<() => void> = []
+afterEach(() => live.splice(0).forEach((undo) => undo()))
+
+function observeLive(html: string) {
+  document.body.innerHTML = html
+  const reported: unknown[] = []
+  const added: Array<[string, EventListener, boolean | AddEventListenerOptions | undefined]> = []
+  const scoped = new Proxy(document, {
+    get(target, key) {
+      if (key === "addEventListener")
+        return (type: string, listener: EventListener, options?: boolean | AddEventListenerOptions) => {
+          target.addEventListener(type, listener, options)
+          added.push([type, listener, options])
+        }
+      const value = Reflect.get(target, key, target)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
+  const scope = {
+    globalThis: { [DriveFrames.binding]: (payload: string) => reported.push(JSON.parse(payload)) },
+    document: scoped,
+    addEventListener: () => undefined,
+    requestAnimationFrame: () => 0,
+    innerHeight: 600,
+    Element,
+  }
+  new Function(...Object.keys(scope), DriveFrames.observer)(...Object.values(scope))
+  live.push(() => {
+    added.forEach(([type, listener, options]) => document.removeEventListener(type, listener, options))
+    document.getSelection()?.removeAllRanges()
+    document.body.innerHTML = ""
+  })
+  const select = (start: [Node, number], end: [Node, number]) => {
+    const range = document.createRange()
+    range.setStart(...start)
+    range.setEnd(...end)
+    const selection = document.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+  }
+  // happy-dom cannot dispatch a trusted event: the user's own is one that says so.
+  const user = (target: Element, type: "click" | "mouseup", trusted = true) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true })
+    if (trusted) Object.defineProperty(event, "isTrusted", { value: true })
+    target.dispatchEvent(event)
+    return event
+  }
+  const at = (selector: string) => {
+    const found = document.querySelector(selector)
+    if (!found) throw new Error(`no ${selector}`)
+    return found
+  }
+  return { reported, select, user, at }
+}
+
+const text = (element: Element) => {
+  const found = element.firstChild
+  if (!found) throw new Error("no text")
+  return found
+}
+
+describe("what the user picks in a frame, as main's observer reports it", () => {
+  const page =
+    `<h1 data-dynwork-block="0">Informe</h1>` +
+    `<p data-dynwork-block="1">El total del <b>trimestre</b> sube</p>` +
+    `<p data-dynwork-block="2">Riesgos <a href="#x">altos</a> <button>Ver</button> <input></p>` +
+    `<p>Pintado por un script</p>` +
+    `<p data-dynwork-block="3"><mark data-dynwork-comment="t1">Comentado</mark> y no</p>`
+
+  test("a selection is its first block's number, the part of the selection in that block, and where it sits", () => {
+    const frame = observeLive(page)
+    const paragraph = frame.at("[data-dynwork-block='1']")
+    // From "total" to the middle of the next paragraph: the part in the first block.
+    frame.select([text(paragraph), 3], [text(frame.at("[data-dynwork-block='2']")), 4])
+    // The click that ends a drag goes to the common ancestor of where it started and ended.
+    frame.user(document.body, "click")
+    expect(frame.reported).toEqual([
+      { kind: "pick", block: 1, quote: "total del trimestre sube", rect: { left: 0, top: 0, width: 0, height: 0 } },
+    ])
+  })
+
+  test("a long selection quotes its first `maxQuote` characters, in one line", () => {
+    const frame = observeLive(`<p data-dynwork-block="4">${"palabra\n  ".repeat(100)}</p>`)
+    const paragraph = frame.at("p")
+    frame.select([text(paragraph), 0], [text(paragraph), text(paragraph).textContent?.length ?? 0])
+    frame.user(paragraph, "click")
+    const quote = (frame.reported[0] as { quote: string }).quote
+    expect(quote).toHaveLength(DriveFrames.maxQuote)
+    expect(quote).not.toContain("\n")
+    expect(quote.startsWith("palabra palabra")).toBe(true)
+  })
+
+  test("nothing for a selection a script ended, one that starts in no numbered block, or only spaces", () => {
+    const frame = observeLive(page + `<p data-dynwork-block="5">   </p>`)
+    frame.select([text(frame.at("[data-dynwork-block='1']")), 0], [text(frame.at("[data-dynwork-block='1']")), 6])
+    frame.user(frame.at("[data-dynwork-block='1']"), "click", false)
+    const plain = frame.at("p:not([data-dynwork-block])")
+    frame.select([text(plain), 0], [text(plain), 7])
+    frame.user(plain, "click")
+    // A selection of spaces in a numbered block is not a click on the block either.
+    const blank = frame.at("[data-dynwork-block='5']")
+    frame.select([text(blank), 0], [text(blank), 3])
+    frame.user(blank, "click")
+    // The mouseup alone reports nothing: the click that follows it reads the selection, once it has settled.
+    frame.select([text(frame.at("[data-dynwork-block='1']")), 0], [text(frame.at("[data-dynwork-block='1']")), 6])
+    frame.user(frame.at("[data-dynwork-block='1']"), "mouseup")
+    expect(frame.reported).toEqual([])
+  })
+
+  test("a click without a selection picks its block whole, where the block sits, in whole pixels within reach", () => {
+    const frame = observeLive(page)
+    const paragraph = frame.at("[data-dynwork-block='1']")
+    Object.assign(paragraph, {
+      getBoundingClientRect: () => ({ left: 12.4, top: -2_000_000, width: 380.6, height: 2_000_123 }),
+    })
+    frame.user(frame.at("b"), "click")
+    expect(frame.reported).toEqual([
+      {
+        kind: "pick",
+        block: 1,
+        rect: { left: 12, top: -DriveFrames.farthest, width: 381, height: DriveFrames.farthest },
+      },
+    ])
+  })
+
+  test("a click on a mark opens its thread, and one on a link, a control or no numbered block picks nothing", () => {
+    const frame = observeLive(page)
+    frame.user(frame.at("mark"), "click")
+    frame.user(frame.at("a"), "click")
+    frame.user(frame.at("button"), "click")
+    frame.user(frame.at("input"), "click")
+    frame.user(frame.at("p:not([data-dynwork-block])"), "click")
+    frame.user(document.body, "click")
+    // A script's click picks nothing either.
+    frame.user(frame.at("h1"), "click", false)
+    expect(frame.reported).toEqual([{ kind: "mark", id: "t1" }])
+  })
+
+  test("a click that ends a selection picks the selection, not its block whole, even on a mark", () => {
+    const frame = observeLive(page)
+    const heading = frame.at("h1")
+    frame.select([text(heading), 0], [text(heading), 4])
+    frame.user(heading, "click")
+    const mark = frame.at("mark")
+    frame.select([text(mark), 0], [text(mark), 6])
+    frame.user(mark, "click")
+    expect(frame.reported).toEqual([
+      { kind: "pick", block: 0, quote: "Info", rect: { left: 0, top: 0, width: 0, height: 0 } },
+      { kind: "pick", block: 3, quote: "Coment", rect: { left: 0, top: 0, width: 0, height: 0 } },
+    ])
+  })
+
+  test("the observer only listens: the page's own handlers run and nothing is cancelled", () => {
+    const frame = observeLive(page)
+    const heard: string[] = []
+    const heading = frame.at("h1")
+    heading.addEventListener("click", () => heard.push("click"))
+    heading.addEventListener("mouseup", () => heard.push("mouseup"))
+    const click = frame.user(heading, "click")
+    const mouseup = frame.user(heading, "mouseup")
+    expect(heard).toEqual(["click", "mouseup"])
+    expect([click.defaultPrevented, mouseup.defaultPrevented]).toEqual([false, false])
+    expect(frame.reported).toHaveLength(1)
   })
 })

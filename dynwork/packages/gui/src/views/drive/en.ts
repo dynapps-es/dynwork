@@ -153,6 +153,7 @@ export default {
   "drive.mention.failed": "The chat could not be reached. Send it again.",
   "drive.comment.mode": "Comment mode: click a paragraph. Esc to leave.",
   "drive.comment.mode.hint": "Press C, then click a paragraph to comment on it.",
+  "drive.comment.inline.hint": "Select text or click a paragraph on the document to comment right there.",
   "drive.comment.send": "Send",
   "drive.comment.resolve": "Resolve",
   "drive.comment.resolved": "Resolved",

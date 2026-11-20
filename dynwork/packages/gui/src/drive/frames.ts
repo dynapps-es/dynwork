@@ -57,10 +57,12 @@ export function guard(host: Host) {
 }
 
 // What the viewer learns from its HTML frame (`watch.ts`): which heading the reader is at, for the index, which comment
-// mark they clicked, and where each thread's first mark sits, for the comments' bubbles beside the frame. The frame is sandboxed without DynWork's origin, so the app cannot read it, and the page
-// may be an agent's, with scripts: nothing of DynWork is exposed to it. Main runs `observer` in an isolated world of the
-// frame, which the page's scripts can neither see nor reach, and it reports through a binding that exists only in that
-// world. The report is ids and numbers, each id checked by the viewer against the ones it gave the page.
+// mark they clicked, where each thread's first mark sits, for the comments' bubbles beside the frame, and what the user
+// selected or clicked to comment on, for the comment popup. The frame is sandboxed without DynWork's origin, so the app
+// cannot read it, and the page may be an agent's, with scripts: nothing of DynWork is exposed to it. Main runs `observer`
+// in an isolated world of the frame, which the page's scripts can neither see nor reach, and it reports through a
+// binding that exists only in that world. The report is ids, numbers and a short quote, each checked by the viewer
+// against what it gave the page and what it knows of the document.
 
 /** The isolated world main's observer runs in. */
 export const world = "dynwork-drive"
@@ -73,6 +75,41 @@ export const maxMarks = 100
 
 /** How far from the visible area a report places a mark, in pixels either way: farther is as far. */
 export const farthest = 1_000_000
+
+/** The highest block index a pick may name: the viewer numbers the blocks it matched to nodes from 0. */
+export const maxBlocks = 100_000
+
+/** How long a picked quote is at most, in UTF-16 units: the part of the selection inside its first block. */
+export const maxQuote = 500
+
+/**
+ * What a click on a page does on its own, so it opens no comment: a link, a button, a form control or what says it is
+ * one. The Markdown view skips the same.
+ */
+export const controls = [
+  "a",
+  "area",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "label",
+  "summary",
+  "option",
+  "video",
+  "audio",
+  "[contenteditable='']",
+  "[contenteditable='true']",
+  "[onclick]",
+  "[role=button]",
+  "[role=link]",
+  "[role=checkbox]",
+  "[role=switch]",
+  "[role=tab]",
+  "[role=menuitem]",
+  "[role=option]",
+  "[role=slider]",
+].join(", ")
 
 /**
  * The heading a reader is at, out of the headings' tops from the top of the visible area: the last one whose top has
@@ -91,6 +128,12 @@ export function reading(tops: readonly number[], height: number) {
  * the id of the heading being read when it changes, where the first mark of each thread sits from the top of the
  * visible area (rounded pixels, `maxMarks` at most) when that changes, and the comment of a mark the user clicked: only
  * a trusted click, so the page's scripts cannot click one for the user.
+ *
+ * It also reports a pick: a selection the user made (read on the trusted click that ends it), or a click without one
+ * that lands on no mark, link or control, in a block the viewer numbered (`data-dynwork-block`, an opaque index, never a node id). A
+ * pick is the block's index, the part of the selection inside its first block (`maxQuote` at most) and where that part
+ * or the block sits, in whole pixels of the frame's visible area. The observer only listens: it cancels nothing and
+ * stops nothing, so the page's own click and selection handlers work as before.
  */
 export const observer = `(() => {
   const send = globalThis[${JSON.stringify(binding)}]
@@ -127,12 +170,46 @@ export const observer = `(() => {
   addEventListener("load", later)
   document.addEventListener("DOMContentLoaded", later)
   later()
+  const within = (value) => Math.max(-${farthest}, Math.min(${farthest}, Math.round(value)))
+  const size = (value) => Math.max(0, Math.min(${farthest}, Math.round(value)))
+  const pick = (block, quote, at) => {
+    const index = Number(block.getAttribute("data-dynwork-block"))
+    if (!Number.isInteger(index) || index < 0 || index > ${maxBlocks}) return
+    const rect = { left: within(at.left), top: within(at.top), width: size(at.width), height: size(at.height) }
+    send(JSON.stringify(quote ? { kind: "pick", block: index, quote, rect } : { kind: "pick", block: index, rect }))
+  }
+  const blockOf = (node) => (node instanceof Element ? node : node?.parentElement)?.closest("[data-dynwork-block]")
+  // A selection is read on the click that ends it, not on mouseup: Chromium sends that click after the mouseup has
+  // settled the selection (a click inside one clears it first), to the elements' common ancestor after a drag, so no
+  // timer is needed, and a frame's timers may not run while its window is hidden.
+  const selected = () => {
+    const selection = document.getSelection()
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return false
+    const range = selection.getRangeAt(0)
+    const block = blockOf(range.startContainer)
+    if (!block) return true
+    // A selection that crosses blocks is the part of its first one.
+    const part = range.cloneRange()
+    if (!block.contains(range.endContainer)) part.setEnd(block, block.childNodes.length)
+    const quote = part
+      .toString()
+      .replace(/\\s+/g, " ")
+      .trim()
+      .slice(0, ${maxQuote})
+      .replace(/[\\ud800-\\udbff]$/, "")
+    if (quote) pick(block, quote, part.getBoundingClientRect())
+    return true
+  }
   document.addEventListener(
     "click",
     (event) => {
       if (!event.isTrusted || !(event.target instanceof Element)) return
+      if (event.target.closest(${JSON.stringify(controls)})) return
+      if (selected()) return
       const id = event.target.closest("mark[data-dynwork-comment]")?.getAttribute("data-dynwork-comment")
-      if (id) report("mark", id)
+      if (id) return report("mark", id)
+      const block = event.target.closest("[data-dynwork-block]")
+      if (block) pick(block, undefined, block.getBoundingClientRect())
     },
     true,
   )
