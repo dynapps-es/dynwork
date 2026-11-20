@@ -232,6 +232,7 @@ export default {
   "drive.panel.upload": "Upload to the Drive",
   "drive.panel.upload.hint": "Upload a file this chat made: it is saved with the conversation's name",
   "drive.preview.failed": "The preview could not be loaded.",
+  "drive.preview.loading": "Loading the document…",
   "drive.proposals.open": "Pending",
   "drive.proposals.unnamed": "Proposed change",
   "drive.version.unnamed": "No description",

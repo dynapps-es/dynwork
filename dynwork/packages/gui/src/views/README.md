@@ -143,7 +143,14 @@ in-memory Drive for the tests.
   composer chip and its tab) and records it in the index; opening the chip routes its link (`origin: dynwork-drive`)
   back to the document's tab. A restored tab whose document the window has not read yet stays hidden until the Drive
   answers, and shows as missing, so it can be closed, when the Drive no longer has it.
-- **The viewer** (`viewer.tsx`), the same in the workspace and in a tab, by format:
+- **The viewer** (`viewer.tsx`), the same in the workspace and in a tab, by format. While a document loads, the app's
+  loading indicator (`ctx.ui.Loader`, large, as OpenCode shows a pane that loads: no text, which a screen reader reads
+  from its label) sits in the middle of where it will show (`DocLoading`): until its content is read, for HTML and the
+  previews until the frame has loaded its first page (the frame's `load`), and for a PDF until pdf.js has opened it. A
+  page loaded again (a comment added or resolved, the marks shown or hidden) shows no indicator: the document was already
+  in view. Another document or version in the same viewer (a chat's panel shows each tab's document in one) loads anew,
+  with the indicator and a frame of its own, and never shows under the previous one's name (`answerFor`); a new head of
+  the same document keeps the page in view until the new one is read.
   - HTML as designed (`/rendered`, the preview on an instance without it), in an `iframe` with `srcdoc`. The frame
     mirrors the policy the instance served the page with (D5): its `sandbox` flags are the ones that response's
     `sandbox` directive grants (none without one, so no scripts), and the rest of that policy goes first in the page's
@@ -158,8 +165,13 @@ in-memory Drive for the tests.
     wrapped in `<mark data-dynwork-comment>` with a style under the page's policy (the browser's own `mark` look when
     it keeps inline styles out); a quote or node the page does not show marks nothing. A mark carries the thread's id
     and nothing of the comment: the page's scripts may reach the network, so the text stays in the app, where a click
-    on the mark opens it. A comment added or resolved writes a new `srcdoc`, and the frame goes back to the heading being read.
-  - Beside an HTML page or Markdown at its head, while the marks show and a thread is open, a column of the app's own
+    on the mark opens it. A comment added or resolved writes a new `srcdoc`, which loads the page again from its top:
+    the frame keeps showing the page it has until main has armed the new one to start at the pixel where the reader
+    was (`Frames.restore`, from the scroll main's observer reported, `../drive/README.md`), and only then loads it, so
+    the reader sees no jump. Without main's observer for the frame, it goes back to the heading being read instead.
+    Only the page's own scroller is kept: a page that scrolls an inner box of its own starts that box at its top.
+  - Beside an HTML page or Markdown at its head, while the marks show (with or without a thread, so a first comment or
+    the last one resolved does not make the document narrower or wider under the reader), a column of the app's own
     holds the comments' bubbles (`CommentBubbles`, as Google Docs): one beside each marked part with the initials of
     who wrote its thread (0.83 names no picture for anyone), threads at one height in one bubble (two faces and "+N",
     `bubbleRows`), and a click opens the bubble's first thread, as its mark does. Where the marks sit comes from main's
@@ -194,8 +206,10 @@ in-memory Drive for the tests.
     node comments on the whole block. A click on a mark opens its thread, and one on a link, a button or a control does
     its own. The popup is the standard Popover anchored to the picked rectangle (below, or above without room, inside
     the window) with the Comments tab's own form (`CommentForm`: what it points at, @Agent, Cancel and Comment, the
-    Drive's refusals in line). Sent, the new thread is marked on the document; the Drive also shows it in the Comments
-    tab, while beside a chat nothing opens over the conversation. Escape and Cancel close it without a comment; a click outside closes it only while nothing is
+    Drive's refusals in line). Sent, the new thread is marked on the document and the document stays where it was, at
+    the pixel: no jump to the new mark, and no drawer opens. The Drive selects the thread in the Comments tab quietly
+    (`drive.comment`: `quiet`, so a hidden drawer stays hidden), while beside a chat nothing opens over the
+    conversation. A thread the user picks (its mark, its bubble, its card in the tab, the index) still brings it into view. Escape and Cancel close it without a comment; a click outside closes it only while nothing is
     written, and a pick elsewhere does not move a popup with text in it, so a stray click loses nothing. In the Drive a
     quote also offers to ask the agent, as the selection toolbar does. With the marks hidden, Markdown keeps the
     selection toolbar in the Drive, and comment mode (C) stays the Drive's; beside a chat, C and Escape stay the chat's.

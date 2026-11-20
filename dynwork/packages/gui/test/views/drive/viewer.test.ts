@@ -10,7 +10,7 @@ import { askAgent, docKey, listKey, openArtifacts } from "../../../src/views/dri
 import { registerDrive } from "../../../src/views/drive/register"
 import { clip, framed, isPdf } from "../../../src/views/drive/model"
 import { initial, Panes } from "../../../src/views/drive/panes"
-import { frameOf, fromFrame, load } from "../../../src/views/drive/viewer"
+import { answerFor, createReload, frameOf, fromFrame, load } from "../../../src/views/drive/viewer"
 import { startFake } from "../../../../sp-client/test/fake"
 import { storage } from "../../routines/fixture"
 import { connect, flush } from "../../drive/wire"
@@ -428,6 +428,24 @@ describe("what the viewer takes from main's observer of a frame", () => {
     expect(fromFrame({ frame: `${DriveFrames.name}:5`, kind: "marks", items }, shown)).toBeUndefined()
   })
 
+  test("where the page is scrolled: two whole numbers within reach, for its own frame only", () => {
+    const scroll = (x: number, y: number, frame = shown.name) => fromFrame({ frame, kind: "scroll", x, y }, shown)
+    expect(scroll(0, 1840)).toEqual({ kind: "scroll", at: { x: 0, y: 1840 } })
+    expect(scroll(-24, 0)).toEqual({ kind: "scroll", at: { x: -24, y: 0 } })
+    expect(scroll(DriveFrames.farthest, -DriveFrames.farthest)).toEqual({
+      kind: "scroll",
+      at: { x: DriveFrames.farthest, y: -DriveFrames.farthest },
+    })
+    // Another frame's, a part of a pixel, beyond reach, or not a number at all.
+    expect(scroll(0, 1840, `${DriveFrames.name}:5`)).toBeUndefined()
+    expect(scroll(0, 10.5)).toBeUndefined()
+    expect(scroll(0.25, 10)).toBeUndefined()
+    expect(scroll(0, DriveFrames.farthest + 1)).toBeUndefined()
+    expect(scroll(-DriveFrames.farthest - 1, 0)).toBeUndefined()
+    expect(scroll(0, Number.NaN)).toBeUndefined()
+    expect(scroll(Number.POSITIVE_INFINITY, 0)).toBeUndefined()
+  })
+
   test("each frame gets the name it is given, and the guard's when none is", () => {
     expect(frameOf({ html: "<p>x</p>" }, { name: shown.name }).name).toBe(shown.name)
     expect(DriveFrames.isViewer(frameOf({ html: "<p>x</p>" }).name)).toBe(true)
@@ -517,5 +535,66 @@ describe("where a frame's pick sits in the window", () => {
       height: 50,
     })
     expect(clip({ left: 200, top: 0, width: 10, height: 10 }, bounds)).toBeUndefined()
+  })
+})
+
+describe("a page loaded again in its frame", () => {
+  test("the frame loads until its first page has, and never again for the pages after it", () => {
+    const reload = createReload()
+    expect(reload.loading()).toBe(true)
+    // A change before the first page loads (its comments arrive) loads the newest page, still loading, from nowhere.
+    expect(reload.leave()).toBeUndefined()
+    expect(reload.loading()).toBe(true)
+    reload.load()
+    expect(reload.loading()).toBe(false)
+    // A comment added: the page loads again with no loading over it.
+    expect(reload.leave()).toEqual({ x: 0, y: 0 })
+    reload.armed(true)
+    reload.load()
+    expect(reload.loading()).toBe(false)
+  })
+
+  test("the next page goes where the reader is, the same place for every change until it has loaded", () => {
+    const reload = createReload()
+    reload.load()
+    reload.scrolled({ x: 0, y: 1840 })
+    expect(reload.leave()).toEqual({ x: 0, y: 1840 })
+    // The page that has not loaded yet tells nothing of its own: a second change keeps the reader's place.
+    reload.scrolled({ x: 0, y: 0 })
+    expect(reload.leave()).toEqual({ x: 0, y: 1840 })
+    reload.armed(true)
+    reload.load()
+    // Loaded, the next change goes where the page is now.
+    reload.scrolled({ x: 0, y: 2210 })
+    expect(reload.leave()).toEqual({ x: 0, y: 2210 })
+  })
+
+  test("main put the next page in place, or the view takes the reader back to their heading itself", () => {
+    const reload = createReload()
+    // The first page: nothing to go back to, and nothing armed.
+    expect(reload.load()).toBe(true)
+    reload.leave()
+    reload.armed(true)
+    expect(reload.load()).toBe(false)
+    // Main could not (no observer for the frame): the heading the reader was at.
+    reload.leave()
+    reload.armed(false)
+    expect(reload.load()).toBe(true)
+    // What was armed is for one page only.
+    reload.leave()
+    expect(reload.load()).toBe(true)
+  })
+})
+
+describe("what a viewer shows while it reads", () => {
+  test("the answer for the document and version it shows, kept across a new head; nothing for another one", () => {
+    const read = { id: "d1", revision: undefined, answer: "page of d1" }
+    expect(answerFor(read, "d1")).toBe("page of d1")
+    // Another document in the same tab, or another version of it: the view loads, and the page starts anew.
+    expect(answerFor(read, "d2")).toBeUndefined()
+    expect(answerFor(read, "d1", "r1")).toBeUndefined()
+    expect(answerFor({ id: "d1", revision: "r1", answer: "r1 of d1" }, "d1", "r1")).toBe("r1 of d1")
+    expect(answerFor({ id: "d1", revision: "r1", answer: "r1 of d1" }, "d1")).toBeUndefined()
+    expect(answerFor(undefined, "d1")).toBeUndefined()
   })
 })

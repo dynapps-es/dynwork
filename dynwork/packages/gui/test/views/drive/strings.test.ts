@@ -72,6 +72,14 @@ describe("the Drive's strings", () => {
     ).toEqual([])
   })
 
+  test("the document's loading indicator says what it waits for in every language", async () => {
+    const source = await Bun.file(new URL("../../../src/views/drive/parts.tsx", import.meta.url)).text()
+    expect(source).toContain('"drive.preview.loading"')
+    expect(
+      Object.entries(locales).flatMap(([locale, table]) => (table["drive.preview.loading"] ? [] : [locale])),
+    ).toEqual([])
+  })
+
   test("every key of the share card is in every language, and each sentence names all it shows", async () => {
     const source = await Bun.file(new URL("../../../src/views/drive/share.tsx", import.meta.url)).text()
     const keys = [...new Set([...source.matchAll(/"(drive\.[\w.]+)"/g)].map((match) => match[1] ?? ""))]

@@ -17,6 +17,19 @@ const glyphs: Record<Format, string> = {
   pdf: "PDF",
 }
 
+/**
+ * A document loading, in the middle of where it will show: the app's loading indicator, which says what it waits for to
+ * a screen reader.
+ */
+export function DocLoading() {
+  const ctx = usePlugin()
+  return (
+    <div data-slot="drive-loading" role="status" aria-label={ctx.t("drive.preview.loading")}>
+      <ctx.ui.Loader size="large" />
+    </div>
+  )
+}
+
 /** A document's format as a colored glyph, a folder, or a plain file for a format the Drive has no viewer for. */
 export function FormatGlyph(props: { format: string; size?: "large" }) {
   const format = () => (props.format === "folder" ? "folder" : known(props.format))

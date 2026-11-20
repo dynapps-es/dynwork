@@ -236,6 +236,7 @@ export default {
   "drive.panel.upload": "Subir al Drive",
   "drive.panel.upload.hint": "Sube un fichero que ha hecho este chat: se guarda con el nombre de la conversación",
   "drive.preview.failed": "No se ha podido cargar la vista previa.",
+  "drive.preview.loading": "Cargando el documento…",
   "drive.proposals.open": "Pendiente",
   "drive.proposals.unnamed": "Cambio propuesto",
   "drive.version.unnamed": "Sin descripción",

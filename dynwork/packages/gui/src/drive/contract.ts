@@ -506,9 +506,10 @@ export const Shares = Ipc.define({
 /**
  * What a viewer frame was seen doing (`frames.ts`), by the ids the viewer gave the page: the heading the reader is at,
  * the comment mark they clicked, where the first mark of each thread sits, in pixels from the top of the frame's
- * visible area (`marks`), for the comments' bubbles beside it, or what the user picked to comment on (`pick`): a block
- * the viewer numbered, the part of a selection in it, and where that sits in the frame's visible area. `frame` is the
- * frame's name. Nothing else ever comes out of a frame.
+ * visible area (`marks`), for the comments' bubbles beside it, where the page is scrolled, in pixels (`scroll`), to put
+ * the page loaded again there, or what the user picked to comment on (`pick`): a block the viewer numbered, the part of
+ * a selection in it, and where that sits in the frame's visible area. `frame` is the frame's name. Nothing else ever
+ * comes out of a frame.
  */
 export const Seen = Schema.Union([
   Schema.Struct({ frame: Schema.String, kind: Schema.Literals(["heading", "mark"]), id: Schema.String }),
@@ -517,6 +518,7 @@ export const Seen = Schema.Union([
     kind: Schema.Literal("marks"),
     items: Schema.Array(Schema.Struct({ id: Schema.String, top: Schema.Number })),
   }),
+  Schema.Struct({ frame: Schema.String, kind: Schema.Literal("scroll"), x: Schema.Number, y: Schema.Number }),
   Schema.Struct({
     frame: Schema.String,
     kind: Schema.Literal("pick"),
@@ -527,6 +529,9 @@ export const Seen = Schema.Union([
 ])
 export type Seen = typeof Seen.Type
 
+/** Where a page is scrolled, either way: whole pixels within `DriveFrames.farthest`. */
+const Scroll = Schema.Int.check(Schema.isBetween({ minimum: -1_000_000, maximum: 1_000_000 }))
+
 /**
  * The window's document viewer: its HTML frames, observed by main in an isolated world of each (`watch.ts`), and Present,
  * the window full screen for a document alone (`present.ts`).
@@ -536,6 +541,12 @@ export const Frames = Ipc.define({
   methods: {
     /** Holds until the window aborts the call; while one is held, main reports what the frame named `frame` is at. */
     watch: { input: Schema.Struct({ frame: Schema.String }) },
+    /**
+     * Puts the next document of the frame named `frame`, one the window watches, scrolled to `x` and `y`, whole pixels
+     * within `DriveFrames.farthest`, before it is drawn (`DriveFrames.restorer`). Answers whether it will: the window
+     * loads that document once it knows.
+     */
+    restore: { input: Schema.Struct({ frame: Schema.String, x: Scroll, y: Scroll }), output: Schema.Boolean },
     /**
      * Holds while the window presents a document: main takes the window full screen, and back when the window aborts
      * the call. It returns early when the presentation ends in main: Escape, or the window leaving full screen.

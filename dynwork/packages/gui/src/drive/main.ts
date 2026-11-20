@@ -71,6 +71,7 @@ export function setup(ctx: MainContext, accounts: DynWorkAccounts.Accounts, opti
     const present = DrivePresent.make({ window: (window) => ctx.windows.get(window) })
     const frames = ctx.provide(Frames, {
       watch: (input, caller) => watch.watch(caller.window, input.frame, caller.signal),
+      restore: (input, caller) => watch.restore(caller.window, input.frame, input),
       present: (_, caller) => present.present(caller.window, caller.signal),
     })
   }

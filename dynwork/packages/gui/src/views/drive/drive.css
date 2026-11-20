@@ -1337,7 +1337,8 @@
 
   &:has([data-slot="drive-frame"]),
   &:has([data-component="drive-pdf"]),
-  &:has([data-slot="drive-markdown"]) {
+  &:has([data-slot="drive-markdown"]),
+  &:has([data-slot="drive-loading"]) {
     display: flex;
     flex-direction: column;
   }
@@ -1435,11 +1436,37 @@
   line-height: 20px;
 }
 
+/* A page's frame, with the loading indicator over it until its first page has loaded. */
+[data-slot="drive-frame-box"] {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+
+  > [data-slot="drive-loading"] {
+    position: absolute;
+    inset: 0;
+  }
+}
+
 [data-slot="drive-frame"] {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
+}
+
+/* A document loading: the app's indicator in the middle of where the document will show, on its reading surface. */
+[data-slot="drive-loading"] {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  background: var(--v2-background-bg-base);
 }
 
 /* A Markdown document, drawn by the app's own renderer on the theme's reading surface. */

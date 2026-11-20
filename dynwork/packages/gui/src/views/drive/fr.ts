@@ -241,6 +241,7 @@ export default {
   "drive.panel.upload": "Envoyer vers le Drive",
   "drive.panel.upload.hint": "Envoyez un fichier créé par ce chat : il est enregistré au nom de la conversation",
   "drive.preview.failed": "L'aperçu n'a pas pu être chargé.",
+  "drive.preview.loading": "Chargement du document…",
   "drive.proposals.open": "En attente",
   "drive.proposals.unnamed": "Modification proposée",
   "drive.version.unnamed": "Sans description",
