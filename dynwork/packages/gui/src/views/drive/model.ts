@@ -1,4 +1,5 @@
 import { DriveCapabilities } from "../../drive/capabilities"
+import { DriveCells } from "../../drive/cells"
 import {
   isFailure,
   type Anchor,
@@ -227,13 +228,17 @@ export function revisionBy(
   )
 }
 
-/** A comment and its replies, by the node and the quote it points at. */
+/** A comment and its replies, by the node and the quote, or the cell range of a sheet, it points at. */
 export interface Thread {
   /** The first comment's id. */
   readonly id: string
   readonly node: string
   readonly quote: string | undefined
+  /** An A1 range of the sheet `node` is (0.84), in place of a quote. */
+  readonly cells?: string
   readonly open: boolean
+  /** When it was last reopened, by whom, and whether that was the user (0.84). */
+  readonly reopened?: { readonly at: number; readonly by?: string; readonly mine: boolean }
   readonly messages: readonly Message[]
 }
 
@@ -266,7 +271,11 @@ export function threadsOf(comments: readonly Comment[]): Thread[] {
         id: root.id,
         node: root.anchor.node,
         quote: root.anchor.find,
+        ...(root.anchor.cells === undefined ? {} : { cells: root.anchor.cells }),
         open: root.resolved === undefined,
+        ...(root.reopened === undefined
+          ? {}
+          : { reopened: { at: root.reopened, by: root.reopener, mine: root.reopenedMine === true } }),
         messages: comments
           .filter((comment) => comment.id === root.id || rootOf(comment).id === root.id)
           .toSorted((a, b) => a.created - b.created)
@@ -414,15 +423,49 @@ export function pickable(nodes: readonly Node[], query: string) {
 
 /**
  * How a document takes a comment, by its format and the instance's capabilities (D11): at a node, always, but a PDF has
- * no nodes and takes no comment, the core does not read it (D22); at a cell range, once `rangeComments` is on.
+ * no nodes and takes no comment, the core does not read it (D22); at a cell range of a spreadsheet (`xlsx`, `ods`),
+ * once `rangeComments` is on.
  */
 export function anchorsOf(doc: Pick<Document, "format" | "mime">, capabilities: DriveCapabilities.Capabilities) {
   return {
     node: !isPdf(doc),
     range:
-      doc.format === "xlsx" &&
-      DriveCapabilities.anchorable(capabilities, { kind: "range", sheet: 0, from: "A1", to: "A1" }),
+      (doc.format === "xlsx" || doc.format === "ods") &&
+      DriveCapabilities.anchorable(capabilities, { kind: "range", node: "sheet[]", cells: "A1" }),
   }
+}
+
+/**
+ * What an anchor points at, for its line: a sheet and a cell range of it; a quote; the sheet a node is (named even when
+ * the sheet is gone: the instance keeps the node of a range whose sheet it lost, and drops the range); the node's own
+ * text; a blank line; or a node the document has lost.
+ */
+export function pointsAt(anchor: Anchor, nodes: readonly Node[]) {
+  const sheet = DriveCells.sheetOf(anchor.node)
+  const node = nodes.find((item) => item.id === anchor.node)
+  if (anchor.kind === "range") return { kind: "range" as const, sheet: sheet ?? anchor.node, cells: anchor.cells }
+  if (anchor.find) return { kind: "quote" as const, text: anchor.find }
+  if (sheet !== undefined) return { kind: "sheet" as const, sheet, gone: node === undefined }
+  if (!node) return { kind: "gone" as const }
+  const text = nodeLabel(node, 120)
+  return text ? { kind: "quote" as const, text } : { kind: "blank" as const }
+}
+
+/** The sheets of a spreadsheet, by their nodes (`sheet[Sales]`), in order: where a cell range can be commented on. */
+export function sheetsOf(nodes: readonly Node[]) {
+  return nodes.flatMap((node) => {
+    const name = DriveCells.sheetOf(node.id)
+    return name === undefined ? [] : [{ node: node.id, name }]
+  })
+}
+
+/**
+ * What a cell range typed in the picker is: the range as the instance keeps it, or why it would refuse it. Nothing typed
+ * is neither.
+ */
+export function rangeOf(text: string) {
+  const typed = text.trim()
+  return typed ? DriveCells.parse(typed) : undefined
 }
 
 /** Whether a document shows its comments marked on it: an HTML page and Markdown, which DynWork draws itself. */

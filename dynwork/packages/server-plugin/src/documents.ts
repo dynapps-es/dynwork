@@ -547,7 +547,8 @@ export function rules(
  * to local files (the model had been writing the page to disk, serving it, and offering the file), and a page goes up
  * from one program, without the disk. What changes with the instance (0.84): who makes the conversation's folder and
  * imports an uploaded page (`mcpFolders`), how a page is changed (`rawHtmlByMcp`), that DynWork gives each write its
- * conversation (`contextByMcp`), and whether a person needs looking up before a share (`peopleByRest`).
+ * conversation (`contextByMcp`), whether a person needs looking up before a share (`peopleByRest`), and that a comment
+ * reopens (`reopenComments`) and points at cells of a sheet (`rangeComments`).
  */
 export function instructions(switches: Switches = {}) {
   const folder = switches.mcpFolders
@@ -598,6 +599,18 @@ export function instructions(switches: Switches = {}) {
         "unknown_context once more, unchanged: Dynwork registers the conversation again.",
       ]
     : []
+  // 0.84 comments: a resolved thread opens again, and a spreadsheet's comment can point at cells of a sheet.
+  const comments = [
+    ...(switches.reopenComments
+      ? ["documents_comment {action: reopen, comment_id} opens a resolved thread again when the user asks for it."]
+      : []),
+    ...(switches.rangeComments
+      ? [
+          "On a spreadsheet, documents_comment can point at cells: node is the sheet's node (sheet[<name>]) and cells an A1",
+          "range such as B2:D9 (top-left first), with no anchor quote.",
+        ]
+      : []),
+  ]
   // 0.83 names nobody by id, so the card can name a person only from a `documents_people` answer DynWork saw.
   const lookup = switches.peopleByRest
     ? []
@@ -618,6 +631,7 @@ export function instructions(switches: Switches = {}) {
     "Styles and scripts are kept in the page, but documents_read (model, outline) and documents_export (preview) show",
     "text only: never judge how a page looks from them.",
     ...context,
+    ...comments,
     "",
     "A file you upload to put inside another document (an image for a Word file) is not imported as a document.",
     "Before every documents_share the user allows or rejects it on a card in this conversation: call it without asking",

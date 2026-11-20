@@ -10,12 +10,13 @@ const on = (...keys: DriveCapabilities.Key[]) => ({
 })
 
 describe("the Drive capabilities", () => {
-  test("are the nine the plan names, PDF comments not among them (D22), and all off today", () => {
+  test("are the ten the plan names, PDF comments not among them (D22), and all off today", () => {
     expect(Object.keys(DriveCapabilities.none).toSorted()).toEqual(
       [
         "personActions",
         "conversationLabel",
         "rangeComments",
+        "reopenComments",
         "rawHtmlByMcp",
         "mcpFolders",
         "contextByMcp",
@@ -62,7 +63,7 @@ describe("the Drive capabilities", () => {
   })
 
   test("rangeComments: a cell range takes a comment only when on; a node always does", () => {
-    const range = { kind: "range" as const, sheet: 0, from: "A1", to: "B3" }
+    const range = { kind: "range" as const, node: "sheet[Sales]", cells: "A1:B3" }
     expect(DriveCapabilities.anchorable(DriveCapabilities.none, range)).toBe(false)
     expect(DriveCapabilities.anchorable(on("rangeComments"), range)).toBe(true)
     expect(DriveCapabilities.anchorable(on("peopleByRest"), range)).toBe(false)
@@ -127,8 +128,17 @@ describe("the Drive capabilities", () => {
     expect(DriveCapabilities.delivered({ version: "0.82.0" })).toEqual(DriveCapabilities.none)
   })
 
-  test("delivered: 0.84 turns on G02, G09 and G13 over REST and G04, G05 and G06 through the MCP, and nothing the later phases turn on", () => {
-    const rest = on("conversationLabel", "pushChanges", "peopleByRest", "rawHtmlByMcp", "mcpFolders", "contextByMcp")
+  test("delivered: 0.84 turns on G02, G09 and G13 over REST, G04, G05 and G06 through the MCP, G08 and G12 for comments, and nothing the later phases turn on", () => {
+    const rest = on(
+      "conversationLabel",
+      "pushChanges",
+      "peopleByRest",
+      "rawHtmlByMcp",
+      "mcpFolders",
+      "contextByMcp",
+      "rangeComments",
+      "reopenComments",
+    )
     expect(DriveCapabilities.delivered({ version: "0.84.0", documents: true })).toEqual(rest)
     // The Drive's block is 0.84's whatever version it says, and a version alone says it too.
     expect(DriveCapabilities.delivered({ version: "0.83.9", documents: true })).toEqual(rest)
@@ -141,11 +151,35 @@ describe("the Drive capabilities", () => {
     expect(DriveCapabilities.delivered({})).toBeUndefined()
     expect(DriveCapabilities.delivered({ version: "unknown" })).toBeUndefined()
     expect(DriveCapabilities.delivered({ people: true })).toEqual(
-      on("conversationLabel", "pushChanges", "peopleByRest", "rawHtmlByMcp", "mcpFolders", "contextByMcp"),
+      on(
+        "conversationLabel",
+        "pushChanges",
+        "peopleByRest",
+        "rawHtmlByMcp",
+        "mcpFolders",
+        "contextByMcp",
+        "rangeComments",
+        "reopenComments",
+      ),
     )
     expect(DriveCapabilities.delivered({ people: false })).toEqual(DriveCapabilities.none)
     // The version decides before the probe does.
     expect(DriveCapabilities.delivered({ version: "0.83.0", people: true })).toEqual(DriveCapabilities.none)
+  })
+
+  test("agent: the plugin gets the switches of the agent's rules, comments on ranges and reopening among them", () => {
+    expect(DriveCapabilities.agent(DriveCapabilities.none)).toEqual({
+      rawHtmlByMcp: false,
+      mcpFolders: false,
+      contextByMcp: false,
+      peopleByRest: false,
+      rangeComments: false,
+      reopenComments: false,
+    })
+    expect(DriveCapabilities.agent(on("rangeComments", "reopenComments", "personActions"))).toMatchObject({
+      rangeComments: true,
+      reopenComments: true,
+    })
   })
 
   test("writer: nothing while conversationLabel is off; then the conversation and who wrote in it", () => {

@@ -12,6 +12,7 @@ import {
   type Proposal,
   type Revision,
 } from "./contract"
+import { DriveCells } from "./cells"
 import { DriveMentions } from "./mentions"
 
 export interface Options {
@@ -26,8 +27,8 @@ export interface Options {
   people?: Record<string, string>
   /**
    * The core it answers as: `0.83` (the default), or `0.84`, which announces the Drive in its discovery, keeps the
-   * message of a document it creates, records each write's conversation and agent, and refuses a conversation it did
-   * not issue (`unknown-context`).
+   * message of a document it creates, records each write's conversation and agent, refuses a conversation it did not
+   * issue (`unknown-context`), reopens a resolved comment and takes a comment on a cell range of a sheet.
    */
   version?: "0.83" | "0.84"
 }
@@ -68,8 +69,9 @@ type Entry = {
 
 /**
  * An in-memory Drive that behaves as the instance (0.83, or 0.84 with `version`) does where DynWork can tell: a document created by upload
- * has an unnamed first revision, a comment anchors to a node of the outline only, an agent capped at `suggest` may
- * only propose, and a cell range is refused. For the conformance suite, the service's tests and the views' tests.
+ * has an unnamed first revision, a comment anchors to a node of the outline (and from 0.84 to a cell range of a sheet
+ * node), and an agent capped at `suggest` may only propose. For the conformance suite, the service's tests and the
+ * views' tests.
  */
 export function make(options: Options = {}): Fake {
   const user = options.user ?? "user-1"
@@ -145,12 +147,25 @@ export function make(options: Options = {}): Fake {
     if (!("document" in entry)) return entry
     return { owner: entry.document.owner, access: "own", grants: [...(grants.get(id) ?? [])], inherited: [] }
   }
-  const nodes = (entry: Entry) =>
-    new TextDecoder()
+  // A node per line that is not blank, `n1` first. A spreadsheet's lines are sheets and rows, as the core names them: a
+  // line without a tab is a sheet (`sheet[<line>]`), each line with tabs a row of the sheet above it.
+  const nodes = (entry: Entry) => {
+    const lines = new TextDecoder()
       .decode(entry.bytes)
       .split("\n")
       .filter((line) => line.trim())
-      .map((text, index) => ({ id: `n${index + 1}`, hash: hash(text), text }))
+    if (!spreadsheet(entry.document.format))
+      return lines.map((text, index) => ({ id: `n${index + 1}`, hash: hash(text), text }))
+    const sheet = { id: "", rows: 0 }
+    return lines.map((text) => {
+      if (text.includes("\t")) {
+        sheet.rows += 1
+        return { id: `${sheet.id}/row[${sheet.rows}]`, hash: hash(text), text }
+      }
+      Object.assign(sheet, { id: `sheet[${text.replace(/]/g, "\\]")}]`, rows: 0 })
+      return { id: sheet.id, hash: hash(text), text }
+    })
+  }
   const page = (entry: Entry, html: string, revision?: string) => {
     if (revision !== undefined && !entry.revisions.some((item) => item.id === revision))
       return fail("not-found", "No such revision.")
@@ -413,10 +428,18 @@ export function make(options: Options = {}): Fake {
     comment: method("comment", (id, input) => {
       const entry = found(id)
       if (!("document" in entry)) return entry
-      if (input.anchor.kind !== "node") return fail("unsupported", "This kind of comment is not available yet.")
+      // 0.83 anchors to a node only; 0.84 also to an A1 range of a sheet node (G08).
+      if (input.anchor.kind === "range" && !at84)
+        return fail("unsupported", "This kind of comment is not available yet.")
       const refused = unknown(input.contextId)
       if (refused) return refused
-      const anchor = { node: input.anchor.node, find: input.anchor.find }
+      const cells = input.anchor.kind === "range" ? DriveCells.parse(input.anchor.cells) : undefined
+      if (cells && "refused" in cells) return fail("invalid", "Governance did not accept it.")
+      if (cells && DriveCells.sheetOf(input.anchor.node) === undefined)
+        return fail("invalid", "Governance did not accept it.")
+      const anchor = cells
+        ? { node: input.anchor.node, cells: cells.cells }
+        : { node: input.anchor.node, find: input.anchor.kind === "node" ? input.anchor.find : undefined }
       const target = nodes(entry).find((node) => node.id === anchor.node)
       // The instance checks a quote against the node's own text, markers and all
       if (!target || (anchor.find !== undefined && !target.text.includes(anchor.find)))
@@ -470,6 +493,26 @@ export function make(options: Options = {}): Fake {
       const resolved = { ...comment, resolved: comment.resolved ?? now(), resolver: comment.resolver ?? user }
       entry.comments[index] = resolved
       return resolved
+    }),
+    // 0.84 clears the resolution and records who reopened it; an open comment comes back as it is. 0.83 has no route.
+    reopen: method("reopen", (id, target) => {
+      if (!at84) return fail("not-found", "No such route.")
+      const entry = found(id)
+      if (!("document" in entry)) return entry
+      const index = entry.comments.findIndex((comment) => comment.id === target)
+      const comment = entry.comments[index]
+      if (!comment) return fail("not-found", "No such comment.")
+      if (comment.resolved === undefined) return comment
+      const reopened = {
+        ...comment,
+        resolved: undefined,
+        resolver: undefined,
+        reopened: now(),
+        reopener: user,
+        reopenedMine: true,
+      }
+      entry.comments[index] = reopened
+      return reopened
     }),
     createContext: method("createContext", (name: string) => {
       if (!name.trim()) return fail("invalid", "A conversation needs a name.")
@@ -562,6 +605,9 @@ function stream(open: Set<{ queue: DriveMentions.Streamed[]; wake: () => void }>
 }
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex").slice(0, 8)
+
+// The formats the instance reads as sheets: a comment there may anchor to a cell range (0.84).
+const spreadsheet = (format: string) => format === "xlsx" || format === "ods"
 
 // The format the instance gives a file, from its type and then its name.
 function formatOf(name: string, mime: string) {

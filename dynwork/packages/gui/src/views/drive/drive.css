@@ -1833,6 +1833,24 @@
   gap: 2px;
 }
 
+/* A cell range of a sheet (0.84): the sheet, when there are several, the A1 field and why it is refused. */
+[data-slot="drive-range"] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--v2-border-border-muted);
+
+  [data-slot="drive-card-row"] {
+    flex-wrap: wrap;
+  }
+
+  [data-state="pressed"] {
+    background: var(--v2-overlay-simple-overlay-pressed);
+    color: var(--v2-text-text-base);
+  }
+}
+
 [data-slot="drive-pick"] {
   padding: 6px 8px;
   border: 0;

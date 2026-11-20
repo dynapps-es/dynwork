@@ -158,17 +158,13 @@ export const Proposal = Schema.Struct({
 export type Proposal = typeof Proposal.Type
 
 /**
- * What a comment points at. The instance anchors to a node and an optional quote inside it; a cell `range` has no node
- * yet (P10, 0.85) and is refused while `rangeComments` is off. A PDF takes no comment: the core does not read PDF (D22).
+ * What a comment points at. The instance anchors to a node and an optional quote inside it, or, on a spreadsheet, to a
+ * sheet node (`sheet[Sales]`) and an A1 range of it (`cells`, `B2:D9`, 0.84), refused while `rangeComments` is off. A
+ * PDF takes no comment: the core does not read PDF (D22).
  */
 export const Anchor = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("node"), node: Schema.String, find: Schema.optional(Schema.String) }),
-  Schema.Struct({
-    kind: Schema.Literal("range"),
-    sheet: Schema.Number,
-    from: Schema.String,
-    to: Schema.String,
-  }),
+  Schema.Struct({ kind: Schema.Literal("range"), node: Schema.String, cells: Schema.String }),
 ])
 export type Anchor = typeof Anchor.Type
 
@@ -190,9 +186,10 @@ export const Comment = Schema.Struct({
   created: Schema.Number,
   resolved: Schema.optional(Schema.Number),
   resolver: Schema.optional(Schema.String),
-  /** When and by whom it was last reopened (0.84). */
+  /** When and by whom it was last reopened (0.84), and whether that was the user. */
   reopened: Schema.optional(Schema.Number),
   reopener: Schema.optional(Schema.String),
+  reopenedMine: Schema.optional(Schema.Boolean),
   /** The agent that wrote it (`via_agent`, 0.84); absent for a person's own comment. */
   via: Schema.optional(Schema.String),
   /** The conversation it was written in, its title (to its owner only) and the OAuth client, from 0.84. */
@@ -460,8 +457,13 @@ export const Drive = Ipc.define({
     },
     /** Takes one grant of a document away, by its id; answers who has access then. `person` as for `share`. */
     unshare: { input: Schema.Struct({ ...OnDocument, grant: Schema.String }), output: Outcome(Access) },
-    /** There is no reopen: the instance has no route for it (G12). */
+    /** Resolves a thread, by its first comment. */
     resolve: { input: Schema.Struct({ ...OnDocument, comment: Schema.String }), output: Outcome(Comment) },
+    /**
+     * Opens a resolved thread again, with the access resolving takes (G12, 0.84). `unsupported` without a call until the
+     * instance has it (`reopenComments`).
+     */
+    reopen: { input: Schema.Struct({ ...OnDocument, comment: Schema.String }), output: Outcome(Comment) },
     /**
      * Records in the index what a conversation did to a document, for what the Drive does not record itself: the
      * agent's MCP writes (phase 07) and a document attached to a chat.

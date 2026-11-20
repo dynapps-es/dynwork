@@ -726,6 +726,105 @@ describe("what each core answers (0.83 and 0.84)", () => {
   })
 })
 
+describe("comments on 0.84: reopening, cell ranges and the mention to oneself (G08, G10, G12)", () => {
+  const me = "1ecce4e3-bc87-441d-b374-ea29bab88da8"
+  const sheet = (name: string) =>
+    run(
+      SpDrive.importFile(fake.url, state.jwt, {
+        name,
+        bytes: text("xlsx"),
+        mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }),
+    ).then((created) => created.document)
+
+  test("a resolved comment reopens: the resolution goes and who reopened it and when are recorded", async () => {
+    fake.state.drive.version = "0.84"
+    const created = await upload("a.html", html)
+    const root = await run(
+      SpDrive.createComment(fake.url, state.jwt, created.id, { body: "x", anchor: { node: "n1" } }),
+    )
+    // An open comment comes back as it is
+    const open = await run(SpDrive.reopenComment(fake.url, state.jwt, created.id, root.id))
+    expect([open.id, open.resolved_at ?? undefined, open.reopened_at ?? undefined]).toEqual([root.id, undefined, undefined])
+    await run(SpDrive.resolveComment(fake.url, state.jwt, created.id, root.id))
+    const reopened = await run(SpDrive.reopenComment(fake.url, state.jwt, created.id, root.id))
+    expect(reopened).toMatchObject({ id: root.id, resolved_at: null, resolved_by: null, reopened_by: me })
+    expect(reopened.reopened_at).toBeTruthy()
+    expect(sent(`/api/v1/documents/${created.id}/comments/${root.id}/reopen`, "POST")).toHaveLength(2)
+    expect((await run(SpDrive.comments(fake.url, state.jwt, created.id)))[0]?.resolved_at).toBeNull()
+    const missing = await fail(SpDrive.reopenComment(fake.url, state.jwt, created.id, crypto.randomUUID()))
+    expect(missing).toBeInstanceOf(SpClient.NotFound)
+  })
+
+  test("0.83 has no route to reopen: NotFound", async () => {
+    const created = await upload("a.html", html)
+    const root = await run(
+      SpDrive.createComment(fake.url, state.jwt, created.id, { body: "x", anchor: { node: "n1" } }),
+    )
+    await run(SpDrive.resolveComment(fake.url, state.jwt, created.id, root.id))
+    expect(await fail(SpDrive.reopenComment(fake.url, state.jwt, created.id, root.id))).toBeInstanceOf(
+      SpClient.NotFound,
+    )
+  })
+
+  test("a comment on a sheet node takes an A1 range, sent as written and answered upper-case", async () => {
+    fake.state.drive.version = "0.84"
+    const created = await sheet("sales.xlsx")
+    const nodes = await run(SpDrive.outline(fake.url, state.jwt, created.id, "text"))
+    expect(nodes.nodes.map((node) => [node.id, node.text])).toEqual([
+      ["sheet[Sales]", "Sales"],
+      ["sheet[Sales]/row[1]", "Month\tTotal"],
+    ])
+    const made = await run(
+      SpDrive.createComment(fake.url, state.jwt, created.id, {
+        body: "Check these",
+        anchor: { node: "sheet[Sales]", cells: "b2:d9" },
+      }),
+    )
+    expect(made.anchor).toMatchObject({ node: "sheet[Sales]", cells: "B2:D9" })
+    expect(JSON.parse(sent(`/api/v1/documents/${created.id}/comments`, "POST")[0]?.body ?? "{}").anchor).toEqual({
+      node: "sheet[Sales]",
+      cells: "b2:d9",
+    })
+    // The instance refuses a range on a row, beside a quote, or one that is not A1
+    for (const anchor of [
+      { node: "sheet[Sales]/row[1]", cells: "B2" },
+      { node: "sheet[Sales]", cells: "B2", find: "x" },
+      { node: "sheet[Sales]", cells: "Sales!B2" },
+    ])
+      expect(await fail(SpDrive.createComment(fake.url, state.jwt, created.id, { body: "?", anchor }))).toMatchObject({
+        _tag: "Protocol",
+        status: 400,
+      })
+  })
+
+  test("a mention of oneself reaches the stream only at attention agent", async () => {
+    fake.state.drive.version = "0.84"
+    const created = await upload("a.html", html)
+    const abort = new AbortController()
+    const events = await SpDrive.stream(fake.url, state.jwt, abort.signal)
+    const body = `@[Ana](user:${me}) look`
+    for (const attention of ["human", "silent", "agent"] as const)
+      await run(
+        SpDrive.createComment(fake.url, state.jwt, created.id, {
+          body,
+          anchor: { node: "n1" },
+          mention: { userId: me, attention },
+        }),
+      )
+    const agent = (await run(SpDrive.comments(fake.url, state.jwt, created.id)))[2]
+    expect((await events.next()).value).toEqual({
+      kind: "mentioned",
+      document: created.id,
+      comment: agent?.id,
+      user: me,
+      author: me,
+    })
+    abort.abort()
+    expect((await events.next()).done).toBe(true)
+  })
+})
+
 describe("people through the documents MCP server (0.83)", () => {
   const luis = { user_id: "e51c808f-4246", name: "Luis Martín", email: "luis@dynapps.es" }
 

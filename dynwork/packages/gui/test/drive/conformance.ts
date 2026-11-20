@@ -334,16 +334,21 @@ export function conformance(name: string, make: () => Subject) {
       )
     })
 
-    test("a comment on a cell range is unsupported", async () => {
+    test("0.83 takes no comment on a cell range and has no reopen: nothing is written", async () => {
       const { backend } = make()
       const created = await ok(backend.upload({ name: "sheet.md", bytes: text("# Hola"), mime: "text/markdown" }))
-      expectFailure(
-        await backend.comment(created.document.id, {
-          body: "?",
-          anchor: { kind: "range", sheet: 0, from: "A1", to: "B2" },
-        }),
-        "unsupported",
-      )
+      // The fake refuses the kind it does not know; the instance, a sheet node the document does not have. Either way
+      // the service never sends one to 0.83 (`rangeComments`).
+      const range = await backend.comment(created.document.id, {
+        body: "?",
+        anchor: { kind: "range", node: "sheet[Sales]", cells: "A1:B2" },
+      })
+      expect(isFailure(range)).toBe(true)
+      expect(await ok(backend.comments(created.document.id))).toEqual([])
+      const node = await ok(backend.comment(created.document.id, { body: "x", anchor: { kind: "node", node: "n1" } }))
+      await ok(backend.resolve(created.document.id, node.id))
+      expectFailure(await backend.reopen(created.document.id, node.id), "not-found")
+      expect((await ok(backend.comments(created.document.id)))[0]?.resolved).toBeNumber()
     })
 
     test("a conversation is registered under its title and renamed; one the instance does not know is not-found", async () => {

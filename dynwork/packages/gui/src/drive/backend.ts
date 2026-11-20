@@ -99,6 +99,8 @@ export interface Backend {
     input: { body: string; parent: string; contextId?: string; agent?: boolean },
   ): Promise<Comment | Failure>
   resolve(id: string, comment: string): Promise<Comment | Failure>
+  /** Opens a resolved comment again (0.84); an open one comes back as it is. */
+  reopen(id: string, comment: string): Promise<Comment | Failure>
   /**
    * Registers a conversation under `name`, its title, and answers the id its writes carry as `x-context-id` (D20): the
    * instance's own, which it shows with the title and, from 0.84, is the only kind it accepts.
@@ -202,6 +204,7 @@ export function remote(options: Remote): Backend {
       conversation: wire.context_name,
       client: wire.client_id,
     }),
+    ...(wire.reopened_at && wire.reopened_by && mine(wire.reopened_by) ? { reopenedMine: true } : {}),
   })
   const page = (wire: SpDrive.Page): Page => ({
     html: wire.html,
@@ -373,9 +376,11 @@ export function remote(options: Remote): Backend {
             : { kind: "proposed", proposal: proposal(edited.proposal), revision: revision(edited.revision) },
       ),
     comment: async (id, input) => {
-      // 0.83 anchors to a node only; the other kinds wait for P10.
-      if (input.anchor.kind !== "node") return fail("unsupported", "This kind of comment is not available yet.")
-      const anchor = { node: input.anchor.node, find: input.anchor.find }
+      // A node and a quote in it, or a sheet node and a cell range of it (0.84).
+      const anchor =
+        input.anchor.kind === "range"
+          ? { node: input.anchor.node, cells: input.anchor.cells }
+          : { node: input.anchor.node, find: input.anchor.find }
       const mention = mentionOf(options.user, input.agent)
       if (isFailure(mention)) return mention
       return call(
@@ -398,6 +403,7 @@ export function remote(options: Remote): Backend {
       )
     },
     resolve: (id, target) => call((jwt) => SpDrive.resolveComment(url, jwt, id, target), comment),
+    reopen: (id, target) => call((jwt) => SpDrive.reopenComment(url, jwt, id, target), comment),
     createContext: (name) =>
       call(
         (jwt) => SpDrive.createContext(url, jwt, name),

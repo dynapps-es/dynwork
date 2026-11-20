@@ -20,6 +20,12 @@ import type { DriveIpc } from "./ipc"
 // - the stream keeps no history.
 // So only a mention of the user by the user themself is attended. A mention someone else made, even with attention
 // `agent`, would run their words as the user's agent, and is left to Governance.
+//
+// 0.84 makes this the official hand-off (G10): a mention of oneself at attention `agent` is delivered on the stream and
+// as an inbox item at `agent`; at `human`, `silent` or with none it is not delivered at all. The event still carries no
+// attention. DynWork writes `@Agent` at `agent` only, so the same two sources go on: the write DynWork made, and the
+// stream for one made elsewhere (the web). Both name the comment, and a comment is attended once (`attend`), so the
+// conversation wakes once whichever arrives first. The inbox is not read: the stream says the same thing live.
 
 /** Text that asks for the agent: `@Agent` or `@Agente`, as a word of its own. */
 const asking = /(^|\s)@Agente?(?![\p{L}\p{N}_])/iu
@@ -233,9 +239,12 @@ const shown = 12
  * changes the document.
  */
 export function prompt(input: { document: Pick<Document, "id" | "name">; asked: Comment; thread: readonly Comment[] }) {
-  const where = input.asked.anchor
-    ? `It is pinned to node ${input.asked.anchor.node}${input.asked.anchor.find ? `, on the words “${input.asked.anchor.find}”` : ""}.`
-    : "It is not pinned to a node."
+  const anchor = input.asked.anchor
+  const where = !anchor
+    ? "It is not pinned to a node."
+    : anchor.cells
+      ? `It is pinned to cells ${anchor.cells} of sheet node ${anchor.node}.`
+      : `It is pinned to node ${anchor.node}${anchor.find ? `, on the words “${anchor.find}”` : ""}.`
   const lines = input.thread
     .slice(-shown)
     .map(

@@ -10,7 +10,10 @@ import {
   nodeLabel,
   pickable,
   plain,
+  pointsAt,
   quoteIn,
+  rangeOf,
+  sheetsOf,
   threadsOf,
   type Node,
 } from "../../../src/views/drive/model"
@@ -179,6 +182,23 @@ describe("the quote of a selection", () => {
     expect(quoteIn(node("n1", "Resumen del redondeo"), "  Resumen   del  redondeo ")).toBe("Resumen del redondeo")
   })
 
+  test("a thread on a cell range keeps its range; a reopened one says when, by whom and whether it was the user", () => {
+    const [range, reopened] = threadsOf([
+      comment("r", 2, { anchor: { node: "sheet[Sales]", cells: "B2:D9" } }),
+      comment("o", 1, { reopened: 7, reopener: "u2" }),
+    ])
+    expect(range).toMatchObject({ node: "sheet[Sales]", cells: "B2:D9", quote: undefined, open: true })
+    expect(range?.reopened).toBeUndefined()
+    expect(reopened).toMatchObject({ open: true, reopened: { at: 7, by: "u2", mine: false } })
+    expect(reopened?.cells).toBeUndefined()
+    const [mine] = threadsOf([comment("m", 1, { reopened: 8, reopener: "u1", reopenedMine: true })])
+    expect(mine?.reopened).toEqual({ at: 8, by: "u1", mine: true })
+    // A range whose sheet went is detached by the instance: the sheet's node and no range
+    const [detached] = threadsOf([comment("d", 1, { anchor: { node: "sheet[Old]" } })])
+    expect(detached).toMatchObject({ node: "sheet[Old]", quote: undefined })
+    expect(detached?.cells).toBeUndefined()
+  })
+
   test("one that crosses the node's Markdown anchors to the node alone: the instance would refuse the quote", () => {
     expect(quoteIn(node("n1", "Resumen del **redondeo** de IVA"), "Resumen del redondeo")).toBeUndefined()
     expect(quoteIn(node("n1", "Hola"), "   ")).toBeUndefined()
@@ -199,10 +219,52 @@ describe("how a document takes a comment (D11)", () => {
       expect(anchorsOf({ format, mime: "" }, off)).toEqual({ node: true, range: false })
   })
 
-  test("a cell range of a spreadsheet only once rangeComments is on", () => {
+  test("a cell range of a spreadsheet (xlsx, ods) only once rangeComments is on", () => {
     expect(anchorsOf({ format: "xlsx", mime: "" }, off).range).toBe(false)
+    expect(anchorsOf({ format: "ods", mime: "" }, off).range).toBe(false)
     expect(anchorsOf({ format: "xlsx", mime: "" }, on)).toMatchObject({ node: true, range: true })
+    expect(anchorsOf({ format: "ods", mime: "" }, on)).toMatchObject({ node: true, range: true })
     expect(anchorsOf({ format: "docx", mime: "" }, on).range).toBe(false)
+  })
+
+  test("a thread points at 'Sales · B2:D9'; one whose sheet is gone names the sheet, as the instance detaches it", () => {
+    const nodes = [node("sheet[Sales]", "Sales"), node("n1", "# Informe"), node("n2", "")]
+    expect(pointsAt({ kind: "range", node: "sheet[Sales]", cells: "B2:D9" }, nodes)).toEqual({
+      kind: "range",
+      sheet: "Sales",
+      cells: "B2:D9",
+    })
+    // Detached: the instance keeps the sheet's node and drops the range
+    expect(pointsAt({ kind: "node", node: "sheet[Sales]" }, nodes)).toEqual({
+      kind: "sheet",
+      sheet: "Sales",
+      gone: false,
+    })
+    expect(pointsAt({ kind: "node", node: "sheet[Old]" }, nodes)).toEqual({ kind: "sheet", sheet: "Old", gone: true })
+    expect(pointsAt({ kind: "node", node: "n1", find: "Inf" }, nodes)).toEqual({ kind: "quote", text: "Inf" })
+    expect(pointsAt({ kind: "node", node: "n1" }, nodes)).toEqual({ kind: "quote", text: "Informe" })
+    expect(pointsAt({ kind: "node", node: "n2" }, nodes)).toEqual({ kind: "blank" })
+    expect(pointsAt({ kind: "node", node: "n9" }, nodes)).toEqual({ kind: "gone" })
+  })
+
+  test("the picker's sheets are the sheet nodes, in order; its field reads a range as the instance does", () => {
+    const nodes = [
+      node("sheet[Sales]", "Sales"),
+      node("sheet[Sales]/row[1]", "Month\tTotal"),
+      node("sheet[Q3 \\] draft]", "Q3 ] draft"),
+      node("n1", "Not a sheet"),
+    ]
+    expect(sheetsOf(nodes)).toEqual([
+      { node: "sheet[Sales]", name: "Sales" },
+      { node: "sheet[Q3 \\] draft]", name: "Q3 ] draft" },
+    ])
+    expect(rangeOf("")).toBeUndefined()
+    expect(rangeOf("   ")).toBeUndefined()
+    expect(rangeOf(" b2:d9 ")).toEqual({ cells: "B2:D9" })
+    expect(rangeOf("D9:B2")).toEqual({ refused: "reversed" })
+    expect(rangeOf("XFE1")).toEqual({ refused: "column" })
+    expect(rangeOf("A1048577")).toEqual({ refused: "row" })
+    expect(rangeOf("Sales!B2")).toEqual({ refused: "malformed" })
   })
 
   test("a PDF takes no comment, whatever the instance gives (D22)", () => {
@@ -307,9 +369,32 @@ describe("comments in the store", () => {
     expect(store.state.doc).toMatchObject({ thread: first.id, filter: "resolved" })
   })
 
-  test("there is no reopen: the store does not offer one (G12)", async () => {
-    const { store } = await open()
-    expect(Object.keys(store).filter((name) => /reopen|unresolve/i.test(name))).toEqual([])
+  test("0.83: reopening is unsupported and the thread stays resolved (G12)", async () => {
+    const { store, id, fake } = await open()
+    const first = ok(await store.comment(id, { kind: "node", node: "n1" }, "Título claro"))
+    ok(await store.resolve(id, first.id))
+    expect(code(await store.reopen(id, first.id))).toBe("unsupported")
+    expect(fake.calls.reopen).toBeUndefined()
+    expect(store.threadsOf(id)[0]?.open).toBe(false)
+  })
+
+  test("0.84: a resolved thread reopens, moves to Open quietly and says the user reopened it (G12)", async () => {
+    const view = await stand({ version: "0.84" })
+    const id = ok(await view.client.upload(file("notes.md", notes, "text/markdown"))).document.id
+    await view.store.openDoc(id)
+    expect(view.store.remote()?.capabilities.reopenComments).toBe(true)
+    const first = ok(await view.store.comment(id, { kind: "node", node: "n1" }, "Título claro"))
+    ok(await view.store.resolve(id, first.id))
+    view.store.focusThread(first.id)
+    expect(view.store.state.doc).toMatchObject({ thread: first.id, filter: "resolved" })
+    ok(await view.store.reopen(id, first.id))
+    const [thread] = view.store.threadsOf(id)
+    expect(thread).toMatchObject({ id: first.id, open: true, reopened: { by: "user-david", mine: true } })
+    expect(view.store.state.doc).toMatchObject({ thread: first.id, filter: "open", quiet: true })
+    expect(drawerAsks(view.store.state.doc).some(Boolean)).toBe(false)
+    // Its mark comes back: an HTML page and Markdown mark the open threads only
+    expect(view.store.threadsOf(id).filter((item) => item.open)).toHaveLength(1)
+    expect(code(await view.store.reopen(id, "missing"))).toBe("not-found")
   })
 
   test("a quote the node does not hold is a conflict, and the window reads the nodes again", async () => {
@@ -330,7 +415,7 @@ describe("comments in the store", () => {
   })
 
   test("a cell range is refused while rangeComments is off, and reaches the Drive when on", async () => {
-    const range = { kind: "range" as const, sheet: 0, from: "A1", to: "B2" }
+    const range = { kind: "range" as const, node: "sheet[Sales]", cells: "A1:B2" }
     const reached: string[] = []
     const watch = (backend: Parameters<NonNullable<NonNullable<Parameters<typeof setup>[0]>["backend"]>>[0]) => ({
       ...backend,

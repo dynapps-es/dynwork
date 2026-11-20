@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import type { IpcImpl, Persisted } from "@opencode/plugin/gui/main"
 import { fail, type Backend } from "./backend"
 import { DriveCapabilities } from "./capabilities"
+import { DriveCells } from "./cells"
 import { isFailure, Link, Mention, Person, type Conversation, type Drive, type Failure, type State } from "./contract"
 import { DriveMentions } from "./mentions"
 
@@ -493,11 +494,15 @@ export function make<A extends Account>(options: Options<A>) {
       on(async (backend, account) => {
         if (!DriveCapabilities.anchorable(capabilities(), input.anchor))
           return fail("unsupported", "This kind of comment is not available yet.")
+        // A cell range goes as the instance keeps it (`b2:d9` is `B2:D9`); one it would refuse does not go.
+        const cells = input.anchor.kind === "range" ? DriveCells.parse(input.anchor.cells) : undefined
+        if (cells && "refused" in cells) return fail("invalid", "That is not a cell range such as B2 or B2:D9.")
+        const anchor = cells ? { ...input.anchor, cells: cells.cells } : input.anchor
         const said = say(account, input.body)
         const created = await attributed(backend, account, input.conversation, (signed) =>
           backend.comment(input.id, {
             body: said.body,
-            anchor: input.anchor,
+            anchor,
             contextId: signed.contextId,
             ...(said.agent ? { agent: true } : {}),
           }),
@@ -520,6 +525,12 @@ export function make<A extends Account>(options: Options<A>) {
         return created
       }),
     resolve: (input) => on((backend) => backend.resolve(input.id, input.comment)),
+    reopen: (input) =>
+      on(async (backend) =>
+        capabilities().reopenComments
+          ? backend.reopen(input.id, input.comment)
+          : fail("unsupported", "Governance cannot reopen a comment yet."),
+      ),
     people: (input) =>
       on(async (backend) =>
         capabilities().peopleByRest

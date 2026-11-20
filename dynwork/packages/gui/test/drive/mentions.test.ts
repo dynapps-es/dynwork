@@ -164,6 +164,19 @@ describe("waking the conversation", () => {
     ])
   })
 
+  test("a comment on a cell range says the sheet node and the cells it points at (G08)", () => {
+    const asked = {
+      id: "c1",
+      anchor: { node: "sheet[Sales]", cells: "B2:D9" },
+      author: ana.userId,
+      mine: true,
+      body: "@Agent sum these",
+      created: 1,
+    }
+    const text = DriveMentions.prompt({ document: { id: "d1", name: "sales.xlsx" }, asked, thread: [asked] })
+    expect(text).toContain("It is pinned to cells B2:D9 of sheet node sheet[Sales].")
+  })
+
   test("a reply in a thread brings the whole thread", async () => {
     const subject = stand()
     const id = await subject.document()
@@ -367,6 +380,38 @@ describe("following the stream", () => {
     )
     await until(() => subject.woken.length === 1)
     expect(subject.woken[0]).toMatchObject({ session: chat.id, comment: created.id })
+    life.abort()
+  })
+
+  test("on a 0.84 instance, @Agent written in DynWork comes by the write and by the stream, and wakes once (G10)", async () => {
+    const fake = DriveFake.make({ user: ana.userId, version: "0.84" })
+    // What the stream hands over, counted on the way.
+    const streamed: string[] = []
+    const stream = fake.stream
+    fake.stream = async (signal) => {
+      const events = await stream(signal)
+      if (!(Symbol.asyncIterator in events)) return events
+      return (async function* () {
+        for await (const event of events) {
+          if (event.kind === "mentioned") streamed.push(event.comment)
+          yield event
+        }
+      })()
+    }
+    const subject = stand({ backends: { [ana.id]: fake } })
+    const id = await subject.document()
+    const life = new AbortController()
+    void subject.mentions.follow(life.signal, quick)
+    await until(() => (fake.calls.stream ?? 0) === 1)
+    const created = await subject.ask(id)
+    await until(() => streamed.length === 1 && subject.woken.length === 1)
+    await flush()
+    expect(streamed).toEqual([created.id])
+    expect(subject.woken).toHaveLength(1)
+    expect(subject.woken[0]).toMatchObject({ session: chat.id, comment: created.id })
+    expect(subject.state().mentions.map((mention) => [mention.comment, mention.outcome])).toEqual([
+      [created.id, "woken"],
+    ])
     life.abort()
   })
 
