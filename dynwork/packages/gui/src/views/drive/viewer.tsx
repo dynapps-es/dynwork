@@ -10,6 +10,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  Suspense,
   Switch,
   untrack,
   type Accessor,
@@ -276,8 +277,15 @@ export function Viewer(props: {
     revision: input.revision,
     answer: await load(input.client, input, input.revision),
   }))
-  // While another document or version is read, the one read before is not shown under its name: the view loads.
-  const shown = () => answerFor(read(), props.doc.id, props.revision)
+  // While another document or version is read, the one read before is not shown under its name: the view loads. The
+  // resource is read only once it has an answer (`latest` keeps the last one while another loads): reading it before
+  // suspends the nearest Suspense, which beside a chat is the chat's own, and the whole conversation goes blank.
+  const shown = () =>
+    answerFor(
+      read.state === "ready" || read.state === "refreshing" ? read.latest : undefined,
+      props.doc.id,
+      props.revision,
+    )
   const failed = () => {
     const answer = shown()
     return answer && isFailure(answer) ? answer : undefined
@@ -348,7 +356,14 @@ export function Viewer(props: {
             <MarkdownDoc doc={props.doc.id} text={found().text} onOutline={onOutline()} onPlaced={setPlaced} />
           )}
         </Match>
-        <Match when={!isServer && pdf()}>{(found) => <PdfViewer doc={props.doc} bytes={found().bytes} />}</Match>
+        <Match when={!isServer && pdf()}>
+          {(found) => (
+            // pdf.js loads the first time a PDF opens: that wait stays in the document's area.
+            <Suspense fallback={<DocLoading />}>
+              <PdfViewer doc={props.doc} bytes={found().bytes} />
+            </Suspense>
+          )}
+        </Match>
       </Switch>
       <Show when={bubbles()}>
         <CommentBubbles doc={props.doc} placed={open()} onThread={(thread) => props.onMark?.(thread)} />
