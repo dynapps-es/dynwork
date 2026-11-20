@@ -29,6 +29,8 @@ export function make(endpoints: ServerEndpoints) {
       readonly catalog?: Catalog
       /** The plugin bundle files the plugin projects, fetched by main; the plugin checks them against the manifest. */
       readonly files?: ReadonlyArray<DynWorkSync.BundleFile>
+      /** What the account's Drive delivers that changes the agent's `documents` rules and calls; absent, 0.83's. */
+      readonly documents?: DynWorkSync.Documents
     }) =>
       client.apply({
         instance: instance(input.account),
@@ -37,6 +39,7 @@ export function make(endpoints: ServerEndpoints) {
         expiresAt: input.expiresAt,
         ...(input.profile ? { gateway: gateway(input.account.label, input.profile, input.catalog) } : {}),
         ...(input.files ? { files: input.files } : {}),
+        ...(input.documents ? { documents: input.documents } : {}),
       }),
     /** Pushes a renewed JWT; false when the service holds another instance. */
     token: (input: { readonly account: Account; readonly jwt: string; readonly expiresAt: number }) =>

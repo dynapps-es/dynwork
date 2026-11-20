@@ -127,8 +127,8 @@ describe("the Drive capabilities", () => {
     expect(DriveCapabilities.delivered({ version: "0.82.0" })).toEqual(DriveCapabilities.none)
   })
 
-  test("delivered: 0.84 turns on the REST side of G02, G09 and G13, and nothing the later phases turn on", () => {
-    const rest = on("conversationLabel", "pushChanges", "peopleByRest")
+  test("delivered: 0.84 turns on G02, G09 and G13 over REST and G04, G05 and G06 through the MCP, and nothing the later phases turn on", () => {
+    const rest = on("conversationLabel", "pushChanges", "peopleByRest", "rawHtmlByMcp", "mcpFolders", "contextByMcp")
     expect(DriveCapabilities.delivered({ version: "0.84.0", documents: true })).toEqual(rest)
     // The Drive's block is 0.84's whatever version it says, and a version alone says it too.
     expect(DriveCapabilities.delivered({ version: "0.83.9", documents: true })).toEqual(rest)
@@ -140,7 +140,9 @@ describe("the Drive capabilities", () => {
   test("delivered: a discovery that tells neither asks for the probe, which then decides", () => {
     expect(DriveCapabilities.delivered({})).toBeUndefined()
     expect(DriveCapabilities.delivered({ version: "unknown" })).toBeUndefined()
-    expect(DriveCapabilities.delivered({ people: true })).toEqual(on("conversationLabel", "pushChanges", "peopleByRest"))
+    expect(DriveCapabilities.delivered({ people: true })).toEqual(
+      on("conversationLabel", "pushChanges", "peopleByRest", "rawHtmlByMcp", "mcpFolders", "contextByMcp"),
+    )
     expect(DriveCapabilities.delivered({ people: false })).toEqual(DriveCapabilities.none)
     // The version decides before the probe does.
     expect(DriveCapabilities.delivered({ version: "0.83.0", people: true })).toEqual(DriveCapabilities.none)

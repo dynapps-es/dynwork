@@ -79,8 +79,8 @@ agent. So the service says the rest:
 - 0.84 records the conversation itself (`conversationLabel`): a write that carries the conversation's `x-context-id`
   goes without the message, and the instance answers each revision's and comment's `context_id`, `agent_name`
   (`via_agent` on a comment), `client_id` and, to the conversation's owner only, `context_name`. A write without the
-  context (its registration failed, or the agent's through the MCP until `contextByMcp`) keeps "`<conversation>` by
-  DynWork". The service marks what is DynWork's own (`ours`: a context it registered for the account, or a revision
+  context (its registration failed, or the agent's through the MCP while `contextByMcp` is off) keeps "`<conversation>`
+  by DynWork". The service marks what is DynWork's own (`ours`: a context it registered for the account, or a revision
   signed "… by DynWork") and fills the title it knows. Versions show "`<conversation>` · DynWork" (or the other agent),
   the agent's name where there is no title, and "DynWork" where the instance says nothing; a comment of the user's own
   from a conversation shows "`<conversation>` · DynWork" in place of "You" (`DriveCapabilities.writer`,
@@ -111,8 +111,8 @@ OpenCode service                                       main process
                                            └ touch ──► DriveAgent.touched ─► index, import of a page
 ```
 
-- **Seeing the calls.** The plugin hooks `execute.before` and `execute.after` for the server's five writes (`create`,
-  `edit`, `upload`, `update`, `copy`). Calls a Code Mode program makes pass the same hooks, so `execute` wrapping them
+- **Seeing the calls.** The plugin hooks `execute.before` and `execute.after` for the server's writes (`create`,
+  `edit`, `upload`, `update`, `copy`, and on 0.84 `import` and `folder`). Calls a Code Mode program makes pass the same hooks, so `execute` wrapping them
   changes nothing. It publishes `ask` (before a `create` or `edit`) and `touch` (after any write) on the plugin's RPC
   `dynwork.documents`; main follows them like it follows the scheduled-task tools'.
 - **The folder.** Before a `documents_create` that names no `folder_id`, main answers with the conversation's folder,
@@ -121,8 +121,18 @@ OpenCode service                                       main process
   (`DriveIpc.Saved.folders`), makes it again if the user deleted it, and tells apart two conversations with the same
   title by adding the end of the session id. A folder the agent chose stays. Calls run together make the folders once.
 - **The signature.** The same answer carries the revision message: "`<conversation>` by DynWork", after the agent's own
-  message when it wrote one (D2). The MCP calls carry no `x-context-id` (one header per server, not per call), so the
-  index is how DynWork knows which conversation wrote what (G06).
+  message when it wrote one (D2). The MCP connection is one per instance, with fixed headers, shared by every
+  conversation, so it carries no `x-context-id` of a conversation; before 0.84 the index is how DynWork knows which
+  conversation wrote what (G06).
+- **The conversation in each call (0.84, `contextByMcp`).** The writes that take a `context_id` (`create`, `edit`,
+  `import`, `copy`, a `comment` that writes, a `proposals` accept or reject) are asked about, and main answers with the
+  context it registered for the call's own session (`DriveIpc` `author`, registered on the way like for its own writes,
+  D20). The session is the conversation whatever window or tab shows it, so a conversation open in two tabs sends its
+  one id, and another conversation's never. The plugin drops any `context_id` the agent wrote (it may have copied one
+  from a revision it read) and puts only main's; main not answering, or a registration that failed, sends none, and
+  the message names the conversation instead. A write the instance refuses as `unknown_context` makes the plugin
+  publish `stale {session, context}`; main forgets that context when it is still the conversation's, and the next
+  write registers the conversation again. The index stays as the cache and the fallback.
 - **The index and the tab.** Each completed write enters the conversation's index (`created` for `create` and `copy`,
   `proposed` when the answer has a `proposal_id` or the call asked to propose, `edited` otherwise). The window opens the
   document as a tab of the chat's side panel, once per document and chat, only for what arrives after the window first
@@ -136,18 +146,29 @@ OpenCode service                                       main process
   and artifacts are made with the `documents` tools, and a local file only when the user asks for one (code and the
   project's files stay local). A page goes up from one Code Mode call (encoded there, `documents_upload`), never through
   the disk, a local server or a browser tab. `documents_read` and `documents_export` show text, not styles: the agent
-  must not judge a page's look from them. `DynWorkDocuments.instructions(switches)` builds the text from `rawHtmlByMcp`
-  and `mcpFolders`; the capabilities live in main and do not reach the plugin yet, so the managed block is the 0.83 text
-  (both off) until a way to send them is decided. In 0.83 a changed page is a new document next to the old one, and the
-  rule has the agent say so in a line.
-- **0.84, prepared and off.** `mcpFolders`: the agent calls `documents_import` itself with the blob it uploaded, and
-  the plugin asks main about it (`import` verb) so the call goes with the conversation's folder, made by DynWork like
-  for a creation (`documents_import` has no `message`: only the folder is added). `touched` files the result as
-  `created` by the MCP, and `upload` stops importing the page: `agentFiling` no longer asks for `rawHtmlByMcp`, since
-  an import keeps the scripts (0.84 CHANGELOG). `rawHtmlByMcp`: `documents_edit {document_id, content_blob_ref,
-base_revision}` rewrites the page whole in the same document; the guard lets it through (with or without the
-  capability) and `touched` files it as an `edited` entry, which opens the preview tab like any edit.
-- **No edit by ops of a page (D21).** Until `rawHtmlByMcp`, every op on an HTML document (`str_replace`, `set_html`,
+  must not judge a page's look from them. In 0.83 a changed page is a new document next to the old one, and the rule
+  has the agent say so in a line.
+- **The rules per instance (phase 21).** `DynWorkDocuments.instructions(switches)` builds the text from `rawHtmlByMcp`,
+  `mcpFolders`, `contextByMcp` and `peopleByRest`. Main sends them with each `apply` (`DynWorkSync.Apply.documents`,
+  from `DriveCapabilities.agent` of the active account, `DriveIpc` `switches`), the sync engine counts them in the
+  digest, and a new reading of what the instance delivers applies again at once (`listen.capabilities` →
+  `DynWorkSyncEngine` `recheck`). Each account gets the variant of its own instance; absent, the 0.83 one.
+- **0.84: the agent files its own work (`mcpFolders`).** The agent makes `Artifacts/<project>/<conversation>` with
+  `documents_folder` (`<project>` the working directory's name, `<conversation>` a short title it chooses) and imports
+  what it uploaded with `documents_import` into it, passing the `folder_id`. DynWork makes no folder and imports nothing
+  by REST (`agentFiling` is `mcp`): it only fills in the folder of a conversation it already knows (one it made before
+  the instance moved to 0.84) when the agent leaves `folder_id` out, without reading the Drive. A `documents_folder`
+  create refused as `name_taken` ("a folder named … already exists there") makes the plugin ask main which folder that
+  is (`folder` ask, `name` and `parent`); main finds it by name under the parent and the plugin appends "It is folder_id
+  … : use that folder." to the refusal the agent reads, so it uses that one instead of making another. A folder the
+  agent made has the Drive read again. `documents_import` carries the revision message since 0.84.0, like a creation.
+- **0.84: a page rewritten whole (`rawHtmlByMcp`).** `documents_edit {document_id, content_blob_ref, base_revision}`
+  rewrites the page in the same document; `touched` files it as an `edited` entry, which opens the preview tab like any
+  edit. An edit by ops of a page now goes to the instance, which refuses one its sanitiser would alter
+  (`unsupported_op`, naming `content_blob_ref`), and the rule has the agent rewrite the page whole then. On a document
+  that is someone else's, or where the policy says no, the rule has the agent send the same edit with `mode: propose`.
+  The rewrite lands only where the extension's agent policy allows `replace_content` (`agent-replace`).
+- **No edit by ops of a page (D21, 0.83).** Until `rawHtmlByMcp`, every op on an HTML document (`str_replace`, `set_html`,
   ...) strips its scripts and styles (0.83). The plugin's `ask` for a `documents_edit` names the document and whether it
   replaces the content from a blob (`content_blob_ref`, 0.84); main reads the document's format and, for an edit by ops
   of an HTML one, answers `refuse` (`DriveCapabilities.agentEdits`). The plugin then fails the call in `execute.before`
@@ -156,12 +177,13 @@ base_revision}` rewrites the page whole in the same document; the guard lets it 
 - **A folder made meanwhile (G05).** From 0.84 a folder whose name a sibling has is refused as `name_taken` (409,
   `conflict` here). Making `Artifacts`, the project or the conversation's folder looks for the sibling of that name when
   the instance answers so, and uses it. 0.83 never answers it.
-- **Switching a capability on.** `mcpFolders` makes `DriveAgent` leave a creation's folder to the agent (no `ask`
-  folder for it) and stop importing what it uploaded; an import the agent makes still gets the conversation's folder; `conversationLabel` takes the message away;
-  `contextByMcp` and `docsByContext` take the index's entry away (`DriveCapabilities.indexed`). The plugin's rule names
-  `folder_id` and the upload of pages: it needs rewording when either of the first two goes on.
+- **Switching a capability on.** `mcpFolders` leaves the folders and the import to the agent; `rawHtmlByMcp` lets an
+  edit by ops of a page reach the instance; `contextByMcp` gives each write its conversation; `conversationLabel` takes
+  the message away where the write carries the context; `docsByContext` with `contextByMcp` takes the index's entry
+  away (`DriveCapabilities.indexed`). 0.84 turns the first three on together: `rawHtmlByMcp` without `mcpFolders` would
+  have DynWork import a page the agent uploaded only to rewrite another one.
 - **When it is not there.** Main closed or signed out: the plugin's ask times out after 10 seconds and the call runs as
-  the agent wrote it, at the Drive's root; the touch is lost, and the document is not in the index.
+  the agent wrote it (on 0.84 less any `context_id` of its own), at the Drive's root; the touch is lost, and the document is not in the index.
 
 ## @Agent in a comment (phase 08, D12, D15)
 
@@ -380,7 +402,8 @@ the instance itself, in one place (`DriveCapabilities.delivered`), never from a 
    (`endpoints.documents`, whether the store is on), which 0.83 does not; and the core's `version`;
 2. only where discovery tells neither, a probe: `GET /documents/people?ids=<the user's own id>` answering (0.84) or not.
 
-0.84 turns on `conversationLabel`, `pushChanges` and `peopleByRest` (the REST side of G02, G09 and G13); 0.83 and older,
+0.84 turns on `conversationLabel`, `pushChanges` and `peopleByRest` (the REST side of G02, G09 and G13) and
+`rawHtmlByMcp`, `mcpFolders` and `contextByMcp` (the agent's side of G04, G05 and G06, through the MCP); 0.83 and older,
 none. The rest of what 0.84 delivers is turned on by the phases that use it. An instance whose discovery does not answer
 keeps what was read before (nothing, for a new account), and the next read that succeeds asks again. `DriveMain.setup`
 still takes an option that forces a switch on or off over what was read.
@@ -391,8 +414,8 @@ still takes an option that forces a switch on or off over what was read.
 | `conversationLabel` | G02 | The message names the conversation                                                       | Only the `x-context-id`; the instance names it, as do versions and comments |
 | `rangeComments`     | G08 | A comment on a cell range answers `unsupported` without a call                           | It reaches the backend                                                      |
 | `rawHtmlByMcp`      | G04 | Its edits by ops of an HTML document are refused; a changed page is a new document       | `documents_edit {content_blob_ref}` rewrites the page in the same document  |
-| `mcpFolders`        | G05 | DynWork makes `Artifacts/<project>/<conversation>` and imports the agent's files by REST | The agent imports with `documents_import` (DynWork gives it the folder)     |
-| `contextByMcp`      | G06 | An MCP write enters the local index                                                      | Left to the Drive, once it also lists by conversation                       |
+| `mcpFolders`        | G05 | DynWork makes `Artifacts/<project>/<conversation>` and imports the agent's files by REST | The agent makes the folders (`documents_folder`) and imports itself         |
+| `contextByMcp`      | G06 | An MCP write carries no conversation; it enters the local index                          | Each write carries its conversation's `context_id`; index kept as cache     |
 | `docsByContext`     | G07 | `documentsOf` reads the local index only                                                 | REST writes are left to the Drive, which adds its list by `x-context-id`    |
 | `pushChanges`       | G09 | 20 s poll while watched, 5 min otherwise; `document.drive.changed` is ignored            | Each change reads the Drive; 5 min poll only while the stream is open       |
 | `peopleByRest`      | G13 | `people` answers `unsupported`; authors no grant names read "Someone"; search by MCP     | Authors named by id (20 a call); the directory and the cards over REST      |

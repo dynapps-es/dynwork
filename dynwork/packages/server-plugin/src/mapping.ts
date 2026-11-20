@@ -73,7 +73,13 @@ export function map(input: DynWorkSync.Apply): Mapped {
     mcp,
     rules: rules.length,
     // DynWork's own rules for the `documents` server go after the instance's, which stay as the bridge writes them.
-    instructions: DynWorkInstructions.block([...rules, ...DynWorkDocuments.rules(mcp.map(([name]) => name))]),
+    instructions: DynWorkInstructions.block([
+      ...rules,
+      ...DynWorkDocuments.rules(
+        mcp.map(([name]) => name),
+        input.documents,
+      ),
+    ]),
     defaults: { model: defaultModel(manifest) },
   }
 }

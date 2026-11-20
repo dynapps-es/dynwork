@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test"
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { DynWorkSyncClient } from "../src/client"
 import { DynWorkDocuments } from "../src/documents"
 import type { DynWorkSync } from "../src/contract"
@@ -16,6 +16,7 @@ const program = { code: "" }
 const mcp: Array<{ method: string; arguments?: Record<string, unknown>; name?: string; auth?: string }> = []
 
 const rpcResult = (id: unknown, result: unknown) => Response.json({ jsonrpc: "2.0", id, result })
+const refusal = (id: unknown, text: string) => rpcResult(id, { isError: true, content: [{ type: "text", text }] })
 
 const instance = Bun.serve({
   hostname: "127.0.0.1",
@@ -41,7 +42,15 @@ const instance = Bun.serve({
         })
       if (call.method === "tools/list")
         return rpcResult(call.id, {
-          tools: ["documents_create", "documents_edit", "documents_upload", "documents_share", "documents_people"].map(
+          tools: [
+            "documents_create",
+            "documents_edit",
+            "documents_upload",
+            "documents_share",
+            "documents_people",
+            "documents_comment",
+            "documents_folder",
+          ].map(
             (name) => ({
               name,
               description: `The ${name} tool.`,
@@ -52,6 +61,17 @@ const instance = Bun.serve({
       if (call.method === "tools/call") {
         if (call.params?.arguments?.name === "missing.md")
           return rpcResult(call.id, { isError: true, content: [{ type: "text", text: "no such folder" }] })
+        // 0.84's refusals, in the words the instance writes them.
+        if (call.params?.name === "documents_folder" && call.params.arguments?.name === "Artifacts")
+          return refusal(
+            call.id,
+            `a folder named "Artifacts" already exists there; choose another name or use that folder`,
+          )
+        if (call.params?.arguments?.name === "stale.md")
+          return refusal(
+            call.id,
+            `context ${String(call.params.arguments.context_id)} is not one of your conversations: send the id of a conversation you own (POST /api/v1/core/contexts creates one), or none to write without one`,
+          )
         if (call.params?.name === "documents_people")
           return rpcResult(call.id, {
             content: [{ type: "text", text: "1 people" }],
@@ -150,7 +170,19 @@ const asks: DynWorkDocuments.Ask[] = []
 const touches: DynWorkDocuments.Touch[] = []
 const confirms: DynWorkDocuments.Share[] = []
 const seen: DynWorkDocuments.Seen[] = []
+const stales: DynWorkDocuments.Stale[] = []
 const decision = { allow: false, listening: true }
+// On 0.84 main gives each write its conversation's context: here `ctx-<session>`.
+const main = { contexts: false }
+const answerOf = (ask: DynWorkDocuments.Ask): DynWorkDocuments.Answer =>
+  ask.verb === "folder"
+    ? { id: ask.id, folder: `folder-${ask.name}` }
+    : {
+        id: ask.id,
+        folder: "folder-chat",
+        message: "Chat by DynWork",
+        ...(main.contexts ? { context: `ctx-${ask.session}` } : {}),
+      }
 const listening = new AbortController()
 
 afterAll(async () => {
@@ -172,7 +204,7 @@ beforeAll(async () => {
     expiresAt: Date.now() + 3_600_000,
     gateway: { label: "Alpha", models },
   })
-  const types = ["ask", "touch", "confirm", "people"]
+  const types = ["ask", "touch", "confirm", "people", "stale"]
     .map((name) => `types=rpc.${DynWorkDocuments.id}.${name}`)
     .join("&")
   const events = await fetch(`${service.url}/api/event?${types}`, {
@@ -191,11 +223,12 @@ beforeAll(async () => {
           await fetch(`${service.url}/api/rpc/${DynWorkDocuments.id}/answer`, {
             method: "POST",
             headers: { ...service.headers, "content-type": "application/json" },
-            body: JSON.stringify({ input: { id: ask.id, folder: "folder-chat", message: "Chat by DynWork" } }),
+            body: JSON.stringify({ input: answerOf(ask) }),
           })
         }
         if (event.type.endsWith(".touch")) touches.push(event.data)
         if (event.type.endsWith(".people")) seen.push(event.data)
+        if (event.type.endsWith(".stale")) stales.push(event.data)
         if (event.type.endsWith(".confirm")) {
           const share: DynWorkDocuments.Share = event.data
           confirms.push(share)
@@ -390,3 +423,78 @@ test("a share nobody in Dynwork hears is refused, not left waiting", async () =>
   expect(shared().length).toBe(before)
   expect(gateway.at(-1)?.messages).toContain("Dynwork could not ask the user to confirm this share")
 }, 60_000)
+
+// 0.84: main applies the instance's switches, and the agent's calls and rules follow them.
+describe("on a 0.84 instance", () => {
+  const at84 = { rawHtmlByMcp: true, mcpFolders: true, contextByMcp: true, peopleByRest: true }
+
+  beforeAll(async () => {
+    main.contexts = true
+    await client.apply({
+      instance: { key: "alpha", url: instance.url.origin },
+      manifest: {
+        ...alpha,
+        managed_mcp_servers: [
+          { id: "documents", name: "documents", url: `${instance.url.origin}/api/v1/mcp/documents/mcp` },
+        ],
+      },
+      jwt,
+      expiresAt: Date.now() + 3_600_000,
+      gateway: { label: "Alpha", models },
+      documents: at84,
+    })
+  })
+
+  test("the agent reads the 0.84 rules in the service's AGENTS.md", async () => {
+    const rules = await Bun.file(`${service.config}/AGENTS.md`).text()
+    expect(rules).toContain("documents_folder {action: create, name, parent_id}")
+    expect(rules).toContain("leave out context_id")
+    expect(rules).not.toContain("look them up with documents_people")
+  })
+
+  test("each write carries its own conversation's context, never another's, and the agent's own is dropped", async () => {
+    const code = `await tools.documents.documents_create({ template_id: "blank-markdown", name: "A.md", context_id: "ctx-ses_other" }); return await tools.documents.documents_comment({ action: "create", document_id: "d1", body: "Looks good", context_id: "ctx-ses_other" })`
+    const first = await run(code)
+    const second = await run(code)
+    for (const done of [first, second]) {
+      expect(done.calls.map((call) => [call.name, call.arguments?.context_id])).toEqual([
+        ["documents_create", `ctx-${done.id}`],
+        ["documents_comment", `ctx-${done.id}`],
+      ])
+      // A comment is not signed and gets no folder: only the conversation.
+      expect(done.calls[1]?.arguments).toEqual({
+        action: "create",
+        document_id: "d1",
+        body: "Looks good",
+        context_id: `ctx-${done.id}`,
+      })
+    }
+    expect(first.id).not.toBe(second.id)
+  }, 60_000)
+
+  test("a comment read is not asked about and goes as the agent wrote it", async () => {
+    const asked = asks.length
+    const done = await run(`return await tools.documents.documents_comment({ action: "list", document_id: "d1" })`)
+    expect(asks.length).toBe(asked)
+    expect(done.calls[0]?.arguments).toEqual({ action: "list", document_id: "d1" })
+  }, 60_000)
+
+  test("a folder refused as name_taken reaches the agent with the folder to use", async () => {
+    await run(
+      `try { return await tools.documents.documents_folder({ action: "create", name: "Artifacts" }) } catch (error) { return "threw: " + (error?.message ?? String(error)) }`,
+    )
+    expect(asks.at(-1)).toMatchObject({ verb: "folder", name: "Artifacts" })
+    expect(gateway.at(-1)?.messages).toContain("It is folder_id folder-Artifacts: use that folder.")
+  }, 60_000)
+
+  test("a write refused for a context the instance does not know tells main which one to forget", async () => {
+    const done = await run(
+      `try { return await tools.documents.documents_create({ template_id: "blank-markdown", name: "stale.md" }) } catch (error) { return "threw" }`,
+    )
+    await until(
+      async () => stales.length,
+      (count) => count > 0,
+    )
+    expect(stales.at(-1)).toEqual({ session: done.id, context: `ctx-${done.id}` })
+  }, 60_000)
+})

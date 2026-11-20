@@ -18,12 +18,12 @@ const done = (tool: string, input: unknown, output: unknown) => ({
 })
 
 describe("which calls are writes", () => {
-  test("the six writes of the server, as OpenCode names a server's tool", () => {
+  test("the seven writes of the server, as OpenCode names a server's tool", () => {
     expect(
-      ["create", "edit", "upload", "update", "copy", "import"].map((tool) =>
+      ["create", "edit", "upload", "update", "copy", "import", "folder"].map((tool) =>
         DynWorkDocuments.verb(`documents_documents_${tool}`),
       ),
-    ).toEqual(["create", "edit", "upload", "update", "copy", "import"])
+    ).toEqual(["create", "edit", "upload", "update", "copy", "import", "folder"])
   })
 
   test("not a read, a comment, another server's tool, or a tool that only ends the same way", () => {
@@ -211,17 +211,19 @@ describe("what main adds before a write", () => {
     })
   })
 
-  test("an import takes the folder and no message: documents_import has none to carry", () => {
+  test("an import takes the folder and the message, which documents_import carries since 0.84.0", () => {
     const answer = { id: "x", folder: "f1", message: "Q3 by DynWork" }
     expect(DynWorkDocuments.apply("import", { blob_ref: "abc", name: "a.html" }, answer)).toEqual({
       blob_ref: "abc",
       name: "a.html",
       folder_id: "f1",
+      message: "Q3 by DynWork",
     })
     expect(DynWorkDocuments.apply("import", { blob_ref: "abc", name: "a.html", folder_id: "mine" }, answer)).toEqual({
       blob_ref: "abc",
       name: "a.html",
       folder_id: "mine",
+      message: "Q3 by DynWork",
     })
   })
 
@@ -234,6 +236,164 @@ describe("what main adds before a write", () => {
     const input = { document_id: "d" }
     expect(DynWorkDocuments.apply("edit", input, { id: "x" })).toEqual(input)
     expect(DynWorkDocuments.apply("edit", "not a record", { id: "x", message: "m" })).toBe("not a record")
+  })
+})
+
+describe("the conversation in each write (contextByMcp, 0.84)", () => {
+  const call = (tool: string, input: unknown, session = "ses_q3") => ({ tool, sessionID: session, id: "call_1", input })
+  const on = { contextByMcp: true }
+
+  test("the writes that take a context_id are asked about with it on, and only the ones that write", () => {
+    const asked = (tool: string, input: unknown) => DynWorkDocuments.asking(call(`documents_documents_${tool}`, input), on)
+    expect(asked("comment", { action: "create", document_id: "d", body: "x" })?.verb).toBe("comment")
+    expect(asked("comment", { action: "resolve", document_id: "d", comment_id: "c" })?.verb).toBe("comment")
+    expect(asked("proposals", { action: "accept", proposal_id: "p" })?.verb).toBe("proposals")
+    expect(asked("proposals", { action: "reject", proposal_id: "p" })?.verb).toBe("proposals")
+    expect(asked("copy", { document_id: "d" })?.verb).toBe("copy")
+    // Reading comments or proposals writes nothing.
+    expect(asked("comment", { action: "list", document_id: "d" })).toBeUndefined()
+    expect(asked("proposals", { document_id: "d" })).toBeUndefined()
+    expect(asked("proposals", { action: "list" })).toBeUndefined()
+    // Neither does a read, a share (it has its own card) or an upload (it takes no context).
+    for (const tool of ["read", "list", "share", "upload", "people"])
+      expect(asked(tool, { document_id: "d" })).toBeUndefined()
+  })
+
+  test("on 0.83 nothing but a creation, an import and an edit is asked about, as before", () => {
+    for (const switches of [{}, { contextByMcp: false }]) {
+      expect(DynWorkDocuments.asking(call("documents_documents_comment", { action: "create" }), switches)).toBeUndefined()
+      expect(DynWorkDocuments.asking(call("documents_documents_copy", { document_id: "d" }), switches)).toBeUndefined()
+      expect(DynWorkDocuments.asking(call("documents_documents_create", { name: "a" }), switches)?.verb).toBe("create")
+    }
+  })
+
+  test("each write carries the context main gave its call, and only that: the agent's own never goes", () => {
+    const answer = { id: "x", context: "ctx-q3" }
+    // Another conversation's id the agent copied from a revision it read is replaced by its own conversation's.
+    for (const write of ["create", "edit", "import", "comment", "proposals", "copy"] as const)
+      expect(DynWorkDocuments.apply(write, { document_id: "d", context_id: "ctx-other" }, answer)).toEqual({
+        document_id: "d",
+        context_id: "ctx-q3",
+      })
+    // Main gave none (the registration failed, or main did not answer): the call goes without one.
+    expect(DynWorkDocuments.apply("comment", { document_id: "d", context_id: "ctx-other" }, { id: "x" })).toEqual({
+      document_id: "d",
+    })
+    expect(DynWorkDocuments.apply("create", { name: "a", context_id: "ctx-other" }, { id: "x", message: "m" })).toEqual({
+      name: "a",
+      message: "m",
+    })
+  })
+
+  test("a comment, a review and a copy take only the context: no folder, no message", () => {
+    const answer = { id: "x", folder: "f1", message: "Q3 by DynWork", context: "ctx-q3" }
+    expect(DynWorkDocuments.apply("comment", { action: "create", body: "x" }, answer)).toEqual({
+      action: "create",
+      body: "x",
+      context_id: "ctx-q3",
+    })
+    expect(DynWorkDocuments.apply("copy", { document_id: "d" }, answer)).toEqual({ document_id: "d", context_id: "ctx-q3" })
+    expect(DynWorkDocuments.apply("proposals", { action: "accept" }, answer)).toEqual({
+      action: "accept",
+      context_id: "ctx-q3",
+    })
+  })
+
+  test("a write refused for a context the instance does not know names it to main; anything else does not", () => {
+    const refused = (tool: string, context: string | undefined, message: string) =>
+      DynWorkDocuments.stale({
+        ...call(`documents_documents_${tool}`, { name: "a", ...(context === undefined ? {} : { context_id: context }) }),
+        status: "error",
+        error: { message },
+      })
+    const unknown = (id: string) =>
+      `context ${id} is not one of your conversations: send the id of a conversation you own (POST /api/v1/core/contexts creates one), or none to write without one`
+    expect(refused("create", "ctx-q3", unknown("ctx-q3"))).toEqual({ session: "ses_q3", context: "ctx-q3" })
+    expect(refused("comment", "ctx-q3", unknown("ctx-q3"))).toEqual({ session: "ses_q3", context: "ctx-q3" })
+    expect(refused("create", "ctx-q3", unknown("ctx-other"))).toBeUndefined()
+    expect(refused("create", undefined, unknown("ctx-q3"))).toBeUndefined()
+    expect(refused("create", "ctx-q3", "no such folder")).toBeUndefined()
+    expect(refused("read", "ctx-q3", unknown("ctx-q3"))).toBeUndefined()
+    expect(
+      DynWorkDocuments.stale({ ...done("documents_documents_create", { context_id: "ctx-q3" }, {}) }),
+    ).toBeUndefined()
+  })
+
+  test("the context and the stale conversation keep their shape across the RPC", () => {
+    const answer = { id: "call_1", message: "m", context: "ctx-q3" }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Answer)(answer)).toEqual(answer)
+    const stale = { session: "ses_q3", context: "ctx-q3" }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Stale)(stale)).toEqual(stale)
+  })
+})
+
+describe("folders the agent makes (mcpFolders, 0.84)", () => {
+  const refused = (input: unknown, message: string) => ({
+    tool: "documents_documents_folder",
+    sessionID: "ses_q3",
+    id: "call_7",
+    input,
+    status: "error" as const,
+    error: { message },
+  })
+  const taken = (name: string) =>
+    `a folder named "${name}" already exists there; choose another name or use that folder`
+
+  test("a folder refused as name_taken asks main which one is there, under its parent or at the root", () => {
+    expect(
+      DynWorkDocuments.taken(refused({ action: "create", name: "Billing", parent_id: "f-art" }, taken("Billing"))),
+    ).toEqual({ id: "call_7:taken", session: "ses_q3", verb: "folder", name: "Billing", parent: "f-art" })
+    for (const input of [
+      { action: "create", name: "Artifacts" },
+      { action: "create", name: "Artifacts", parent_id: null },
+    ])
+      expect(DynWorkDocuments.taken(refused(input, taken("Artifacts")))).toEqual({
+        id: "call_7:taken",
+        session: "ses_q3",
+        verb: "folder",
+        name: "Artifacts",
+      })
+  })
+
+  test("any other failure, a rename, a folder made and another tool ask nothing", () => {
+    expect(DynWorkDocuments.taken(refused({ action: "create", name: "A" }, "forbidden"))).toBeUndefined()
+    expect(DynWorkDocuments.taken(refused({ action: "update", folder_id: "f", name: "A" }, taken("A")))).toBeUndefined()
+    expect(DynWorkDocuments.taken(refused({ action: "create" }, taken("A")))).toBeUndefined()
+    expect(
+      DynWorkDocuments.taken({ ...refused({ action: "create", name: "A" }, taken("A")), tool: "documents_documents_create" }),
+    ).toBeUndefined()
+    expect(
+      DynWorkDocuments.taken(done("documents_documents_folder", { action: "create", name: "A" }, { folder_id: "f" })),
+    ).toBeUndefined()
+  })
+
+  test("the refusal the agent reads names the folder to use", () => {
+    expect(DynWorkDocuments.reuse(taken("Billing"), "f-bill")).toBe(
+      `${taken("Billing")} It is folder_id f-bill: use that folder.`,
+    )
+  })
+
+  test("a folder made is a write main hears of, with the folder it made", () => {
+    expect(
+      DynWorkDocuments.touch(
+        done(
+          "documents_documents_folder",
+          { action: "create", name: "Q3 report", parent_id: "f-bill" },
+          { folder_id: "f-q3", parent_id: "f-bill", name: "Q3 report" },
+        ),
+      ),
+    ).toEqual({
+      session: "ses_q3",
+      call: "call_1",
+      verb: "folder",
+      input: { action: "create", name: "Q3 report", parent_id: "f-bill" },
+      output: { folder_id: "f-q3", name: "Q3 report" },
+    })
+  })
+
+  test("the folder ask and its answer keep their shape across the RPC", () => {
+    const ask = { id: "call_7:taken", session: "ses_q3", verb: "folder" as const, name: "Billing", parent: "f-art" }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Ask)(ask)).toEqual(ask)
   })
 })
 
@@ -593,12 +753,44 @@ describe("the rules about the server", () => {
     expect(text).toContain("Dynwork imports that upload as a document of this conversation")
   })
 
-  test("mcpFolders (0.84): the agent imports the upload itself, once, into the folder DynWork chooses", () => {
+  test("mcpFolders (0.84): the agent makes the conversation's folders and imports the upload itself, once, into it", () => {
     const text = flat(DynWorkDocuments.instructions({ mcpFolders: true }))
-    expect(text).toContain("call documents_import once with the returned blob_ref")
-    expect(text).toContain("leave out `folder_id` in documents_import")
+    expect(text).toContain("Artifacts/<project>/<conversation>")
+    expect(text).toContain("documents_folder {action: create, name, parent_id}")
+    expect(text).toContain("refused as name_taken with its folder_id")
+    expect(text).toContain("never make a second one under another name")
+    expect(text).toContain("call documents_import once with the returned blob_ref, the same name and the conversation's folder_id")
+    expect(text).not.toContain("Dynwork files every document you create")
     expect(text).not.toContain("do not import it yourself")
     expect(text).not.toContain("content_blob_ref")
+  })
+
+  test("rawHtmlByMcp (0.84): an edit by ops that would strip a page is the instance's to refuse, and someone else's page is proposed", () => {
+    const text = flat(DynWorkDocuments.instructions({ rawHtmlByMcp: true }))
+    expect(text).toContain("refused as unsupported_op")
+    expect(text).toContain("send the same documents_edit with mode: propose")
+    expect(text).not.toContain("refuses documents_edit on an HTML document")
+    expect(flat(DynWorkDocuments.instructions())).not.toContain("mode: propose")
+  })
+
+  test("contextByMcp (0.84): the agent leaves the conversation to Dynwork and repeats a write refused as unknown_context", () => {
+    const text = flat(DynWorkDocuments.instructions({ contextByMcp: true }))
+    expect(text).toContain("leave out context_id")
+    expect(text).toContain("refused as unknown_context once more, unchanged")
+    expect(flat(DynWorkDocuments.instructions())).not.toContain("context_id")
+  })
+
+  test("each account gets the variant of its instance: the switches main applies choose the rules the agent reads", () => {
+    const at84 = { rawHtmlByMcp: true, mcpFolders: true, contextByMcp: true, peopleByRest: true }
+    const mapped = (switches?: DynWorkDocuments.Switches) =>
+      flat(DynWorkMapping.map(apply(documents(), switches === undefined ? {} : { documents: switches })).instructions ?? "")
+    expect(mapped(at84)).toContain(flat(DynWorkDocuments.instructions(at84)))
+    expect(mapped(at84)).not.toContain("look them up with documents_people")
+    for (const off of [undefined, {}, { rawHtmlByMcp: false, mcpFolders: false, contextByMcp: false, peopleByRest: false }])
+      expect(mapped(off)).toContain(flat(DynWorkDocuments.instructions()))
+    expect(
+      DynWorkInstructions.overBudget(DynWorkMapping.map(apply(documents(), { documents: at84 })).instructions),
+    ).toBeUndefined()
   })
 
   test("both switches on read as both changes, and the rules carry them to the managed block", () => {
@@ -627,7 +819,13 @@ describe("the rules about the server", () => {
   })
 
   test("name no product the user does not know", () => {
-    for (const variant of [{}, { rawHtmlByMcp: true }, { mcpFolders: true }, { rawHtmlByMcp: true, mcpFolders: true }])
+    for (const variant of [
+      {},
+      { rawHtmlByMcp: true },
+      { mcpFolders: true },
+      { contextByMcp: true },
+      { rawHtmlByMcp: true, mcpFolders: true, contextByMcp: true, peopleByRest: true },
+    ])
       expect(DynWorkDocuments.instructions(variant)).not.toMatch(/systemprompt|agent farm|routine/i)
   })
 })

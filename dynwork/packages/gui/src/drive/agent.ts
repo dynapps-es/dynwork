@@ -14,9 +14,16 @@ import type { DriveIpc } from "./ipc"
 // watches the tools' calls (`@dynwork/server-plugin/documents`) and tells main: before a write, so that a new document
 // lands in the conversation's folder and its revision names the conversation, and so that an edit by ops of an HTML
 // page, which would strip its scripts, is refused (D21); after one, so that the document enters the conversation's
-// index and a page the agent uploaded is imported with its scripts (C7). With `mcpFolders` (0.84) the agent imports the
-// page itself with `documents_import`, which the `ask` files like a creation; with `rawHtmlByMcp` it rewrites a page
-// whole with `documents_edit {content_blob_ref}`, which is an edit of that document like any other.
+// index and a page the agent uploaded is imported with its scripts (C7).
+//
+// On 0.84 the agent does it through the MCP:
+// - `mcpFolders`: it makes the conversation's folders with `documents_folder` and imports its upload with
+//   `documents_import`; DynWork makes no folder and imports nothing. It still fills in the folder of a conversation it
+//   already knows when the agent leaves it out, and it tells the agent which folder a `name_taken` refusal meant.
+// - `rawHtmlByMcp`: it rewrites a page whole with `documents_edit {content_blob_ref}`, an edit of that document like any
+//   other, and an edit by ops of a page goes to the instance, which refuses one that would strip it.
+// - `contextByMcp`: each write carries the context DynWork registered for its conversation, the one its own session
+//   maps to, never another's.
 
 /** The conversation as the Drive's folders name it. */
 export interface Session {
@@ -26,8 +33,11 @@ export interface Session {
 }
 
 export interface Options {
-  /** The service's `using`, `changing`, `record`, `folder`, `attributed`, `message` and `capabilities`. */
-  service: Pick<DriveIpc.Service, "using" | "changing" | "record" | "folder" | "attributed" | "message" | "capabilities">
+  /** The service's `using`, `changing`, `record`, `folder`, `author`, `attributed`, `message`, `stale` and `capabilities`. */
+  service: Pick<
+    DriveIpc.Service,
+    "using" | "changing" | "record" | "folder" | "author" | "attributed" | "message" | "stale" | "capabilities"
+  >
   /** A conversation's session, or undefined when the service does not know it. */
   session: (id: string) => Promise<Session | undefined>
   /** What a conversation without a title is called. */
@@ -61,27 +71,49 @@ export function make(options: Options) {
   // What was imported, so that a call seen twice is not imported twice.
   const imported = new Set<string>()
 
-  /** What to add to the write the plugin is about to run: where a new document goes and what its revision says. */
+  /** What to add to the write the plugin is about to run: where a new document goes, what its revision says, whose it is. */
   async function ask(request: DynWorkDocuments.Ask) {
     const answer = await answered(request).catch(() => ({}))
     await options.answer({ id: request.id, ...answer })
   }
 
   async function answered(request: DynWorkDocuments.Ask): Promise<Omit<DynWorkDocuments.Answer, "id">> {
+    if (request.verb === "folder") return taken(request)
     if (await refused(request)) return { refuse: htmlRefused }
     const session = await options.session(request.session)
     if (!session) return {}
     const conversation = { id: request.session, name: clean(session.title) ?? options.untitled }
-    const filed =
-      request.verb === "import" ||
-      (request.verb === "create" && DriveCapabilities.agentFiling(service.capabilities()) === "rest")
+    const capabilities = service.capabilities()
+    const placed = request.verb === "create" || request.verb === "import"
+    // Before 0.84 DynWork makes the conversation's folder (an import is 0.84's, but the switch may not be read yet).
+    const filing = placed ? DriveCapabilities.agentFiling(capabilities) : undefined
+    const signed = request.verb === "create" || request.verb === "edit" || request.verb === "import"
     const answer = await service.using(async (backend, account) => {
-      const message = service.message(account, conversation)
-      if (!filed) return { message }
-      const folder = await serial(() => place(backend, account.id, conversation, session))
-      return { message, folder: isFailure(folder) ? undefined : folder }
+      // With the conversation in the call (0.84), it is registered on the way, like for DynWork's own writes.
+      const author = capabilities.contextByMcp
+        ? await service.author(backend, account, conversation)
+        : { contextId: undefined, message: service.message(account, conversation) }
+      const folder =
+        filing === "rest"
+          ? await serial(() => place(backend, account.id, conversation, session))
+          : filing === "mcp"
+            ? service.folder.get(account.id, conversation.id)
+            : undefined
+      return {
+        ...(signed && author.message !== undefined ? { message: author.message } : {}),
+        ...(author.contextId === undefined ? {} : { context: author.contextId }),
+        ...(folder === undefined || isFailure(folder) ? {} : { folder }),
+      }
     })
     return isFailure(answer) ? {} : answer
+  }
+
+  /** The folder of that name already there, where the agent's `documents_folder` was refused as `name_taken` (0.84). */
+  async function taken(request: DynWorkDocuments.Ask) {
+    const name = request.name
+    if (name === undefined) return {}
+    const found = await service.using((backend) => find(backend, request.parent, name))
+    return isFailure(found) || found === undefined ? {} : { folder: found.id }
   }
 
   /**
@@ -134,6 +166,8 @@ export function make(options: Options) {
   /** What a write the agent made touched: its document enters the conversation's index, and an uploaded page is imported. */
   async function touched(touch: DynWorkDocuments.Touch) {
     if (touch.verb === "upload") return upload(touch)
+    // A folder the agent made or moved: the Drive is read again for it, and nothing is indexed.
+    if (touch.verb === "folder") return void (await service.changing(async () => undefined))
     const made = touch.verb === "create" || touch.verb === "copy" || touch.verb === "import"
     const document = made ? touch.output.document_id : touch.input.document_id
     if (document === undefined) return
@@ -180,7 +214,12 @@ export function make(options: Options) {
     })
   }
 
-  return { ask, touched }
+  /** The instance refused a write for not knowing the conversation main gave it: the next write registers it again. */
+  function stale(stale: DynWorkDocuments.Stale) {
+    service.stale(stale.session, stale.context)
+  }
+
+  return { ask, touched, stale }
 }
 
 export type Agent = ReturnType<typeof make>
@@ -229,9 +268,11 @@ const clean = (name: string | undefined) =>
 // The service's events main follows, and how long it waits before following them again after the stream ended.
 const ASK = `rpc.${DynWorkDocuments.id}.ask` as const
 const TOUCH = `rpc.${DynWorkDocuments.id}.touch` as const
+const STALE = `rpc.${DynWorkDocuments.id}.stale` as const
 const RETRY = 2_000
 const decodeAsk = Schema.decodeUnknownOption(DynWorkDocuments.Ask)
 const decodeTouch = Schema.decodeUnknownOption(DynWorkDocuments.Touch)
+const decodeStale = Schema.decodeUnknownOption(DynWorkDocuments.Stale)
 
 /**
  * Sets the agent's documents up in main: follows the server plugin's events on DynWork's service for as long as the
@@ -272,7 +313,7 @@ export function setup(
 }
 
 async function follow(client: OpenCodeClient, agent: Agent, signal: AbortSignal) {
-  for await (const event of client.event.subscribe({ types: [ASK, TOUCH], signal })) {
+  for await (const event of client.event.subscribe({ types: [ASK, TOUCH, STALE], signal })) {
     if (event.type === ASK) {
       const request = decodeAsk(event.data)
       if (request._tag === "Some") void agent.ask(request.value)
@@ -280,6 +321,10 @@ async function follow(client: OpenCodeClient, agent: Agent, signal: AbortSignal)
     if (event.type === TOUCH) {
       const touch = decodeTouch(event.data)
       if (touch._tag === "Some") void agent.touched(touch.value)
+    }
+    if (event.type === STALE) {
+      const stale = decodeStale(event.data)
+      if (stale._tag === "Some") agent.stale(stale.value)
     }
   }
 }

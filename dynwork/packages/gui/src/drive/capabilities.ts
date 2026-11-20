@@ -1,5 +1,6 @@
 export * as DriveCapabilities from "./capabilities"
 
+import type { DynWorkSync } from "@dynwork/server-plugin/contract"
 import { Schema } from "effect"
 import type { Anchor } from "./contract"
 
@@ -65,13 +66,36 @@ export interface Instance {
 
 /**
  * What an instance delivers, from what it says of itself: 0.84 gives the REST side of G02, G09 and G13
- * (`conversationLabel`, `pushChanges`, `peopleByRest`); 0.83 and older, none. Undefined when nothing tells, which asks
- * for the probe. The rest of 0.84 is turned on by the phases that use it.
+ * (`conversationLabel`, `pushChanges`, `peopleByRest`) and the agent's side of G04, G05 and G06 through the MCP
+ * (`rawHtmlByMcp`, `mcpFolders`, `contextByMcp`); 0.83 and older, none. Undefined when nothing tells, which asks for the
+ * probe. The rest of 0.84 is turned on by the phases that use it.
  */
 export function delivered(instance: Instance): Capabilities | undefined {
-  const rest = instance.documents === true || (atLeast(instance.version, 84) ?? instance.people)
-  if (rest === undefined) return undefined
-  return { ...none, conversationLabel: rest, pushChanges: rest, peopleByRest: rest }
+  const at84 = instance.documents === true || (atLeast(instance.version, 84) ?? instance.people)
+  if (at84 === undefined) return undefined
+  return {
+    ...none,
+    conversationLabel: at84,
+    pushChanges: at84,
+    peopleByRest: at84,
+    rawHtmlByMcp: at84,
+    mcpFolders: at84,
+    contextByMcp: at84,
+  }
+}
+
+/**
+ * What the agent's `documents` rules and calls need of an account's capabilities, as the server plugin takes them with
+ * each apply. `rawHtmlByMcp` and `mcpFolders` go together on 0.84: one without the other would have DynWork import a
+ * page the agent uploaded only to rewrite another one.
+ */
+export function agent(capabilities: Capabilities): DynWorkSync.Documents {
+  return {
+    rawHtmlByMcp: capabilities.rawHtmlByMcp,
+    mcpFolders: capabilities.mcpFolders,
+    contextByMcp: capabilities.contextByMcp,
+    peopleByRest: capabilities.peopleByRest,
+  }
 }
 
 // Whether a `0.<minor>` version (a `v` and a pre-release suffix allowed) is at least `minor`; undefined when unreadable.

@@ -79,9 +79,10 @@ export const RoutinesDefinition = Rpc.define({
   },
 })
 
-// What the agent does with the `documents` MCP server (`./documents`): main adds a write's folder and message, hears
-// what each write touched, shows each share on a card for the user to decide (`shown` once the card is up, `decide`,
-// and `shares` after it reconnects), and keeps the people the agent looked up (`people`) to name them on later cards.
+// What the agent does with the `documents` MCP server (`./documents`): main adds a write's folder, message and, on 0.84,
+// conversation, hears what each write touched, shows each share on a card for the user to decide (`shown` once the card
+// is up, `decide`, and `shares` after it reconnects), keeps the people the agent looked up (`people`) to name them on
+// later cards, and forgets a conversation's context the instance no longer knows (`stale`).
 export const DocumentsDefinition = Rpc.define({
   id: DynWorkDocuments.id,
   methods: {
@@ -108,6 +109,7 @@ export const DocumentsDefinition = Rpc.define({
     confirm: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Share) },
     withdraw: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Withdrawn) },
     people: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Seen) },
+    stale: { schema: Schema.toStandardSchemaV1(DynWorkDocuments.Stale) },
   },
 })
 
@@ -610,8 +612,8 @@ export default Plugin.define({
       Effect.forkScoped({ startImmediately: true }),
     )
 
-    // The `documents` server's writes: before one, main adds the conversation's folder and message; after one, it hears
-    // what the call touched. A share runs only once the user allows it on a card (D24). Code Mode programs' calls pass
+    // The `documents` server's writes: before one, main adds the conversation's folder, message and context (with the
+    // switches of the instance applied last); after one, it hears what the call touched. A share runs only once the user allows it on a card (D24). Code Mode programs' calls pass
     // the same hooks. Any other tool is left alone.
     const documentsRpc = yield* ctx.rpc
       .register(DocumentsDefinition, {
@@ -628,6 +630,9 @@ export default Plugin.define({
           .pipe(Effect.catchCause(() => Effect.logWarning("dynwork: could not ask main about a share"))),
       withdraw: (id) => documentsRpc.events.emit("withdraw", { id }).pipe(Effect.ignore),
     }
+    const asker: DynWorkDocuments.Emitter = {
+      ask: (ask) => documentsRpc.events.emit("ask", ask).pipe(Effect.ignore),
+    }
     yield* ctx.tool.hook("execute.before", (event) =>
       Effect.gen(function* () {
         const share = DynWorkDocuments.sharing(event)
@@ -639,24 +644,40 @@ export default Plugin.define({
           if (outcome === "reject") return yield* new Tool.Error({ message: DynWorkDocuments.declined(share) })
           return
         }
-        const request = DynWorkDocuments.asking(event)
+        const switches = store.current?.input.documents ?? {}
+        const request = DynWorkDocuments.asking(event, switches)
         if (!request) return
-        const answered = yield* DynWorkDocuments.ask(
-          { ask: (ask) => documentsRpc.events.emit("ask", ask).pipe(Effect.ignore) },
-          request,
-        )
+        const answered = yield* DynWorkDocuments.ask(asker, request)
         // A refused write never reaches the instance: the agent reads why as the call's error (D21).
         if (answered?.refuse !== undefined) return yield* new Tool.Error({ message: answered.refuse })
-        if (answered) event.input = DynWorkDocuments.apply(request.verb, event.input, answered)
+        // With the conversation in each call (0.84), a write main did not answer still loses a `context_id` of the agent's.
+        const given = answered ?? (switches.contextByMcp ? { id: request.id } : undefined)
+        if (given) event.input = DynWorkDocuments.apply(request.verb, event.input, given)
       }),
     )
-    yield* ctx.tool.hook("execute.after", (event) => {
-      // The people the agent looked up go to main, which keeps them per account for later cards.
-      const seen = DynWorkDocuments.heard(event)
-      if (seen) Effect.runFork(documentsRpc.events.emit("people", seen).pipe(Effect.ignore))
-      const touched = DynWorkDocuments.touch(event)
-      return touched ? documentsRpc.events.emit("touch", touched).pipe(Effect.ignore) : Effect.void
-    })
+    yield* ctx.tool.hook("execute.after", (event) =>
+      Effect.gen(function* () {
+        // The people the agent looked up go to main, which keeps them per account for later cards.
+        const seen = DynWorkDocuments.heard(event)
+        if (seen) Effect.runFork(documentsRpc.events.emit("people", seen).pipe(Effect.ignore))
+        // A conversation the instance no longer knows: main registers it again for the next write.
+        const stale = DynWorkDocuments.stale(event)
+        if (stale) Effect.runFork(documentsRpc.events.emit("stale", stale).pipe(Effect.ignore))
+        // A folder already there (0.84 `name_taken`): the agent reads which, in the refusal, and uses it.
+        const taken = DynWorkDocuments.taken(event)
+        if (taken && event.status === "error") {
+          const found = yield* DynWorkDocuments.ask(asker, taken)
+          if (found?.folder !== undefined)
+            event.error = new Tool.Error({
+              message: DynWorkDocuments.reuse(event.error.message, found.folder),
+              ...(event.error.error === undefined ? {} : { error: event.error.error }),
+              ...(event.error.metadata === undefined ? {} : { metadata: event.error.metadata }),
+            })
+        }
+        const touched = DynWorkDocuments.touch(event)
+        if (touched) yield* documentsRpc.events.emit("touch", touched).pipe(Effect.ignore)
+      }),
+    )
 
     // The scheduled-task tools (routines in code): they ask main, which holds the routines, and wait for its answer (`./routines`).
     const routinesRpc = yield* ctx.rpc

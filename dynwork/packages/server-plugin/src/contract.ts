@@ -124,6 +124,22 @@ const Jwt = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9._~+/-]+=*$/), Sche
 /** Epoch milliseconds. */
 const ExpiresAt = Schema.Number.check(Schema.isGreaterThan(0))
 
+/**
+ * What the instance's Drive delivers that changes the agent's `documents` rules and calls: the switches of the same
+ * name main reads from the instance (`DriveCapabilities` in the app). Each absent or false is the 0.83 instance.
+ */
+export const Documents = Schema.Struct({
+  /** `documents_edit {content_blob_ref}` rewrites a page whole, scripts kept, and an edit by ops is the instance's to refuse. */
+  rawHtmlByMcp: Schema.optional(Schema.Boolean),
+  /** `documents_folder` makes folders and `documents_import` makes a document of an uploaded blob, scripts kept. */
+  mcpFolders: Schema.optional(Schema.Boolean),
+  /** The writes take a `context_id`: the plugin gives each one its conversation's, and only that. */
+  contextByMcp: Schema.optional(Schema.Boolean),
+  /** The instance names people by id (`GET /documents/people?ids=`), so a share card names anyone without a lookup. */
+  peopleByRest: Schema.optional(Schema.Boolean),
+})
+export type Documents = typeof Documents.Type
+
 export const Apply = Schema.Struct({
   instance: Instance,
   manifest: Manifest,
@@ -132,6 +148,8 @@ export const Apply = Schema.Struct({
   /** Without it the service gets no `systemprompt` provider. */
   gateway: Schema.optional(Gateway),
   files: Schema.optional(Schema.Array(BundleFile)),
+  /** Without it the agent works with the 0.83 instance's `documents` tools. */
+  documents: Schema.optional(Documents),
 })
 export type Apply = typeof Apply.Type
 
