@@ -13,14 +13,15 @@ import type { Inline } from "./spot"
 
 /**
  * The popup at the spot `inline` shows: what the comment points at, the text with the agent's mention, Comment and
- * Cancel. Sent, it closes and `onSent` opens the new thread where threads open there. Escape and Cancel close it
+ * Cancel. Sent, it closes, the new thread's mark shows on the document, and `onSent`, when given, follows it there (the
+ * Drive's Comments tab). Escape and Cancel close it
  * without a comment; a click outside closes it only while nothing is written (`createInline`). With `ask`, a quote also
  * offers to ask the agent about it, as the selection toolbar does.
  */
 export default function CommentPopup(props: {
   doc: Document
   inline: Inline
-  onSent: (thread: string) => void
+  onSent?: (thread: string) => void
   ask?: boolean
 }) {
   const ctx = usePlugin()
@@ -70,7 +71,7 @@ export default function CommentPopup(props: {
               onInput={props.inline.setDraft}
               onSent={(thread) => {
                 props.inline.close()
-                props.onSent(thread)
+                props.onSent?.(thread)
               }}
               extra={
                 <Show when={props.ask && spot.quote}>

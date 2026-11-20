@@ -194,8 +194,8 @@ in-memory Drive for the tests.
     node comments on the whole block. A click on a mark opens its thread, and one on a link, a button or a control does
     its own. The popup is the standard Popover anchored to the picked rectangle (below, or above without room, inside
     the window) with the Comments tab's own form (`CommentForm`: what it points at, @Agent, Cancel and Comment, the
-    Drive's refusals in line). Sent, the new thread opens where threads open: the Comments tab in the Drive, the thread's
-    dialog beside a chat. Escape and Cancel close it without a comment; a click outside closes it only while nothing is
+    Drive's refusals in line). Sent, the new thread is marked on the document; the Drive also shows it in the Comments
+    tab, while beside a chat nothing opens over the conversation. Escape and Cancel close it without a comment; a click outside closes it only while nothing is
     written, and a pick elsewhere does not move a popup with text in it, so a stray click loses nothing. In the Drive a
     quote also offers to ask the agent, as the selection toolbar does. With the marks hidden, Markdown keeps the
     selection toolbar in the Drive, and comment mode (C) stays the Drive's; beside a chat, C and Escape stay the chat's.

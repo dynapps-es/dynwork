@@ -135,8 +135,8 @@ const [picks, setPicks] = createStore<Record<string, string | undefined>>({})
 /**
  * One document beside the chat: its header with its version, the comments marked on it, Share (a popover under its
  * button), Present and Open in the Drive, then its viewer. A click on a comment's mark or its bubble opens its thread
- * in a dialog; with the marks shown, a selection or a click on the document opens a comment popup there, and the new
- * thread opens in that dialog.
+ * in a dialog; with the marks shown, a selection or a click on the document opens a comment popup there. A comment
+ * sent from it only marks the document: nothing opens over the chat.
  */
 export function DocPanel(props: { session: MountedSession; id: string }) {
   const ctx = usePlugin()
@@ -236,7 +236,7 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
                 onSpot={inline.offer}
               />
             </Show>
-            <CommentPopup doc={found()} inline={inline} onSent={(id) => thread(found(), id)} />
+            <CommentPopup doc={found()} inline={inline} />
             <PresentExit present={present} />
           </div>
         </div>
