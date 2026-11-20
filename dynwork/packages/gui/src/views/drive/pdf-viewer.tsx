@@ -3,6 +3,7 @@ import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist"
 import type { TextLayer } from "pdfjs-dist/types/src/display/text_layer"
 import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, onMount, Show } from "solid-js"
 import type { Document } from "../../drive/contract"
+import { DocLoading } from "./parts"
 import { clampPage, pagesNear, pdfSource, scaleOf, zoomIn, zoomLevels, zoomOut, type Zoom } from "./pdf"
 import { exportPdf } from "./row-menu"
 
@@ -189,7 +190,11 @@ export default function PdfViewer(props: { doc: Document; bytes: Uint8Array }) {
       >
         <Show
           when={opened()}
-          fallback={<p data-slot="drive-note">{ctx.t(opened.loading ? "drive.loading" : "drive.pdf.failed")}</p>}
+          fallback={
+            <Show when={!opened.loading} fallback={<DocLoading />}>
+              <p data-slot="drive-note">{ctx.t("drive.pdf.failed")}</p>
+            </Show>
+          }
         >
           {(found) => (
             <For each={found().sizes}>

@@ -1337,7 +1337,8 @@
 
   &:has([data-slot="drive-frame"]),
   &:has([data-component="drive-pdf"]),
-  &:has([data-slot="drive-markdown"]) {
+  &:has([data-slot="drive-markdown"]),
+  &:has([data-slot="drive-loading"]) {
     display: flex;
     flex-direction: column;
   }
@@ -1395,32 +1396,73 @@
   background: var(--v2-background-bg-base);
 }
 
+/* A bubble: the faces of the threads at one height, two of them overlapped and "+N" while folded. Each face is a button
+   of its own; the thread open now comes first, in front, ringed in the comments' accent as its card and its mark are.
+   Hovered, or reached with the keyboard, a bubble of several threads spreads all its faces apart, over the bubbles below
+   it; a face clicked keeps the focus, but not the spread. */
 [data-slot="drive-bubble"] {
   position: absolute;
   left: 6px;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
   padding: 3px;
-  border: 0;
   border-radius: 12px 12px 12px 3px;
   background: var(--v2-background-bg-layer-02);
   color: var(--v2-text-text-muted);
-  font: inherit;
   font-size: 10px;
-  cursor: pointer;
-
-  &:hover {
-    background: var(--v2-overlay-simple-overlay-hover);
-  }
 
   [data-slot="drive-avatar"] {
     box-shadow: 0 0 0 1.5px var(--v2-background-bg-layer-02);
   }
+
+  &:is(:hover, :has(:focus-visible)):has([data-slot="drive-bubble-face"] + [data-slot="drive-bubble-face"]) {
+    z-index: 2;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: var(--v2-elevation-raised);
+
+    [data-slot="drive-bubble-face"] {
+      display: inline-grid;
+      margin: 0;
+    }
+
+    [data-slot="drive-bubble-more"] {
+      display: none;
+    }
+  }
+
+  &:not(:hover, :has(:focus-visible)) [data-slot="drive-bubble-face"]:nth-of-type(n + 3) {
+    display: none;
+  }
+}
+
+[data-slot="drive-bubble-face"] {
+  position: relative;
+  display: inline-grid;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+
+  & + & {
+    margin-left: -5px;
+  }
+
+  &:hover [data-slot="drive-avatar"] {
+    filter: brightness(1.15);
+  }
+
+  &[data-state="on"] [data-slot="drive-avatar"] {
+    box-shadow:
+      0 0 0 1.5px var(--v2-background-bg-layer-02),
+      0 0 0 3px var(--drive-comment);
+  }
 }
 
 [data-slot="drive-bubble-more"] {
-  padding-right: 2px;
+  padding: 0 2px 0 3px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1435,11 +1477,37 @@
   line-height: 20px;
 }
 
+/* A page's frame, with the loading indicator over it until its first page has loaded. */
+[data-slot="drive-frame-box"] {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+
+  > [data-slot="drive-loading"] {
+    position: absolute;
+    inset: 0;
+  }
+}
+
 [data-slot="drive-frame"] {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
+}
+
+/* A document loading: the app's indicator in the middle of where the document will show, on its reading surface. */
+[data-slot="drive-loading"] {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  align-self: stretch;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  background: var(--v2-background-bg-base);
 }
 
 /* A Markdown document, drawn by the app's own renderer on the theme's reading surface. */

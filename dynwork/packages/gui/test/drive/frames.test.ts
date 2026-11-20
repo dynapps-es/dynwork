@@ -250,6 +250,32 @@ describe("main's observer in a frame", () => {
     expect(report.items[0]?.id).toBe("t0")
   })
 
+  test("reports where the page is scrolled once it moves, in whole pixels within reach, once each time it changes", () => {
+    const frame = observe(`<h1 id="intro">Intro</h1><p>Texto</p>`)
+    frame.flush()
+    // At its top, as every document starts: nothing to say.
+    expect(frame.reported).toEqual([{ kind: "heading", id: "intro" }])
+    const page = frame.document.documentElement
+    page.scrollTo(0, 1840.4)
+    frame.world.dispatchEvent(new Event("scroll"))
+    frame.world.dispatchEvent(new Event("scroll"))
+    frame.flush()
+    // The same place again: nothing more.
+    frame.world.dispatchEvent(new Event("scroll"))
+    frame.flush()
+    page.scrollTo(-12, 3_000_000)
+    frame.world.dispatchEvent(new Event("scroll"))
+    frame.flush()
+    page.scrollTo(0, 0)
+    frame.world.dispatchEvent(new Event("scroll"))
+    frame.flush()
+    expect(frame.reported.filter((report) => (report as { kind: string }).kind === "scroll")).toEqual([
+      { kind: "scroll", x: 0, y: 1840 },
+      { kind: "scroll", x: -12, y: DriveFrames.farthest },
+      { kind: "scroll", x: 0, y: 0 },
+    ])
+  })
+
   test("does nothing in a world without main's binding", () => {
     const document = new DOMParser().parseFromString(`<h1 id="a">A</h1>`, "text/html")
     const listen = { calls: 0 }
@@ -431,5 +457,81 @@ describe("what the user picks in a frame, as main's observer reports it", () => 
     expect(heard).toEqual(["click", "mouseup"])
     expect([click.defaultPrevented, mouseup.defaultPrevented]).toEqual([false, false])
     expect(frame.reported).toHaveLength(1)
+  })
+})
+
+// The restorer as main adds it for a frame's next document, here over a document of its own, in the viewer frame (its
+// parent is the top window) or in a frame of the page.
+function restore(source: string, options: { nested?: boolean } = {}) {
+  const document = new DOMParser().parseFromString(`<p>Un documento largo</p>`, "text/html")
+  const world = new EventTarget()
+  const top = {}
+  const scope = {
+    document,
+    addEventListener: world.addEventListener.bind(world),
+    parent: options.nested ? {} : top,
+    top,
+  }
+  new Function(...Object.keys(scope), source)(...Object.values(scope))
+  const page = document.documentElement
+  return {
+    page,
+    parsed: () => document.dispatchEvent(new Event("DOMContentLoaded")),
+    loaded: () => world.dispatchEvent(new Event("load")),
+  }
+}
+
+describe("the restorer main adds for a page loaded again", () => {
+  test("only for whole numbers within reach", () => {
+    expect(DriveFrames.restorer(0, 1840)).toContain("scrollTo(0, 1840)")
+    expect(DriveFrames.restorer(-DriveFrames.farthest, DriveFrames.farthest)).toBeString()
+    expect(DriveFrames.restorer(0, 10.5)).toBeUndefined()
+    expect(DriveFrames.restorer(0.5, 10)).toBeUndefined()
+    expect(DriveFrames.restorer(0, DriveFrames.farthest + 1)).toBeUndefined()
+    expect(DriveFrames.restorer(-DriveFrames.farthest - 1, 0)).toBeUndefined()
+    expect(DriveFrames.restorer(Number.NaN, 0)).toBeUndefined()
+    expect(DriveFrames.restorer(0, Number.POSITIVE_INFINITY)).toBeUndefined()
+  })
+
+  test("puts the document where the reader was once it is parsed, before it is drawn", () => {
+    const frame = restore(DriveFrames.restorer(8, 1840) ?? "")
+    expect(frame.page.scrollTop).toBe(0)
+    frame.parsed()
+    expect([frame.page.scrollLeft, frame.page.scrollTop]).toEqual([8, 1840])
+  })
+
+  test("puts it there again once it has loaded, unless the reader moved meanwhile", () => {
+    const moved = restore(DriveFrames.restorer(0, 1840) ?? "")
+    moved.parsed()
+    // The reader scrolled before the images loaded: they stay where they went.
+    moved.page.scrollTo(0, 2400)
+    moved.loaded()
+    expect(moved.page.scrollTop).toBe(2400)
+
+    const short = restore(DriveFrames.restorer(0, 1840) ?? "")
+    const calls: Array<[number, number]> = []
+    const scroll = short.page.scrollTo.bind(short.page)
+    // A page too short when parsed stops short of the place, and reaches it once it has loaded.
+    Object.assign(short.page, {
+      scrollTo: (x: number, y: number) => {
+        calls.push([x, y])
+        scroll(x, Math.min(y, calls.length === 1 ? 600 : y))
+      },
+    })
+    short.parsed()
+    expect(short.page.scrollTop).toBe(600)
+    short.loaded()
+    expect(calls).toEqual([
+      [0, 1840],
+      [0, 1840],
+    ])
+    expect(short.page.scrollTop).toBe(1840)
+  })
+
+  test("does nothing in a frame inside the page", () => {
+    const nested = restore(DriveFrames.restorer(0, 1840) ?? "", { nested: true })
+    nested.parsed()
+    nested.loaded()
+    expect(nested.page.scrollTop).toBe(0)
   })
 })

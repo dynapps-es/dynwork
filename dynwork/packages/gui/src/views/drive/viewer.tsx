@@ -31,7 +31,7 @@ import { markPage } from "./marks"
 import { framed, holds, isPdf, marked, type Node, type Placed, type Thread } from "./model"
 import { anchorPage, markdownHeadings, renderedHeading, type Heading } from "./outline"
 import { panes } from "./panes"
-import { failureText } from "./parts"
+import { DocLoading, failureText } from "./parts"
 import type { Spot } from "./spot"
 import { drive } from "./store"
 
@@ -178,9 +178,10 @@ export type Present = ReturnType<typeof createPresent>
 
 /**
  * What a report of main's observer means for the frame shown: a heading of its index, a thread it marked, where its
- * marked threads sit, or a pick of one of the blocks it numbered (`blocks`, the node of each), with the quote picked in
- * it. Anything else is dropped: another frame's report, an id or a block the viewer did not give this page, a quote the
- * node does not hold (a script may change what the page shows; the comment still anchors to the document's own text).
+ * marked threads sit, where the page is scrolled, or a pick of one of the blocks it numbered (`blocks`, the node of
+ * each), with the quote picked in it. Anything else is dropped: another frame's report, an id or a block the viewer did
+ * not give this page, a quote the node does not hold (a script may change what the page shows; the comment still
+ * anchors to the document's own text), a scroll that is not two whole numbers within `DriveFrames.farthest`.
  */
 export function fromFrame(
   seen: Seen,
@@ -197,6 +198,10 @@ export function fromFrame(
     if (!node || (seen.quote !== undefined && !holds(node, seen.quote))) return undefined
     return { kind: "pick" as const, node, quote: seen.quote, rect: seen.rect }
   }
+  if (seen.kind === "scroll")
+    return [seen.x, seen.y].every((value) => Number.isInteger(value) && Math.abs(value) <= DriveFrames.farthest)
+      ? { kind: "scroll" as const, at: { x: seen.x, y: seen.y } }
+      : undefined
   if (seen.kind === "marks")
     return {
       kind: "marks" as const,
@@ -208,6 +213,19 @@ export function fromFrame(
     return Object.hasOwn(shown.marks, seen.id) ? { kind: "mark" as const, thread: seen.id } : undefined
   const index = shown.headings.findIndex((heading) => heading.id === seen.id)
   return index < 0 ? undefined : { kind: "heading" as const, index }
+}
+
+/**
+ * The answer a viewer read, if it is for the document and version it shows now. A new head of the same document keeps
+ * the page shown until the new one is read (the frame then keeps the reader's place); another document or version is
+ * nothing until it is read, so the view loads, and its frame starts anew.
+ */
+export function answerFor<A>(
+  read: { id: string; revision?: string; answer: A } | undefined,
+  id: string,
+  revision?: string,
+) {
+  return read && read.id === id && read.revision === revision ? read.answer : undefined
 }
 
 // The formats whose headings make an index: an HTML page, Markdown, and Word as the Drive previews it. A sheet's or a
@@ -253,7 +271,13 @@ export function Viewer(props: {
         a?.revision === b?.revision,
     },
   )
-  const [shown] = createResource(source, (input) => load(input.client, input, input.revision))
+  const [read] = createResource(source, async (input) => ({
+    id: input.id,
+    revision: input.revision,
+    answer: await load(input.client, input, input.revision),
+  }))
+  // While another document or version is read, the one read before is not shown under its name: the view loads.
+  const shown = () => answerFor(read(), props.doc.id, props.revision)
   const failed = () => {
     const answer = shown()
     return answer && isFailure(answer) ? answer : undefined
@@ -282,16 +306,23 @@ export function Viewer(props: {
     return { nodes: drive.nodesOf(props.doc.id), threads: drive.threadsOf(props.doc.id) }
   }
   // Where the open threads' marks sit, as the frame's observer or the Markdown's layout tells; bubbles beside them while
-  // the marks show, at the head.
+  // the marks show, at the head. The column stays while they show, with or without a thread: a first comment, or the
+  // last one resolved, does not make the document narrower or wider under the reader.
   const [placed, setPlaced] = createSignal<readonly Placed[]>([])
-  const bubbles = () =>
-    props.revision === undefined &&
-    marked(props.doc) &&
-    panes.marks() &&
-    drive.threadsOf(props.doc.id).some((thread) => thread.open)
+  const bubbles = () => props.revision === undefined && marked(props.doc) && panes.marks()
+  // A page loaded again keeps the last places until its observer tells the new ones: a thread no longer open has none.
+  const open = () => {
+    const threads = new Set(
+      drive
+        .threadsOf(props.doc.id)
+        .filter((thread) => thread.open)
+        .map((thread) => thread.id),
+    )
+    return placed().filter((item) => threads.has(item.thread))
+  }
   return (
     <div data-slot="drive-sheet">
-      <Switch fallback={<p data-slot="drive-note">{ctx.t("drive.loading")}</p>}>
+      <Switch fallback={<DocLoading />}>
         <Match when={failed()}>
           {(failure) => (
             <p data-slot="drive-note">
@@ -320,7 +351,7 @@ export function Viewer(props: {
         <Match when={!isServer && pdf()}>{(found) => <PdfViewer doc={props.doc} bytes={found().bytes} />}</Match>
       </Switch>
       <Show when={bubbles()}>
-        <CommentBubbles doc={props.doc} placed={placed()} onThread={(thread) => props.onMark?.(thread)} />
+        <CommentBubbles doc={props.doc} placed={open()} onThread={(thread) => props.onMark?.(thread)} />
       </Show>
     </div>
   )
@@ -414,10 +445,64 @@ function MarkdownDoc(props: {
 // Each frame of the window has a name of its own, which main's observer reports it by.
 const named = { count: 0 }
 
+/** How long a frame keeps its page while main arms the next one, in milliseconds, before loading it anyway. */
+const patience = 3000
+
+/** Where a page is scrolled, in whole pixels. */
+export interface Scroll {
+  readonly x: number
+  readonly y: number
+}
+
+/**
+ * What a frame keeps across the loads of its page (`PageFrame`). It loads until its first page has: the view shows the
+ * loading indicator meanwhile, and never again for the same frame, so a page loaded again (a comment added or resolved,
+ * the marks shown or hidden) is not covered. Where the page shown is scrolled comes from main's observer, which tells
+ * it once it moves from the top. When the page changes, `leave` answers where to put the next one: nowhere before the
+ * first has loaded, and the same place for every change until the next page has loaded, since a page that has not
+ * loaded yet tells nothing of its own. `load` answers whether the view still has to take the reader back itself, to the
+ * heading they were at: main did not take the next page there (`armed`).
+ */
+export function createReload() {
+  const [loading, setLoading] = createSignal(true)
+  const held = { at: { x: 0, y: 0 } as Scroll, kept: undefined as Scroll | undefined, armed: false }
+  return {
+    loading,
+    /** Where the page shown is scrolled now. */
+    scrolled(at: Scroll) {
+      held.at = at
+    },
+    /** The page changes: where the next one goes, if anywhere. */
+    leave() {
+      if (loading()) return undefined
+      held.kept ??= held.at
+      return held.kept
+    },
+    /** Whether main puts the next page where `leave` said. */
+    armed(armed: boolean) {
+      held.armed = armed
+    },
+    /** The frame has loaded a page: whether the view takes the reader back to their heading itself. */
+    load() {
+      const back = !held.armed
+      setLoading(false)
+      held.kept = undefined
+      held.armed = false
+      return back
+    },
+  }
+}
+
 /**
  * A page in a frame with the sandbox and the policy `frameOf` gives it. Its outline jumps to a heading's id and to a
  * comment's mark, and, while main observes the frame (`dynwork.drive.frames`), follows the heading being read; a click
- * on a mark goes to `onMark`, where the marks sit to `onPlaced`, and a pick to `onSpot`, placed in the window.
+ * on a mark goes to `onMark`, where the marks sit to `onPlaced`, and a pick to `onSpot`, placed in the window. The
+ * loading indicator covers it until its first page has loaded.
+ *
+ * Another srcdoc (a comment added or resolved, the marks shown or hidden) loads the page again from its top. The frame
+ * keeps the page it shows until main has armed the next one to start where the reader was (`Frames.restore`, from the
+ * scroll its observer reported), then loads it: the reader sees the same place, with no jump. Without main's observer,
+ * or before it knows the frame, the frame goes back to the heading the reader was at once the page has loaded.
  */
 function PageFrame(props: {
   page: Page
@@ -430,36 +515,55 @@ function PageFrame(props: {
 }) {
   const name = `${DriveFrames.name}:${++named.count}`
   const frame = createMemo(() => frameOf(props.page, { name, marks: props.marks }))
+  // The page the frame shows: the previous one until main has armed the next.
+  const [shown, setShown] = createSignal(untrack(frame))
   // The same page reads the same: a new list of the same comments loads nothing.
-  const srcdoc = createMemo(() => frame().srcdoc)
+  const srcdoc = createMemo(() => shown().srcdoc)
   const [active, setActive] = createSignal<number>()
+  const reload = createReload()
   let element: HTMLIFrameElement | undefined
   // The frame's own URL with a fragment: the page scrolls there and nothing loads.
   const jump = (id: string | undefined) => {
     const view = element?.contentWindow
     if (id && view) view.location.href = `about:srcdoc#${encodeURIComponent(id)}`
   }
-  // Another srcdoc (a comment added or resolved, the marks shown or hidden) loads the page again from its top: it goes
-  // back to the heading the reader was at once it has loaded.
-  const back = { id: undefined as string | undefined }
+  const back = { id: undefined as string | undefined, asked: 0 }
   createEffect(
     on(
-      srcdoc,
-      () => {
-        back.id = untrack(() => frame().headings[active() ?? -1]?.id)
-        // The new page's marks are placed once its observer reports them.
-        props.onPlaced?.([])
+      frame,
+      (next) => {
+        if (next.srcdoc === untrack(shown).srcdoc) return void setShown(next)
+        const asked = ++back.asked
+        back.id = untrack(() => shown().headings[active() ?? -1]?.id)
+        const at = reload.leave()
+        const client = observer()
+        if (!at || !client) {
+          reload.armed(false)
+          // The new page's marks are placed once its observer reports them.
+          props.onPlaced?.([])
+          return void setShown(next)
+        }
+        // Main answers at once; a window that waits longer loads the page anyway, back to the heading.
+        void Promise.race([
+          client.restore({ frame: name, x: at.x, y: at.y }).catch(() => false),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(false), patience)),
+        ]).then((armed) => {
+          if (asked !== back.asked) return
+          reload.armed(armed)
+          if (!armed) props.onPlaced?.([])
+          setShown(untrack(frame))
+        })
       },
       { defer: true },
     ),
   )
   createEffect(() => {
-    const shown = frame()
+    const page = shown()
     props.onOutline?.({
-      headings: shown.headings,
+      headings: page.headings,
       active,
-      go: (index) => jump(shown.headings[index]?.id),
-      reveal: (thread) => jump(Object.hasOwn(shown.marks, thread) ? shown.marks[thread] : undefined),
+      go: (index) => jump(page.headings[index]?.id),
+      reveal: (thread) => jump(Object.hasOwn(page.marks, thread) ? page.marks[thread] : undefined),
     })
   })
   onCleanup(() => props.onOutline?.(undefined))
@@ -470,7 +574,8 @@ function PageFrame(props: {
     const held = new AbortController()
     void client.watch({ frame: name }, { signal: held.signal }).catch(() => undefined)
     client.on("seen", (seen) => {
-      const found = fromFrame(seen, untrack(frame))
+      const found = fromFrame(seen, untrack(shown))
+      if (found?.kind === "scroll") reload.scrolled(found.at)
       if (found?.kind === "heading") setActive(found.index)
       if (found?.kind === "mark") props.onMark?.(found.thread)
       if (found?.kind === "marks") props.onPlaced?.(found.placed)
@@ -490,18 +595,23 @@ function PageFrame(props: {
     onCleanup(() => held.abort())
   })
   return (
-    <iframe
-      ref={element}
-      data-slot="drive-frame"
-      name={name}
-      sandbox={frame().sandbox}
-      title={props.title}
-      srcdoc={srcdoc()}
-      onLoad={() => {
-        jump(back.id)
-        back.id = undefined
-      }}
-    />
+    <div data-slot="drive-frame-box">
+      <iframe
+        ref={element}
+        data-slot="drive-frame"
+        name={name}
+        sandbox={shown().sandbox}
+        title={props.title}
+        srcdoc={srcdoc()}
+        onLoad={() => {
+          if (reload.load()) jump(back.id)
+          back.id = undefined
+        }}
+      />
+      <Show when={reload.loading()}>
+        <DocLoading />
+      </Show>
+    </div>
   )
 }
 

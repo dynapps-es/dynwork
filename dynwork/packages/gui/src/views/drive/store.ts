@@ -68,6 +68,11 @@ const blankDoc = {
   tab: "details" as DocTab,
   /** The thread the Comments tab has open, by its first comment's id. */
   thread: undefined as string | undefined,
+  /**
+   * The thread is open because the user just wrote it, not because they asked to see it: the view stays as it is, and
+   * a hidden drawer stays hidden (`drive.comment`).
+   */
+  quiet: false,
   filter: "open" as "open" | "resolved",
   /** Where the comment being written points, before it is sent. */
   compose: undefined as Anchor | undefined,
@@ -78,6 +83,13 @@ const blankDoc = {
   /** Comment mode (C): a click on a block of a Markdown document opens a comment there. */
   commenting: false,
 }
+
+/**
+ * What of a document's view state asks for the Comments drawer: a thread the user picked (not one they just wrote), a
+ * comment started, or one waiting for where it points.
+ */
+export const drawerAsks = (doc: Pick<typeof blankDoc, "thread" | "quiet" | "compose" | "choosing">) =>
+  [doc.quiet ? undefined : doc.thread, doc.compose, doc.choosing] as const
 
 /** A document's comments as the Drive answered them, with the nodes they anchor to. */
 interface Discussion {
@@ -426,18 +438,25 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
     cancelReply() {
       setState("doc", "replying", undefined)
     },
-    /** Opens a thread in the Comments tab, in the filter it belongs to. */
-    focusThread(id: string) {
+    /**
+     * Opens a thread in the Comments tab, in the filter it belongs to. `quiet`, for a thread the user just wrote, opens
+     * it there without bringing the tab into view.
+     */
+    focusThread(id: string, quiet = false) {
       const open = store.thread(id)?.open !== false
       setState("doc", {
         tab: "comments",
         thread: id,
+        quiet,
         filter: open ? "open" : "resolved",
         compose: undefined,
         choosing: false,
       })
     },
-    /** A new thread on a document, at `anchor`, from a conversation when it comes from one. */
+    /**
+     * A new thread on a document, at `anchor`, from a conversation when it comes from one. It opens in the Comments tab,
+     * quietly: writing a comment asks for nothing to move.
+     */
     async comment(id: string, anchor: Anchor, body: string, conversation?: Conversation) {
       const client = options.client()
       if (!client) return disconnected
@@ -449,7 +468,7 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
       }
       setState("doc", { compose: undefined, choosing: false })
       await discuss(id)
-      store.focusThread(created.id)
+      store.focusThread(created.id, true)
       return created
     },
     async reply(id: string, thread: string, body: string, conversation?: Conversation) {

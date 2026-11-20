@@ -11,7 +11,7 @@ import { CommentPopup, DocMenu, SharePopover } from "./menus"
 import { drawerWidth, outlineWidth, panes } from "./panes"
 import { Avatar, capText, FormatGlyph, Level, openGovernance, PresentButton, PresentExit, Tag, useNames } from "./parts"
 import { createInline } from "./spot"
-import { account, drive, governance, type DocTab } from "./store"
+import { account, drawerAsks, drive, governance, type DocTab } from "./store"
 import { createPresent, Viewer, type Outline } from "./viewer"
 
 // The drawer's tabs. Sharing is the Share button's popover in the bar, as beside a chat.
@@ -32,7 +32,7 @@ export function Workspace(props: { doc: Document }) {
   let rail: HTMLElement | undefined
   const present = createPresent(() => canvas)
   // With the marks shown, a selection or a click on the document opens a comment popup there; the new thread opens in
-  // the Comments tab, as `drive.comment` does.
+  // the Comments tab, quietly, as `drive.comment` does: nothing moves under the reader, and a hidden drawer stays so.
   const inline = createInline({
     doc: () => props.doc,
     shown: panes.marks,
@@ -54,10 +54,11 @@ export function Workspace(props: { doc: Document }) {
   // The index's levels from the document's top one, three at most.
   const depth = (level: number) => Math.min(3, level - Math.min(...headings().map((heading) => heading.level)) + 1)
   const backLabel = () => ctx.t(drive.state.from && "chat" in drive.state.from ? "drive.back.chat" : "drive.back.drive")
-  // A comment picked or started from the document shows in the drawer: a hidden drawer opens for it.
+  // A comment picked or started from the document shows in the drawer: a hidden drawer opens for it. A thread the user
+  // just wrote does not open it: the document would get narrower under the reader.
   createEffect(
     on(
-      () => [drive.state.doc.thread, drive.state.doc.compose, drive.state.doc.choosing] as const,
+      () => drawerAsks(drive.state.doc),
       (asked) => {
         if (asked.some(Boolean) && !panes.drawer()) panes.toggle("drawer")
       },
@@ -178,7 +179,7 @@ export function Workspace(props: { doc: Document }) {
           <Show when={props.doc.format === "markdown"}>
             <CommentMarks doc={props.doc} onSpot={inline.offer} />
           </Show>
-          <CommentPopup doc={props.doc} inline={inline} ask onSent={(thread) => drive.focusThread(thread)} />
+          <CommentPopup doc={props.doc} inline={inline} ask />
           <PresentExit present={present} />
         </div>
         <Show when={panes.drawer()}>

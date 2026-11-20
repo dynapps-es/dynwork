@@ -5,12 +5,15 @@ import { DriveFrames } from "../../src/drive/frames"
 import { DriveWatch } from "../../src/drive/watch"
 
 // Electron only loads inside Electron: a window's contents and its debugger are event emitters here, as they are
-// there. The debugger answers the frame tree of each sub-frame session by the frame's name, records every command, and
-// emits what Chromium would: a sub-frame attached, a binding called, a detach.
+// there. The debugger answers the frame tree of each sub-frame session by the frame's name (its frame id is the
+// session's, with an `f`), an identifier for each script added, records every command, and emits what Chromium would: a
+// sub-frame attached, a binding called, a frame navigated, a detach.
 
-function stand(options: { attached?: boolean } = {}) {
+function stand(options: { attached?: boolean; wait?: number } = {}) {
   const sent: Array<{ method: string; params: Record<string, unknown>; session?: string }> = []
   const names = new Map<string, string>()
+  // `hold` keeps the next script added unanswered until it is called, as a busy renderer would.
+  const scripts = { added: 0, hold: undefined as Promise<void> | undefined }
   const devtools = Object.assign(new EventEmitter(), {
     attached: options.attached ?? false,
     isAttached: () => devtools.attached,
@@ -22,7 +25,15 @@ function stand(options: { attached?: boolean } = {}) {
     },
     sendCommand: async (method: string, params: Record<string, unknown> = {}, session?: string) => {
       sent.push({ method, params, session })
-      if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "f", name: names.get(session ?? "") } } }
+      if (method === "Page.getFrameTree")
+        return { frameTree: { frame: { id: `f${session}`, name: names.get(session ?? "") } } }
+      if (method === "Page.addScriptToEvaluateOnNewDocument") {
+        const identifier = `script${++scripts.added}`
+        const held = scripts.hold
+        scripts.hold = undefined
+        if (held) await held
+        return { identifier }
+      }
       return {}
     },
   })
@@ -32,6 +43,7 @@ function stand(options: { attached?: boolean } = {}) {
   const watch = DriveWatch.make({
     contents: (window) => (window === 1 ? (contents as unknown as DriveWatch.Contents) : undefined),
     seen: (window, report) => seen.push({ window, seen: report }),
+    wait: options.wait,
   })
   const frame = async (session: string, name: string) => {
     names.set(session, name)
@@ -41,7 +53,9 @@ function stand(options: { attached?: boolean } = {}) {
   const call = (session: string, payload: unknown, name: string = DriveFrames.binding) =>
     devtools.emit("message", {}, "Runtime.bindingCalled", { name, payload }, session)
   const of = (session: string) => sent.filter((command) => command.session === session).map((command) => command.method)
-  return { devtools, contents, sent, seen, watch, frame, call, of }
+  const navigated = (session: string, frame = `f${session}`) =>
+    devtools.emit("message", {}, "Page.frameNavigated", { frame: { id: frame }, type: "Navigation" }, session)
+  return { devtools, contents, sent, seen, watch, frame, call, of, navigated, scripts }
 }
 
 const viewer = `${DriveFrames.name}:1`
@@ -180,6 +194,134 @@ describe("main's observer of the viewer's frames", () => {
     main.call("s1", JSON.stringify({ kind: "pick", block: 3, quote: "x".repeat(40 * 1024), rect }))
     main.call("s9", JSON.stringify({ kind: "pick", block: 3, rect }))
     expect(main.seen).toEqual([{ window: 1, seen: { frame: viewer, kind: "pick", block: 3, quote: "Riesgos", rect } }])
+    held.abort()
+  })
+
+  test("where the page is scrolled is two whole numbers of pixels within reach, nothing more", () => {
+    const scroll = (value: Record<string, unknown>) => DriveWatch.report(JSON.stringify({ kind: "scroll", ...value }))
+    expect(scroll({ x: 0, y: 1840 })).toEqual({ kind: "scroll", x: 0, y: 1840 })
+    expect(scroll({ x: -DriveFrames.farthest, y: DriveFrames.farthest })?.kind).toBe("scroll")
+    // Part of a pixel, beyond reach, not a number, a side missing, or more than a place.
+    expect(scroll({ x: 0, y: 10.5 })).toBeUndefined()
+    expect(scroll({ x: 0, y: DriveFrames.farthest + 1 })).toBeUndefined()
+    expect(scroll({ x: -DriveFrames.farthest - 1, y: 0 })).toBeUndefined()
+    expect(scroll({ x: "0", y: 10 })).toBeUndefined()
+    expect(scroll({ y: 10 })).toBeUndefined()
+    expect(scroll({ x: 0, y: 10, id: "intro" })).toBeUndefined()
+    expect(scroll({ x: 0, y: 10, script: "scrollTo(0, 0)" })).toBeUndefined()
+  })
+
+  test("sends the window where its frame is scrolled", async () => {
+    const main = stand()
+    const held = new AbortController()
+    void main.watch.watch(1, viewer, held.signal)
+    await main.frame("s1", viewer)
+    main.call("s1", JSON.stringify({ kind: "scroll", x: 0, y: 1840 }))
+    main.call("s1", JSON.stringify({ kind: "scroll", x: 0, y: 1840.5 }))
+    main.call("s9", JSON.stringify({ kind: "scroll", x: 0, y: 10 }))
+    expect(main.seen).toEqual([{ window: 1, seen: { frame: viewer, kind: "scroll", x: 0, y: 1840 } }])
+    held.abort()
+  })
+
+  test("puts a frame's next document where the window asks, in the isolated world, and only that document", async () => {
+    const main = stand()
+    const held = new AbortController()
+    void main.watch.watch(1, viewer, held.signal)
+    await main.frame("s1", viewer)
+    expect(await main.watch.restore(1, viewer, { x: 0, y: 1840 })).toBe(true)
+    const added = main.sent.at(-1)
+    expect(added).toEqual({
+      method: "Page.addScriptToEvaluateOnNewDocument",
+      params: { source: DriveFrames.restorer(0, 1840), worldName: DriveFrames.world },
+      session: "s1",
+    })
+    // Not the main world's: the page's scripts never see it, and it has nothing but the two numbers.
+    expect(added?.params).not.toHaveProperty("runImmediately")
+    // A frame of the page that navigates is not the frame's next document.
+    main.navigated("s1", "a-frame-of-the-page")
+    expect(main.of("s1")).not.toContain("Page.removeScriptToEvaluateOnNewDocument")
+    // The frame's next document has started with it: it goes, for the documents after it (the observer, added first,
+    // is `script1` and stays).
+    main.navigated("s1")
+    expect(main.sent.at(-1)).toEqual({
+      method: "Page.removeScriptToEvaluateOnNewDocument",
+      params: { identifier: "script2" },
+      session: "s1",
+    })
+    main.navigated("s1")
+    expect(main.of("s1").filter((method) => method === "Page.removeScriptToEvaluateOnNewDocument")).toHaveLength(1)
+    held.abort()
+  })
+
+  test("the frame holds only the last restore asked for it", async () => {
+    const main = stand()
+    const held = new AbortController()
+    void main.watch.watch(1, viewer, held.signal)
+    await main.frame("s1", viewer)
+    // Asked together: the first is overtaken and takes its script away; the second arms the frame.
+    const first = main.watch.restore(1, viewer, { x: 0, y: 900 })
+    const second = main.watch.restore(1, viewer, { x: 0, y: 1840 })
+    expect(await first).toBe(false)
+    expect(await second).toBe(true)
+    const together = main.sent.filter((command) => command.session === "s1").slice(-3)
+    expect(together.map((command) => [command.method, command.params.source ?? command.params.identifier])).toEqual([
+      ["Page.addScriptToEvaluateOnNewDocument", DriveFrames.restorer(0, 900)],
+      ["Page.addScriptToEvaluateOnNewDocument", DriveFrames.restorer(0, 1840)],
+      ["Page.removeScriptToEvaluateOnNewDocument", "script2"],
+    ])
+    // Asked after it, before the frame navigates: it replaces it.
+    expect(await main.watch.restore(1, viewer, { x: 0, y: 2400 })).toBe(true)
+    const after = main.sent.filter((command) => command.session === "s1").slice(-2)
+    expect(after.map((command) => [command.method, command.params.source ?? command.params.identifier])).toEqual([
+      ["Page.removeScriptToEvaluateOnNewDocument", "script3"],
+      ["Page.addScriptToEvaluateOnNewDocument", DriveFrames.restorer(0, 2400)],
+    ])
+    held.abort()
+  })
+
+  test("a frame that does not take the script in time is not armed, and loses it when it lands", async () => {
+    const main = stand({ wait: 5 })
+    const held = new AbortController()
+    void main.watch.watch(1, viewer, held.signal)
+    await main.frame("s1", viewer)
+    const answer = Promise.withResolvers<void>()
+    main.scripts.hold = answer.promise
+    expect(await main.watch.restore(1, viewer, { x: 0, y: 1840 })).toBe(false)
+    answer.resolve()
+    await Bun.sleep(0)
+    expect(main.sent.at(-1)).toEqual({
+      method: "Page.removeScriptToEvaluateOnNewDocument",
+      params: { identifier: "script2" },
+      session: "s1",
+    })
+    // The next document starts at its top: a navigation has nothing to take away.
+    main.navigated("s1")
+    expect(main.of("s1").filter((method) => method === "Page.removeScriptToEvaluateOnNewDocument")).toHaveLength(1)
+    held.abort()
+  })
+
+  test("restores only whole numbers within reach, for a frame that window watches and main observes", async () => {
+    const main = stand()
+    const held = new AbortController()
+    void main.watch.watch(1, viewer, held.signal)
+    await main.frame("s1", viewer)
+    await main.frame("s2", `${DriveFrames.name}:2`)
+    const before = main.sent.length
+    // Numbers that are not whole pixels within reach.
+    expect(await main.watch.restore(1, viewer, { x: 0, y: 10.5 })).toBe(false)
+    expect(await main.watch.restore(1, viewer, { x: 0, y: DriveFrames.farthest + 1 })).toBe(false)
+    expect(await main.watch.restore(1, viewer, { x: Number.NaN, y: 0 })).toBe(false)
+    // Another window, a viewer frame no call of the window watches, a name that is not a viewer's.
+    expect(await main.watch.restore(2, viewer, { x: 0, y: 10 })).toBe(false)
+    expect(await main.watch.restore(1, `${DriveFrames.name}:2`, { x: 0, y: 10 })).toBe(false)
+    expect(await main.watch.restore(1, "browser-preview", { x: 0, y: 10 })).toBe(false)
+    expect(main.sent.length).toBe(before)
+    // A frame the window watches that main has not reached (no site isolation): nothing to arm.
+    const other = new AbortController()
+    void main.watch.watch(1, `${DriveFrames.name}:3`, other.signal)
+    expect(await main.watch.restore(1, `${DriveFrames.name}:3`, { x: 0, y: 10 })).toBe(false)
+    expect(main.sent.filter((command) => command.method === "Page.addScriptToEvaluateOnNewDocument")).toHaveLength(2)
+    other.abort()
     held.abort()
   })
 

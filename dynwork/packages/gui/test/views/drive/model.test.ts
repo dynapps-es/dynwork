@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { Document, Folder, Link } from "../../../src/drive/contract"
 import {
   ago,
+  bubbleFaces,
   bubbleRows,
   byConversation,
   highlight,
@@ -219,6 +220,21 @@ describe("the comments' bubbles beside a document", () => {
         48,
       ),
     ).toEqual([{ top: 0, threads: ["a", "b"] }])
+  })
+})
+
+describe("the faces of a bubble", () => {
+  test("in place order, two while folded and the rest as +N", () => {
+    expect(bubbleFaces(["a", "b"], undefined)).toEqual({ faces: ["a", "b"], more: 0 })
+    expect(bubbleFaces(["a", "b", "c", "d"], undefined)).toEqual({ faces: ["a", "b", "c", "d"], more: 2 })
+    expect(bubbleFaces(["a"], "z")).toEqual({ faces: ["a"], more: 0 })
+  })
+
+  test("the thread open now goes to the front, also from behind the +N", () => {
+    // The lower, covered face of two threads at one height, once clicked and open, is the one in front.
+    expect(bubbleFaces(["a", "b"], "b")).toEqual({ faces: ["b", "a"], more: 0 })
+    expect(bubbleFaces(["a", "b", "c", "d"], "d")).toEqual({ faces: ["d", "a", "b", "c"], more: 2 })
+    expect(bubbleFaces(["a", "b"], "a").faces[0]).toBe("a")
   })
 })
 

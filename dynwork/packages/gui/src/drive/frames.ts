@@ -140,9 +140,22 @@ export const observer = `(() => {
   if (typeof send !== "function") return
   const reading = ${reading.toString()}
   const report = (kind, id) => send(JSON.stringify({ kind, id }))
-  const state = { last: undefined, marks: "[]", frame: 0 }
+  const within = (value) => Math.max(-${farthest}, Math.min(${farthest}, Math.round(value)))
+  const size = (value) => Math.max(0, Math.min(${farthest}, Math.round(value)))
+  // A new document starts at its top, which the view takes for granted: the scroll is reported once it moves.
+  const state = { last: undefined, marks: "[]", scroll: "0,0", frame: 0 }
   const read = () => {
     state.frame = 0
+    const page = document.scrollingElement ?? document.documentElement
+    if (page) {
+      const x = within(page.scrollLeft)
+      const y = within(page.scrollTop)
+      const at = x + "," + y
+      if (at !== state.scroll) {
+        state.scroll = at
+        send(JSON.stringify({ kind: "scroll", x, y }))
+      }
+    }
     const headings = [...document.querySelectorAll("h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]")]
     const index = reading(headings.map((heading) => heading.getBoundingClientRect().top), innerHeight)
     const id = index < 0 ? undefined : headings[index].id
@@ -170,8 +183,6 @@ export const observer = `(() => {
   addEventListener("load", later)
   document.addEventListener("DOMContentLoaded", later)
   later()
-  const within = (value) => Math.max(-${farthest}, Math.min(${farthest}, Math.round(value)))
-  const size = (value) => Math.max(0, Math.min(${farthest}, Math.round(value)))
   const pick = (block, quote, at) => {
     const index = Number(block.getAttribute("data-dynwork-block"))
     if (!Number.isInteger(index) || index < 0 || index > ${maxBlocks}) return
@@ -214,3 +225,36 @@ export const observer = `(() => {
     true,
   )
 })()`
+
+/**
+ * The script main adds once for the next document of a viewer frame whose page the view loads again (a comment added or
+ * resolved, the marks shown or hidden): it puts that document where the reader left the previous one, before it is
+ * drawn. `x` and `y` are where the previous one was scrolled, as its observer reported it; anything but whole numbers
+ * within `farthest` makes no script. It runs in `world` of the viewer frame alone, not in a frame of the page, scrolls
+ * the document's own scroller when the document is parsed, and again once it has loaded, unless the reader moved
+ * meanwhile: what loads late (images, fonts) may have made the page taller than it was when parsed.
+ */
+export function restorer(x: number, y: number) {
+  if (![x, y].every((value) => Number.isInteger(value) && Math.abs(value) <= farthest)) return undefined
+  return `(() => {
+  if (parent !== top) return
+  const page = () => document.scrollingElement ?? document.documentElement
+  const set = { x: undefined, y: undefined }
+  const put = () => {
+    const element = page()
+    if (!element) return
+    element.scrollTo(${x}, ${y})
+    set.x = element.scrollLeft
+    set.y = element.scrollTop
+  }
+  document.addEventListener("DOMContentLoaded", put, { once: true })
+  addEventListener(
+    "load",
+    () => {
+      const element = page()
+      if (element && element.scrollLeft === set.x && element.scrollTop === set.y) put()
+    },
+    { once: true },
+  )
+})()`
+}

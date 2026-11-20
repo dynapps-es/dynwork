@@ -270,7 +270,9 @@ nothing of DynWork reaches the page:
   runs in frames with no scripts and `default-src 'none'`, survives a new `srcdoc`, and a page's own
   `window.dynworkDriveFrame` is not the binding.
 - **What it reports** (`DriveFrames.observer`): the id of the heading being read when it changes (`DriveFrames.reading`:
-  the last heading whose top has passed the upper third of the frame, else the first); where the first mark of each
+  the last heading whose top has passed the upper third of the frame, else the first); where the page is scrolled
+  (phase 19), once it moves from the top and then each time it changes, as `{ kind: "scroll", x, y }` in whole pixels of
+  the document's own scroller (`document.scrollingElement`) clamped to `DriveFrames.farthest`; where the first mark of each
   thread sits when that changes (on scroll, resize and load: the thread's id and its top in whole pixels from the top
   of the frame's visible area, clamped to `DriveFrames.farthest`, the first `DriveFrames.maxMarks` of the page); and the
   comment of a mark the user clicked, only for a trusted click, so the page's scripts cannot click one for the user.
@@ -286,12 +288,13 @@ nothing of DynWork reaches the page:
 - **What main takes.** A binding call from a viewer frame's session whose name a call of that window watches, at most
   32 KB, parsed as `{ kind: "heading" | "mark", id }` with an id of 1 to 256 characters, or as
   `{ kind: "marks", items: [{ id, top }] }` with at most `maxMarks` items, each such an id and a whole number within
-  `farthest`, or as `{ kind: "pick", block, quote?, rect: { left, top, width, height } }` with a whole block index up
+  `farthest`, or as `{ kind: "scroll", x, y }` with two whole numbers within `farthest`, or as `{ kind: "pick", block, quote?, rect: { left, top, width, height } }` with a whole block index up
   to `DriveFrames.maxBlocks`, a quote of 1 to `maxQuote` characters, sides that are whole numbers within `farthest`
   (sizes from 0), and not a key more, at any level (`DriveWatch.report`); anything else is dropped whole. It goes to that window alone,
   as the `seen` event of `dynwork.drive.frames`.
 - **What the window takes** (`views/drive/viewer.tsx`, `fromFrame`): a report for its own frame's name whose id is a
   heading id or a mark it gave that page; of a `marks` report, the items whose id is a thread it marked there; of a
+  `scroll`, two whole numbers within `farthest`; of a
   `pick`, a block index it numbered in that page (its node from the table `frameOf` keeps, `blocks`) and a quote that,
   spaces collapsed, is in the text the app knows of that node (`holds`). The window then moves the rectangle into its
   own coordinates (the frame's place and scale, cut to what the frame shows: `framed`) to place the popup. A page
@@ -299,6 +302,25 @@ nothing of DynWork reaches the page:
   the bubble of one of its own threads, or open the comment popup on one of the document's own nodes and quotes,
   where the user still writes and sends the comment. The bubbles' names and initials are drawn by the window, beside the frame:
   nothing of a comment goes into the page, nor comes out of it.
+- **Where a page loaded again starts** (phase 19). A comment added or resolved, or the marks shown or hidden, writes the
+  frame a new `srcdoc`, which loads from its top. The window keeps showing the old page and asks main to put the next
+  one where the observer last saw the reader (`restore({ frame, x, y })` of `dynwork.drive.frames`); main answers, and
+  only then does the window load the new page. Main (`DriveWatch.restore`) takes only whole numbers within `farthest`
+  (the Ipc's schema, then `DriveFrames.restorer`), for a frame a call of that window watches and whose session it holds:
+  anything else answers `false` and sends nothing. It adds to that frame's session, in the world `dynwork-drive`, a
+  script it builds itself from the two numbers (`DriveFrames.restorer`: nothing of the window or of the page goes into
+  it) with `Page.addScriptToEvaluateOnNewDocument`, without `runImmediately`, so it runs only in the next document. It
+  scrolls the document's own scroller there when the document is parsed (`DOMContentLoaded`), before it is drawn, and
+  again on `load` unless the reader moved meanwhile, since images and fonts may make the page taller; it does nothing
+  in a frame inside the page (`parent !== top`). Main removes the script when the frame's own frame navigates
+  (`Page.frameNavigated` for the id the session's frame tree named), so later documents start at their top. Only the
+  last restore asked for a frame arms it: one a later one overtook, or one the frame has not taken within 2 s (a busy
+  renderer), answers `false` and takes its script away whenever it lands. The window, for its part, loads the new page
+  anyway after 3 s without an answer. `Runtime.evaluate` once the page has loaded would have shown
+  the page at its top first; this needs no evaluation in the page's context at all. The page sees nothing of it: no
+  binding, no message, no change to its policy or its sandbox. When main cannot (no observer for the frame), the window
+  goes back to the heading the reader was at, as before. Only the document's own scroller is kept: a page that scrolls
+  an inner box of its own (a layout with `overflow: auto`) starts that box at its top.
 - **When it stops.** When the window's last frame stops watching, main detaches if it attached; if another client had
   attached first (the force-focus helper), main leaves it attached and lets its own sessions go. If another client
   detaches while the window watches, main attaches again. Each frame of a window has its own name

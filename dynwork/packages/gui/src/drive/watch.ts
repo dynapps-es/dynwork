@@ -13,8 +13,12 @@ import { DriveFrames } from "./frames"
 // sub-frames, keeps the viewer's and lets the others go, and in each viewer frame adds the observer to every new
 // document in `DriveFrames.world`, with a binding that exists only in that world. Neither reaches the page: its
 // scripts cannot see, call or replace them. What the binding receives is parsed here (a kind and one short id,
-// bounded mark positions, or a pick of a block index, a short quote and a bounded rectangle) and sent to that window alone, which keeps only ids it gave the page. When the window stops watching, main detaches,
-// unless another client had attached first, which it then leaves attached.
+// bounded mark positions, where the page is scrolled, or a pick of a block index, a short quote and a bounded
+// rectangle) and sent to that window alone, which keeps only ids it gave the page. When the window loads a frame's page
+// again, it may ask main to put the next document where the reader was (`restore`): main adds `DriveFrames.restorer`,
+// built from two whole numbers, to that frame's next document, in the same world, and takes it away once the frame has
+// navigated. When the window stops watching, main detaches, unless another client had attached first, which it then
+// leaves attached.
 
 /** What `make` needs of a window's contents. */
 export type Contents = Pick<WebContents, "debugger" | "isDestroyed" | "once">
@@ -24,6 +28,8 @@ export interface Options {
   contents: (window: number) => Contents | undefined
   /** Tells a window what one of its frames was seen doing. */
   seen: (window: number, seen: Seen) => void
+  /** How long a restore waits for the frame to take its script, in milliseconds: 2 s by default. */
+  wait?: number
 }
 
 const Id = Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(256))
@@ -32,8 +38,9 @@ const Size = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: DriveFrame
 
 /**
  * What a window's frame may report through the binding, as JSON, nothing else: a kind and one id; where at most
- * `DriveFrames.maxMarks` marks sit, each an id and a whole number of pixels within `DriveFrames.farthest`; or a pick,
- * a block's index, an optional quote of `DriveFrames.maxQuote` at most and a rectangle of whole pixels.
+ * `DriveFrames.maxMarks` marks sit, each an id and a whole number of pixels within `DriveFrames.farthest`; where the
+ * page is scrolled, two such numbers; or a pick, a block's index, an optional quote of `DriveFrames.maxQuote` at most
+ * and a rectangle of whole pixels.
  */
 const Report = Schema.fromJsonString(
   Schema.Union([
@@ -42,6 +49,7 @@ const Report = Schema.fromJsonString(
       kind: Schema.Literal("marks"),
       items: Schema.Array(Schema.Struct({ id: Id, top: Px })).check(Schema.isMaxLength(DriveFrames.maxMarks)),
     }),
+    Schema.Struct({ kind: Schema.Literal("scroll"), x: Px, y: Px }),
     Schema.Struct({
       kind: Schema.Literal("pick"),
       block: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: DriveFrames.maxBlocks })),
@@ -53,8 +61,12 @@ const Report = Schema.fromJsonString(
 // A report with anything more than these keys is not one.
 const decodeReport = Schema.decodeUnknownOption(Report, { onExcessProperty: "error" })
 const decodeTree = Schema.decodeUnknownOption(
-  Schema.Struct({ frameTree: Schema.Struct({ frame: Schema.Struct({ name: Schema.optional(Schema.String) }) }) }),
+  Schema.Struct({
+    frameTree: Schema.Struct({ frame: Schema.Struct({ id: Schema.String, name: Schema.optional(Schema.String) }) }),
+  }),
 )
+const decodeAdded = Schema.decodeUnknownOption(Schema.Struct({ identifier: Schema.String }))
+const decodeNavigated = Schema.decodeUnknownOption(Schema.Struct({ frame: Schema.Struct({ id: Schema.String }) }))
 
 /** The longest report taken: `maxMarks` marks with the longest ids. */
 const longest = 32 * 1024
@@ -65,11 +77,21 @@ export function report(payload: unknown) {
   return Option.getOrUndefined(decodeReport(payload))
 }
 
+/** A viewer frame main observes: its name and the id of its frame in its session. */
+interface Session {
+  readonly name: string
+  readonly root: string
+  /** The `restorer` added for the frame's next document, until the frame navigates. */
+  restorer?: string
+  /** How many restores were asked for the frame: only the last one asked arms it. */
+  asked: number
+}
+
 /** A window main watches: its frames by name and how many calls hold each, and the sessions of its viewer frames. */
 interface Watched {
   readonly contents: Contents
   readonly frames: Map<string, number>
-  readonly sessions: Map<string, string>
+  readonly sessions: Map<string, Session>
   /** Main attached the debugger, so it detaches it. */
   owned: boolean
   attached: boolean
@@ -78,6 +100,7 @@ interface Watched {
 
 export function make(options: Options) {
   const windows = new Map<number, Watched>()
+  const wait = options.wait ?? 2000
 
   function attach(watched: Watched) {
     const devtools = watched.contents.debugger
@@ -105,8 +128,8 @@ export function make(options: Options) {
       devtools.sendCommand(method, params, session).catch(() => undefined)
     const tree = Option.getOrUndefined(decodeTree(await send("Page.getFrameTree")))
     const name = tree?.frameTree.frame.name ?? ""
-    if (!DriveFrames.isViewer(name)) return void send("Target.detachFromTarget", { sessionId: session })
-    watched.sessions.set(session, name)
+    if (!tree || !DriveFrames.isViewer(name)) return void send("Target.detachFromTarget", { sessionId: session })
+    watched.sessions.set(session, { name, root: tree.frameTree.frame.id, asked: 0 })
     await send("Runtime.enable")
     await send("Page.enable")
     await send("Runtime.addBinding", { name: DriveFrames.binding, executionContextName: DriveFrames.world })
@@ -133,12 +156,24 @@ export function make(options: Options) {
         entry.sessions.delete((params as { sessionId: string }).sessionId)
         return
       }
-      if (method !== "Runtime.bindingCalled" || !session) return
+      const frame = session === undefined ? undefined : entry.sessions.get(session)
+      if (!session || !frame) return
+      // The frame's next document has started, with the restorer: it is not one for the documents after it.
+      if (method === "Page.frameNavigated") {
+        const navigated = Option.getOrUndefined(decodeNavigated(params))
+        const added = frame.restorer
+        if (navigated?.frame.id !== frame.root || added === undefined) return
+        frame.restorer = undefined
+        void devtools
+          .sendCommand("Page.removeScriptToEvaluateOnNewDocument", { identifier: added }, session)
+          .catch(() => undefined)
+        return
+      }
+      if (method !== "Runtime.bindingCalled") return
       const called = params as { name: string; payload: unknown }
-      const frame = entry.sessions.get(session)
-      if (called.name !== DriveFrames.binding || frame === undefined || !entry.frames.has(frame)) return
+      if (called.name !== DriveFrames.binding || !entry.frames.has(frame.name)) return
       const seen = report(called.payload)
-      if (seen) options.seen(window, { frame, ...seen })
+      if (seen) options.seen(window, { frame: frame.name, ...seen })
     }
     // Another client detached the debugger: attach again while the window still watches.
     const detach = () => {
@@ -166,6 +201,38 @@ export function make(options: Options) {
     })
     windows.set(window, entry)
     return entry
+  }
+
+  // The frame holds at most the last restore asked for it. One that a later one overtook, or that the frame did not
+  // take in time (its window's renderer may be busy), takes its script away whenever it lands, and answers false.
+  async function arm(watched: Watched, frame: string, source: string) {
+    const found = [...watched.sessions].find((item) => item[1].name === frame)
+    if (!found) return false
+    const session = found[0]
+    const held = found[1]
+    const turn = ++held.asked
+    const devtools = watched.contents.debugger
+    const send = (method: string, params: object) =>
+      devtools.sendCommand(method, params, session).catch(() => undefined)
+    const remove = (identifier: string) => void send("Page.removeScriptToEvaluateOnNewDocument", { identifier })
+    if (held.restorer !== undefined) remove(held.restorer)
+    held.restorer = undefined
+    const adding = send("Page.addScriptToEvaluateOnNewDocument", { source, worldName: DriveFrames.world }).then(
+      (answer) => Option.getOrUndefined(decodeAdded(answer))?.identifier,
+    )
+    const late = new Promise<"late">((resolve) => setTimeout(() => resolve("late"), wait))
+    const added = await Promise.race([adding, late])
+    if (added === "late") {
+      void adding.then((identifier) => identifier !== undefined && remove(identifier))
+      return false
+    }
+    if (added === undefined) return false
+    if (held.asked !== turn || watched.sessions.get(session) !== held) {
+      remove(added)
+      return false
+    }
+    held.restorer = added
+    return true
   }
 
   // The last call for the window's last frame ended: main lets the frames go, and detaches if it attached.
@@ -204,6 +271,17 @@ export function make(options: Options) {
           { once: true },
         )
       })
+    },
+    /**
+     * Puts the next document of the window's frame named `frame` where `at` says, from where its scroller starts: only
+     * for a frame a call of that window watches, and only whole numbers within `DriveFrames.farthest`. Answers whether
+     * the next document will be put there; it is up to the window to load that document then.
+     */
+    restore(window: number, frame: string, at: { x: number; y: number }) {
+      const source = DriveFrames.restorer(at.x, at.y)
+      const entry = windows.get(window)
+      if (source === undefined || !entry || !entry.frames.has(frame)) return Promise.resolve(false)
+      return arm(entry, frame, source)
     },
     /** Stops watching every window. */
     dispose() {

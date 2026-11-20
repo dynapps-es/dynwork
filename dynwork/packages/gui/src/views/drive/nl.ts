@@ -204,6 +204,7 @@ export default {
   "drive.share.nobody": "Niemand met die naam of dat e-mailadres",
   "drive.share.searching": "Zoeken…",
   "drive.bubble": "Opmerkingen hier: {{count}}",
+  "drive.bubble.thread": "Opmerking van {{name}}",
   "drive.panel.title": "Artefacten",
   "drive.panel.add": "Toevoegen vanuit de Drive",
   "drive.panel.empty":
@@ -241,6 +242,7 @@ export default {
   "drive.panel.upload.hint":
     "Upload een bestand dat deze chat heeft gemaakt: het wordt opgeslagen met de naam van het gesprek",
   "drive.preview.failed": "Het voorbeeld kon niet worden geladen.",
+  "drive.preview.loading": "Het document wordt geladen…",
   "drive.proposals.open": "In behandeling",
   "drive.proposals.unnamed": "Voorgestelde wijziging",
   "drive.version.unnamed": "Zonder beschrijving",
