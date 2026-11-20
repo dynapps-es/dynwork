@@ -107,24 +107,27 @@ describe("account sessions", () => {
     context.accounts.dispose()
   })
 
-  test("a PAT the instance refuses signs the account out", async () => {
+  test("a PAT the instance refuses lapses the account: it stays active and waits for a new sign-in", async () => {
     const context = await signedIn()
     fake.state.jwts.clear()
     fake.state.pats.clear()
     await expect(context.accounts.withJwt(context.id, whoami)).rejects.toBeInstanceOf(SpClient.Unauthorized)
-    expect(context.accounts.list()).toMatchObject([{ id: context.id, status: "signedOut", active: false }])
+    expect(context.accounts.list()).toMatchObject([
+      { id: context.id, status: "needsSignIn", lapse: "revoked", active: true },
+    ])
     expect(context.store.value.accounts[0]?.patCipher).toBeUndefined()
-    expect(context.store.value.active).toBeUndefined()
+    expect(context.store.value.accounts[0]?.lapsed).toMatchObject({ reason: "revoked", kept: true })
+    expect(context.store.value.active).toBe(context.id)
     await expect(context.accounts.jwt(context.id)).rejects.toBeInstanceOf(DynWorkAccounts.NotSignedIn)
   })
 
-  test("a renewal refused for its PAT signs the account out", async () => {
+  test("a renewal refused for its PAT lapses the account", async () => {
     jest.useFakeTimers()
     setSystemTime(new Date(start))
     const context = await signedIn()
     fake.state.pats.clear()
     elapse(ttl * 0.8)
-    await until(() => context.accounts.list()[0]?.status === "signedOut")
+    await until(() => context.accounts.list()[0]?.status === "needsSignIn")
     await expect(context.accounts.jwt(context.id)).rejects.toBeInstanceOf(DynWorkAccounts.NotSignedIn)
     expect(context.events.changed).toBeGreaterThan(1)
   })

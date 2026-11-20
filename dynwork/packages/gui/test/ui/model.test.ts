@@ -177,3 +177,43 @@ describe("what the page says", () => {
     expect(AccountsModel.short("sha256:abc")).toBe("sha256:abc")
   })
 })
+
+describe("an instance whose sign-in the instance refused for good", () => {
+  const lapsed = (overrides: Parameters<typeof account>[0] = {}) =>
+    account({ active: true, status: "needsSignIn", lapse: "revoked", ...overrides })
+
+  test("says why, wears its badge and leads with signing in again", () => {
+    for (const lapse of ["expired", "revoked", "refused"] as const) {
+      const row = AccountsModel.rows(state([lapsed({ lapse })]))[0]
+      expect(row?.badges).toEqual(["active", "needs-sign-in"])
+      expect(row?.sync).toEqual({ kind: "needs-sign-in", lapse })
+      expect(row?.actions).toEqual(["sign-in-again", "sign-out", "remove"])
+      expect(row?.key).toBeUndefined()
+      expect(AccountsModel.describe({ kind: "needs-sign-in", lapse }, now)).toEqual({
+        key: `sync.lapse.${lapse}`,
+        time: undefined,
+      })
+    }
+    expect(AccountsModel.rows(state([lapsed({ active: false })]))[0]?.badges).toEqual(["needs-sign-in"])
+  })
+
+  test("the pill stays on it, amber, whatever the engine last said", () => {
+    const pill = AccountsModel.pill(state([lapsed()], { status: "idle" }))
+    expect(pill).toMatchObject({ icon: "circle-exclamation", tone: "warning", sync: { kind: "needs-sign-in" } })
+    expect(pill?.account.id).toBe("alpha")
+    expect(AccountsModel.lapsed(state([lapsed()]))?.id).toBe("alpha")
+    // Only the active account leads the window back to the browser.
+    expect(AccountsModel.lapsed(state([lapsed({ active: false }), account({ id: "b", active: true })]))).toBeUndefined()
+    expect(AccountsModel.active(state([lapsed()]))).toBeUndefined()
+  })
+
+  test("a sign-in again that did not sign in says why, except when the user cancelled it", () => {
+    expect(AccountsModel.outcome("signed-in")).toBeUndefined()
+    expect(AccountsModel.outcome("cancelled")).toBeUndefined()
+    expect(AccountsModel.outcome("denied")).toBe("lapse.outcome.denied")
+    expect(AccountsModel.outcome("expired")).toBe("lapse.outcome.expired")
+    expect(AccountsModel.outcome("unreachable")).toBe("lapse.outcome.unreachable")
+    expect(AccountsModel.outcome("refused")).toBe("lapse.outcome.failed")
+    expect(AccountsModel.outcome("insecure")).toBe("lapse.outcome.failed")
+  })
+})

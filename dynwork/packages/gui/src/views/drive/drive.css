@@ -402,6 +402,12 @@
   text-decoration: none;
 }
 
+/* The way to sign in again when the instance refused the active account's sign-in for good. */
+[data-slot="drive-lapse"] {
+  flex: none;
+  padding: 12px 12px 0;
+}
+
 [data-slot="drive-banner"] {
   display: flex;
   flex: none;

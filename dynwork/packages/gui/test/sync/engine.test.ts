@@ -537,6 +537,65 @@ describe("switching and signing out", () => {
   })
 })
 
+describe("a sign-in the instance no longer accepts", () => {
+  test("a manifest refused again with a JWT minted for it lapses the account once and stops polling", async () => {
+    const context = await boot()
+    await settled(context, 1)
+    alpha.state.override = {
+      path: "/v1/bridge/manifest",
+      status: 401,
+      body: { code: "unauthorized", message: "Bridge credential rejected", error_key: "invalid_credential" },
+    }
+    next()
+    await until(() => context.accounts.list()[0]?.status === "needsSignIn")
+    expect(context.accounts.list()[0]).toMatchObject({ active: true, lapse: "refused" })
+    expect(context.statuses.at(-1)).toEqual({ status: "idle" })
+    await until(() => context.calls.some((call) => call.method === "clear"))
+    // One refusal, one new JWT for it, and nothing more however long it waits.
+    const polls = alpha.state.requests.filter((request) => request.path === "/v1/bridge/manifest").length
+    const before = mints(alpha)
+    jest.advanceTimersByTime(3_600_000)
+    await drain()
+    expect(alpha.state.requests.filter((request) => request.path === "/v1/bridge/manifest")).toHaveLength(polls)
+    expect(mints(alpha)).toBe(before)
+  })
+
+  test("a revoked PAT lapses the account at the next poll; signing in again resumes the sync without a restart", async () => {
+    const context = await boot()
+    await settled(context, 1)
+    alpha.state.pats.clear()
+    alpha.state.jwts.clear()
+    next()
+    await until(() => context.accounts.list()[0]?.status === "needsSignIn")
+    expect(context.accounts.list()[0]).toMatchObject({ active: true, lapse: "revoked" })
+    await until(() => context.calls.some((call) => call.method === "clear"))
+    jest.advanceTimersByTime(600_000)
+    await drain()
+    expect(context.applies()).toHaveLength(1)
+
+    // The same account signs in again: same entry, still active, and the engine applies it again on its own.
+    serve()
+    await context.accounts.signInToken({ url: alpha.url, token: alpha.issuePat() })
+    expect(context.accounts.list()).toMatchObject([{ id: context.id, status: "signedIn", active: true }])
+    expect(context.accounts.list()[0]?.lapse).toBeUndefined()
+    await until(() => context.applies().length === 2)
+    expect(context.statuses.at(-1)).toMatchObject({ status: "synced", account: context.id })
+  })
+
+  test("an instance that does not answer is not a lapse: the account stays signed in and the sync retries", async () => {
+    const context = await boot()
+    await settled(context, 1)
+    alpha.state.override = { status: 503, body: { code: "down", message: "down" } }
+    next()
+    expect(await settled(context, 2)).toMatchObject({ status: "error", kind: "unreachable" })
+    // The JWT runs out while the instance is away: renewing it fails too, and the account stays signed in.
+    jest.advanceTimersByTime(3_600_000)
+    await drain()
+    expect(context.accounts.list()[0]).toMatchObject({ status: "signedIn", active: true })
+    expect(context.accounts.list()[0]?.lapse).toBeUndefined()
+  })
+})
+
 describe("the gateway's JWT", () => {
   test("every renewal reaches the plugin once", async () => {
     const context = await boot()
@@ -551,7 +610,7 @@ describe("the gateway's JWT", () => {
     expect(pushed[0]?.account.url).toBe(alpha.url)
   })
 
-  test("a refused JWT is answered with a new mint, not the cached one; a second refusal signs out", async () => {
+  test("a refused JWT is answered with a new mint, not the cached one; a second refusal needs a new sign-in", async () => {
     const context = await boot()
     await settled(context, 1)
     const before = mints(alpha)
@@ -564,7 +623,8 @@ describe("the gateway's JWT", () => {
     expect(pushed?.method === "token" && pushed.input.jwt).not.toBe(held)
 
     context.stream.handlers?.rejected?.({ instance: DynWorkSyncMain.key("Dynapps") })
-    await until(() => context.accounts.list()[0]?.status === "signedOut")
+    await until(() => context.accounts.list()[0]?.status === "needsSignIn")
+    expect(context.accounts.list()[0]).toMatchObject({ active: true, lapse: "refused" })
     await until(() => context.calls.some((call) => call.method === "clear"))
     expect(context.statuses.at(-1)).toEqual({ status: "idle" })
   })

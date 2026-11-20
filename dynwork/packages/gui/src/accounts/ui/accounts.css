@@ -196,6 +196,61 @@
   gap: 8px;
 }
 
+/* An account whose sign-in the instance refused for good, with the way back. */
+[data-component="accounts-lapse"] {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--v2-state-border-warning);
+  background: var(--v2-state-bg-warning);
+  color: var(--v2-text-text-base);
+  font-size: 13px;
+  line-height: 20px;
+
+  > [data-component="icon"] {
+    flex: none;
+    margin-block-start: 2px;
+    color: var(--v2-state-fg-warning);
+  }
+
+  /* Inside a row of the Governance page, under the instance's name. */
+  &[data-variant="inline"] {
+    margin-inline-start: 40px;
+  }
+}
+
+[data-slot="accounts-lapse-copy"] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+[data-slot="accounts-lapse-title"] {
+  display: flex;
+  flex-direction: column;
+  font-weight: 530;
+}
+
+[data-slot="accounts-lapse-body"],
+[data-slot="accounts-lapse-waiting"] {
+  display: block;
+  font-weight: 440;
+  color: var(--v2-text-text-muted);
+}
+
+[data-slot="accounts-lapse-error"] {
+  color: var(--v2-state-fg-danger);
+}
+
+[data-slot="accounts-lapse-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 [data-slot="accounts-error"] {
   margin-inline-start: 40px;
   font-size: 12px;

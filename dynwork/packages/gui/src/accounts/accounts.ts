@@ -3,7 +3,7 @@ export * as DynWorkAccounts from "./accounts"
 import { randomBytes, randomUUID } from "node:crypto"
 import { Effect, Schema } from "effect"
 import { SpClient, SpConsumer } from "@dynwork/sp-client"
-import type { Account, Probe, SignIn, State } from "./contract"
+import { Lapse, type Account, type Probe, type SignIn, type State } from "./contract"
 import { Loopback } from "./loopback"
 
 // Where secrets live: the PAT only as `safeStorage` ciphertext in the plugin's main storage, decrypted for the moment
@@ -56,6 +56,9 @@ export const Stored = Schema.Struct({
   // The `manifest_version` of the last manifest the sync fully applied for this instance: the next one must be newer
   manifestVersion: Schema.optional(Schema.String),
   device: Schema.optional(Device),
+  // The instance refused the PAT for good (its cipher is gone): why and when, and whether it was in the store, which a
+  // sign-in again without `keep` follows. A lapse of a PAT the store never held ends with the process, as the PAT did.
+  lapsed: Schema.optional(Schema.Struct({ reason: Lapse, at: Schema.Number, kept: Schema.Boolean })),
   addedAt: Schema.Number,
 })
 export type Stored = typeof Stored.Type
@@ -88,6 +91,8 @@ export type Options = {
   changed: () => void
   // Called with every JWT minted for an account: at sign-in, at each renewal and at each forced re-mint
   renewed?: (id: string, session: { token: string; expiresAt: number }) => void
+  // Main's log. It only ever gets the account id and the reason of a lapse, never a credential.
+  log?: (message: string, data: { account: string; reason: Lapse }) => void
 }
 
 // The account has no PAT: never signed in, signed out or removed.
@@ -117,6 +122,14 @@ export const retryAfter = 30_000
 type Session = SpClient.Session & { cipher: string; timer?: ReturnType<typeof setTimeout> }
 
 export function make(options: Options) {
+  // A lapse whose PAT the store never held ended with the process that held the PAT: that account is signed out now.
+  if (options.store.value.accounts.some((account) => account.lapsed?.kept === false))
+    options.store.set({
+      ...options.store.value,
+      accounts: options.store.value.accounts.map((account) =>
+        account.lapsed?.kept === false ? { ...account, lapsed: undefined } : account,
+      ),
+    })
   const sessions = new Map<string, Session>()
   // Ciphertext of the PAT of an account signed in without "keep me signed in": sealed like the stored ones, but kept
   // only for this process, so it never reaches the store and the account is signed out on the next launch.
@@ -143,11 +156,12 @@ export function make(options: Options) {
       url: account.url,
       user: account.user,
       org: account.org,
-      status: cipherOf(account) === undefined ? "signedOut" : "signedIn",
+      status: cipherOf(account) !== undefined ? "signedIn" : account.lapsed ? "needsSignIn" : "signedOut",
       active: read().active === account.id,
       fingerprint: pending === undefined ? account.keyFingerprint : SpClient.fingerprint(pending),
       pinned: account.keyFingerprint,
       trusted: pending === undefined && account.keyFingerprint !== undefined,
+      ...(cipherOf(account) === undefined && account.lapsed ? { lapse: account.lapsed.reason } : {}),
     }
   }
 
@@ -177,9 +191,31 @@ export function make(options: Options) {
     write({
       active: successor(store, id),
       accounts: store.accounts.map((account) =>
-        account.id === id ? { ...account, patCipher: undefined, device: undefined } : account,
+        account.id === id ? { ...account, patCipher: undefined, device: undefined, lapsed: undefined } : account,
       ),
     })
+  }
+
+  // The instance refused the account's credential for good: its PAT goes, and the account waits for the user to sign
+  // in again. It stays active and keeps its device, so signing in again as the same user carries on where it stopped.
+  // Nothing retries meanwhile: without a PAT no call reaches the instance.
+  const lapse = (id: string, reason: Lapse) => {
+    const account = find(id)
+    if (account === undefined || cipherOf(account) === undefined) return
+    forget(id)
+    write({
+      ...read(),
+      accounts: read().accounts.map((entry) =>
+        entry.id === id
+          ? {
+              ...entry,
+              patCipher: undefined,
+              lapsed: { reason, at: Date.now(), kept: account.patCipher !== undefined },
+            }
+          : entry,
+      ),
+    })
+    options.log?.("accounts: the instance refused the sign-in", { account: id, reason })
   }
 
   const remove = (id: string) => {
@@ -195,7 +231,7 @@ export function make(options: Options) {
     sessions.set(id, session)
   }
 
-  // Renewal in the background: a refused PAT signs the account out, any other failure tries again while the JWT holds.
+  // Renewal in the background: a refused PAT lapses the account, any other failure tries again while the JWT holds.
   const renew = (id: string) =>
     mint(id).catch((error) => {
       const session = sessions.get(id)
@@ -205,7 +241,8 @@ export function make(options: Options) {
       session.timer = setTimeout(() => void renew(id), Math.min(retryAfter, left))
     })
 
-  // Mints a JWT from the stored PAT. Concurrent callers share one request; an `Unauthorized` means the PAT is dead.
+  // Mints a JWT from the stored PAT. Concurrent callers share one request; an `Unauthorized` means the PAT is dead and
+  // the account lapses. No answer, or a 5xx, is not a refusal: offline keeps the account signed in.
   const mint = (id: string) => {
     const running = minting.get(id)
     if (running) return running
@@ -226,7 +263,7 @@ export function make(options: Options) {
     const session = await Effect.runPromise(
       SpClient.mintJwt(account.url, pat, { sessionId: sessions.get(id)?.sessionId }),
     ).catch((error) => {
-      if (error instanceof SpClient.Unauthorized && cipherOf(find(id)) === cipher) signOut(id)
+      if (error instanceof SpClient.Unauthorized && cipherOf(find(id)) === cipher) lapse(id, SpClient.refusal(error))
       throw error
     })
     // Signed out, removed or signed in again while the request ran: this JWT belongs to nobody.
@@ -252,18 +289,25 @@ export function make(options: Options) {
   const jwt = async (id: string) => (await session(id)).token
 
   // Runs `use` with the account's JWT. When the instance refuses it, mints once more and retries once; a PAT the
-  // instance refuses signs the account out.
-  const withJwt = async <A>(id: string, use: (token: string) => Promise<A>) => {
+  // instance refuses lapses the account. With `lapse`, so does a refusal of the JWT minted again: only for calls whose
+  // refusal speaks for the whole sign-in (the manifest), never for a route that may refuse this kind of token.
+  const withJwt = async <A>(id: string, use: (token: string) => Promise<A>, refusals?: { lapse: boolean }) => {
     const token = await jwt(id)
     return use(token).catch(async (error) => {
       if (!(error instanceof SpClient.Unauthorized)) throw error
       if (sessions.get(id)?.token === token) drop(id)
-      return use(await jwt(id))
+      const cipher = cipherOf(find(id))
+      return use(await jwt(id)).catch((again) => {
+        if (again instanceof SpClient.Unauthorized && refusals?.lapse && cipherOf(find(id)) === cipher)
+          lapse(id, "refused")
+        throw again
+      })
     })
   }
 
-  // The PAT is good: it mints, so it is stored and the account is signed in.
-  const complete = async (instance: SpClient.Instance, pat: string, keep: boolean) => {
+  // The PAT is good: it mints, so it is stored and the account is signed in, which ends a lapse. Without `keep`, an
+  // account signing in again keeps its PAT as it did before; any other goes to the store.
+  const complete = async (instance: SpClient.Instance, pat: string, choice: boolean | undefined) => {
     const session = await Effect.runPromise(SpClient.mintJwt(instance.baseUrl, pat))
     const details = await Promise.all([
       optional(SpClient.whoami(instance.baseUrl, session.token)),
@@ -273,6 +317,7 @@ export function make(options: Options) {
     const cipher = options.secure.encryptString(pat).toString("base64")
     const store = read()
     const known = store.accounts.find((account) => account.url === instance.baseUrl)
+    const keep = choice ?? known?.lapsed?.kept ?? true
     const id = known?.id ?? randomUUID()
     const account: Stored = {
       ...(known ?? { id, url: instance.baseUrl, addedAt: Date.now() }),
@@ -281,6 +326,7 @@ export function make(options: Options) {
       userId: details[0]?.user_id ?? known?.userId,
       org: details[1]?.organization_uuid ?? known?.org,
       patCipher: keep ? cipher : undefined,
+      lapsed: undefined,
       ...(details[2] === undefined ? {} : { offeredKey: details[2].key === known?.key ? undefined : details[2].key }),
     }
     drop(id)
@@ -305,16 +351,16 @@ export function make(options: Options) {
     requireSecureStorage()
     const instance = await Effect.runPromise(SpClient.discover(input.url))
     const token = input.token.trim()
-    if (!SpClient.isCode(token)) return complete(instance, token, input.keep !== false)
+    if (!SpClient.isCode(token)) return complete(instance, token, input.keep)
     return complete(
       instance,
       await Effect.runPromise(SpClient.exchangeCode(instance.baseUrl, token, options.deviceName)),
-      input.keep !== false,
+      input.keep,
     )
   }
 
   // `signal` is the calling window's: closing it, or a second sign-in, or `cancel`, ends this one at any step.
-  const signInBrowser = async (url: string, signal?: AbortSignal, keep = true): Promise<SignIn> => {
+  const signInBrowser = async (url: string, signal?: AbortSignal, keep?: boolean): Promise<SignIn> => {
     requireSecureStorage()
     browser.cancel?.()
     const attempt = { cancelled: false, stop: () => {} }
@@ -529,6 +575,7 @@ export function make(options: Options) {
     cancel: () => browser.cancel?.(),
     activate,
     signOut,
+    lapse,
     remove,
     trust,
     offerKey,

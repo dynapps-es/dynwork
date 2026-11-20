@@ -60,6 +60,8 @@ const setup: Plugin.MainSetup = (ctx) => {
       drive.account()
     },
     renewed: (id, session) => engine.current?.renewed(id, session),
+    // A lapse is logged with the account and the reason only: the accounts never hand a credential to the log.
+    log: (message, data) => ctx.log.write("warn", message, data),
   })
   ctx.onCleanup(accounts.dispose)
 

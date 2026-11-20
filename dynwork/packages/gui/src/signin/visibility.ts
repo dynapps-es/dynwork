@@ -12,7 +12,9 @@ export function create(state: () => State | undefined) {
   // signal in `dismiss` makes `open` read again.
   const [dismissals, setDismissals] = createSignal(0)
   const holding = { current: false }
-  const active = () => state()?.accounts.some((account) => account.active && account.status === "signedIn")
+  // An active account whose sign-in the instance refused keeps the window: the pill, the Governance page and the Drive
+  // say so and lead back to the browser, without covering what the user was doing.
+  const active = () => state()?.accounts.some((account) => account.active && account.status !== "signedOut")
 
   return {
     known: () => state() !== undefined,

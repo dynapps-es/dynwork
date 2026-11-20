@@ -183,6 +183,26 @@ describe("sign-in exchanges", () => {
     expect(`${JSON.stringify(error)} ${String(error)} ${error.stack}`).not.toContain(pat)
   })
 
+  test("a refused PAT reads as revoked unless the instance says it expired", async () => {
+    const error = await fail(SpClient.mintJwt(fake.url, `sp-live-${"f".repeat(40)}`))
+    expect(error).toBeInstanceOf(SpClient.Unauthorized)
+    expect(error._tag === "Unauthorized" && SpClient.refusal(error)).toBe("revoked")
+    fake.state.override = {
+      path: "/v1/auth/bridge/pat",
+      status: 401,
+      body: { code: "unauthorized", message: "API key expired", error_key: "invalid_credential" },
+    }
+    const expired = await fail(SpClient.mintJwt(fake.url, fake.issuePat()))
+    expect(expired._tag === "Unauthorized" && SpClient.refusal(expired)).toBe("expired")
+    fake.state.override = {
+      path: "/v1/auth/bridge/pat",
+      status: 401,
+      body: { code: "unauthorized", message: "Authentication failed", error_key: "token_expired" },
+    }
+    const keyed = await fail(SpClient.mintJwt(fake.url, fake.issuePat()))
+    expect(keyed._tag === "Unauthorized" && SpClient.refusal(keyed)).toBe("expired")
+  })
+
   test("withJwt mints once more after a refused JWT and hands back the new session", async () => {
     const pat = fake.issuePat()
     const stale = { token: fake.staleJwt(), ttl: 3600, expiresAt: Date.now() + 3_600_000, sessionId: "sess_old" }

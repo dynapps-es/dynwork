@@ -47,6 +47,7 @@ export function setup(
     // Main's wiring of the sync engine, when a test runs one
     changed?: () => void
     renewed?: DynWorkAccounts.Options["renewed"]
+    log?: DynWorkAccounts.Options["log"]
   },
 ) {
   const store = memoryStore()
@@ -62,6 +63,7 @@ export function setup(
       options?.changed?.()
     },
     renewed: options?.renewed,
+    log: options?.log,
   })
   return { accounts, store, secure, events }
 }

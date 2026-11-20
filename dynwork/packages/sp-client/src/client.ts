@@ -163,6 +163,13 @@ export const mintJwt = Effect.fn("SpClient.mintJwt")(function* (
   } satisfies Session
 })
 
+// Why the instance refused a PAT for good (`mintJwt` failed with `Unauthorized`): `expired` when its answer names an
+// expiry, else `revoked`. The core answers "Invalid PAT" alike for a key revoked, deleted or past the profile's
+// `security.api_keys.max_lifetime_days`, so most refusals read as `revoked`.
+export function refusal(error: Unauthorized) {
+  return /expir/i.test(`${error.errorKey ?? ""} ${error.message}`) ? ("expired" as const) : ("revoked" as const)
+}
+
 // Runs `use` with a JWT for `pat`: the given session's, or a fresh one. When a given session's JWT is refused, mints
 // once more and retries once; a second refusal is the caller's signed-out signal.
 export const withJwt = <A, E, R>(

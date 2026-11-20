@@ -1,7 +1,7 @@
 export * as AccountsText from "./text"
 
 import type { Context } from "@opencode/plugin/gui"
-import type { Counts } from "../contract"
+import type { Account, Counts } from "../contract"
 import { AccountsModel } from "./model"
 
 type Translate = Pick<Context, "t" | "plural">
@@ -25,10 +25,12 @@ export function counts(ctx: Translate, value: Counts) {
   ].join(" · ")
 }
 
-/** The signed-in line: who the account is, or that the user signed out of it. */
-export function user(ctx: Translate, account: { user?: string; status: "signedIn" | "signedOut" }) {
-  if (account.status === "signedOut")
-    return account.user ? ctx.t("user.lastSignedIn", { user: account.user }) : ctx.t("badge.signedOut")
+/** The signed-in line: who the account is, or that the user signed out of it or must sign in again. */
+export function user(ctx: Translate, account: Pick<Account, "user" | "status">) {
+  if (account.status !== "signedIn")
+    return account.user
+      ? ctx.t("user.lastSignedIn", { user: account.user })
+      : ctx.t(account.status === "signedOut" ? "badge.signedOut" : "badge.needsSignIn")
 
   return account.user ? ctx.t("user.signedIn", { user: account.user }) : ctx.t("user.signedInAnonymous")
 }
