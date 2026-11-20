@@ -61,7 +61,6 @@ export default {
   "routines.fail.going": "Ya hay una ejecución de esta tarea en marcha.",
   "routines.fail.runGoing": "La ejecución sigue en marcha.",
   "routines.fail.waitingAnswer": "La ejecución espera tu respuesta.",
-  "routines.fail.inOwnChat": "Aquí las tareas continúan en su propia conversación.",
   "routines.fail.askNext": "Escribe qué quieres preguntar a continuación.",
   "routines.fail.notThatQuestion": "La ejecución no espera esa pregunta.",
   "routines.fail.expired": "La pregunta ha caducado.",

@@ -62,7 +62,6 @@ export default {
   "routines.fail.going": "Er loopt al een uitvoering van deze taak.",
   "routines.fail.runGoing": "De uitvoering loopt nog.",
   "routines.fail.waitingAnswer": "De uitvoering wacht op je antwoord.",
-  "routines.fail.inOwnChat": "Taken gaan hier door in hun eigen gesprek.",
   "routines.fail.askNext": "Schrijf wat je daarna wilt vragen.",
   "routines.fail.notThatQuestion": "De uitvoering wacht niet op die vraag.",
   "routines.fail.expired": "De vraag is verlopen.",

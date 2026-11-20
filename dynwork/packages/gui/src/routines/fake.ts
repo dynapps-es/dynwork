@@ -230,7 +230,7 @@ export function make(options: Options): Fake {
       const previous = findRun(input.run)
       if (isFailure(previous)) return previous
       if (options.capabilities.actions.reply !== "resume")
-        return fail("unsupported", "This backend continues a run in its own conversation.")
+        return fail("unsupported", "Tasks here continue in their own conversation.")
       if (!input.text.trim()) return fail("invalid", "Write what to ask next.", { text: "Write what to ask next." })
       if (previous.state === "running" || previous.state === "queued")
         return fail("conflict", previous.question ? "The run is waiting for your answer." : "The run is still going.")

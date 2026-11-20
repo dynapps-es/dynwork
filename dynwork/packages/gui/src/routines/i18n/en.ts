@@ -61,7 +61,6 @@ export default {
   "routines.fail.going": "A run of this task is still going.",
   "routines.fail.runGoing": "The run is still going.",
   "routines.fail.waitingAnswer": "The run is waiting for your answer.",
-  "routines.fail.inOwnChat": "This backend continues a run in its own conversation.",
   "routines.fail.askNext": "Write what to ask next.",
   "routines.fail.notThatQuestion": "The run is not waiting for that question.",
   "routines.fail.expired": "The question expired.",
