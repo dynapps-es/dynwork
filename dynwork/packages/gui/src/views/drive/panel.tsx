@@ -176,8 +176,9 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
     () => drive.client() && `${props.id}:${doc()?.revision ?? ""}`,
     () => drive.client()?.revisions({ id: props.id }),
   )
+  // Read only once answered: reading the resource while it loads suspends the chat's own Suspense (see `Viewer`).
   const list = (): readonly Revision[] => {
-    const answer = revisions()
+    const answer = revisions.state === "ready" || revisions.state === "refreshing" ? revisions.latest : undefined
     return answer && !isFailure(answer) ? answer : []
   }
   // The picked version while the Drive still lists it, else the head.
