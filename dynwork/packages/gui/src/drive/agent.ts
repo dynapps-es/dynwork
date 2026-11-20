@@ -7,14 +7,16 @@ import { Schema } from "effect"
 import { basename } from "node:path"
 import type { Backend } from "./backend"
 import { DriveCapabilities } from "./capabilities"
-import { isFailure, type Created, type Failure } from "./contract"
+import { isFailure, type Created, type Failure, type Unimported } from "./contract"
 import type { DriveIpc } from "./ipc"
 
 // What the agent does with the instance's `documents` MCP server, on the Drive's side (D4, D8). The server plugin
 // watches the tools' calls (`@dynwork/server-plugin/documents`) and tells main: before a write, so that a new document
 // lands in the conversation's folder and its revision names the conversation, and so that an edit by ops of an HTML
 // page, which would strip its scripts, is refused (D21); after one, so that the document enters the conversation's
-// index and a page the agent uploaded is imported with its scripts (C7).
+// index and a page the agent uploaded is imported with its scripts (C7). What became of that page goes back to the
+// plugin, which the agent reads in the upload's own result; a page that could not be imported is kept for the chat's
+// Artifacts tab, where the user retries it.
 //
 // On 0.84 the agent does it through the MCP:
 // - `mcpFolders`: it makes the conversation's folders with `documents_folder` and imports its upload with
@@ -34,10 +36,22 @@ export interface Session {
 }
 
 export interface Options {
-  /** The service's `using`, `changing`, `record`, `folder`, `author`, `attributed`, `message`, `stale` and `capabilities`. */
+  /**
+   * The service's `using`, `changing`, `record`, `folder`, `author`, `attributed`, `message`, `stale`, `capabilities`
+   * and `unimported`.
+   */
   service: Pick<
     DriveIpc.Service,
-    "using" | "changing" | "record" | "folder" | "author" | "attributed" | "message" | "stale" | "capabilities"
+    | "using"
+    | "changing"
+    | "record"
+    | "folder"
+    | "author"
+    | "attributed"
+    | "message"
+    | "stale"
+    | "capabilities"
+    | "unimported"
   >
   /** A conversation's session, or undefined when the service does not know it. */
   session: (id: string) => Promise<Session | undefined>
@@ -45,6 +59,8 @@ export interface Options {
   untitled: string
   /** Sends the plugin what to add to the write it asked about. */
   answer: (answer: DynWorkDocuments.Answer) => Promise<unknown>
+  /** Tells the plugin what became of a page the agent uploaded, for the agent to read. */
+  imported: (imported: DynWorkDocuments.Imported) => Promise<unknown>
 }
 
 /** The root folder every conversation's files live under (D8): `Artifacts/<project>/<conversation>`. */
@@ -69,8 +85,9 @@ export function make(options: Options) {
     folders.tail = done.catch(() => undefined)
     return done
   }
-  // What was imported, so that a call seen twice is not imported twice.
-  const imported = new Set<string>()
+  // The import of each page, by conversation and blob, so that a call seen twice is not imported twice. A failed one is
+  // dropped: the same page uploaded again is tried again.
+  const imports = new Map<string, Promise<Created | Failure>>()
   // The project's folder name: the session directory's.
   const projectOf = (session: Session) => clean(basename(session.directory)) ?? options.untitled
   // The agent's `documents_folder` creates named as a conversation's folder (0.84), by call id, with that conversation:
@@ -246,35 +263,61 @@ export function make(options: Options) {
     })
   }
 
-  // A page the agent uploaded is the one thing the MCP cannot make a document of with its scripts: DynWork imports its
-  // blob (C7). Any other upload is a file for another document, an image for a Word file, and is left alone.
+  // A page the agent uploaded is the one thing the MCP cannot make a document of with its scripts before 0.84: DynWork
+  // imports its blob (C7) and tells the plugin what became of it, which the agent reads in the upload's result. Any other
+  // upload is a file for another document, an image for a Word file, and is left alone. On 0.84 the agent imports it.
   async function upload(touch: DynWorkDocuments.Touch) {
-    const blob = touch.output.blob_ref
     const name = touch.input.name
-    const mime = touch.output.mime ?? touch.input.mime
-    if (blob === undefined || name === undefined || !isHtml(mime)) return
-    if (DriveCapabilities.agentFiling(service.capabilities()) !== "rest") return
-    if (imported.has(`${touch.session}:${blob}`)) return
-    imported.add(`${touch.session}:${blob}`)
-    const session = await options.session(touch.session)
-    await service.changing(async (backend, account) => {
-      const conversation = { id: touch.session, name: clean(session?.title) ?? options.untitled }
+    const blob = touch.output.blob_ref
+    if (!DynWorkDocuments.page(touch) || name === undefined || blob === undefined) return
+    if (DriveCapabilities.agentFiling(service.capabilities()) !== "rest") return tell({ id: touch.call })
+    const key = `${touch.session}:${blob}`
+    const running = imports.get(key) ?? importPage({ conversation: touch.session, call: touch.call, name, blob })
+    imports.set(key, running)
+    const done = await running
+    if (isFailure(done)) imports.delete(key)
+    return tell(
+      isFailure(done)
+        ? { id: touch.call, failure: done.message }
+        : { id: touch.call, document: done.document.id, name: done.document.name },
+    )
+  }
+
+  const tell = (word: DynWorkDocuments.Imported) => void options.imported(word).catch(() => undefined)
+
+  /**
+   * Imports a page into its conversation's folder (into the Drive's root when the service does not know the
+   * conversation), signed, and enters it in the conversation's index. A failure is kept for the chat's Artifacts tab,
+   * with what stopped it; a success drops what an earlier attempt kept.
+   */
+  async function importPage(page: Omit<Unimported, "failure" | "at">): Promise<Created | Failure> {
+    const session = await options.session(page.conversation)
+    return service.changing(async (backend, account) => {
+      const conversation = { id: page.conversation, name: clean(session?.title) ?? options.untitled }
+      const failed = (failure: Failure) => {
+        service.unimported.keep(account.id, { ...page, failure, at: Date.now() })
+        return failure
+      }
       const folder = session ? await serial(() => place(backend, account.id, conversation, session)) : undefined
-      if (folder !== undefined && isFailure(folder)) return folder
+      if (folder !== undefined && isFailure(folder)) return failed(folder)
       const created = await service.attributed(backend, account, conversation, (signed) =>
-        importing(backend, { ...signed, blob, name, folder }),
+        importing(backend, { ...signed, blob: page.blob, name: page.name, folder }),
       )
-      if (!isFailure(created))
-        service.record(account.id, {
-          conversation: touch.session,
-          document: created.document.id,
-          act: "created",
-          revision: created.revision.id,
-          via: "rest",
-        })
+      if (isFailure(created)) return failed(created)
+      service.unimported.drop(account.id, page.call)
+      service.record(account.id, {
+        conversation: page.conversation,
+        document: created.document.id,
+        act: "created",
+        revision: created.revision.id,
+        via: "rest",
+      })
       return created
     })
   }
+
+  // The user's retry from the chat's Artifacts tab.
+  service.unimported.importer((page) => importPage(page))
 
   /** The instance refused a write for not knowing the conversation main gave it: the next write registers it again. */
   function stale(stale: DynWorkDocuments.Stale) {
@@ -317,8 +360,6 @@ async function importing(
   return importing(backend, input, attempt + 1)
 }
 
-const isHtml = (mime: string | undefined) => mime?.split(";")[0]?.trim().toLowerCase() === "text/html"
-
 // A name the Drive takes for a folder: no slashes, one line, not endless.
 const clean = (name: string | undefined) =>
   name
@@ -360,6 +401,9 @@ export function setup(
     },
     answer: (answer) =>
       input.client()?.rpc.call({ rpcID: DynWorkDocuments.id, method: "answer", input: answer as never }) ??
+      Promise.resolve(),
+    imported: (imported) =>
+      input.client()?.rpc.call({ rpcID: DynWorkDocuments.id, method: "imported", input: imported as never }) ??
       Promise.resolve(),
   })
   const life = new AbortController()

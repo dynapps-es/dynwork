@@ -82,7 +82,8 @@ export const RoutinesDefinition = Rpc.define({
 // What the agent does with the `documents` MCP server (`./documents`): main adds a write's folder, message and, on 0.84,
 // conversation, hears what each write touched, shows each share on a card for the user to decide (`shown` once the card
 // is up, `decide`, and `shares` after it reconnects), keeps the people the agent looked up (`people`) to name them on
-// later cards, and forgets a conversation's context the instance no longer knows (`stale`).
+// later cards, forgets a conversation's context the instance no longer knows (`stale`), and says what became of a page
+// the agent uploaded (`imported`).
 export const DocumentsDefinition = Rpc.define({
   id: DynWorkDocuments.id,
   methods: {
@@ -101,6 +102,10 @@ export const DocumentsDefinition = Rpc.define({
     shares: {
       input: Schema.toStandardSchemaV1(Schema.Unknown),
       output: Schema.toStandardSchemaV1(DynWorkDocuments.Shares),
+    },
+    imported: {
+      input: Schema.toStandardSchemaV1(DynWorkDocuments.Imported),
+      output: Schema.toStandardSchemaV1(DynWorkDocuments.Accepted),
     },
   },
   events: {
@@ -621,6 +626,7 @@ export default Plugin.define({
         shown: (input) => Effect.sync(() => DynWorkDocuments.shown(input)),
         decide: (input) => Effect.sync(() => DynWorkDocuments.decide(input)),
         shares: () => Effect.sync(DynWorkDocuments.shares),
+        imported: (input) => Effect.sync(() => DynWorkDocuments.imported(input)),
       })
       .pipe(Effect.orDie)
     const confirmer: DynWorkDocuments.Confirmer = {
@@ -675,7 +681,13 @@ export default Plugin.define({
             })
         }
         const touched = DynWorkDocuments.touch(event)
-        if (touched) yield* documentsRpc.events.emit("touch", touched).pipe(Effect.ignore)
+        if (!touched) return
+        const publish = documentsRpc.events.emit("touch", touched).pipe(Effect.ignore)
+        // A page DynWork imports (before 0.84): the upload waits for main's word, and the agent reads it in its result.
+        if (event.status !== "completed" || !DynWorkDocuments.page(touched, store.current?.input.documents))
+          return yield* publish
+        const note = DynWorkDocuments.note(yield* DynWorkDocuments.waitImport(publish, touched))
+        if (note !== undefined) event.result = DynWorkDocuments.noted(event.result, note)
       }),
     )
 

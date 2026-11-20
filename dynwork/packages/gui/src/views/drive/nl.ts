@@ -54,6 +54,7 @@ export default {
   "drive.card.proposed": "Voorstel",
   "drive.card.attached": "Bijgevoegd",
   "drive.card.read": "Gelezen",
+  "drive.card.unimported": "Niet geïmporteerd",
   "drive.chat.none": "Open eerst een chat",
   "drive.chat.none.hint": "Het document opent naast de chat die je open hebt, en in het invoerveld ervan.",
   "drive.agent": "Agent",

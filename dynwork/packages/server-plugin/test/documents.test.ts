@@ -75,6 +75,48 @@ describe("what a completed write touched", () => {
     ).toMatchObject({ verb: "upload", input: { name: "a.html", mime: "text/html" }, output: { blob_ref: "abc" } })
   })
 
+  // What a 0.82 or 0.83 instance answers an inline upload (core `UploadOutput`, terse): `upload_id` and `deduplicated`
+  // besides the blob, and the summary line first when it sends no structured content to the client.
+  const inline = { mode: "inline", upload_id: "8d0c1f2e", blob_ref: "9f86d081", mime: "text/html", deduplicated: false }
+
+  test("an inline upload answered as text, with no structured content (0.82), still names the blob to import", () => {
+    const touched = DynWorkDocuments.touch(
+      done(
+        "documents_documents_upload",
+        { name: "minusval-cuadro-planificacion.html", mime: "text/html", content_base64: "PGgxLz4=" },
+        `uploaded as blob 9f86d081 (52311 bytes)\n${JSON.stringify(inline)}`,
+      ),
+    )
+    expect(touched).toMatchObject({
+      verb: "upload",
+      input: { name: "minusval-cuadro-planificacion.html", mime: "text/html" },
+      output: { blob_ref: "9f86d081", mime: "text/html" },
+    })
+  })
+
+  test("an inline upload is a page DynWork imports by its answer's mime, else the agent's, else its name", () => {
+    const upload = (input: object, output: object) =>
+      DynWorkDocuments.touch(done("documents_documents_upload", input, output))!
+    const page = (input: object, output: object, switches?: DynWorkDocuments.Switches) =>
+      DynWorkDocuments.page(upload(input, output), switches)
+    expect(page({ name: "a.html", mime: "text/html" }, inline)).toBe(true)
+    expect(page({ name: "a.html", mime: "text/html; charset=utf-8" }, { ...inline, mime: undefined })).toBe(true)
+    expect(page({ name: "dashboard.HTM" }, { ...inline, mime: undefined })).toBe(true)
+    expect(page({ name: "logo.png", mime: "image/png" }, { ...inline, mime: "image/png" })).toBe(false)
+    // A resumable upload has no blob until it completes, and a page with no name has none to import under.
+    expect(page({ name: "a.html", mime: "text/html" }, { mode: "resumable", upload_id: "u" })).toBe(false)
+    expect(page({ mime: "text/html" }, inline)).toBe(false)
+    // 0.84 imports it through the MCP (`mcpFolders`): it is the agent's to import.
+    expect(page({ name: "a.html", mime: "text/html" }, inline, { mcpFolders: true })).toBe(false)
+  })
+
+  test("a page uploaded from a Code Mode program and one uploaded directly are the same touch", () => {
+    const event = done("documents_documents_upload", { name: "a.html", mime: "text/html" }, inline)
+    expect(DynWorkDocuments.touch({ ...event, codemode: true } as DynWorkDocuments.Executed)).toEqual(
+      DynWorkDocuments.touch(event),
+    )
+  })
+
   test("an import (0.84) names the document it made, like a creation", () => {
     expect(
       DynWorkDocuments.touch(
@@ -237,6 +279,77 @@ describe("what main adds before a write", () => {
     const input = { document_id: "d" }
     expect(DynWorkDocuments.apply("edit", input, { id: "x" })).toEqual(input)
     expect(DynWorkDocuments.apply("edit", "not a record", { id: "x", message: "m" })).toBe("not a record")
+  })
+})
+
+describe("the page DynWork imports, said in the upload's own result", () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const touched: DynWorkDocuments.Touch = {
+    session: "ses_q3",
+    call: "call_up",
+    verb: "upload",
+    input: { name: "dashboard.html", mime: "text/html" },
+    output: { blob_ref: "9f86d081", mime: "text/html" },
+  }
+
+  test("the upload waits for main's word on the import, and main's word is what it reads", async () => {
+    const published: string[] = []
+    const running = Effect.runPromise(
+      DynWorkDocuments.waitImport(Effect.sync(() => void published.push("touch")), touched),
+    )
+    await settle()
+    expect(published).toEqual(["touch"])
+    expect(DynWorkDocuments.imported({ id: "call_up", document: "doc-9", name: "dashboard.html" })).toEqual({
+      accepted: true,
+    })
+    expect(await running).toEqual({ id: "call_up", document: "doc-9", name: "dashboard.html" })
+    // Said once: a second word for the same call, or one for nothing that waits, is not accepted.
+    expect(DynWorkDocuments.imported({ id: "call_up", failure: "late" })).toEqual({ accepted: false })
+  })
+
+  test("main saying nothing in time is no word, and the upload goes on", async () => {
+    expect(
+      await Effect.runPromise(DynWorkDocuments.waitImport(Effect.void, { ...touched, call: "call_mute" }, "1 millis")),
+    ).toBeUndefined()
+  })
+
+  test("an imported page tells the agent which document it is and not to make it again", () => {
+    const note = DynWorkDocuments.note({ id: "call_up", document: "doc-9", name: "dashboard.html" })
+    expect(note).toContain("Dynwork imported this page as the document dashboard.html (document_id doc-9)")
+    expect(note).toContain("opened it beside the chat")
+    expect(note).toContain("Do not upload or create it again")
+  })
+
+  test("a failed import tells the agent what failed and what to do, and never to make the page another way", () => {
+    const note = DynWorkDocuments.note({ id: "call_up", failure: "Governance did not answer." }) ?? ""
+    expect(note).toContain("Dynwork could not import this page as a document: Governance did not answer.")
+    expect(note).toContain("It is not in the user's Drive")
+    expect(note).toContain("Tell the user in one line")
+    expect(note).toContain("retry the import from the conversation's Artifacts tab")
+    expect(note).not.toContain("documents_create")
+    expect(note).not.toMatch(/systemprompt|agent farm|routine/i)
+    // Main not answering at all is said too: the page may not be in the Drive.
+    expect(DynWorkDocuments.note(undefined)).toContain("Dynwork did not confirm that it imported this page")
+    // A word with neither (0.84: the agent imports its own) says nothing.
+    expect(DynWorkDocuments.note({ id: "call_up" })).toBeUndefined()
+  })
+
+  test("the note reaches the agent in the result it reads: a program's value and the model's text", () => {
+    const note = "Dynwork imported this page."
+    const structured = DynWorkDocuments.noted({ output: { mode: "inline", blob_ref: "b" }, content: [] }, note)
+    expect(structured.output).toEqual({ mode: "inline", blob_ref: "b", dynwork: note })
+    expect(structured.content).toEqual([{ type: "text", text: note }])
+    const text = DynWorkDocuments.noted({ output: "uploaded as blob b (3 bytes)", content: "uploaded" }, note)
+    expect(text.output).toBe(`uploaded as blob b (3 bytes)\n${note}`)
+    expect(text.content).toEqual([
+      { type: "text", text: "uploaded" },
+      { type: "text", text: note },
+    ])
+  })
+
+  test("main's word keeps its shape across the RPC", () => {
+    const word = { id: "call_up", failure: "The instance refused the page: too large." }
+    expect(Schema.decodeUnknownSync(DynWorkDocuments.Imported)(JSON.parse(JSON.stringify(word)))).toEqual(word)
   })
 })
 
@@ -767,6 +880,27 @@ describe("the rules about the server", () => {
     expect(text).toContain("do not open it in a browser")
     // The managed block carries the same text.
     expect(flat(DynWorkDocuments.rules(["documents"])[0]?.instructions ?? "")).toBe(text)
+  })
+
+  test("a dashboard, an interactive page, a report with charts or an artifact is a Drive page, its data inside, on 0.83 and 0.84", () => {
+    for (const switches of [{}, { mcpFolders: true, rawHtmlByMcp: true, contextByMcp: true }]) {
+      const text = flat(DynWorkDocuments.instructions(switches))
+      expect(text).toContain(
+        "When the user asks for an interactive page, a dashboard, a report with charts or an artifact, make it an HTML page in their Drive",
+      )
+      expect(text).toContain("even when they do not name the documents tools")
+      expect(text).toContain("Put the data the page shows inside it, as it is when you make it")
+    }
+    // How the page becomes a document still follows the instance.
+    expect(flat(DynWorkDocuments.instructions({ mcpFolders: true }))).toContain("call documents_import once")
+    expect(flat(DynWorkDocuments.instructions())).not.toContain("documents_import")
+  })
+
+  test("0.83: the agent reads what became of its page in the upload's result, and says a failure instead of working around it", () => {
+    const text = flat(DynWorkDocuments.instructions())
+    expect(text).toContain("the upload's result says what Dynwork did with it (dynwork)")
+    expect(text).toContain("When it says the import failed, tell the user what it says")
+    expect(flat(DynWorkDocuments.instructions({ mcpFolders: true }))).not.toContain("(dynwork)")
   })
 
   test("do not let the agent judge a page's look from the text views", () => {

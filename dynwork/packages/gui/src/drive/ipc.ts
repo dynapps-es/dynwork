@@ -6,7 +6,18 @@ import { DriveArtifacts } from "./artifacts"
 import { fail, type Backend } from "./backend"
 import { DriveCapabilities } from "./capabilities"
 import { DriveCells } from "./cells"
-import { isFailure, Link, Mention, Person, type Conversation, type Drive, type Failure, type State } from "./contract"
+import {
+  isFailure,
+  Link,
+  Mention,
+  Person,
+  Unimported,
+  type Conversation,
+  type Created,
+  type Drive,
+  type Failure,
+  type State,
+} from "./contract"
 import { DriveMentions } from "./mentions"
 
 /** The account the Drive shows: the active, signed-in one, and the name its direct writes are signed with. */
@@ -32,9 +43,10 @@ const Context = Schema.Struct({ id: Schema.String, name: Schema.String })
 /**
  * What the service keeps on this computer, per account: each conversation's context (by session id), the conversation
  * ↔ document index, the folder each conversation's files go to (by session id), what became of the comments that
- * asked for the agent, and the people the agent and the share cards met (id, name and email only, for the cards). A context saved as a plain string is a UUID an earlier version made up and the instance never
- * registered: it is not sent, and the conversation's next write registers one in its place. The index keys
- * conversations by session id, so no link is lost.
+ * asked for the agent, the people the agent and the share cards met (id, name and email only, for the cards), and the
+ * agent's pages DynWork could not import. A context saved as a plain string is a UUID an earlier version made up and
+ * the instance never registered: it is not sent, and the conversation's next write registers one in its place. The
+ * index keys conversations by session id, so no link is lost.
  */
 export const Saved = Schema.Struct({
   accounts: Schema.Record(
@@ -46,6 +58,7 @@ export const Saved = Schema.Struct({
       folders: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
       mentions: Schema.optionalKey(Schema.Array(Mention)),
       people: Schema.optionalKey(Schema.Array(Person)),
+      unimported: Schema.optionalKey(Schema.Array(Unimported)),
     }),
   ),
 })
@@ -76,6 +89,9 @@ const keptMentions = 200
 
 /** How many people an account keeps for the share cards: the most recently seen. */
 export const keptPeople = 500
+
+/** How many pages DynWork could not import an account keeps for the Artifacts tabs: the newest. */
+export const keptUnimported = 50
 
 const empty = (account: string | undefined): Cache => ({
   account,
@@ -129,6 +145,8 @@ export function make<A extends Account>(options: Options<A>) {
   const registering = new Map<string, Promise<string | undefined>>()
   // A read the stream asked for (`reread`): one at a time, and one more after it when another change came meanwhile.
   const hinted = { reading: false, again: false }
+  // What imports an agent's page again (`reimport`): `DriveAgent`'s, once main sets it up.
+  const pages: { importer?: (page: Unimported) => Promise<Created | Failure> } = {}
 
   const capabilities = (): DriveCapabilities.Capabilities => ({
     ...DriveCapabilities.none,
@@ -380,6 +398,11 @@ export function make<A extends Account>(options: Options<A>) {
   const mentions = (account: string | undefined) =>
     account === undefined ? [] : (options.store.value.accounts[account]?.mentions ?? [])
 
+  const unimported = (account: string | undefined) =>
+    (account === undefined ? [] : (options.store.value.accounts[account]?.unimported ?? [])).toSorted(
+      (a, b) => b.at - a.at,
+    )
+
   // `@Agent` in the text of a comment is written as a mention of the user themself, handed to their agent, and the comment
   // that made it is attended (`DriveMentions`) once it exists. An account that does not know its user keeps the text as it is.
   const say = (account: Account, body: string) =>
@@ -396,6 +419,7 @@ export function make<A extends Account>(options: Options<A>) {
       capabilities: capabilities(),
       links: links(live.cache.account),
       mentions: mentions(live.cache.account),
+      unimported: unimported(live.cache.account),
     }),
     refresh: () => load(),
     watch: (_, caller) =>
@@ -553,6 +577,14 @@ export function make<A extends Account>(options: Options<A>) {
         ),
       ),
     byContext: (input) => on((backend, account) => listed(backend, account.id, input.conversation)),
+    reimport: (input) =>
+      on(async (_, account) => {
+        const page = unimported(account.id).find(
+          (entry) => entry.conversation === input.conversation && entry.call === input.call,
+        )
+        if (!page || !pages.importer) return fail("not-found", "That page is no longer waiting to be imported.")
+        return pages.importer(page)
+      }),
   }
 
   /**
@@ -620,6 +652,33 @@ export function make<A extends Account>(options: Options<A>) {
           draft.accounts[account].mentions = [...(draft.accounts[account].mentions ?? []), entry].slice(-keptMentions)
         })
         options.changed()
+      },
+    },
+    /**
+     * The agent's pages DynWork could not import (`DriveAgent`), by the upload's call: kept with what stopped them, the
+     * newest `keptUnimported`, until an import of the call succeeds. `importer` is what a retry (`reimport`) runs.
+     */
+    unimported: {
+      keep: (account: string, page: Unimported) => {
+        options.store.update((draft) => {
+          draft.accounts[account] ??= { contexts: {}, links: [] }
+          draft.accounts[account].unimported = [
+            ...(draft.accounts[account].unimported ?? []).filter((entry) => entry.call !== page.call),
+            page,
+          ].slice(-keptUnimported)
+        })
+        options.changed()
+      },
+      drop: (account: string, call: string) => {
+        if (!unimported(account).some((entry) => entry.call === call)) return
+        options.store.update((draft) => {
+          const kept = draft.accounts[account]?.unimported
+          if (kept) draft.accounts[account]!.unimported = kept.filter((entry) => entry.call !== call)
+        })
+        options.changed()
+      },
+      importer: (importer: (page: Unimported) => Promise<Created | Failure>) => {
+        pages.importer = importer
       },
     },
     /**

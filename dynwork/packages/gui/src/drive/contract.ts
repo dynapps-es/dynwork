@@ -322,6 +322,21 @@ export function isFailure(value: unknown): value is Failure {
 }
 
 /**
+ * A page the agent uploaded that DynWork could not make a document of (C7, before 0.84): the upload's `call`, the `blob`
+ * the instance holds and the `name` it was to take, with what stopped it. Kept per account on this computer until a
+ * retry imports it; the chat's Artifacts tab shows it.
+ */
+export const Unimported = Schema.Struct({
+  conversation: Schema.String,
+  call: Schema.String,
+  name: Schema.String,
+  blob: Schema.String,
+  failure: Failure,
+  at: Schema.Number,
+})
+export type Unimported = typeof Unimported.Type
+
+/**
  * What main pushes to every window: the active account's Drive as last read. `none` without an active signed-in
  * account; `loading` from an account switch until the first read. A read that fails keeps the last folders and
  * documents and says why in `status`.
@@ -337,6 +352,8 @@ export const State = Schema.Struct({
   links: Schema.Array(Link),
   /** What became of the comments that asked for the agent, oldest first. */
   mentions: Schema.Array(Mention),
+  /** The agent's pages DynWork could not import, newest first. */
+  unimported: Schema.Array(Unimported),
   /** When the Drive was last read. */
   read: Schema.optional(Schema.Number),
 })
@@ -483,6 +500,14 @@ export const Drive = Ipc.define({
      * conversation (`docsByContext`, `DriveArtifacts.merge`).
      */
     documentsOf: { input: Schema.Struct({ conversation: Schema.String }), output: Outcome(Schema.Array(Link)) },
+    /**
+     * Imports again a page of the conversation that DynWork could not import (`unimported`, by its upload's call), into
+     * the conversation's folder; `not-found` when none is kept. A failure keeps it, with the new reason.
+     */
+    reimport: {
+      input: Schema.Struct({ conversation: Schema.String, call: Schema.String }),
+      output: Outcome(Created),
+    },
     /**
      * The documents the instance lists for a conversation of the active account, newest first (G07, `docsByContext`):
      * what it wrote a revision or a comment on, from any computer. None while the capability is off, while this computer

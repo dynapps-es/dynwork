@@ -2,9 +2,9 @@ import { usePlugin, type MountedSession } from "@opencode/plugin/gui"
 import { Button } from "@opencode/ui/button"
 import { Dialog, DialogBody, DialogHeader, DialogTitleGroup } from "@opencode/ui/dialog"
 import { Icon } from "@opencode/ui/icon"
-import { createEffect, createResource, For, on, Show } from "solid-js"
+import { createEffect, createResource, createSignal, For, on, Show } from "solid-js"
 import { createStore } from "solid-js/store"
-import { isFailure, type Document, type Link, type Revision } from "../../drive/contract"
+import { isFailure, type Document, type Link, type Revision, type Unimported } from "../../drive/contract"
 import { uploadFiles } from "./browser"
 import { conversationOf, docKey, openInDrive } from "./chat"
 import { canComment, CommentMarks, MarksToggle, ThreadCard } from "./comments"
@@ -29,12 +29,16 @@ const actKey = {
   read: "drive.card.read",
 } as const
 
-/** The chat's artifacts: a card per change, Add from the Drive, and Upload to the Drive for a file the chat made. */
+/**
+ * The chat's artifacts: a card per change, a card per page of the agent's that DynWork could not import (with Retry), Add
+ * from the Drive, and Upload to the Drive for a file the chat made.
+ */
 export function ArtifactsPanel(props: { session: MountedSession }) {
   const ctx = usePlugin()
   const names = useNames()
   drive.followChat(() => props.session.id)
   const links = () => drive.artifactsOf(props.session.id)
+  const unimported = () => drive.unimportedOf(props.session.id)
   let input: HTMLInputElement | undefined
   // The index names documents no listing may hold yet.
   createEffect(() => void drive.learn(links().map((link) => link.document)))
@@ -85,13 +89,14 @@ export function ArtifactsPanel(props: { session: MountedSession }) {
       </div>
       <div data-slot="drive-panel-body">
         <Show
-          when={links().length}
+          when={links().length || unimported().length}
           fallback={
             <div data-slot="drive-panel-empty">
               <p>{ctx.t("drive.panel.empty")}</p>
             </div>
           }
         >
+          <For each={unimported()}>{(page) => <UnimportedCard page={page} />}</For>
           <For each={links()}>{(link) => <ChangeCard link={link} session={props.session} />}</For>
           <p data-slot="drive-note">{ctx.t("drive.panel.note")}</p>
         </Show>
@@ -127,6 +132,33 @@ export function ChangeCard(props: { link: Link; session: MountedSession }) {
         </button>
       )}
     </Show>
+  )
+}
+
+/** A page the agent uploaded that DynWork could not import: its name, why in the window's language, and Retry. */
+function UnimportedCard(props: { page: Unimported }) {
+  const ctx = usePlugin()
+  const [busy, setBusy] = createSignal(false)
+  const retry = async () => {
+    setBusy(true)
+    const failed = await drive.reimport(props.page.conversation, props.page.call)
+    setBusy(false)
+    if (failed) ctx.toast.show({ title: failureText(ctx, failed), variant: "error" })
+  }
+  return (
+    <div data-slot="drive-change" data-state="unimported">
+      <FormatGlyph format="html" size="large" />
+      <span data-slot="drive-change-body">
+        <span data-slot="drive-change-title">{props.page.name}</span>
+        <span data-slot="drive-change-meta">
+          <Tag tone="warning">{ctx.t("drive.card.unimported")}</Tag>
+          <span data-slot="drive-faint">{failureText(ctx, props.page.failure)}</span>
+        </span>
+      </span>
+      <Button variant="ghost" size="small" disabled={busy()} onClick={() => void retry()}>
+        {ctx.t("drive.retry")}
+      </Button>
+    </div>
   )
 }
 

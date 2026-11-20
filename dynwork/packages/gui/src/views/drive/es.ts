@@ -54,6 +54,7 @@ export default {
   "drive.card.proposed": "Propuesta",
   "drive.card.attached": "Adjuntado",
   "drive.card.read": "Leído",
+  "drive.card.unimported": "Sin importar",
   "drive.chat.none": "Abre antes un chat",
   "drive.chat.none.hint": "El documento se abre junto al chat que tengas abierto y en su composer.",
   "drive.agent": "Agente",

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test"
+import { DriveAgent } from "../../../src/drive/agent"
 import { fail } from "../../../src/drive/backend"
 import { isFailure } from "../../../src/drive/contract"
 import { back, openInDrive } from "../../../src/views/drive/chat"
@@ -251,6 +252,50 @@ describe("a chat's artifacts", () => {
         .map((link) => link.document)
         .toSorted(),
     ).toEqual([report, analysis].toSorted())
+  })
+})
+
+describe("a page the agent uploaded that DynWork could not import", () => {
+  test("shows in its chat's Artifacts tab with the reason, and Retry imports it into the chat's artifacts", async () => {
+    const refusals = { left: 1 }
+    const { store, service, fake } = await stand({
+      backend: (backend) => ({
+        ...backend,
+        importBlob: (input) =>
+          refusals.left-- > 0
+            ? Promise.resolve(fail("unreachable", "Governance did not answer."))
+            : backend.importBlob(input),
+      }),
+    })
+    const agent = DriveAgent.make({
+      service,
+      session: async () => ({ directory: "/Users/david/odoo-modules", title: chat.name }),
+      untitled: "Untitled conversation",
+      answer: async () => undefined,
+      imported: async () => undefined,
+    })
+    const blob = fake.stage(new TextEncoder().encode("<h1>VAT</h1><script></script>"), "text/html")
+    await agent.touched({
+      session: chat.id,
+      call: "call_page",
+      verb: "upload",
+      input: { name: "VAT dashboard.html", mime: "text/html" },
+      output: { blob_ref: blob },
+    })
+    expect(store.unimportedOf(chat.id)).toMatchObject([
+      { name: "VAT dashboard.html", failure: { code: "unreachable", message: "Governance did not answer." } },
+    ])
+    expect(store.unimportedOf("ses_other")).toEqual([])
+    expect(store.artifactsOf(chat.id)).toEqual([])
+    expect(await store.reimport(chat.id, "call_page")).toBeUndefined()
+    expect(store.unimportedOf(chat.id)).toEqual([])
+    expect(store.artifactsOf(chat.id)).toMatchObject([{ act: "created", via: "rest" }])
+  })
+
+  test("without a connection to main a retry answers signed-out", async () => {
+    const { store } = await stand({ disconnected: true })
+    expect(store.unimportedOf(chat.id)).toEqual([])
+    expect(await store.reimport(chat.id, "call_page")).toMatchObject({ code: "signed-out" })
   })
 })
 
