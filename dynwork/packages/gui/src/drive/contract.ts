@@ -295,6 +295,8 @@ export type Mention = typeof Mention.Type
  * - `conflict`: the document moved on (`head` is the revision it lost to), or a comment's node is gone.
  * - `unsupported`: the instance or a capability that is off does not allow it. `invalid`: the input is wrong.
  * - `unknown-context`: the instance does not hold the conversation the write named (0.84); nothing was written.
+ * - `sign-in`: only the person can do it and DynWork holds no session of theirs, or the recent sign-in it asked for was
+ *   not finished (G01): sign in to act as you. Nothing was done.
  * - `failed`: anything else.
  */
 export const Failure = Schema.Struct({
@@ -309,6 +311,7 @@ export const Failure = Schema.Struct({
     "unsupported",
     "invalid",
     "unknown-context",
+    "sign-in",
     "failed",
   ]),
   message: Schema.String,
@@ -356,6 +359,11 @@ export const State = Schema.Struct({
   unimported: Schema.Array(Unimported),
   /** When the Drive was last read. */
   read: Schema.optional(Schema.Number),
+  /**
+   * The person's own session (G01, `DriveIpc.Acting`): `on`, the user's acts go as them; `off`, the instance has one for
+   * DynWork but the person is not signed in; `unavailable`, it has none. Absent before a service sends it.
+   */
+  person: Schema.optional(Schema.Literals(["on", "off", "unavailable"])),
 })
 export type State = typeof State.Type
 
@@ -474,6 +482,26 @@ export const Drive = Ipc.define({
     },
     /** Takes one grant of a document away, by its id; answers who has access then. `person` as for `share`. */
     unshare: { input: Schema.Struct({ ...OnDocument, grant: Schema.String }), output: Outcome(Access) },
+    /**
+     * The owner's actions, which only the person can do (G01): each goes as the person, and asks for a recent sign-in in
+     * the browser when the instance wants one. Without their session nothing is sent: `sign-in`, or `person` where the
+     * instance has no session for DynWork.
+     */
+    trash: { input: Schema.Struct(OnDocument), output: Done },
+    /** Makes the user `to` the owner; the user keeps `edit`. */
+    transfer: { input: Schema.Struct({ ...OnDocument, to: Schema.String }), output: Outcome(Document) },
+    /** Makes an earlier revision the head again, as a new revision. */
+    restore: { input: Schema.Struct({ ...OnDocument, revision: Schema.String }), output: Outcome(Revision) },
+    /** Accepts or rejects a proposal, with an optional note. */
+    review: {
+      input: Schema.Struct({
+        ...OnDocument,
+        proposal: Schema.String,
+        accept: Schema.Boolean,
+        note: Schema.optional(Schema.String),
+      }),
+      output: Outcome(Proposal),
+    },
     /** Resolves a thread, by its first comment. */
     resolve: { input: Schema.Struct({ ...OnDocument, comment: Schema.String }), output: Outcome(Comment) },
     /**
@@ -527,7 +555,8 @@ export const Drive = Ipc.define({
 export const ShareCard = Schema.Struct({
   id: Schema.String,
   session: Schema.String,
-  kind: Schema.Literals(["grant", "transfer", "revoke"]),
+  /** A share, or another action only the person may do (G01): moving to the trash, restoring, reviewing a proposal. */
+  kind: Schema.Literals(["grant", "transfer", "revoke", "trash", "restore", "accept", "reject"]),
   target: Schema.optional(
     Schema.Struct({
       kind: Schema.Literals(["document", "folder"]),
@@ -545,10 +574,17 @@ export const ShareCard = Schema.Struct({
   ),
   level: Schema.optional(Schema.String),
   until: Schema.optional(Schema.String),
+  /** The note the agent leaves with a proposal's review. */
+  note: Schema.optional(Schema.String),
+  /** Allowed now, it is done as the user (their session is on), not as the agent. */
+  person: Schema.optional(Schema.Boolean),
 })
 export type ShareCard = typeof ShareCard.Type
 
-/** `once` runs this share; `conversation` also every later one of its kind in the card's conversation; `reject` none. */
+/**
+ * `once` runs this one; `conversation`, for a share (`grant`), also every later share in the card's conversation (on
+ * any other card it is `once`); `reject` none.
+ */
 export const ShareDecision = Schema.Literals(["once", "conversation", "reject"])
 export type ShareDecision = typeof ShareDecision.Type
 

@@ -9,12 +9,14 @@ import type { DriveClient } from "../../drive/client"
 import { isFailure, type Access, type Document, type Failure } from "../../drive/contract"
 import { afterShare, madeByAgent, sharing } from "./model"
 import { Avatar, capText, failureText, Level, levelText, openGovernance, Tag, useNames } from "./parts"
-import { drive, governance } from "./store"
+import { drive, governance, signInAsYou } from "./store"
 
 // The Share popover of a document, under its Share button: beside a chat and in the Drive's own view. It reads who has
-// access when it opens. What the user may change here is the instance's to say (`sharing`): a document DynWork's agent
-// made, where the Dynapps extension (from 0.85) lets an attended agent share; every other change goes to Governance, so
-// its controls are there, shut, with the reason and the way there. Loaded on the client only, as the
+// access when it opens. What the user may change here is the instance's to say (`sharing`): any document they may
+// share while their own session is on (G01), as themselves, with the recent sign-in the instance asks for; otherwise a
+// document DynWork's agent made, where the Dynapps extension (from 0.85) lets an attended agent share. Every other
+// change asks to sign in, or goes to Governance where the instance has no session for DynWork, so its controls are there,
+// shut, with the reason and the way there. Loaded on the client only, as the
 // Drive's menus are (`menus.tsx`): Kobalte's popover runs browser-only code when it loads.
 
 /** The levels a grant can have; `own` is the owner's alone. */
@@ -83,14 +85,21 @@ function ShareBody(props: { doc: Document }) {
   const list = () => shown() ?? loaded()?.access
   const access = () => list()?.access ?? props.doc.access
   const offer = () =>
-    sharing({ access: access(), link: governance(props.doc.id), made: loaded()?.made, cap: loaded()?.cap?.cap })
+    sharing({
+      access: access(),
+      link: governance(props.doc.id),
+      made: loaded()?.made,
+      cap: loaded()?.cap?.cap,
+      person: drive.acting(),
+    })
   const live = () => offer().change === "live" && !busy()
-  const reason = () =>
-    offer().change === "level"
-      ? ctx.t("drive.share.level", { level: levelText(ctx.t, access() ?? "") })
-      : offer().change === "live"
-        ? ctx.t("drive.share.agent")
-        : ctx.t("drive.share.person")
+  const reason = () => {
+    const change = offer().change
+    if (change === "level") return ctx.t("drive.share.level", { level: levelText(ctx.t, access() ?? "") })
+    if (change === "sign-in") return ctx.t("drive.share.signIn")
+    if (change === "governance") return ctx.t("drive.share.person")
+    return drive.acting() === "on" ? ctx.t("drive.share.you") : ctx.t("drive.share.agent")
+  }
   // People for the invite, as the user types: the instance's directory by name or email.
   const [found] = createResource(
     () => (offer().change === "live" && query().trim().length >= 2 ? query().trim() : undefined),
@@ -260,7 +269,12 @@ function ShareBody(props: { doc: Document }) {
           {ctx.t("drive.share.copy")}
         </Button>
         <span data-slot="drive-grow" />
-        <Show when={offer().governance}>
+        <Show when={offer().change === "sign-in"}>
+          <Button variant="ghost" size="small" onClick={signInAsYou}>
+            {ctx.t("drive.menu.signIn")}
+          </Button>
+        </Show>
+        <Show when={offer().governance && offer().change !== "sign-in"}>
           <Button
             variant="ghost"
             size="small"

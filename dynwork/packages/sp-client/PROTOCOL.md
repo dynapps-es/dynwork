@@ -506,6 +506,12 @@ What the client does with it:
 - `revoke` takes the account's bridge JWT as bearer.
 - The Drive client maps the step-up `401` to `RecentSignIn` with `maxAge`, never to `Unauthorized`.
 - The session ends 12 hours after the sign-in (`lifetime`), refreshes or not; the step-up window is 600 s (`recent`).
+- The owner's routes (core 0.84 `routes/documents/mod.rs`, read in `origin/next`), which DynWork calls only with the
+  person's token: `DELETE /api/v1/documents/{id}` (trash, `204`), `POST /{id}/transfer {transfer_to}` (the document),
+  `DELETE /{id}/grants/all` (`204`), all three behind the step-up as sharing is; `POST /{id}/proposals/{pid}/accept` and
+  `/reject {note?}` (`{proposal, revision?, rebased?}`, `409 proposal_closed` once reviewed); and a restore is
+  `POST /{id}/edits {ops: [{op: restore, revision_id}], base_revision: <head>}`. DynWork's agent JWT is refused the first
+  three and the restore as `agent_forbidden` unless the agent policy lifts them. `share` takes `valid_until`.
 
 **On sp-local `dynwork-sp-084`:** the passkey pages post the credential's `rawId` and buffers as arrays of numbers, which
 0.84 refuses (`400` "credential.rawId: invalid type: sequence, expected a base64 encoded string") on both

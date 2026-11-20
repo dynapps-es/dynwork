@@ -206,8 +206,27 @@ one per account, in main only, and `@dynwork/sp-client`'s `SpPerson` speaks the 
 - **Settings -> Governance** shows "Acting as you in the Drive" for the active account: on until a time, renewing,
   signing in (with Cancel), or the sign-in button, with why the last sign-in did not end signed in.
 
-Using the session for the Drive's own actions is the next step (phase 26 of the Drive plan); until then `personActions`
-stays off and the Drive acts as DynWork's agent, as before.
+**What goes as the person** (phase 26 of the Drive plan). While the active account's session is on (`on` or
+`renewing`), the Drive's `personActions` is on and main sends the user's own acts from a window through it
+(`DriveIpc.Options.person`, a second `DriveBackend.remote` over `withPerson`): comments, replies, resolving and reopening,
+edits, uploads, new from a template, new folders, sharing and removing access on any document the user may share, and
+the owner's actions only the person may do: restoring a version, accepting or rejecting a proposal, moving to the trash
+and transferring the ownership (each of the last two with its own confirmation). None of them carries "… by DynWork"; a
+write from a conversation still carries its `x-context-id`, which DynWork's agent registers (the UI token gets `401` on
+the contexts route). What the agent writes through the `documents` MCP stays the agent's: the person's token never
+reaches the plugin, the harness or a window.
+
+The agent's own requests for what only the person may do (`documents_share`, `documents_trash`, a `restore` op in
+`documents_edit`, `documents_proposals` accept or reject) wait on a card in an attended chat (`drive/share.ts`). Allowed
+with the session on, main does it as the person and the plugin answers the call with what happened, so it never reaches
+the instance as the agent's; without the session the call goes as the agent wrote it, and the instance decides. "Allow in
+this conversation" is for sharing only. A scheduled task never gets a card and never acts as the person: the call is
+refused with a message for the agent.
+
+**Without the session** the Drive acts as DynWork's agent, as before ("`<user>` by DynWork"). What only the person may do
+answers `sign-in` without a call where the instance has a session for DynWork (`person: off`), and the window offers "Sign
+in to act as you"; where it has none (0.83, `unavailable`) it answers `person` and goes to Governance, as before. A share
+the instance keeps from the agent says `sign-in` too.
 
 ### Managing instances
 

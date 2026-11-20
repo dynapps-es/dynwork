@@ -420,10 +420,14 @@ function joined(written: string | undefined, label: string) {
   return text.includes(label) ? text : `${text} (${label})`
 }
 
-// Sharing (D24). Before every `documents_share` call the user decides on a card in the conversation: Reject, Allow once
-// or Allow in this conversation. The call waits for that answer as long as it takes; main keeps what a conversation
-// allowed and answers its next shares at once. OpenCode's permission prompt is not used: its "always" is saved for the
-// whole project, its button cannot say "in this conversation", and the app's auto-approve would answer it unseen.
+// Sharing (D24) and the rest of what only the person may do (G01). Before every `documents_share` call, and every
+// `documents_trash`, restore (`documents_edit` with a `restore` op) and review of a proposal (`documents_proposals`
+// accept or reject), the user decides on a card in the conversation: Reject, Allow once, and for a share also Allow in
+// this conversation. The call waits for that answer as long as it takes; main keeps what a conversation allowed for its
+// shares and answers its next ones at once. Allowed while the person's session is on, main does it as the person and the
+// call never reaches the instance: the agent reads main's word on it (`outcome`). Otherwise the call goes as the agent
+// wrote it, and the instance decides. OpenCode's permission prompt is not used: its "always" is saved for the whole
+// project, its button cannot say "in this conversation", and the app's auto-approve would answer it unseen.
 
 const shareTool = `${server}_${server}_share`
 
@@ -447,7 +451,8 @@ const decodeShare = Schema.decodeUnknownOption(ShareInput)
 export const Share = Schema.Struct({
   id: Schema.String,
   session: Schema.String,
-  kind: Schema.Literals(["grant", "transfer", "revoke"]),
+  /** A share (`grant`, `transfer`, `revoke`), or another action only the person may do (G01). */
+  kind: Schema.Literals(["grant", "transfer", "revoke", "trash", "restore", "accept", "reject"]),
   document: Schema.optional(Schema.String),
   folder: Schema.optional(Schema.String),
   /** Whom: as the agent named it in `value`, and the `name` and `email` a `documents_people` call of the conversation gave. */
@@ -461,12 +466,20 @@ export const Share = Schema.Struct({
   ),
   level: Schema.optional(Schema.String),
   until: Schema.optional(Schema.String),
+  /** For `restore`: the revision to make the head again. */
+  revision: Schema.optional(Schema.String),
+  /** For `accept` and `reject`: the proposal, and the note the agent left. */
+  proposal: Schema.optional(Schema.String),
+  note: Schema.optional(Schema.String),
 })
 export type Share = typeof Share.Type
 export type Subject = NonNullable<Share["subject"]>
 
-/** The user's decision on a share: `allow` runs the call, otherwise it fails with what the user declined. */
-export const Decision = Schema.Struct({ id: Schema.String, allow: Schema.Boolean })
+/**
+ * The user's decision on a card: `allow` runs the call, otherwise it fails with what the user declined. With `outcome`,
+ * main already did it as the person (G01): the call never reaches the instance, and `outcome` is what the agent reads.
+ */
+export const Decision = Schema.Struct({ id: Schema.String, allow: Schema.Boolean, outcome: Schema.optional(Schema.String) })
 export type Decision = typeof Decision.Type
 export const Shares = Schema.Struct({ shares: Schema.Array(Share) })
 export type Shares = typeof Shares.Type
@@ -504,6 +517,52 @@ export function sharing(event: {
     ...(given?.level === undefined ? {} : { level: given.level }),
     ...(given?.valid_until === undefined ? {} : { until: given.valid_until }),
   }
+}
+
+const OwnerInput = Schema.Struct({
+  document_id: Text,
+  action: Text,
+  proposal_id: Text,
+  note: Text,
+  ops: Schema.optional(Schema.Array(Schema.Unknown)),
+})
+const decodeOwner = Schema.decodeUnknownOption(OwnerInput)
+const decodeRestore = Schema.decodeUnknownOption(Schema.Struct({ op: Schema.Literal("restore"), revision_id: Text }))
+
+/**
+ * What a call is about to do that only the person may (G01), or undefined for any other call: a share (`sharing`), a
+ * trash, a restore among an edit's ops, or the acceptance or rejection of a proposal. Reading proposals and any other
+ * edit are not asked about.
+ */
+export function personal(event: {
+  readonly tool: string
+  readonly sessionID: string
+  readonly id: string
+  readonly input: unknown
+}): Share | undefined {
+  const shared = sharing(event)
+  if (shared) return shared
+  const write = toolOf(event.tool)
+  if (write !== "trash" && write !== "edit" && write !== "proposals") return undefined
+  const given = Option.getOrUndefined(decodeOwner(event.input))
+  const base = {
+    id: event.id,
+    session: event.sessionID,
+    ...(given?.document_id === undefined ? {} : { document: given.document_id }),
+  }
+  if (write === "trash") return { ...base, kind: "trash" }
+  if (write === "proposals") {
+    if (given?.action !== "accept" && given?.action !== "reject") return undefined
+    return {
+      ...base,
+      kind: given.action,
+      ...(given.proposal_id === undefined ? {} : { proposal: given.proposal_id }),
+      ...(given.note === undefined ? {} : { note: given.note }),
+    }
+  }
+  const restore = (given?.ops ?? []).map((op) => Option.getOrUndefined(decodeRestore(op))).find((op) => op !== undefined)
+  if (!restore) return undefined
+  return { ...base, kind: "restore", ...(restore.revision_id === undefined ? {} : { revision: restore.revision_id }) }
 }
 
 // The people the agent looked up with `documents_people`, by conversation and user id: the instance names nobody by id
@@ -557,12 +616,15 @@ function person(session: string, subject: { kind: string; value: string }): Subj
 
 // A scheduled task's run: OpenCode's automation runs and DynWork's own carry this prefix (`Automation.isRunSession` in
 // `@opencode/schema/automation`, which main bundles without; mirrored here).
-/** Whether the conversation is a scheduled task's run, which nobody watches: a share there is refused at once. */
+/**
+ * Whether the conversation is a scheduled task's run, which nobody watches: a share, or anything else only the person
+ * may do, is refused there at once. It never acts as the person.
+ */
 export const unattended = (session: string) => session.startsWith("ses_aut_")
 
-/** What the agent reads when it shares in a scheduled task. */
+/** What the agent reads when it shares, trashes, transfers, restores or reviews a proposal in a scheduled task. */
 export const nobody =
-  "Dynwork asks the user before every share, and nobody is there to answer in a scheduled task: nothing was shared. Ask the user to share it from a conversation."
+  "Dynwork asks the user before every share, trash, transfer, restore or proposal review, and nobody is there to answer in a scheduled task: nothing was shared or changed. Ask the user to do it from a conversation."
 
 /** What the agent reads when the user rejects its share. */
 export function declined(share: Share) {
@@ -574,13 +636,18 @@ export function declined(share: Share) {
     return `The user declined to transfer ownership of ${document} to ${subject}: nothing changed. ${after}`
   if (share.kind === "revoke")
     return `The user declined to revoke every grant on ${document}: nothing changed. ${after}`
+  if (share.kind === "trash") return `The user declined to move ${document} to the trash: nothing changed. ${after}`
+  if (share.kind === "restore")
+    return `The user declined to restore revision ${share.revision ?? "(none given)"} of ${document}: nothing changed. ${after}`
+  if (share.kind === "accept" || share.kind === "reject")
+    return `The user declined to ${share.kind} proposal ${share.proposal ?? "(none given)"} on ${document}: nothing changed. ${after}`
   const level = share.level === undefined ? "" : ` (${share.level})`
   return `The user declined to share ${target} with ${subject}${level}: nothing was shared. ${after}`
 }
 
-/** What the agent reads when no Dynwork window heard the share: nobody could be asked, so it is refused. */
+/** What the agent reads when no Dynwork window heard the card: nobody could be asked, so it is refused. */
 export const unheard =
-  "Dynwork could not ask the user to confirm this share, so nothing was shared. Ask the user to share it themselves, or try again with Dynwork open."
+  "Dynwork could not ask the user to confirm this, so nothing was shared or changed. Ask the user to do it themselves, or try again with Dynwork open."
 
 /** How long main has to say it shows the card (`shown`) before the share is refused as unheard. */
 export const heardWithin = "10 seconds"
@@ -594,7 +661,12 @@ interface Asked {
   readonly share: Share
   /** Main said it shows the card. */
   shown: boolean
-  resolve: (allow: boolean) => void
+  resolve: (decision: Decision) => void
+}
+
+/** Main did it as the person: what the agent reads in place of the instance's answer. */
+export interface Done {
+  readonly outcome: string
 }
 
 // Like the asks: one process-wide slot, as main decides on whichever Location takes the call.
@@ -610,8 +682,13 @@ const asked: Map<string, Asked> = (shareSlot.__dynworkShares ??= new Map())
 export function confirm(confirmer: Confirmer, share: Share, within: Duration.Input = heardWithin) {
   return Effect.suspend(() => {
     const entry: Asked = { share, shown: false, resolve: () => {} }
-    const decided = Effect.callback<"allow" | "reject">((resume) => {
-      entry.resolve = (allow) => resume(Effect.succeed(allow ? "allow" : "reject"))
+    const decided = Effect.callback<"allow" | "reject" | Done>((resume) => {
+      entry.resolve = (decision) =>
+        resume(
+          Effect.succeed(
+            !decision.allow ? "reject" : decision.outcome === undefined ? "allow" : { outcome: decision.outcome },
+          ),
+        )
       asked.set(share.id, entry)
       Effect.runFork(confirmer.confirm(share))
       return Effect.suspend(() => (asked.delete(share.id) ? confirmer.withdraw(share.id) : Effect.void))
@@ -636,7 +713,7 @@ export function decide(input: Decision) {
   const found = asked.get(input.id)
   if (!found) return { accepted: false }
   asked.delete(input.id)
-  found.resolve(input.allow)
+  found.resolve(input)
   return { accepted: true }
 }
 
@@ -764,8 +841,10 @@ export function instructions(switches: Switches = {}) {
     ...comments,
     "",
     "A file you upload to put inside another document (an image for a Word file) is not imported as a document.",
-    "Before every documents_share the user allows or rejects it on a card in this conversation: call it without asking",
-    "first, and when the user rejects it, do not try again unless they ask.",
+    "Before every documents_share, documents_trash, restore op and proposal accept or reject, the user allows or rejects",
+    "it on a card in this conversation: call it without asking first, and when the user rejects it, do not try again",
+    "unless they ask. When they allow it, Dynwork may do it as the user: then the call's answer (even as an error) says",
+    "what was done. Never in a scheduled task.",
     ...lookup,
   ].join("\n")
 }

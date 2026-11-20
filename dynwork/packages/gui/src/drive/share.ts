@@ -4,17 +4,20 @@ import { DynWorkDocuments } from "@dynwork/server-plugin/documents"
 import type { OpenCodeClient } from "@opencode/client/promise"
 import type { MainContext } from "@opencode/plugin/gui/main"
 import { Schema } from "effect"
-import { fail } from "./backend"
-import { isFailure, Shares, type ShareCard, type ShareDecision } from "./contract"
+import { fail, type Backend } from "./backend"
+import { isFailure, Shares, type Failure, type ShareCard, type ShareDecision } from "./contract"
 import type { DriveIpc } from "./ipc"
 
-// The agent's shares, main's side (D24). Before a `documents_share` call runs, the server plugin publishes it and waits
-// (`DynWorkDocuments.confirm`); main shows it on a card in its conversation, with the names of the document and the
-// person (from the conversation's `documents_people`, or the Drive), says so (`shown`), and sends back the user's
-// decision. With no window to show it, main takes no share and the plugin refuses it. "Allow in this conversation" is
-// kept here, per conversation and kind of share, for as long as the app runs: the next share of that kind in that
-// conversation is allowed without a card, one in another conversation shows its own. Nothing is saved, so a restart asks
-// again.
+// The agent's shares, main's side (D24), and the rest of what only the person may do (G01: trash, restore, accept or
+// reject a proposal). Before such a call runs, the server plugin publishes it and waits (`DynWorkDocuments.confirm`);
+// main shows it on a card in its conversation, with the names of the document and the person (from the conversation's
+// `documents_people`, or the Drive), says so (`shown`), and sends back the user's decision. With no window to show it,
+// main takes none and the plugin refuses it. Allowed while the person's session is on, main does it as the person
+// (`perform`) and tells the plugin what happened, so the call never reaches the instance as the agent's; without the
+// session, the call goes as the agent wrote it. "Allow in this conversation" is for shares (`grant`) only, kept here per
+// conversation for as long as the app runs: the next share in that conversation is allowed without a card, one in
+// another conversation shows its own. Deleting, transferring, revoking every grant, restoring and reviewing are asked
+// every time. Nothing is saved, so a restart asks again.
 
 /** A session as far as the card's conversation is read from it. */
 export interface Session {
@@ -34,6 +37,11 @@ export interface Options {
   shown: (id: string) => Promise<unknown>
   /** Whether a window is open to show the card. Without one, the share is not taken and the plugin refuses it. */
   attended: () => boolean
+  /**
+   * The person's backend while their session is on (`DriveIpc.Service.person`), to do what the user allowed as them;
+   * undefined without one, and the call then goes as the agent's. Absent: never as the person.
+   */
+  person?: () => Backend | undefined
   /** The cards changed. */
   changed: () => void
 }
@@ -56,18 +64,20 @@ const depth = 8
 /** The share logic, with no service and no window: what `setup` wires, and what the tests drive. */
 export function make(options: Options) {
   const cards = new Map<string, ShareCard>()
+  // The calls behind the cards, by id: what `perform` needs that a card does not show.
+  const calls = new Map<string, DynWorkDocuments.Share>()
   // Shares being read or shown, so the same one arriving by event and by `shares` is handled once.
   const known = new Set<string>()
-  // What the user allowed in a conversation: `<session>:<kind>`.
+  // The conversations whose shares the user allowed (`grant` only).
   const allowed = new Set<string>()
 
   async function request(share: DynWorkDocuments.Share) {
     if (known.has(share.id)) return
     known.add(share.id)
     const session = await conversation(share.session)
-    if (allowed.has(`${session}:${share.kind}`)) {
+    if (share.kind === "grant" && allowed.has(session)) {
       known.delete(share.id)
-      await options.decide({ id: share.id, allow: true }).catch(() => undefined)
+      await options.decide({ id: share.id, allow: true, ...(await asPerson(share)) }).catch(() => undefined)
       return
     }
     // Nobody to ask: the share is left unanswered, and the plugin refuses it (`DynWorkDocuments.unheard`).
@@ -80,7 +90,15 @@ export function make(options: Options) {
     // Withdrawn while the names were read.
     if (!known.has(share.id)) return
     cards.set(shown.id, shown)
+    calls.set(share.id, share)
     options.changed()
+  }
+
+  // What the user allowed, done as the person while their session is on: the plugin's `outcome`. Nothing without it.
+  async function asPerson(share: DynWorkDocuments.Share) {
+    const person = options.person?.()
+    const outcome = person && (await perform(person, share))
+    return outcome === undefined ? {} : { outcome }
   }
 
   // The conversation a share shows in: its own session, or for a subagent's, the conversation that started it.
@@ -110,6 +128,8 @@ export function make(options: Options) {
       ...(share.subject ? { subject: await person(share.subject) } : {}),
       ...(share.level === undefined ? {} : { level: share.level }),
       ...(share.until === undefined ? {} : { until: share.until }),
+      ...(share.note === undefined ? {} : { note: share.note }),
+      ...(options.person?.() ? { person: true } : {}),
     }
   }
 
@@ -163,13 +183,17 @@ export function make(options: Options) {
 
   function withdraw(id: string) {
     known.delete(id)
+    calls.delete(id)
     if (cards.delete(id)) options.changed()
   }
 
   async function settle(card: ShareCard, allow: boolean) {
+    const share = calls.get(card.id)
     cards.delete(card.id)
+    calls.delete(card.id)
     known.delete(card.id)
-    await options.decide({ id: card.id, allow }).catch(() => undefined)
+    const done = allow && share ? await asPerson(share) : {}
+    await options.decide({ id: card.id, allow, ...done }).catch(() => undefined)
   }
 
   return {
@@ -199,13 +223,15 @@ export function make(options: Options) {
     cards: () => [...cards.values()],
     /**
      * The user's decision on a card. The card leaves before the plugin hears it, so a second decision (another window)
-     * finds none. Allowing in the conversation also allows the cards of the same kind already waiting there.
+     * finds none. Allowing in the conversation is for a share (`grant`): it also allows the shares already waiting
+     * there. On any other card it counts as allowing once, and nothing is remembered.
      */
     decide: async (id: string, decision: ShareDecision) => {
       const card = cards.get(id)
       if (!card) return fail("not-found", "This share is no longer waiting.")
-      if (decision === "conversation") allowed.add(`${card.session}:${card.kind}`)
-      const same = decision === "conversation" ? [...cards.values()].filter((other) => sameScope(other, card)) : [card]
+      const remembered = decision === "conversation" && card.kind === "grant"
+      if (remembered) allowed.add(card.session)
+      const same = remembered ? [...cards.values()].filter((other) => sameScope(other, card)) : [card]
       const settled = Promise.all(same.map((item) => settle(item, decision !== "reject")))
       options.changed()
       await settled
@@ -216,7 +242,7 @@ export function make(options: Options) {
 
 export type Logic = ReturnType<typeof make>
 
-const sameScope = (a: ShareCard, b: ShareCard) => a.session === b.session && a.kind === b.kind
+const sameScope = (a: ShareCard, b: ShareCard) => a.session === b.session && a.kind === "grant" && b.kind === "grant"
 
 // A name only when one was read: a card without one shows the id the agent gave.
 const named = (name: string | undefined) => (name === undefined ? {} : { name })
@@ -231,12 +257,71 @@ const decodeWithdrawn = Schema.decodeUnknownOption(DynWorkDocuments.Withdrawn)
 const decodeShares = Schema.decodeUnknownOption(DynWorkDocuments.Shares)
 
 /**
+ * Does what the user allowed on a card as the person (G01), with their backend, and answers what the agent reads in
+ * place of the instance's answer; undefined for what it cannot do as them (a folder's grant, a call missing what it
+ * needs), which then goes as the agent wrote it. The answer names the document and the action, never a credential.
+ */
+export async function perform(person: Backend, share: DynWorkDocuments.Share): Promise<string | undefined> {
+  const document = share.document
+  const running = document === undefined || share.folder !== undefined ? undefined : act(person, share, document)
+  if (running === undefined) return undefined
+  const answer = await running
+  if (isFailure(answer)) return refused(answer)
+  return `The user allowed it on the card and Dynwork did it as the user, not as you: ${what(share)}. It is done: do not call it again.`
+}
+
+// The call `perform` makes as the person, or undefined when the share lacks what it needs.
+function act(person: Backend, share: DynWorkDocuments.Share, document: string) {
+  const subject = share.subject
+  if (share.kind === "grant")
+    return subject && share.level !== undefined
+      ? person.share(document, {
+          kind: subject.kind,
+          value: subject.value,
+          level: share.level,
+          ...(share.until === undefined ? {} : { until: share.until }),
+        })
+      : undefined
+  if (share.kind === "transfer") return subject && person.transfer(document, subject.value)
+  if (share.kind === "revoke") return person.revokeAll(document)
+  if (share.kind === "trash") return person.trash(document)
+  if (share.kind === "restore") return share.revision === undefined ? undefined : person.restore(document, share.revision)
+  if (share.proposal === undefined) return undefined
+  return person.review(document, share.proposal, {
+    accept: share.kind === "accept",
+    ...(share.note === undefined ? {} : { note: share.note }),
+  })
+}
+
+// What was done, in the agent's terms.
+function what(share: DynWorkDocuments.Share) {
+  const document = `document ${share.document}`
+  const subject = share.subject ? `${share.subject.kind} ${share.subject.value}` : "(nobody given)"
+  if (share.kind === "grant") return `shared ${document} with ${subject} (${share.level})`
+  if (share.kind === "transfer") return `made ${subject} the owner of ${document}`
+  if (share.kind === "revoke") return `revoked every grant on ${document}`
+  if (share.kind === "trash") return `moved ${document} to the trash`
+  if (share.kind === "restore") return `restored revision ${share.revision} of ${document} as a new revision`
+  return `${share.kind === "accept" ? "accepted" : "rejected"} proposal ${share.proposal} on ${document}`
+}
+
+function refused(failure: Failure) {
+  if (failure.code === "sign-in")
+    return "The user allowed it on the card, but did not finish signing in to Governance, which it asks for this: nothing changed. Tell the user they can sign in from Dynwork's Settings and ask you again."
+  return `The user allowed it on the card, but Governance refused it as the user (${failure.code}): ${failure.message} Nothing changed.`
+}
+
+/**
  * Sets the shares up in main, beside the agent's documents (`DriveAgent.setup`): the `dynwork.drive.shares` Ipc, and the
  * following of the server plugin's shares on DynWork's service for as long as the app runs.
  */
 export function setup(
   ctx: Pick<MainContext, "onCleanup" | "provide">,
-  input: { service: Options["service"]; client: () => OpenCodeClient | undefined; attended: () => boolean },
+  input: {
+    service: Options["service"] & Pick<DriveIpc.Service, "person">
+    client: () => OpenCodeClient | undefined
+    attended: () => boolean
+  },
 ) {
   const call = async (method: string, value: unknown) => {
     const client = input.client()
@@ -253,6 +338,7 @@ export function setup(
     decide: (decision) => call("decide", decision),
     shown: (id) => call("shown", { id }),
     attended: input.attended,
+    person: input.service.person,
     changed: () => provider.changed(),
   })
   const ipc = ctx.provide(Shares, {

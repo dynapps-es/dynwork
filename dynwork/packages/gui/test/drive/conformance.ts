@@ -427,6 +427,20 @@ export function conformance(name: string, make: () => Subject) {
       subject.agentShare(false)
     })
 
+    test("the owner's actions are the person's: DynWork's agent is refused each one, and nothing changes (G01)", async () => {
+      const subject = make()
+      const backend = subject.backend
+      const created = await ok(backend.upload({ name: "kept.md", bytes: text("# Kept"), mime: "text/markdown" }))
+      const id = created.document.id
+      expectFailure(await backend.trash(id), "person")
+      expectFailure(await backend.transfer(id, subject.invitee), "person")
+      expectFailure(await backend.revokeAll(id), "person")
+      expectFailure(await backend.restore(id, created.revision.id), "person")
+      const still = await ok(backend.get(id))
+      expect(still.document.owner).toBe(subject.user)
+      expect(still.head.id).toBe(created.revision.id)
+    })
+
     test("where the instance keeps sharing to a person, a share and a revocation are refused and change nothing", async () => {
       const subject = make()
       const { backend } = subject

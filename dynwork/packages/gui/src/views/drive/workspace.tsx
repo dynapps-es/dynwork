@@ -5,15 +5,26 @@ import { ResizeHandle } from "@opencode/ui/resize-handle"
 import { Tabs } from "@opencode/ui/tabs"
 import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js"
 import { DriveCapabilities } from "../../drive/capabilities"
-import type { Document } from "../../drive/contract"
+import { isFailure, type Document } from "../../drive/contract"
 import { askAgent, back, sessionOf, titleOf } from "./chat"
-import { revisionBy } from "./model"
+import { bannerOf, personOffer, revisionBy } from "./model"
 import { canComment, CommentMarks, CommentsTab, MarksToggle } from "./comments"
 import { CommentPopup, DocMenu, SharePopover } from "./menus"
 import { drawerWidth, outlineWidth, panes } from "./panes"
-import { Avatar, capText, FormatGlyph, Level, openGovernance, PresentButton, PresentExit, Tag, useNames } from "./parts"
+import {
+  Avatar,
+  capText,
+  failureText,
+  FormatGlyph,
+  Level,
+  openGovernance,
+  PresentButton,
+  PresentExit,
+  Tag,
+  useNames,
+} from "./parts"
 import { createInline } from "./spot"
-import { account, drawerAsks, drive, governance, type DocTab } from "./store"
+import { account, drawerAsks, drive, governance, signInAsYou, type DocTab } from "./store"
 import { createPresent, Viewer, type Outline } from "./viewer"
 
 // The drawer's tabs. Sharing is the Share button's popover in the bar, as beside a chat.
@@ -245,15 +256,17 @@ function count(tab: DocTab, doc: Document) {
 }
 
 /**
- * How DynWork writes here (D2): as an agent that signs "<user> by DynWork", what the Drive lets it do on this document
- * attended and what a scheduled task could do unattended (C2); as the person once the Drive allows it (P1).
+ * How DynWork writes here (D2, G01): as the person while their own session is on; otherwise as an agent that signs
+ * "<user> by DynWork", with what the Drive lets it do on this document attended and what a scheduled task could do
+ * unattended (C2), and, where the instance has a session for DynWork, the way to sign in and act as themselves.
  */
 function Banner() {
   const ctx = usePlugin()
   const cap = () => drive.state.opened.cap
+  const kind = () => bannerOf(drive.acting())
   return (
     <Show
-      when={!drive.person()}
+      when={kind() !== "person"}
       fallback={
         <div data-slot="drive-banner" data-tone="success">
           <Icon name="edit" size="small" />
@@ -267,7 +280,9 @@ function Banner() {
         <Icon name="info" size="small" />
         <span data-slot="drive-grow">
           <b>{ctx.t("drive.banner.mvp.title")}</b>{" "}
-          {ctx.t("drive.banner.mvp", { user: account()?.user ?? ctx.t("drive.you") })}
+          {ctx.t(kind() === "signIn" ? "drive.banner.signIn" : "drive.banner.mvp", {
+            user: account()?.user ?? ctx.t("drive.you"),
+          })}
           <Show when={cap()}>
             {(found) => (
               <>
@@ -280,6 +295,11 @@ function Banner() {
             )}
           </Show>
         </span>
+        <Show when={kind() === "signIn"}>
+          <Button variant="ghost" size="small" onClick={signInAsYou}>
+            {ctx.t("drive.signIn")}
+          </Button>
+        </Show>
       </div>
     </Show>
   )
@@ -372,6 +392,16 @@ function Versions(props: { doc: Document }) {
   const names = useNames()
   const list = () => drive.state.opened.revisions ?? []
   const capabilities = () => drive.remote()?.capabilities ?? DriveCapabilities.none
+  const offer = () =>
+    personOffer({ person: drive.acting(), access: drive.state.opened.detail?.access ?? props.doc.access, needs: "edit" })
+  const [busy, setBusy] = createSignal<string>()
+  const restore = async (revision: string) => {
+    setBusy(revision)
+    const done = await drive.restore(props.doc.id, revision)
+    setBusy(undefined)
+    if (isFailure(done))
+      ctx.toast.show({ title: ctx.t("drive.version.failed"), description: failureText(ctx, done), variant: "error" })
+  }
   return (
     <>
       <For each={list()}>
@@ -397,15 +427,41 @@ function Versions(props: { doc: Document }) {
               <div data-slot="drive-faint">{names.ago(revision.created)}</div>
             </div>
             <Show when={index() > 0}>
-              <Button
-                variant="ghost"
-                size="small"
-                disabled={!governance(props.doc.id)}
-                title={ctx.t("drive.version.restore.mvp")}
-                onClick={() => openGovernance(ctx, props.doc)}
+              <Switch
+                fallback={
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    disabled={!governance(props.doc.id) || offer() === "level"}
+                    title={ctx.t("drive.version.restore.mvp")}
+                    onClick={() => openGovernance(ctx, props.doc)}
+                  >
+                    {ctx.t("drive.version.restore")}
+                  </Button>
+                }
               >
-                {ctx.t("drive.version.restore")}
-              </Button>
+                <Match when={offer() === "live"}>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    disabled={busy() !== undefined}
+                    title={ctx.t("drive.version.restore.hint")}
+                    onClick={() => void restore(revision.id)}
+                  >
+                    {ctx.t("drive.version.restore")}
+                  </Button>
+                </Match>
+                <Match when={offer() === "sign-in"}>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    title={ctx.t("drive.version.restore.signIn")}
+                    onClick={signInAsYou}
+                  >
+                    {ctx.t("drive.version.restore")}
+                  </Button>
+                </Match>
+              </Switch>
             </Show>
           </div>
         )}
@@ -415,11 +471,24 @@ function Versions(props: { doc: Document }) {
   )
 }
 
-/** The proposals on the document: a person accepts or rejects them, in Governance until DynWork acts as the person. */
+/**
+ * The proposals on the document: a person accepts or rejects them, here as themselves while their session is on (G01),
+ * otherwise after signing in, or in Governance where the instance has no session for DynWork.
+ */
 function Proposals(props: { doc: Document }) {
   const ctx = usePlugin()
   const names = useNames()
   const list = () => drive.state.opened.proposals ?? []
+  const offer = () =>
+    personOffer({ person: drive.acting(), access: drive.state.opened.detail?.access ?? props.doc.access, needs: "edit" })
+  const [busy, setBusy] = createSignal(false)
+  const review = async (proposal: string, accept: boolean) => {
+    setBusy(true)
+    const done = await drive.review(props.doc.id, proposal, accept)
+    setBusy(false)
+    if (isFailure(done))
+      ctx.toast.show({ title: ctx.t("drive.proposals.failed"), description: failureText(ctx, done), variant: "error" })
+  }
   const tone = (status: string) => (status === "open" ? "warning" : status === "accepted" ? "success" : undefined)
   return (
     <Show when={list().length} fallback={<p data-slot="drive-note">{ctx.t("drive.proposals.none")}</p>}>
@@ -436,16 +505,39 @@ function Proposals(props: { doc: Document }) {
             </div>
             <Show when={proposal.status === "open"}>
               <div data-slot="drive-row-actions">
-                <Button
-                  variant="ghost"
-                  size="small"
-                  icon="square-arrow-top-right"
-                  disabled={!governance(props.doc.id)}
-                  title={ctx.t("drive.proposals.people")}
-                  onClick={() => openGovernance(ctx, props.doc)}
+                <Switch
+                  fallback={
+                    <Button
+                      variant="ghost"
+                      size="small"
+                      icon="square-arrow-top-right"
+                      disabled={!governance(props.doc.id) || offer() === "level"}
+                      title={ctx.t("drive.proposals.people")}
+                      onClick={() => openGovernance(ctx, props.doc)}
+                    >
+                      {ctx.t("drive.proposals.review")}
+                    </Button>
+                  }
                 >
-                  {ctx.t("drive.proposals.review")}
-                </Button>
+                  <Match when={offer() === "live"}>
+                    <Button variant="ghost" size="small" disabled={busy()} onClick={() => void review(proposal.id, false)}>
+                      {ctx.t("drive.proposals.reject")}
+                    </Button>
+                    <Button
+                      variant="neutral"
+                      size="small"
+                      disabled={busy()}
+                      onClick={() => void review(proposal.id, true)}
+                    >
+                      {ctx.t("drive.proposals.accept")}
+                    </Button>
+                  </Match>
+                  <Match when={offer() === "sign-in"}>
+                    <Button variant="ghost" size="small" onClick={signInAsYou}>
+                      {ctx.t("drive.proposals.signIn")}
+                    </Button>
+                  </Match>
+                </Switch>
               </div>
             </Show>
             <div data-slot="drive-faint">{names.ago(proposal.created)}</div>

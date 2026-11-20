@@ -8,10 +8,11 @@ import type definition from "../../accounts/index"
 import { emphasized, shareSubject } from "./model"
 import { Shares, type Failure, type ShareCard, type ShareDecision } from "../../drive/contract"
 
-// The agent's shares (D24): before a `documents_share` call runs, its card takes the composer's place in the
-// conversation, as OpenCode's permission dock does (the `session.composer.dock` slot), drawn with the same `DockPrompt`
-// and data slots so the app styles it as one. Reject, Allow in this conversation and Allow once, in the permission
-// dock's order; the call waits for the answer (`drive/share.ts`).
+// The agent's shares (D24) and the rest of what only the person may do (G01: trash, restore, review a proposal): before
+// such a call runs, its card takes the composer's place in the conversation, as OpenCode's permission dock does (the
+// `session.composer.dock` slot), drawn with the same `DockPrompt` and data slots so the app styles it as one. Reject,
+// Allow in this conversation (shares only) and Allow once, in the permission dock's order; the call waits for the answer
+// (`drive/share.ts`), and, with the user's session on, is done as them.
 export function registerShares(ctx: SetupContext<typeof definition>) {
   const live = ctx.use(Shares)
   const client = () => {
@@ -38,6 +39,10 @@ const titles = {
   grant: "drive.share.grant.title",
   transfer: "drive.share.transfer.title",
   revoke: "drive.share.revoke.title",
+  trash: "drive.share.trash.title",
+  restore: "drive.share.restore.title",
+  accept: "drive.share.accept.title",
+  reject: "drive.share.reject.title",
 } as const
 
 // The levels a grant gives, named as the Share tab names them; another value shows as the agent gave it.
@@ -71,8 +76,7 @@ function ShareDock(props: {
     return levels.includes(given) ? ctx.t(`drive.level.${given}`) : given
   }
   const sentence = () => {
-    if (props.card.kind === "transfer") return "drive.share.transfer.text"
-    if (props.card.kind === "revoke") return "drive.share.revoke.text"
+    if (props.card.kind !== "grant") return `drive.share.${props.card.kind}.text`
     return props.card.target?.kind === "folder" ? "drive.share.grant.folder" : "drive.share.grant.text"
   }
 
@@ -94,9 +98,12 @@ function ShareDock(props: {
             <Button variant="ghost" size="normal" disabled={busy()} onClick={() => void decide("reject")}>
               {ctx.t("drive.share.reject")}
             </Button>
-            <Button variant="neutral" size="normal" disabled={busy()} onClick={() => void decide("conversation")}>
-              {ctx.t("drive.share.conversation")}
-            </Button>
+            {/* Only a share is allowed for the whole conversation: anything else is asked every time. */}
+            <Show when={props.card.kind === "grant"}>
+              <Button variant="neutral" size="normal" disabled={busy()} onClick={() => void decide("conversation")}>
+                {ctx.t("drive.share.conversation")}
+              </Button>
+            </Show>
             <Button variant="submit" size="normal" disabled={busy()} onClick={() => void decide("once")}>
               {ctx.t("drive.share.once")}
             </Button>
@@ -112,6 +119,20 @@ function ShareDock(props: {
           </For>
         </div>
       </div>
+      <Show when={props.card.note}>
+        {(note) => (
+          <div data-slot="permission-row">
+            <span data-slot="permission-spacer" aria-hidden="true" />
+            <div data-slot="permission-hint">{ctx.t("drive.share.note", { note: note() })}</div>
+          </div>
+        )}
+      </Show>
+      <Show when={props.card.person}>
+        <div data-slot="permission-row">
+          <span data-slot="permission-spacer" aria-hidden="true" />
+          <div data-slot="permission-hint">{ctx.t("drive.share.asYou")}</div>
+        </div>
+      </Show>
       <Show when={props.card.until}>
         {(until) => (
           <div data-slot="permission-row">

@@ -34,9 +34,16 @@ export function registerDrive(ctx: SetupContext<typeof definition>) {
   // accounts Ipc the window entry already holds.
   createEffect(() => {
     const live = connection()
-    const active =
-      live?.status === "active" ? live.value.state()?.accounts.find((account) => account.active) : undefined
-    follow(active && { url: active.url, user: active.user ?? active.label })
+    const client = live?.status === "active" ? live.value : undefined
+    const active = client?.state()?.accounts.find((account) => account.active)
+    follow(
+      active && {
+        url: active.url,
+        user: active.user ?? active.label,
+        // The person's sign-in (G01): its outcome shows in the Drive's state and in Settings, so it is not awaited here.
+        signIn: () => void client?.personSignIn(active.id).catch(() => undefined),
+      },
+    )
   })
 
   // A document the agent made or changed opens beside its chat, once per document and chat. What the account's index

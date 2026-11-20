@@ -3,6 +3,7 @@ export * as DriveBackend from "./backend"
 import { Effect } from "effect"
 import { SpClient, SpDrive } from "@dynwork/sp-client"
 import { DynWorkAccounts } from "../accounts/accounts"
+import { DynWorkPerson } from "../accounts/person"
 import type { DriveCapabilities } from "./capabilities"
 import { isFailure } from "./contract"
 import { DriveMentions } from "./mentions"
@@ -124,9 +125,21 @@ export interface Backend {
    * Gives a subject (`user` and a user id, or a role) `level` on a document, or changes the level it has (one grant per
    * subject), and answers who has access then. `person` when the instance's agent policy does not let DynWork share it.
    */
-  share(id: string, input: { kind: string; value: string; level: string }): Promise<Access | Failure>
+  share(id: string, input: { kind: string; value: string; level: string; until?: string }): Promise<Access | Failure>
   /** Takes one grant away, by its id, and answers who has access then. `person` as for `share`. */
   unshare(id: string, grant: string): Promise<Access | Failure>
+  /**
+   * The owner's actions (G01, 0.84), which the instance keeps from DynWork's agent (`person`) and lets the person's own
+   * session do with a recent sign-in: takes every grant away (`revokeAll`), makes `to` the owner (`transfer`, the
+   * previous owner keeps `edit`), and moves the document to the trash (`trash`).
+   */
+  revokeAll(id: string): Promise<Access | Failure>
+  transfer(id: string, to: string): Promise<Document | Failure>
+  trash(id: string): Promise<undefined | Failure>
+  /** Makes an earlier revision the head again, as a new revision on the head: the person's (an agent meets a rule). */
+  restore(id: string, revision: string): Promise<Revision | Failure>
+  /** Accepts or rejects a proposal, with an optional note; answers it as it now stands. */
+  review(id: string, proposal: string, input: { accept: boolean; note?: string }): Promise<Proposal | Failure>
   /**
    * The documents the conversation `contextId` wrote a revision or a comment on, newest first, as far as the user can
    * still see them: only where the instance lists by conversation (0.84 `scope=context`, `docsByContext`). A context
@@ -153,7 +166,10 @@ export interface Remote {
   url: string
   /** The signed-in user's id, which tells the user's own documents from those shared with them. */
   user?: string
-  /** Runs `use` with the account's JWT: `DynWorkAccounts.withJwt`, which mints once more when the instance refuses one. */
+  /**
+   * Runs `use` with the account's JWT: `DynWorkAccounts.withJwt`, which mints once more when the instance refuses one.
+   * For the person's backend, `DynWorkPerson.withPerson`: their UI token, refreshed or signed in again as it needs.
+   */
   withJwt: <A>(use: (jwt: string) => Promise<A>) => Promise<A>
 }
 
@@ -441,6 +457,33 @@ export function remote(options: Remote): Backend {
         (jwt) => SpDrive.revoke(url, jwt, id, grant),
         () => undefined,
       ).then((done) => done ?? access(id)),
+    revokeAll: (id) =>
+      call(
+        (jwt) => SpDrive.revokeAll(url, jwt, id),
+        () => undefined,
+      ).then((done) => done ?? access(id)),
+    transfer: (id, to) => call((jwt) => SpDrive.transfer(url, jwt, id, to), document),
+    trash: (id) =>
+      call(
+        (jwt) => SpDrive.trash(url, jwt, id),
+        () => undefined,
+      ),
+    // `restore` applies only on the head, so it is read first: one credential for both, so one sign-in covers them.
+    restore: (id, at) =>
+      call(
+        (jwt) =>
+          SpDrive.get(url, jwt, id).pipe(
+            Effect.flatMap((detail) =>
+              SpDrive.edit(url, jwt, id, { ops: [{ op: "restore", revision_id: at }], baseRevision: detail.head.id }),
+            ),
+          ),
+        (edited) => revision(edited.revision),
+      ),
+    review: (id, target, input) =>
+      call(
+        (jwt) => SpDrive.review(url, jwt, id, target, input),
+        (reviewed) => proposal(reviewed.proposal),
+      ),
     findPeople: (query, limit) =>
       call(
         (jwt) => SpDrive.lookupPeople(url, jwt, query, limit),
@@ -539,6 +582,13 @@ function grant(wire: SpDriveGrant) {
 // Where the client's errors (and the accounts' `NotSignedIn`) become failures. The instance's own message is not
 // passed on: the window shows its own words for each code.
 function failure(error: unknown): Failure {
+  // The person's session (`DynWorkPerson.withPerson`): none, or a recent sign-in the person did not finish.
+  if (
+    error instanceof DynWorkPerson.SignedOut ||
+    error instanceof DynWorkPerson.SignInFailed ||
+    error instanceof SpClient.RecentSignIn
+  )
+    return fail("sign-in", "Sign in to act as you.")
   if (error instanceof SpClient.Unauthorized || error instanceof DynWorkAccounts.NotSignedIn)
     return fail("signed-out", "Sign in to Governance again.")
   if (error instanceof SpClient.Unreachable || error instanceof SpClient.RateLimited)

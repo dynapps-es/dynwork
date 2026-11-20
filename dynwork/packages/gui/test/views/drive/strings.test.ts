@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { DriveCells } from "../../../src/drive/cells"
-import { Act, Failure } from "../../../src/drive/contract"
+import { Act, Failure, ShareCard } from "../../../src/drive/contract"
 import en from "../../../src/views/drive/en"
 import es from "../../../src/views/drive/es"
 import fr from "../../../src/views/drive/fr"
@@ -23,6 +23,9 @@ describe("the Drive's strings", () => {
       ...["own", "share", "edit", "comment", "view"].map((level) => `drive.level.${level}`),
       ...["open", "accepted", "rejected"].map((status) => `drive.proposals.${status}`),
       ...DriveCells.refusals.map((refused) => `drive.comment.range.${refused}`),
+      // The agent's cards (D24, G01): a title and a sentence per kind
+      ...ShareCard.fields.kind.literals.map((kind) => `drive.share.${kind}.title`),
+      ...ShareCard.fields.kind.literals.filter((kind) => kind !== "grant").map((kind) => `drive.share.${kind}.text`),
     ]
     expect(
       Object.entries(locales).flatMap(([locale, table]) =>

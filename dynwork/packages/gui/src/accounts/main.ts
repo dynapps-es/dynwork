@@ -37,9 +37,14 @@ const setup: Plugin.MainSetup = (ctx) => {
   }
   const engine: { current?: DynWorkSyncEngine.Engine } = {}
   const remote: { update: () => void } = { update: () => {} }
-  const drive: { account: () => void; switches: (account: string) => DynWorkSync.Documents | undefined } = {
+  const drive: {
+    account: () => void
+    switches: (account: string) => DynWorkSync.Documents | undefined
+    person: () => void
+  } = {
     account: () => {},
     switches: () => undefined,
+    person: () => {},
   }
   // The routines' clock looks again whenever the sync changes: it fires nothing until the provider is applied.
   // `applied` holds once a sync went through, until the account goes: a failed poll later keeps the provider applied.
@@ -164,8 +169,26 @@ const setup: Plugin.MainSetup = (ctx) => {
   })
   routines.check = routinesMain.check
   routines.pull = routinesMain.pull
-  // The Drive: the active account's documents in Governance, read again whenever the accounts change.
+  // DynWork acting as the person in the Drive: their UI session per account, in main only. Its sign-in opens the
+  // system browser, and only when the person asks for it or an action of theirs wants a recent sign-in.
+  const personSession = DynWorkPerson.make({
+    accounts,
+    store: ctx.storage.store("person", { schema: DynWorkPerson.Saved, initial: DynWorkPerson.initial }),
+    secure: safeStorage,
+    open: (url) => shell.openExternal(url),
+    changed: () => {
+      provider.changed()
+      drive.person()
+    },
+    log: (message, data) => ctx.log.write("info", message, data),
+  })
+  ctx.onCleanup(personSession.dispose)
+  person.reconcile = personSession.reconcile
+
+  // The Drive: the active account's documents in Governance, read again whenever the accounts change. The user's own
+  // acts, and what they allow on an agent's card, go as the person while their session is on.
   const driveService = DriveMain.setup(ctx, accounts, {
+    person: personSession,
     frames: { app, contents: () => webContents.getAllWebContents() },
     client: routinesMain.client,
     // The agent's shares wait on a card only while a window can show it; otherwise they are refused at once.
@@ -173,6 +196,7 @@ const setup: Plugin.MainSetup = (ctx) => {
   })
   drive.account = driveService.account
   drive.switches = driveService.switches
+  drive.person = driveService.personChanged
   // A new reading of what the instance delivers reaches the plugin with the next apply, made now.
   ctx.onCleanup(driveService.listen.capabilities(() => sync.recheck()))
   // Another computer changed a routine: Governance's hint arrives over the relay while remote control is connected.
@@ -192,18 +216,6 @@ const setup: Plugin.MainSetup = (ctx) => {
   powerMonitor.on("resume", wake)
   ctx.onCleanup(() => void powerMonitor.off("resume", wake))
 
-  // DynWork acting as the person in the Drive: their UI session per account, in main only. Its sign-in opens the
-  // system browser, and only when the person asks for it.
-  const personSession = DynWorkPerson.make({
-    accounts,
-    store: ctx.storage.store("person", { schema: DynWorkPerson.Saved, initial: DynWorkPerson.initial }),
-    secure: safeStorage,
-    open: (url) => shell.openExternal(url),
-    changed: () => provider.changed(),
-    log: (message, data) => ctx.log.write("info", message, data),
-  })
-  ctx.onCleanup(personSession.dispose)
-  person.reconcile = personSession.reconcile
 
   const ipc = ctx.provide(Accounts, AccountsIpc.implementation(accounts, sync, personSession))
   provider.changed = () => ipc.changed()

@@ -51,6 +51,8 @@ const instance = Bun.serve({
             "documents_people",
             "documents_comment",
             "documents_folder",
+            "documents_trash",
+            "documents_proposals",
           ].map(
             (name) => ({
               name,
@@ -176,7 +178,8 @@ const touches: DynWorkDocuments.Touch[] = []
 const confirms: DynWorkDocuments.Share[] = []
 const seen: DynWorkDocuments.Seen[] = []
 const stales: DynWorkDocuments.Stale[] = []
-const decision = { allow: false, listening: true }
+// `outcome`: main did it as the person (G01) and says so in place of the instance.
+const decision: { allow: boolean; listening: boolean; outcome?: string } = { allow: false, listening: true }
 // On 0.84 main gives each write its conversation's context: here `ctx-<session>`. A page main imports becomes
 // `doc-page`, fails with the instance's refusal, or main says nothing.
 const main: { contexts: boolean; imports: "imported" | "failed" | "mute" } = { contexts: false, imports: "imported" }
@@ -257,7 +260,11 @@ async function listen(on: Service) {
           // Main gone: nothing says the card is up, and nothing decides.
           if (!decision.listening) continue
           await rpc("shown", { id: share.id })
-          await rpc("decide", { id: share.id, allow: decision.allow })
+          await rpc("decide", {
+            id: share.id,
+            allow: decision.allow,
+            ...(decision.outcome === undefined ? {} : { outcome: decision.outcome }),
+          })
         }
       }
     }
@@ -514,7 +521,64 @@ test("a share nobody in Dynwork hears is refused, not left waiting", async () =>
   await run(caught)
   decision.listening = true
   expect(shared().length).toBe(before)
-  expect(gateway.at(-1)?.messages).toContain("Dynwork could not ask the user to confirm this share")
+  expect(gateway.at(-1)?.messages).toContain("Dynwork could not ask the user to confirm this")
+}, 60_000)
+
+// G01: what only the person may do waits for the same card; allowed with the person's session on, main does it as them.
+const trash = `tools.documents.documents_trash({ document_id: "d1" })`
+const trashCaught = `try { return await ${trash} } catch (error) { return "threw: " + (error?.message ?? String(error)) }`
+const trashed = () => mcp.filter((entry) => entry.method === "tools/call" && entry.name === "documents_trash")
+
+test("a trash the user allows while their session is on is done by main as the person: the agent reads main's word", async () => {
+  decision.allow = true
+  decision.outcome = "The user allowed it on the card and Dynwork did it as the user: moved document d1 to the trash."
+  const before = trashed().length
+  const done = await run(trashCaught)
+  decision.outcome = undefined
+  expect(confirms.at(-1)).toMatchObject({ session: done.id, kind: "trash", document: "d1" })
+  // The call never reached the instance, where it would have gone as the agent
+  expect(trashed().length).toBe(before)
+  expect(gateway.at(-1)?.messages).toContain("Dynwork did it as the user: moved document d1 to the trash")
+}, 60_000)
+
+test("a trash the user allows without the person's session goes as the agent wrote it; one rejected never goes", async () => {
+  decision.allow = true
+  const allowed = await run(`return await ${trash}`)
+  expect(allowed.calls).toEqual([expect.objectContaining({ name: "documents_trash", arguments: { document_id: "d1" } })])
+  decision.allow = false
+  const before = trashed().length
+  await run(trashCaught)
+  expect(trashed().length).toBe(before)
+  expect(gateway.at(-1)?.messages).toContain("The user declined to move document d1 to the trash")
+}, 60_000)
+
+test("a restore and a review wait for the card; allowed as the agent, a restore still carries the conversation's ask", async () => {
+  decision.allow = true
+  const asked = asks.length
+  const restored = await run(
+    `return await tools.documents.documents_edit({ document_id: "d1", base_revision: "r9", ops: [{ op: "restore", revision_id: "r2" }] })`,
+  )
+  expect(confirms.at(-1)).toMatchObject({ session: restored.id, kind: "restore", document: "d1", revision: "r2" })
+  expect(asks.slice(asked)).toEqual([expect.objectContaining({ session: restored.id, verb: "edit", document: "d1" })])
+  expect(restored.calls).toEqual([expect.objectContaining({ name: "documents_edit" })])
+  const reviewed = await run(
+    `return await tools.documents.documents_proposals({ document_id: "d1", proposal_id: "p1", action: "accept" })`,
+  )
+  expect(confirms.at(-1)).toMatchObject({ session: reviewed.id, kind: "accept", proposal: "p1" })
+  expect(reviewed.calls).toEqual([expect.objectContaining({ name: "documents_proposals" })])
+}, 60_000)
+
+test("a trash in a scheduled task's run is refused at once: no card, never as the person", async () => {
+  decision.allow = true
+  decision.outcome = "should never be read"
+  const confirmed = confirms.length
+  const before = trashed().length
+  await run(trashCaught, `ses_aut_dynwork_${crypto.randomUUID().replaceAll("-", "")}`)
+  decision.outcome = undefined
+  expect(confirms.length).toBe(confirmed)
+  expect(trashed().length).toBe(before)
+  expect(gateway.at(-1)?.messages).toContain("nobody is there to answer in a scheduled task")
+  expect(gateway.at(-1)?.messages).not.toContain("should never be read")
 }, 60_000)
 
 // 0.84: main applies the instance's switches, and the agent's calls and rules follow them.

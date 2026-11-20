@@ -1,12 +1,14 @@
 import { usePlugin, type Context } from "@opencode/plugin/gui"
+import { Show } from "solid-js"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
 import { Menu } from "@opencode/ui/menu"
 import { isFailure, type Document } from "../../drive/contract"
 import { askAgent } from "./chat"
-import { isPdf, stem } from "./model"
+import { isPdf, personOffer, stem } from "./model"
+import { TransferDialog, TrashDialog } from "./owner"
 import { failureText, openGovernance } from "./parts"
-import { drive, governance } from "./store"
+import { drive, governance, signInAsYou } from "./store"
 
 // Kobalte's menu runs browser-only code when it loads, and the tests render with Solid's server build: the views load
 // this module on the client only (`./menus.tsx`).
@@ -41,8 +43,38 @@ export async function copyLink(ctx: Host, doc: Document) {
 }
 
 /**
- * A document's menu: open, use in a chat, export, link, and what the Drive keeps to the person (rename, move, trash),
- * which happens in Governance until DynWork acts as the person (P1).
+ * The owner's items of a document's menu (G01): move to the trash and transfer the ownership. Each opens its own
+ * confirmation while the user's session is on; otherwise it asks them to sign in, or opens Governance where the instance
+ * has no session for DynWork. Who does not own the document does not get them live.
+ */
+export function OwnerItems(props: { doc: Document }) {
+  const ctx = usePlugin()
+  const offer = () => personOffer({ person: drive.acting(), access: props.doc.access, needs: "own" })
+  const hint = () => (offer() === "sign-in" ? ctx.t("drive.menu.signIn") : offer() === "live" ? undefined : "Governance")
+  const act = (dialog: typeof TrashDialog) => {
+    if (offer() === "live") return ctx.dialogs.open((handle) => dialog({ doc: props.doc, close: handle.close }))
+    if (offer() === "sign-in") return signInAsYou()
+    openGovernance(ctx, props.doc)
+  }
+  return (
+    <>
+      <Menu.Item disabled={offer() === "level"} onSelect={() => act(TransferDialog)}>
+        <Icon name="outline-share" size="small" />
+        {ctx.t("drive.transfer")}
+        <Show when={hint()}>{(text) => <span data-slot="drive-menu-hint">{text()}</span>}</Show>
+      </Menu.Item>
+      <Menu.Item disabled={offer() === "level"} onSelect={() => act(TrashDialog)}>
+        <Icon name="trash" size="small" />
+        {ctx.t("drive.trash")}
+        <Show when={hint()}>{(text) => <span data-slot="drive-menu-hint">{text()}</span>}</Show>
+      </Menu.Item>
+    </>
+  )
+}
+
+/**
+ * A document's menu: open, use in a chat, export, link, renaming and moving (in Governance), and the owner's items
+ * (`OwnerItems`), which go as the person while their session is on (G01).
  */
 export default function RowMenu(props: { doc: Document }) {
   const ctx = usePlugin()
@@ -91,11 +123,7 @@ export default function RowMenu(props: { doc: Document }) {
             {ctx.t("drive.move")}
             <span data-slot="drive-menu-hint">Governance</span>
           </Menu.Item>
-          <Menu.Item onSelect={() => openGovernance(ctx, props.doc)}>
-            <Icon name="trash" size="small" />
-            {ctx.t("drive.trash")}
-            <span data-slot="drive-menu-hint">Governance</span>
-          </Menu.Item>
+          <OwnerItems doc={props.doc} />
         </Menu.Content>
       </Menu.Portal>
     </Menu>
