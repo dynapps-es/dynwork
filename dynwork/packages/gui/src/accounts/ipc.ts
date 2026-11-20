@@ -4,17 +4,24 @@ import { SpClient } from "@dynwork/sp-client"
 import type { IpcImpl } from "@opencode/plugin/gui/main"
 import type { DynWorkSyncEngine } from "../sync/engine"
 import { DynWorkAccounts } from "./accounts"
-import type { Accounts, SignIn } from "./contract"
+import type { Account, Accounts, SignIn } from "./contract"
+import type { DynWorkPerson } from "./person"
 
 // The `dynwork.accounts` Ipc over a main-process accounts service. A sign-in that fails answers with its kind instead
-// of rejecting: the Ipc would turn a rejection into plain text, and the window picks its own copy per kind.
+// of rejecting: the Ipc would turn a rejection into plain text, and the window picks its own copy per kind. Each
+// account carries how DynWork acts as the person (`person`), as a status: the person's tokens stay in main.
 export function implementation(
   accounts: DynWorkAccounts.Accounts,
   engine: Pick<DynWorkSyncEngine.Engine, "status" | "now">,
+  person: Pick<DynWorkPerson.Service, "status" | "signIn" | "signOut" | "cancel">,
 ): IpcImpl<(typeof Accounts)["spec"]> {
+  const shown = (account: Account) => ({ ...account, person: person.status(account.id) })
   return {
-    state: () => ({ ...accounts.state(), sync: engine.status() }),
-    list: () => accounts.list(),
+    state: () => {
+      const state = accounts.state()
+      return { ...state, accounts: state.accounts.map(shown), sync: engine.status() }
+    },
+    list: () => accounts.list().map(shown),
     add: (url) => accounts.add(url),
     probe: (url) => accounts.probe(url),
     signInBrowser: (input, caller) => accounts.signInBrowser(input.url, caller.signal, input.keep).catch(failure),
@@ -22,10 +29,20 @@ export function implementation(
     summary: (id) => accounts.summary(id),
     cancel: () => accounts.cancel(),
     activate: (id) => accounts.activate(id),
-    signOut: (id) => accounts.signOut(id),
-    remove: (id) => accounts.remove(id),
+    // The person's session goes first, while the account's JWT can still revoke it at the instance
+    signOut: async (id) => {
+      await person.signOut(id)
+      accounts.signOut(id)
+    },
+    remove: async (id) => {
+      await person.signOut(id)
+      accounts.remove(id)
+    },
     trust: (input) => accounts.trust(input),
     syncNow: () => engine.now(),
+    personSignIn: (id, caller) => person.signIn(id, { signal: caller.signal }),
+    personSignOut: (id) => person.signOut(id),
+    personCancel: () => person.cancel(),
   }
 }
 

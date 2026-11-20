@@ -24,6 +24,7 @@ import { SidebarGlass } from "../views/glass/glass"
 import { DynWorkAccounts } from "./accounts"
 import { Accounts, type SyncStatus } from "./contract"
 import { AccountsIpc } from "./ipc"
+import { DynWorkPerson } from "./person"
 import { DynWorkSyncMain } from "./sync"
 
 const setup: Plugin.MainSetup = (ctx) => {
@@ -47,6 +48,7 @@ const setup: Plugin.MainSetup = (ctx) => {
     pull: () => {},
     applied: false,
   }
+  const person: { reconcile: () => void } = { reconcile: () => {} }
   const accounts = DynWorkAccounts.make({
     store: ctx.storage.store("accounts", { schema: DynWorkAccounts.Store, initial: DynWorkAccounts.initial }),
     secure: safeStorage,
@@ -58,6 +60,7 @@ const setup: Plugin.MainSetup = (ctx) => {
       remote.update()
       routines.pull()
       drive.account()
+      person.reconcile()
     },
     renewed: (id, session) => engine.current?.renewed(id, session),
     // A lapse is logged with the account and the reason only: the accounts never hand a credential to the log.
@@ -189,8 +192,22 @@ const setup: Plugin.MainSetup = (ctx) => {
   powerMonitor.on("resume", wake)
   ctx.onCleanup(() => void powerMonitor.off("resume", wake))
 
-  const ipc = ctx.provide(Accounts, AccountsIpc.implementation(accounts, sync))
+  // DynWork acting as the person in the Drive: their UI session per account, in main only. Its sign-in opens the
+  // system browser, and only when the person asks for it.
+  const personSession = DynWorkPerson.make({
+    accounts,
+    store: ctx.storage.store("person", { schema: DynWorkPerson.Saved, initial: DynWorkPerson.initial }),
+    secure: safeStorage,
+    open: (url) => shell.openExternal(url),
+    changed: () => provider.changed(),
+    log: (message, data) => ctx.log.write("info", message, data),
+  })
+  ctx.onCleanup(personSession.dispose)
+  person.reconcile = personSession.reconcile
+
+  const ipc = ctx.provide(Accounts, AccountsIpc.implementation(accounts, sync, personSession))
   provider.changed = () => ipc.changed()
+  personSession.reconcile()
   provider.emit = (status) => ipc.emit("sync", status)
 }
 

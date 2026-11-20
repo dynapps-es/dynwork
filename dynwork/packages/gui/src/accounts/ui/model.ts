@@ -1,6 +1,6 @@
 export * as AccountsModel from "./model"
 
-import type { Account, Counts, Lapse, SignIn, State, SyncError } from "../contract"
+import type { Account, Counts, Lapse, PersonSignIn, SignIn, State, SyncError } from "../contract"
 
 // What the Accounts page and the titlebar pill show, as plain values: the page and the pill only render them, so the
 // statuses and the actions an account offers are tested here without a window.
@@ -111,6 +111,44 @@ export function outcome(value: SignIn) {
   if (value === "expired") return "lapse.outcome.expired" as const
   if (value === "unreachable") return "lapse.outcome.unreachable" as const
   return "lapse.outcome.failed" as const
+}
+
+/**
+ * What Settings -> Governance says of DynWork acting as the person in the account's Drive: its badge, its sentence (a
+ * key of the plugin's copy, with `until` for the time the session ends) and the one action it offers. Nothing for an
+ * account that is not signed in, or whose instance does not offer it.
+ */
+export function person(account: Account) {
+  const value = account.person
+  if (account.status !== "signedIn" || value === undefined || value.status === "unavailable") return undefined
+  if (value.status === "on")
+    return { badge: "on" as const, key: "person.on" as const, action: "sign-out" as const, until: value.until }
+  if (value.status === "renewing")
+    return { badge: "renewing" as const, key: "person.renewing" as const, action: "sign-out" as const, until: value.until }
+  if (value.status === "signingIn")
+    return { badge: undefined, key: "person.signingIn" as const, action: "cancel" as const, until: undefined }
+  return {
+    badge: undefined,
+    key: value.ended ? ("person.ended" as const) : ("person.off" as const),
+    action: "sign-in" as const,
+    until: undefined,
+  }
+}
+
+/** What the window says when the person's sign-in did not end signed in; nothing when it did, or was cancelled. */
+export function personOutcome(value: PersonSignIn) {
+  if (value === "signed-in" || value === "cancelled") return undefined
+  if (value === "denied") return "lapse.outcome.denied" as const
+  if (value === "expired") return "lapse.outcome.expired" as const
+  if (value === "unreachable") return "lapse.outcome.unreachable" as const
+  if (value === "mismatch") return "person.outcome.mismatch" as const
+  if (value === "unavailable") return "person.outcome.unavailable" as const
+  return "lapse.outcome.failed" as const
+}
+
+/** A time of today as the locale writes it ("14:05"), for when the person's session ends. */
+export function clock(at: number, locale?: string) {
+  return new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(at)
 }
 
 /** "2 minutes ago", in the locale. Under a minute reads as "now". */

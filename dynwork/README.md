@@ -129,8 +129,9 @@ Where secrets live:
   while it holds. A refused JWT is minted again once; a refused PAT lapses the account (`needsSignIn`). Main code
   (gateway, sync) gets one through `jwt(id)`, `session(id, fresh)` (with its expiry; `fresh` mints even while the held
   one is valid) or `withJwt(id, use)`, and hears of every JWT minted through the `renewed` option.
-- Windows see `{id, label, url, user, org, status, active, fingerprint, trusted}`, and `lapse` while the account needs
-  signing in again, and never a PAT, JWT or code.
+- Windows see `{id, label, url, user, org, status, active, fingerprint, trusted}`, `lapse` while the account needs
+  signing in again and `person` (see "Acting as the person in the Drive"), and never a PAT, JWT, code or the person's
+  tokens.
   Nothing goes into OpenCode's `credential` table or the service's database.
 - Signing out forgets the PAT locally; the token stays in the user's list on the instance until revoked there.
 
@@ -144,7 +145,7 @@ What DynWork holds, and how long each lasts against core 0.84:
   the same for all three.
 - The JWT minted from it lasts 3600 s and is renewed in the background at 80 % of that, and minted again once when a
   call is refused (an instance restart, a revoked session). The bridge sign-in has no refresh token, so there is no
-  `invalid_grant` here (that is the person session, G01).
+  `invalid_grant` here (that is the person's session, see "Acting as the person in the Drive").
 - The device credential (`sp_device_…`) is enrolled again when the instance refuses it (see "Skill runtime files").
 
 An account is `signedIn`, `signedOut`, or `needsSignIn` with its `lapse`:
@@ -165,6 +166,48 @@ Governance and the Drive say why and offer "Sign in again", the same browser sig
 (`signInBrowser({url})`); without `keep` it keeps the PAT the way it was kept before. Signing in again ends the lapse on
 the same entry, and the sync, the Drive and its stream resume on their own. A lapse of a PAT that was never stored ends
 with the process: the next launch finds the account signed out.
+
+### Acting as the person in the Drive
+
+Core 0.84 gives a first-party desktop UI its own session for the person ("First-party desktop UI" in the core's
+`documentation/documents.md`), separate from the bridge sign-in above. `DynWorkPerson.make` (`accounts/person.ts`) keeps
+one per account, in main only, and `@dynwork/sp-client`'s `SpPerson` speaks the OAuth side (`PROTOCOL.md` section 13).
+
+- **The client.** The Dynapps extension declares `dynwork-desktop` as a public `person_ui` client (code and refresh grants,
+  scope `user`) with the redirect `http://127.0.0.1/oauth/callback`, which the core takes on any port. DynWork asks each
+  signed-in account's instance once whether it declares it (`SpPerson.available`: its authorize page answers the client
+  where an unknown client gets `400`). Without it (0.83, or not declared) the account reads `person: unavailable`,
+  nothing is opened and nothing changes; a client whose tokens are not a UI session (`ui` audience, `ui_session`) reads the
+  same.
+- **Signing in** (`signIn`, the `personSignIn` Ipc method): authorization code + PKCE (S256) in the system browser on a
+  loopback listener (`loopback.ts`, path `/oauth/callback`, `state` of 43 characters checked, 10 minutes). A token for
+  anyone but the account's user (`sub` against the account's `userId`) is refused (`mismatch`) and revoked. The core's
+  authorize page always asks for the email and the passkey and then the consent: a browser that is already signed in to
+  Governance does not come back on its own, and `prompt` and `max_age` change nothing (observed on 0.84). So DynWork never
+  opens the browser by itself: only the person's click in Settings, or an action that needs a recent sign-in, does.
+- **Custody.** The refresh token is kept only as `safeStorage` ciphertext in the plugin's main storage (key `person`),
+  replaced at every refresh, with the person's id and the sign-in time; the access token only in main's memory. Windows see
+  `person: {status, ended?, until?}` on each account and never a token; the log gets the account id and a reason only.
+  Only main calls the instance as the person, through `withPerson(id, use)`.
+- **Renewal.** The access token lasts 300 s and is refreshed at 80 % of that in the background, and on a use that finds it
+  within 30 s of its end. Concurrent callers share one refresh: the core ends the whole session when a refresh token is
+  spent twice. No answer tries again every 30 s while the session lasts (`renewing` once the token ran out). The session
+  ends 12 hours after the sign-in whatever the refreshes: then, or when the instance refuses the refresh, it ends here
+  with no request more and no browser (`off`, `ended` after the 12 hours), and Settings offers to sign in again.
+- **Recent sign-in.** Sharing, transfer, delete and agent caps answer `401` with `WWW-Authenticate: Bearer
+  error="insufficient_user_authentication", max_age=600` once the sign-in is older than 10 minutes (`SpClient.RecentSignIn`
+  from the Drive client). `withPerson` then sends the person through the browser again (with `max_age`) and retries the
+  action once; if that sign-in does not end signed in it fails with `SignInFailed` and its outcome, and the action was not
+  done. A refused token is refreshed and the action retried once.
+- **Signing out** (`personSignOut`, Settings' "Sign out" on that row) ends it here and revokes the refresh token's family
+  at the instance with the account's JWT (the revoke route does not take the UI token). Signing out of the account or
+  removing it does the same first, while the JWT can still revoke it; a session whose account was signed out elsewhere, or
+  now belongs to another user, ends at the next change of the accounts.
+- **Settings -> Governance** shows "Acting as you in the Drive" for the active account: on until a time, renewing,
+  signing in (with Cancel), or the sign-in button, with why the last sign-in did not end signed in.
+
+Using the session for the Drive's own actions is the next step (phase 26 of the Drive plan); until then `personActions`
+stays off and the Drive acts as DynWork's agent, as before.
 
 ### Managing instances
 

@@ -5,10 +5,12 @@ import type { AddressInfo } from "node:net"
 
 export type Outcome<T> = { _tag: "Answer"; answer: T } | { _tag: "Cancelled" } | { _tag: "Expired" }
 
-// The device link's way back (PROTOCOL.md section 8): one listener on 127.0.0.1, on a port the OS picks, for one
-// browser answer. `parse` reads a callback URL and returns undefined for anything that is not the expected answer (a
-// wrong or missing state, a malformed code), which leaves the listener waiting. The first answer closes it.
-export function listen<T>(options: { parse: (url: URL) => T | undefined; timeout: number }) {
+// The device link's way back (PROTOCOL.md section 8), and the person's sign-in's (`path` `/oauth/callback`): one
+// listener on 127.0.0.1, on a port the OS picks, for one browser answer on `path` (`/cb` unless given). `parse` reads
+// a callback URL and returns undefined for anything that is not the expected answer (a wrong or missing state, a
+// malformed code), which leaves the listener waiting. The first answer closes it.
+export function listen<T>(options: { parse: (url: URL) => T | undefined; timeout: number; path?: string }) {
+  const path = options.path ?? "/cb"
   const server = createServer()
   const outcome = Promise.withResolvers<Outcome<T>>()
   const settled = { done: false }
@@ -44,7 +46,7 @@ export function listen<T>(options: { parse: (url: URL) => T | undefined; timeout
       return reply(403, "This sign-in link is not for this Dynwork window.")
     if (request.method !== "GET" || request.url === undefined) return reply(404, "Not found.")
     const url = new URL(request.url, `http://127.0.0.1:${port}`)
-    if (url.pathname !== "/cb") return reply(404, "Not found.")
+    if (url.pathname !== path) return reply(404, "Not found.")
     const answer = options.parse(url)
     if (answer === undefined) return reply(400, "This sign-in link is not for this Dynwork window.")
     reply(200, "You can close this tab and return to Dynwork.")
@@ -58,7 +60,7 @@ export function listen<T>(options: { parse: (url: URL) => T | undefined; timeout
     })
     server.listen(0, "127.0.0.1", () =>
       resolve({
-        redirect: `http://127.0.0.1:${(server.address() as AddressInfo).port}/cb`,
+        redirect: `http://127.0.0.1:${(server.address() as AddressInfo).port}${path}`,
         outcome: outcome.promise,
         cancel: () => settle({ _tag: "Cancelled" }),
       }),

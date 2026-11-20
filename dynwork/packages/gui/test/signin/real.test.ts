@@ -5,7 +5,7 @@ import { AccountsIpc } from "../../src/accounts/ipc"
 import { DynWorkSyncEngine } from "../../src/sync/engine"
 import { SignInFlow } from "../../src/signin/flow"
 import { SignInReal } from "../../src/signin/real"
-import { setup, startFake, until, type Fake } from "../accounts/fixture"
+import { fakeSecure, personOf, setup, startFake, until, type Fake } from "../accounts/fixture"
 
 let alpha: Fake
 
@@ -49,7 +49,7 @@ function windowClient(
   engine: DynWorkSyncEngine.Engine,
   listeners: Set<(status: SyncStatus) => void>,
 ): SignInReal.Accounts {
-  const impl = AccountsIpc.implementation(accounts, engine)
+  const impl = AccountsIpc.implementation(accounts, engine, personOf({ accounts, secure: fakeSecure() }).person)
   const caller = { window: 1, signal: new AbortController().signal }
 
   return {

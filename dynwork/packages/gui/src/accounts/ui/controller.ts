@@ -1,7 +1,7 @@
 export * as AccountsController from "./controller"
 
 import { createStore } from "solid-js/store"
-import type { Account, SignIn } from "../contract"
+import type { Account, PersonSignIn, SignIn } from "../contract"
 import type { Client } from "../renderer"
 import type { AccountsModel } from "./model"
 
@@ -113,6 +113,51 @@ export function reconnect(input: { client: () => Pick<Client, "signInBrowser" | 
       void input
         .client()
         ?.cancel()
+        .catch(() => undefined)
+    },
+  }
+}
+
+/**
+ * DynWork acting as the person in the Drive: the person's sign-in in the browser, its cancel, and the sign-out.
+ * `outcome` is how the last sign-in ended, `failed` that the last sign-out did not go through; a call while the client
+ * is gone ends as `failed`. One sign-in at a time: a second `signIn` while one is going does nothing.
+ */
+export function person(input: {
+  client: () => Pick<Client, "personSignIn" | "personSignOut" | "personCancel"> | undefined
+}) {
+  const [state, setState] = createStore({
+    running: false,
+    outcome: undefined as PersonSignIn | undefined,
+    failed: false,
+  })
+
+  return {
+    state,
+    async signIn(id: string) {
+      if (state.running) return
+      const client = input.client()
+      setState({ running: true, outcome: undefined, failed: false })
+      const outcome = client ? await client.personSignIn(id).catch(() => "failed" as const) : ("failed" as const)
+
+      setState({ running: false, outcome })
+    },
+    async signOut(id: string) {
+      const client = input.client()
+      setState({ outcome: undefined, failed: false })
+      const failed = client
+        ? await client.personSignOut(id).then(
+            () => false,
+            () => true,
+          )
+        : true
+
+      setState({ failed })
+    },
+    cancel() {
+      void input
+        .client()
+        ?.personCancel()
         .catch(() => undefined)
     },
   }

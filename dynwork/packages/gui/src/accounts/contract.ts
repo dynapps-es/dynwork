@@ -9,6 +9,38 @@ import { Ipc } from "@opencode/plugin/gui"
 export const Lapse = Schema.Literals(["expired", "revoked", "refused"])
 export type Lapse = typeof Lapse.Type
 
+/**
+ * DynWork acting as the person in the Drive with the person's own UI session (0.84): `unavailable` when the instance
+ * declares no client for it (0.83, or not declared), `off` until the person signs in in the browser (`ended` once a
+ * session ran its 12 hours), `signingIn` while that sign-in is under way, `on` while main holds a live session and
+ * `renewing` while it waits on a refresh. `until` is when the session ends, epoch milliseconds. Its tokens never leave
+ * main.
+ */
+export const Person = Schema.Struct({
+  status: Schema.Literals(["unavailable", "off", "signingIn", "on", "renewing"]),
+  ended: Schema.optional(Schema.Boolean),
+  until: Schema.optional(Schema.Number),
+})
+export type Person = typeof Person.Type
+
+/**
+ * How the person's browser sign-in ended: as `SignIn`, plus `unavailable` (the instance gives no UI session, or the
+ * account is not signed in) and `mismatch` (the browser signed in someone else than the account's user).
+ */
+export const PersonSignIn = Schema.Literals([
+  "signed-in",
+  "cancelled",
+  "denied",
+  "expired",
+  "unreachable",
+  "refused",
+  "unavailable",
+  "mismatch",
+  "insecure",
+  "failed",
+])
+export type PersonSignIn = typeof PersonSignIn.Type
+
 /** One signed-in or known systemprompt instance as windows see it. Tokens never cross into the renderer. */
 export const Account = Schema.Struct({
   /** Local id, stable for the life of the entry. */
@@ -36,6 +68,8 @@ export const Account = Schema.Struct({
   pinned: Schema.optional(Schema.String),
   /** The served key is the pinned one. False until the user trusts it, and again after the instance rotates it. */
   trusted: Schema.Boolean,
+  /** DynWork acting as the person in the Drive; absent while main has not looked yet. */
+  person: Schema.optional(Person),
 })
 export type Account = typeof Account.Type
 
@@ -185,5 +219,14 @@ export const Accounts = Ipc.define({
     trust: { input: Schema.Struct({ id: Schema.String, fingerprint: Schema.String }) },
     /** Polls the active instance's manifest now. */
     syncNow: {},
+    /**
+     * Signs the person in through the system browser so DynWork can act as them in the account's Drive (code + PKCE on
+     * a loopback listener, up to 10 minutes). A second call cancels the first; so does `personCancel`.
+     */
+    personSignIn: { input: Schema.String, output: PersonSignIn },
+    /** Ends the person's session of the account, at the instance too. */
+    personSignOut: { input: Schema.String },
+    /** Ends the person's browser sign-in under way, which then resolves as `cancelled`. */
+    personCancel: {},
   },
 })

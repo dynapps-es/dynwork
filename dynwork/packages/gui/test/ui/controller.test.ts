@@ -194,3 +194,57 @@ describe("signing in again", () => {
     expect(broken.state).toEqual({ running: false, outcome: "failed" })
   })
 })
+
+describe("acting as the person", () => {
+  test("signs in once at a time, records how it ended, cancels and signs out", async () => {
+    const calls: string[] = []
+    const release = Promise.withResolvers<"denied">()
+    const person = AccountsController.person({
+      client: () => ({
+        personSignIn: async (id: string) => {
+          calls.push(`signIn:${id}`)
+          return release.promise
+        },
+        personSignOut: async (id: string) => {
+          calls.push(`signOut:${id}`)
+        },
+        personCancel: async () => {
+          calls.push("cancel")
+        },
+      }),
+    })
+    const first = person.signIn("alpha")
+    expect(person.state.running).toBe(true)
+    await person.signIn("alpha")
+    person.cancel()
+    release.resolve("denied")
+    await first
+    expect(person.state).toEqual({ running: false, outcome: "denied", failed: false })
+    await person.signOut("alpha")
+    expect(calls).toEqual(["signIn:alpha", "cancel", "signOut:alpha"])
+    expect(person.state).toEqual({ running: false, outcome: undefined, failed: false })
+  })
+
+  test("without the client, or when a call rejects, it says it failed", async () => {
+    const gone = AccountsController.person({ client: () => undefined })
+    await gone.signIn("alpha")
+    expect(gone.state.outcome).toBe("failed")
+    await gone.signOut("alpha")
+    expect(gone.state.failed).toBe(true)
+    const broken = AccountsController.person({
+      client: () => ({
+        personSignIn: async () => {
+          throw new Error("rejected")
+        },
+        personSignOut: async () => {
+          throw new Error("rejected")
+        },
+        personCancel: async () => {},
+      }),
+    })
+    await broken.signIn("alpha")
+    expect(broken.state.outcome).toBe("failed")
+    await broken.signOut("alpha")
+    expect(broken.state.failed).toBe(true)
+  })
+})
