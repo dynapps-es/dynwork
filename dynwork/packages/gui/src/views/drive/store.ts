@@ -480,7 +480,7 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
       await discuss(id)
       return created
     },
-    /** Resolves a thread. There is no reopen: 0.83 has no route for it (G12). */
+    /** Resolves a thread. It opens again only where the instance reopens comments (`reopenComments`, G12). */
     async resolve(id: string, thread: string) {
       const client = options.client()
       if (!client) return disconnected
@@ -489,6 +489,19 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
       await discuss(id)
       if (state.doc.thread === thread) setState("doc", "thread", undefined)
       return resolved
+    },
+    /**
+     * Opens a resolved thread again (G12, 0.84). It moves to Open, where the Comments tab follows it when it is the
+     * document there, quietly: the user is already looking at it.
+     */
+    async reopen(id: string, thread: string) {
+      const client = options.client()
+      if (!client) return disconnected
+      const reopened = await client.reopen({ id, comment: thread })
+      if (isFailure(reopened)) return reopened
+      await discuss(id)
+      if (state.open === id) setState("doc", { thread, quiet: true, filter: "open" })
+      return reopened
     },
   }
 

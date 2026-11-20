@@ -487,7 +487,8 @@ describe("changes the stream announces (G09)", () => {
 })
 
 describe("what the account's instance delivers", () => {
-  // What 0.84 turns on: the REST side (phase 20) and the agent's side through the MCP (phase 21).
+  // What 0.84 turns on: the REST side (phase 20), the agent's side through the MCP (phase 21) and comments on cell
+  // ranges and reopened (phase 22).
   const rest = {
     conversationLabel: true,
     pushChanges: true,
@@ -495,6 +496,8 @@ describe("what the account's instance delivers", () => {
     rawHtmlByMcp: true,
     mcpFolders: true,
     contextByMcp: true,
+    rangeComments: true,
+    reopenComments: true,
   }
 
   test("a 0.83 instance delivers nothing: every capability stays off, as today", async () => {
@@ -581,7 +584,14 @@ describe("what the account's instance delivers", () => {
     const heard: string[] = []
     const stop = service.listen.capabilities((account) => heard.push(account))
     await flush()
-    const off = { rawHtmlByMcp: false, mcpFolders: false, contextByMcp: false, peopleByRest: false }
+    const off = {
+      rawHtmlByMcp: false,
+      mcpFolders: false,
+      contextByMcp: false,
+      peopleByRest: false,
+      rangeComments: false,
+      reopenComments: false,
+    }
     expect(service.switches(ana.id)).toEqual(off)
     // A 0.83 reading changes nothing: there is nothing to apply again.
     expect(heard).toEqual([])
@@ -590,7 +600,14 @@ describe("what the account's instance delivers", () => {
     active.account = ben
     service.account()
     await flush()
-    expect(service.switches(ben.id)).toEqual({ rawHtmlByMcp: true, mcpFolders: true, contextByMcp: true, peopleByRest: true })
+    expect(service.switches(ben.id)).toEqual({
+      rawHtmlByMcp: true,
+      mcpFolders: true,
+      contextByMcp: true,
+      peopleByRest: true,
+      rangeComments: true,
+      reopenComments: true,
+    })
     expect(service.switches(ana.id)).toBeUndefined()
     expect(heard).toEqual([ben.id])
     stop()
@@ -768,13 +785,58 @@ describe("the conversation index", () => {
 
 describe("comment anchors", () => {
   test("rangeComments off: a cell range is refused without reaching the Drive; on, it reaches it", async () => {
-    const anchor = { kind: "range" as const, sheet: 0, from: "A1", to: "B2" }
+    const anchor = { kind: "range" as const, node: "sheet[Sales]", cells: "A1:B2" }
     const off = stand()
     expectFailure(await off.client.comment({ id: "doc", body: "?", anchor }), "unsupported")
     expect(off.seen).toEqual([])
     const on = stand({ capabilities: { rangeComments: true } })
     await on.client.comment({ id: "doc", body: "?", anchor })
     expect(on.seen.map((entry) => entry.method)).toEqual(["comment"])
+  })
+
+  test("a cell range goes as the instance keeps it, and one it would refuse does not go (G08)", async () => {
+    const { client, seen } = stand({ version: () => "0.84" })
+    await flush()
+    const id = (
+      await ok(client.upload({ name: "sales.xlsx", bytes: new TextEncoder().encode("Sales\nMonth\tTotal") }))
+    ).document.id
+    const made = await ok(
+      client.comment({ id, body: "Check", anchor: { kind: "range", node: "sheet[Sales]", cells: "b2:d9" } }),
+    )
+    expect(made.anchor).toEqual({ node: "sheet[Sales]", cells: "B2:D9" })
+    expect(seen.at(-1)?.input).toMatchObject({ anchor: { kind: "range", node: "sheet[Sales]", cells: "B2:D9" } })
+    const before = seen.length
+    for (const cells of ["D9:B2", "XFE1", "A1048577", "Sales!B2"])
+      expectFailure(
+        await client.comment({ id, body: "?", anchor: { kind: "range", node: "sheet[Sales]", cells } }),
+        "invalid",
+      )
+    expect(seen).toHaveLength(before)
+    // A range on a row is the instance's to refuse: it is no sheet
+    expectFailure(
+      await client.comment({ id, body: "?", anchor: { kind: "range", node: "sheet[Sales]/row[1]", cells: "B2" } }),
+      "invalid",
+    )
+  })
+
+  test("reopen: unsupported without a call until the instance reopens comments; then the thread is open again (G12)", async () => {
+    const off = stand()
+    const offId = (await ok(off.client.upload({ name: "a.md", bytes: new TextEncoder().encode("Hola") }))).document.id
+    const first = await ok(off.client.comment({ id: offId, body: "x", anchor: { kind: "node", node: "n1" } }))
+    await ok(off.client.resolve({ id: offId, comment: first.id }))
+    expectFailure(await off.client.reopen({ id: offId, comment: first.id }), "unsupported")
+    expect(off.fake().calls.reopen).toBeUndefined()
+    const on = stand({ version: () => "0.84" })
+    await flush()
+    expect(on.client.state().capabilities.reopenComments).toBe(true)
+    const id = (await ok(on.client.upload({ name: "b.md", bytes: new TextEncoder().encode("Hola") }))).document.id
+    const root = await ok(on.client.comment({ id, body: "x", anchor: { kind: "node", node: "n1" } }))
+    await ok(on.client.resolve({ id, comment: root.id }))
+    const reopened = await ok(on.client.reopen({ id, comment: root.id }))
+    expect(reopened).toMatchObject({ id: root.id, reopenedMine: true, reopener: "user-account-ana" })
+    expect(reopened.resolved).toBeUndefined()
+    expect((await ok(on.client.comments({ id })))[0]?.resolved).toBeUndefined()
+    expectFailure(await on.client.reopen({ id, comment: "missing" }), "not-found")
   })
 
   test("a point on a PDF is no anchor at all: it does not cross to main (D22)", async () => {

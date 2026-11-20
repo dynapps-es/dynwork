@@ -818,6 +818,23 @@ describe("the rules about the server", () => {
       ).toBeUndefined()
   })
 
+  test("0.84 comments: the agent reopens a resolved thread and points a spreadsheet's comment at cells of a sheet", () => {
+    const at84 = { reopenComments: true, rangeComments: true }
+    const text = flat(DynWorkDocuments.instructions(at84))
+    expect(text).toContain("documents_comment {action: reopen, comment_id}")
+    expect(text).toContain("node is the sheet's node (sheet[<name>]) and cells an A1")
+    expect(flat(DynWorkDocuments.instructions({ reopenComments: true }))).not.toContain("sheet[<name>]")
+    expect(flat(DynWorkDocuments.instructions({ rangeComments: true }))).not.toContain("action: reopen")
+    for (const off of [{}, { reopenComments: false, rangeComments: false }]) {
+      expect(flat(DynWorkDocuments.instructions(off))).not.toContain("action: reopen")
+      expect(flat(DynWorkDocuments.instructions(off))).not.toContain("sheet[<name>]")
+    }
+    const every = { rawHtmlByMcp: true, mcpFolders: true, contextByMcp: true, peopleByRest: true, ...at84 }
+    expect(
+      DynWorkInstructions.overBudget(DynWorkInstructions.block(DynWorkDocuments.rules(["documents"], every))),
+    ).toBeUndefined()
+  })
+
   test("name no product the user does not know", () => {
     for (const variant of [
       {},
@@ -825,6 +842,7 @@ describe("the rules about the server", () => {
       { mcpFolders: true },
       { contextByMcp: true },
       { rawHtmlByMcp: true, mcpFolders: true, contextByMcp: true, peopleByRest: true },
+      { rangeComments: true, reopenComments: true },
     ])
       expect(DynWorkDocuments.instructions(variant)).not.toMatch(/systemprompt|agent farm|routine/i)
   })

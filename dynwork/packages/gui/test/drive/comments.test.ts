@@ -117,8 +117,12 @@ describe("what the instance refuses in a comment", () => {
     expectFailure(await client.outline({ id: "gone" }), "not-found")
   })
 
-  test("there is no way to reopen a comment: the service has no such method (G12)", () => {
-    const { client } = stand()
-    expect(Object.keys(client).filter((method) => /reopen|unresolve/i.test(method))).toEqual([])
+  test("0.83 reopens nothing: the service answers unsupported and the Drive is not asked (G12)", async () => {
+    const { client, fake } = stand()
+    const created = await ok(client.upload({ name: "closed.md", bytes: text("# Hola"), mime: "text/markdown" }))
+    const root = await ok(client.comment({ id: created.document.id, body: "x", anchor: { kind: "node", node: "n1" } }))
+    await ok(client.resolve({ id: created.document.id, comment: root.id }))
+    expectFailure(await client.reopen({ id: created.document.id, comment: root.id }), "unsupported")
+    expect(fake.calls.reopen).toBeUndefined()
   })
 })

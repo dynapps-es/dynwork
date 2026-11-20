@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { DriveCells } from "../../../src/drive/cells"
 import { Act, Failure } from "../../../src/drive/contract"
 import en from "../../../src/views/drive/en"
 import es from "../../../src/views/drive/es"
@@ -21,6 +22,7 @@ describe("the Drive's strings", () => {
       ...["details", "comments", "versions", "proposals", "share"].map((tab) => `drive.tab.${tab}`),
       ...["own", "share", "edit", "comment", "view"].map((level) => `drive.level.${level}`),
       ...["open", "accepted", "rejected"].map((status) => `drive.proposals.${status}`),
+      ...DriveCells.refusals.map((refused) => `drive.comment.range.${refused}`),
     ]
     expect(
       Object.entries(locales).flatMap(([locale, table]) =>

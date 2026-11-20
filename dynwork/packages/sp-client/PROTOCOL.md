@@ -399,7 +399,7 @@ refused every write with `403` `agent_suggest_only`.
 | `GET /{id}/proposals`, `GET /{id}/access`                                                      | `200` `{proposals}`; `{owner, my_access, grants, inherited, agent_cap}`. `GET /{id}/grants` is `403` `agent_forbidden` to an agent                                                                                                                                  |
 | `GET /{id}/comments`                                                                           | `200` `{comments}`: `id`, `anchor {node, find?}`, `author_user_id`, `body`, `parent_id`, `resolved_at`, `resolved_by`, replies in the same list                                                                                                                     |
 | `POST /{id}/comments` `{body, anchor {node, find?}}` or `{body, parent_id}`                    | `201` the comment. No anchor and no parent is `400`; a node that is not in the head is `409` `not_found`. `x-context-id` is accepted. A comment carries no `message`                                                                                                |
-| `POST /{id}/comments/{comment}/resolve`                                                        | `200` the comment with `resolved_at`/`resolved_by`; again leaves the first. 0.83 has no route to reopen (`POST .../reopen`, `.../unresolve` are `404`, `DELETE .../resolve` `405`), so the client has none                                                          |
+| `POST /{id}/comments/{comment}/resolve`                                                        | `200` the comment with `resolved_at`/`resolved_by`; again leaves the first. 0.83 has no route to reopen (`POST .../reopen`, `.../unresolve` are `404`, `DELETE .../resolve` `405`); 0.84 has `POST .../reopen` (below)                                                |
 | `POST /api/v1/documents` multipart `file`, `name`, `folder_id?`, `message?`                    | `201` `{document, revision}`. The first revision's `message` stays null whatever is sent; `x-context-id` is recorded                                                                                                                                                |
 | `POST /api/v1/documents/import` `{blob_ref, name, folder_id?, message?}`                       | `201` `{document, revision}` from a blob already on the instance (an upload completed here, or one the agent made with the MCP `documents_upload`). Only the user who uploaded the blob can import it. `message` is not recorded                                    |
 | `POST /api/v1/uploads` `{name, mime, size, sha256}`                                            | `201` an upload: `upload_id`, `part_size` (8 MiB), `part_count`, `missing_parts`, `expires_at` (a day)                                                                                                                                                              |
@@ -436,6 +436,17 @@ and production still run 0.83/0.82, so the fake instance (`test/fake.ts`, `drive
   `message` on the first revision.
 - **`422 unknown_context`.** A write whose `x-context-id` is not a conversation the user owns (unknown or another user's)
   writes nothing: `UnknownContext`.
+- **Reopening (G12).** `POST /{id}/comments/{comment}/reopen` (`SpDrive.reopenComment`), with the access resolving takes:
+  `200` the comment with `resolved_at`/`resolved_by` cleared and `reopened_at`/`reopened_by` set; an open comment comes
+  back unchanged. 0.83 answers `404` (`NotFound`).
+- **Cell ranges (G08).** `POST /{id}/comments` takes `anchor: {node: "sheet[Sales]", cells: "B2:D9"}` on a spreadsheet
+  (`xlsx`, `ods`): `cells` is `B2` or `B2:D9`, columns to `XFD`, rows to 1 048 576, the start top-left of the end, read in
+  any case and answered upper-case (`C3:C3` as `C3`). A sheet node is `sheet[<name>]` (a `]` in the name escaped as
+  `\]`); its rows are `sheet[<name>]/row[<n>]`. A range on any other node, or beside `find`, is `400` `invalid_params`.
+  It holds while its sheet does; when the sheet goes the comment keeps the node and loses `cells`.
+- **Mentioning oneself (G10).** A mention of the author themself reaches their stream (`document.comment.mentioned`) and
+  their inbox only at `mention_options` attention `agent`; at `human`, `silent` or with no option, nothing is delivered.
+  The event still carries no attention.
 - **People.** `GET /api/v1/documents/people?query=&limit=&document_id=` or `?ids=` (at most 20): `{people: [{user_id,
   name, email, access?}]}` (`SpDrive.searchPeople`, `SpDrive.people`). 0.83 answers it as a document id: not found.
 

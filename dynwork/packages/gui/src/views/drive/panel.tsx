@@ -250,7 +250,7 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
   )
 }
 
-/** A thread picked on a document beside a chat: read, reply and resolve, as in the Drive's Comments tab. */
+/** A thread picked on a document beside a chat: read, reply, resolve and reopen, as in the Drive's Comments tab. */
 function ThreadDialog(props: { doc: Document; thread: string }) {
   const ctx = usePlugin()
   const thread = () => drive.threadsOf(props.doc.id).find((item) => item.id === props.thread)

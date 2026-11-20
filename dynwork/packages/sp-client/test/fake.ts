@@ -55,6 +55,14 @@ export type FakeRevision = {
 // `purpose`.
 export const bridgeClient = "sp_bridge"
 
+// A spreadsheet's only sheet in the fake, as the core names a sheet node, and the A1 text 0.84 takes as a cell range
+// (the core's own pattern; it also refuses a range whose start is not its top-left).
+const sheet = "sheet[Sales]"
+const a1 = /^[A-Za-z]{1,3}[1-9][0-9]{0,6}(:[A-Za-z]{1,3}[1-9][0-9]{0,6})?$/
+const spreadsheet = (mime: string) =>
+  mime === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+  mime === "application/vnd.oasis.opendocument.spreadsheet"
+
 export function startDrive() {
   return {
     // The core the Drive answers as: 0.83, or 0.84 with its discovery block, its attribution and `unknown_context`
@@ -682,7 +690,14 @@ export function startFake() {
         const view = url.searchParams.get("view")
         if (view !== "outline" && view !== "text") return refuse(400, "invalid_params", "unknown view")
         // The node ids are those a comment anchors to; `n1` is the first line, the one the fake accepts. The outline
-        // leaves paragraphs behind a gap; the text lists every node, the blank ones too.
+        // leaves paragraphs behind a gap; the text lists every node, the blank ones too. A spreadsheet has one sheet,
+        // `sheet[Sales]`, its node first and a row of it below, as the core names them.
+        if (spreadsheet(entry.mime_type))
+          return Response.json({
+            revision_id: entry.head_revision_id,
+            format: entry.format,
+            lines: [`${sheet}:5f2c1a0e| Sales`, `${sheet}/row[1]:7d1e9b3a| Month\tTotal`],
+          })
         return Response.json({
           revision_id: entry.head_revision_id,
           format: entry.format,
@@ -832,7 +847,7 @@ export function startFake() {
           return Response.json({ comments: all.map((comment) => ({ ...comment, ...named(comment.context_id as string) })) })
         const input = json() as {
           body?: string
-          anchor?: { node: string; find?: string }
+          anchor?: { node: string; find?: string; cells?: string }
           parent_id?: string
           mention_options?: Array<{ user_id: string; attention: string }>
         }
@@ -841,14 +856,26 @@ export function startFake() {
           return refuse(400, "invalid_params", "every mention option must name a user the comment mentions")
         if (input.anchor === undefined && input.parent_id === undefined)
           return refuse(400, "invalid_params", "invalid comment: a comment needs a node anchor or a parent_id")
-        if (input.anchor !== undefined && input.anchor.node !== "n1")
+        // 0.84: a cell range anchors to a sheet node, never beside a quote, and is written upper-case
+        const cells = at84 ? input.anchor?.cells : undefined
+        if (
+          cells !== undefined &&
+          (!a1.test(cells) || input.anchor?.find !== undefined || input.anchor?.node !== sheet)
+        )
+          return refuse(400, "invalid_params", "invalid comment: a cell range anchors to a sheet node of a spreadsheet")
+        const nodes = spreadsheet(entry.mime_type) ? [sheet, `${sheet}/row[1]`] : ["n1"]
+        if (input.anchor !== undefined && !nodes.includes(input.anchor.node))
           return refuse(409, "not_found", `node ${input.anchor.node} does not exist at the head revision`, {
             code: "conflict_error",
           })
         const parent = all.find((item) => item.id === input.parent_id)
+        const anchor =
+          input.anchor === undefined
+            ? parent?.anchor
+            : { node: input.anchor.node, find: input.anchor.find, ...(cells ? { cells: cells.toUpperCase() } : {}) }
         const comment = {
           id: crypto.randomUUID(),
-          anchor: input.anchor ?? parent?.anchor,
+          anchor,
           author_user_id: user,
           body: input.body,
           ...(input.parent_id === undefined ? {} : { parent_id: input.parent_id }),
@@ -857,19 +884,22 @@ export function startFake() {
           ...(at84 ? { via_agent: bridgeClient, context_id: context, client_id: bridgeClient } : {}),
         }
         drive.comments.set(entry.id, [...all, comment])
-        // The instance announces each mention on the stream, whatever its attention
-        input.mention_options?.forEach((option) =>
-          drive.announce(
-            "document.comment.mentioned",
-            {
-              document_id: entry.id,
-              comment_id: comment.id,
-              mentioned_user_id: option.user_id,
-              author_id: user,
-            },
-            false,
-          ),
-        )
+        // 0.83 announces each mention on the stream, whatever its attention; 0.84 announces a mention of the author
+        // themself only at attention `agent`
+        input.mention_options
+          ?.filter((option) => !at84 || option.user_id !== user || option.attention === "agent")
+          .forEach((option) =>
+            drive.announce(
+              "document.comment.mentioned",
+              {
+                document_id: entry.id,
+                comment_id: comment.id,
+                mentioned_user_id: option.user_id,
+                author_id: user,
+              },
+              false,
+            ),
+          )
         return Response.json(comment, { status: 201 })
       }
       const resolve = /^comments\/([^/]+)\/resolve$/.exec(rest)
@@ -879,6 +909,19 @@ export function startFake() {
         if (target === undefined) return notFound("comment")
         target.resolved_at ??= now()
         target.resolved_by ??= user
+        return Response.json(target)
+      }
+      // 0.84 reopens a resolved comment; an open one comes back unchanged. 0.83 has no such route.
+      const reopen = /^comments\/([^/]+)\/reopen$/.exec(rest)
+      if (at84 && request.method === "POST" && reopen) {
+        const all = drive.comments.get(entry.id) ?? []
+        const target = all.find((item) => item.id === reopen[1])
+        if (target === undefined) return notFound("comment")
+        if (target.resolved_at === undefined || target.resolved_at === null) return Response.json(target)
+        target.resolved_at = null
+        target.resolved_by = null
+        target.reopened_at = now()
+        target.reopened_by = user
         return Response.json(target)
       }
     }

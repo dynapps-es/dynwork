@@ -17,21 +17,25 @@ import {
   matchNodes,
   nodeLabel,
   pickable,
+  pointsAt,
   quoteIn,
+  rangeOf,
+  sheetsOf,
   type Node,
   type Placed,
   type Thread,
 } from "./model"
 import { panes } from "./panes"
-import { AnchorLine, authorName, Avatar, failureText, MessageLine } from "./parts"
+import { AnchorLine, authorName, Avatar, failureText, MessageLine, useNames } from "./parts"
 import { clicked, selected, type Spot } from "./spot"
 import { drive } from "./store"
 
 // Comments on a document (D11). The instance anchors a comment to a node (a paragraph, a table cell, a slide's box) and
 // an optional quote inside it. A Markdown document is drawn by the app itself, so a selection or a click there finds
 // its node (`CommentMarks`); a page the instance renders (HTML, Word, Excel, PowerPoint) runs in an isolated frame the
-// app cannot read, so the Comments tab lists its nodes to pick from. A cell range and a PDF point have no node in 0.83:
-// each is offered only when its capability is on.
+// app cannot read, so the Comments tab lists its nodes to pick from. A cell range of a spreadsheet's sheet is offered
+// once the instance takes one (`rangeComments`, 0.84); a PDF takes no comment (D22). A resolved thread opens again where
+// the instance reopens comments (`reopenComments`, 0.84).
 
 /** How many paragraphs and cells the picker shows before it asks for a narrower search. */
 const SHOWN = 80
@@ -214,28 +218,27 @@ export function CommentsTab(props: { doc: Document; onReveal?: (thread: string) 
   )
 }
 
-/** What an anchor points at, as a line: its quote, the node's own text or a cell range. */
+/**
+ * What an anchor points at, as a line: its quote, the node's own text, or a sheet and a cell range of it ("Sales ·
+ * B2:D9"). A comment whose sheet is gone keeps the sheet's node and loses its range (the instance detaches it): it
+ * names the sheet, and says it is gone.
+ */
 export function Pointing(props: { doc: Document; anchor: Anchor }) {
   const ctx = usePlugin()
   const line = () => {
-    const anchor = props.anchor
-    if (anchor.kind === "range")
+    const at = pointsAt(props.anchor, drive.nodesOf(props.doc.id))
+    if (at.kind === "range")
+      return { icon: "dot-grid" as const, text: ctx.t("drive.anchor.range", { sheet: at.sheet, range: at.cells }) }
+    if (at.kind === "sheet")
       return {
         icon: "dot-grid" as const,
-        text: ctx.t("drive.anchor.range", { range: `${anchor.from}:${anchor.to}`, sheet: String(anchor.sheet + 1) }),
+        text: at.gone ? ctx.t("drive.anchor.sheetGone", { sheet: at.sheet }) : at.sheet,
       }
-    if (anchor.find) return { icon: "outline-quote" as const, text: `“${anchor.find}”` }
-    return pointed(anchor.node)
-  }
-  // The node by id in the nodes read last, shown as a quote is: its text on one line. A blank line and a node that the
-  // document has lost say so.
-  const pointed = (id: string) => {
-    const node = drive.nodesOf(props.doc.id).find((item) => item.id === id)
-    if (!node) return { icon: "outline-quote" as const, text: ctx.t("drive.anchor.gone") }
-    const text = nodeLabel(node, 120)
-    return text
-      ? { icon: "outline-quote" as const, text: `“${text}”` }
-      : { icon: "outline-quote" as const, text: ctx.t("drive.anchor.blank") }
+    if (at.kind === "quote") return { icon: "outline-quote" as const, text: `“${at.text}”` }
+    return {
+      icon: "outline-quote" as const,
+      text: ctx.t(at.kind === "blank" ? "drive.anchor.blank" : "drive.anchor.gone"),
+    }
   }
   return <AnchorLine icon={line().icon} text={line().text} />
 }
@@ -243,15 +246,23 @@ export function Pointing(props: { doc: Document; anchor: Anchor }) {
 /**
  * A thread: what it points at, with Resolve beside it, and its messages, with Reply. Reply opens one reply box at a time, so a panel
  * of threads stays a list. Picking it brings its mark on the document into view (`onReveal`); picked from the document,
- * it scrolls into view in its list.
+ * it scrolls into view in its list. A resolved thread offers Reopen where the instance reopens comments, and a reopened
+ * one says who reopened it and when.
  */
 export function ThreadCard(props: { doc: Document; thread: Thread; onReveal?: (thread: string) => void }) {
   const ctx = usePlugin()
+  const names = useNames()
   const [failure, setFailure] = createSignal<Failure>()
   const [busy, setBusy] = createSignal(false)
   let field: HTMLTextAreaElement | undefined
   let card: HTMLDivElement | undefined
-  const anchor = (): Anchor => ({ kind: "node", node: props.thread.node, find: props.thread.quote })
+  const anchor = (): Anchor =>
+    props.thread.cells === undefined
+      ? { kind: "node", node: props.thread.node, find: props.thread.quote }
+      : { kind: "range", node: props.thread.node, cells: props.thread.cells }
+  const reopens = () => drive.remote()?.capabilities.reopenComments === true
+  const reopener = (by: NonNullable<Thread["reopened"]>) =>
+    by.mine ? ctx.t("drive.you") : ((by.by && drive.nameOf(by.by)) ?? ctx.t("drive.comment.other"))
   const on = () => drive.state.doc.thread === props.thread.id
   createEffect(() => {
     if (on()) card?.scrollIntoView({ block: "nearest" })
@@ -283,7 +294,7 @@ export function ThreadCard(props: { doc: Document; thread: Thread; onReveal?: (t
       <div data-slot="drive-thread-anchor">
         <Pointing doc={props.doc} anchor={anchor()} />
         <Show when={props.thread.open && canComment(props.doc)}>
-          <ctx.ui.Tooltip value={ctx.t("drive.comment.resolve.hint")}>
+          <ctx.ui.Tooltip value={ctx.t(reopens() ? "drive.comment.resolve.reopenable" : "drive.comment.resolve.hint")}>
             <ctx.ui.IconButton
               variant="ghost-muted"
               size="small"
@@ -298,6 +309,13 @@ export function ThreadCard(props: { doc: Document; thread: Thread; onReveal?: (t
           </ctx.ui.Tooltip>
         </Show>
       </div>
+      <Show when={props.thread.open && props.thread.reopened}>
+        {(by) => (
+          <p data-slot="drive-note" data-tone="info">
+            {ctx.t("drive.comment.reopenedBy", { name: reopener(by()), when: names.ago(by().at) })}
+          </p>
+        )}
+      </Show>
       <For each={props.thread.messages}>
         {(message) => (
           <>
@@ -311,11 +329,28 @@ export function ThreadCard(props: { doc: Document; thread: Thread; onReveal?: (t
       <Show
         when={props.thread.open}
         fallback={
-          <div data-slot="drive-card-row">
-            <span data-slot="drive-tag" data-tone="success">
-              {ctx.t("drive.comment.resolved")}
-            </span>
-          </div>
+          <>
+            <div data-slot="drive-card-row" onClick={(event) => event.stopPropagation()}>
+              <span data-slot="drive-tag" data-tone="success">
+                {ctx.t("drive.comment.resolved")}
+              </span>
+              <span data-slot="drive-grow" />
+              <Show when={reopens() && canComment(props.doc)}>
+                <ctx.ui.Tooltip value={ctx.t("drive.comment.reopen.hint")}>
+                  <Button
+                    variant="ghost"
+                    size="small"
+                    icon="outline-undo"
+                    disabled={busy()}
+                    onClick={() => void act(() => drive.reopen(props.doc.id, props.thread.id))}
+                  >
+                    {ctx.t("drive.comment.reopen")}
+                  </Button>
+                </ctx.ui.Tooltip>
+              </Show>
+            </div>
+            <Show when={failure()}>{(found) => <Said failure={found()} />}</Show>
+          </>
         }
       >
         <Show when={canComment(props.doc)}>
@@ -571,8 +606,8 @@ function Picker(props: { doc: Document }) {
           </Show>
         </Show>
       </Show>
-      <Show when={kinds().range}>
-        <RangeForm />
+      <Show when={kinds().range && sheetsOf(drive.nodesOf(props.doc.id)).length > 0}>
+        <RangeForm sheets={sheetsOf(drive.nodesOf(props.doc.id))} />
       </Show>
       <Show when={!kinds().node}>
         <p data-slot="drive-note">{ctx.t("drive.comment.pdf.off")}</p>
@@ -581,31 +616,72 @@ function Picker(props: { doc: Document }) {
   )
 }
 
-/** A cell range of a spreadsheet, once the instance takes a comment there (`rangeComments`). */
-function RangeForm() {
+/**
+ * A cell range of a spreadsheet's sheet, once the instance takes a comment there (`rangeComments`): the sheet, when there
+ * are several, and an A1 range checked as the instance checks it (`B2` or `B2:D9`, columns to XFD, rows to 1 048 576,
+ * the start at the top-left), written upper-case.
+ */
+function RangeForm(props: { sheets: readonly { node: string; name: string }[] }) {
   const ctx = usePlugin()
   const [range, setRange] = createSignal("")
-  const parsed = () => /^([A-Za-z]+\d+):([A-Za-z]+\d+)$/.exec(range().trim())
+  const [picked, setPicked] = createSignal<string>()
+  const sheet = () => props.sheets.find((item) => item.node === picked()) ?? props.sheets[0]
+  const read = () => rangeOf(range())
+  const cells = () => {
+    const found = read()
+    return found && "cells" in found ? found.cells : undefined
+  }
+  const refused = () => {
+    const found = read()
+    return found && "refused" in found ? found.refused : undefined
+  }
+  const send = () => {
+    const at = sheet()
+    const valid = cells()
+    if (at && valid) drive.startComment({ kind: "range", node: at.node, cells: valid })
+  }
   return (
-    <div data-slot="drive-card-row">
-      <TextInput
-        value={range()}
-        placeholder={ctx.t("drive.comment.range.placeholder")}
-        aria-label={ctx.t("drive.comment.range")}
-        onInput={(event) => setRange(event.currentTarget.value)}
-      />
-      <Button
-        variant="outline"
-        size="small"
-        disabled={!parsed()}
-        onClick={() => {
-          const match = parsed()
-          if (match)
-            drive.startComment({ kind: "range", sheet: 0, from: match[1].toUpperCase(), to: match[2].toUpperCase() })
-        }}
-      >
-        {ctx.t("drive.comment.range")}
-      </Button>
+    <div data-slot="drive-range">
+      <b>{ctx.t("drive.comment.range.title")}</b>
+      <Show when={props.sheets.length > 1}>
+        <div data-slot="drive-card-row" role="group" aria-label={ctx.t("drive.comment.range.sheet")}>
+          <For each={props.sheets}>
+            {(item) => (
+              <Button
+                variant="ghost"
+                size="small"
+                data-state={item.node === sheet()?.node ? "pressed" : undefined}
+                aria-pressed={item.node === sheet()?.node}
+                onClick={() => setPicked(item.node)}
+              >
+                {item.name}
+              </Button>
+            )}
+          </For>
+        </div>
+      </Show>
+      <div data-slot="drive-card-row">
+        <TextInput
+          value={range()}
+          placeholder={ctx.t("drive.comment.range.placeholder")}
+          aria-label={ctx.t("drive.comment.range.field", { sheet: sheet()?.name ?? "" })}
+          aria-invalid={refused() !== undefined}
+          onInput={(event) => setRange(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") send()
+          }}
+        />
+        <Button variant="outline" size="small" disabled={!cells()} onClick={send}>
+          {ctx.t("drive.comment.range")}
+        </Button>
+      </div>
+      <Show when={refused()}>
+        {(why) => (
+          <p data-slot="drive-note" data-tone="warning">
+            {ctx.t(`drive.comment.range.${why()}`)}
+          </p>
+        )}
+      </Show>
     </div>
   )
 }

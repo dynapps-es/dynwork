@@ -45,11 +45,13 @@ export interface Options {
   disconnected?: boolean
   /** Called when the service pushes a new state to the windows. */
   changed?: () => void
+  /** The core the seeded Drive answers as; 0.83 when absent. */
+  version?: "0.83" | "0.84"
 }
 
 /** A store over the service over a seeded Drive, and handles on each layer. */
 export async function setup(options: Options = {}) {
-  const fake = DriveFake.make({ user: "user-david" })
+  const fake = DriveFake.make({ user: "user-david", version: options.version })
   const ids = new Map<string, string>()
   for (const path of folders) {
     const slash = path.lastIndexOf("/")

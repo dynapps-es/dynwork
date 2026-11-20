@@ -137,6 +137,10 @@ export const Documents = Schema.Struct({
   contextByMcp: Schema.optional(Schema.Boolean),
   /** The instance names people by id (`GET /documents/people?ids=`), so a share card names anyone without a lookup. */
   peopleByRest: Schema.optional(Schema.Boolean),
+  /** `documents_comment` anchors to an A1 range of a sheet node (`node`, `cells`). */
+  rangeComments: Schema.optional(Schema.Boolean),
+  /** `documents_comment {action: reopen}` opens a resolved thread again. */
+  reopenComments: Schema.optional(Schema.Boolean),
 })
 export type Documents = typeof Documents.Type
 

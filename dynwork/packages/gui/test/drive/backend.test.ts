@@ -356,6 +356,57 @@ describe("the Governance backend on 0.83 and 0.84", () => {
     })
   })
 
+  test("0.84: a comment on a sheet's cell range goes as {node, cells} and reads back upper-case (G08)", async () => {
+    const backend = remote()
+    const created = await ok(
+      backend.upload({
+        name: `sales-${randomUUID()}.xlsx`,
+        bytes: new TextEncoder().encode("xlsx"),
+        mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }),
+    )
+    const sheet = (await ok(backend.outline(created.document.id))).nodes[0]
+    expect(sheet).toMatchObject({ id: "sheet[Sales]", text: "Sales" })
+    const made = crossing(
+      Comment,
+      await ok(
+        backend.comment(created.document.id, {
+          body: "Check",
+          anchor: { kind: "range", node: "sheet[Sales]", cells: "b2:d9" },
+        }),
+      ),
+    )
+    expect(made.anchor).toEqual({ node: "sheet[Sales]", cells: "B2:D9" })
+    const posted = instance.state.requests.filter(
+      (entry) => entry.path === `/api/v1/documents/${created.document.id}/comments` && entry.method === "POST",
+    )
+    expect(JSON.parse(posted.at(-1)?.body ?? "{}").anchor).toEqual({ node: "sheet[Sales]", cells: "b2:d9" })
+    // A range on a row is no sheet's: the instance refuses it
+    expectFailure(
+      await backend.comment(created.document.id, {
+        body: "?",
+        anchor: { kind: "range", node: "sheet[Sales]/row[1]", cells: "B2" },
+      }),
+      "invalid",
+    )
+  })
+
+  test("0.84: a resolved comment reopens, and says the user reopened it (G12)", async () => {
+    const backend = remote()
+    const created = await ok(
+      backend.upload({ name: `re-${randomUUID()}.md`, bytes: new TextEncoder().encode("# x"), mime: "text/markdown" }),
+    )
+    const root = await ok(backend.comment(created.document.id, { body: "x", anchor: { kind: "node", node: "n1" } }))
+    await ok(backend.resolve(created.document.id, root.id))
+    const reopened = crossing(Comment, await ok(backend.reopen(created.document.id, root.id)))
+    expect(reopened).toMatchObject({ id: root.id, reopener: user, reopenedMine: true })
+    expect(reopened.resolved).toBeUndefined()
+    expect(reopened.reopened).toBeNumber()
+    // Reopening an open one changes nothing
+    expect(await ok(backend.reopen(created.document.id, root.id))).toMatchObject({ reopened: reopened.reopened })
+    expectFailure(await backend.reopen(created.document.id, randomUUID()), "not-found")
+  })
+
   test("a conversation the instance did not issue answers unknown-context, and nothing is written", async () => {
     const before = instance.state.drive.documents.size
     const answer = await remote().upload({

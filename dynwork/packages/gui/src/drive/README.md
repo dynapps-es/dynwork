@@ -227,6 +227,12 @@ Governance ──/v1/bridge/stream──► Backend.stream ────► Drive
   as the user's agent, and is left to Governance; only the user mentioning themself is a job. DynWork opens the stream
   again every five minutes and two seconds after it ends, and a mention made while it was closed is lost, except for those
   the service writes (they do not wait for the stream).
+- **What 0.84 changes (G10).** A mention of oneself at attention `agent` is the official hand-off: the instance delivers it
+  on the stream and as an inbox item at `agent`, and no longer delivers one at `human`, `silent` or with none (a self
+  `@Agent` typed in Governance without choosing `agent` wakes nothing). DynWork writes `@Agent` at `agent` only, so on
+  0.84 its own comment is announced twice, by the write and by the stream: both name the comment and `attend` takes it
+  once (in flight and in the kept record), so the conversation wakes once. The inbox is not read; the stream says the same
+  live, and a mention made elsewhere while the stream was closed is still lost.
 
 ## The agent's shares (D24)
 
@@ -402,9 +408,9 @@ the instance itself, in one place (`DriveCapabilities.delivered`), never from a 
    (`endpoints.documents`, whether the store is on), which 0.83 does not; and the core's `version`;
 2. only where discovery tells neither, a probe: `GET /documents/people?ids=<the user's own id>` answering (0.84) or not.
 
-0.84 turns on `conversationLabel`, `pushChanges` and `peopleByRest` (the REST side of G02, G09 and G13) and
-`rawHtmlByMcp`, `mcpFolders` and `contextByMcp` (the agent's side of G04, G05 and G06, through the MCP); 0.83 and older,
-none. The rest of what 0.84 delivers is turned on by the phases that use it. An instance whose discovery does not answer
+0.84 turns on `conversationLabel`, `pushChanges` and `peopleByRest` (the REST side of G02, G09 and G13),
+`rawHtmlByMcp`, `mcpFolders` and `contextByMcp` (the agent's side of G04, G05 and G06, through the MCP), and
+`rangeComments` and `reopenComments` (G08, G12); 0.83 and older, none. The rest of what 0.84 delivers is turned on by the phases that use it. An instance whose discovery does not answer
 keeps what was read before (nothing, for a new account), and the next read that succeeds asks again. `DriveMain.setup`
 still takes an option that forces a switch on or off over what was read.
 
@@ -412,7 +418,8 @@ still takes an option that forces a switch on or off over what was read.
 | ------------------- | --- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | `personActions`     | G01 | A direct write is "`<user>` by DynWork"; person actions go to Governance                 | A direct write is the person's own, with no message                         |
 | `conversationLabel` | G02 | The message names the conversation                                                       | Only the `x-context-id`; the instance names it, as do versions and comments |
-| `rangeComments`     | G08 | A comment on a cell range answers `unsupported` without a call                           | It reaches the backend                                                      |
+| `rangeComments`     | G08 | A comment on a cell range answers `unsupported` without a call                           | `{node, cells}` on a sheet node, the A1 range checked and upper-cased first |
+| `reopenComments`    | G12 | `reopen` answers `unsupported` without a call; a resolved thread stays resolved          | `POST …/comments/{id}/reopen`; the thread goes back to Open                 |
 | `rawHtmlByMcp`      | G04 | Its edits by ops of an HTML document are refused; a changed page is a new document       | `documents_edit {content_blob_ref}` rewrites the page in the same document  |
 | `mcpFolders`        | G05 | DynWork makes `Artifacts/<project>/<conversation>` and imports the agent's files by REST | The agent makes the folders (`documents_folder`) and imports itself         |
 | `contextByMcp`      | G06 | An MCP write carries no conversation; it enters the local index                          | Each write carries its conversation's `context_id`; index kept as cache     |
@@ -433,4 +440,7 @@ Every method answers a `Failure` instead of rejecting, as routines do. The backe
 (`signed-out`, `unreachable`, `not-found`, `forbidden`, `person`, `suggest`, `conflict` with the `head` it lost to,
 `unsupported`, `invalid`, `unknown-context`, `failed`) with DynWork's own words: the instance's message never reaches a window. Only
 `unreachable` is retryable. A backend that rejects anyway is a bug; the service answers `failed` without its message.
-There is no reopen for a resolved comment: 0.83 has no route for it (G12).
+A resolved comment reopens only with `reopenComments` (G12): 0.83 has no route for it. A comment on a cell range goes only
+with `rangeComments` (G08), and only as an A1 range the core takes (`DriveCells.parse`, the core's `CellRange` rules:
+`B2` or `B2:D9`, columns to `XFD`, rows to 1 048 576, start top-left); one it would refuse answers `invalid` without a
+call. The agent's `documents` rules say both when they are on (`DriveCapabilities.agent`).

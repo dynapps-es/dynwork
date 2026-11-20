@@ -779,8 +779,9 @@ export const comments = Effect.fn("SpDrive.comments")(function* (baseUrl: string
 })
 
 /**
- * A comment pinned to a node (`find` quotes the text inside it). A node that is not in the head revision is a
- * `Conflict` with `errorKey: "not_found"`: read the document's outline again.
+ * A comment pinned to a node (`find` quotes the text inside it), or from 0.84 to an A1 range (`cells`) of a spreadsheet's
+ * sheet node, never beside `find`. A node that is not in the head revision is a `Conflict` with `errorKey: "not_found"`:
+ * read the document's outline again.
  */
 export const createComment = Effect.fn("SpDrive.createComment")(function* (
   baseUrl: string,
@@ -813,10 +814,7 @@ export const replyComment = Effect.fn("SpDrive.replyComment")(function* (
   )
 })
 
-/**
- * Marks a comment resolved. 0.83 has no route to reopen one, so this client has no reopen either; resolving again
- * leaves the first `resolved_at`.
- */
+/** Marks a comment resolved. Resolving it again leaves the first `resolved_at`. */
 export const resolveComment = Effect.fn("SpDrive.resolveComment")(function* (
   baseUrl: string,
   jwt: string,
@@ -827,6 +825,28 @@ export const resolveComment = Effect.fn("SpDrive.resolveComment")(function* (
     method: "POST",
     path: `${documents}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}/resolve`,
     endpoint: "POST /api/v1/documents/{id}/comments/{comment}/resolve",
+    baseUrl,
+    jwt,
+    body: {},
+    limit: 1024 * 1024,
+  })
+})
+
+/**
+ * Opens a resolved comment again (0.84): the instance clears `resolved_at` and `resolved_by` and records `reopened_at`
+ * and `reopened_by`; an open one comes back unchanged. It takes the same access as resolving. 0.83 has no such route
+ * (`404`, `NotFound`).
+ */
+export const reopenComment = Effect.fn("SpDrive.reopenComment")(function* (
+  baseUrl: string,
+  jwt: string,
+  id: string,
+  commentId: string,
+) {
+  return yield* json(DriveComment, {
+    method: "POST",
+    path: `${documents}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}/reopen`,
+    endpoint: "POST /api/v1/documents/{id}/comments/{comment}/reopen",
     baseUrl,
     jwt,
     body: {},

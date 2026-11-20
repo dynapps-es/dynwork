@@ -198,7 +198,9 @@ in-memory Drive for the tests.
     sub-frames, so it has no Ipc, and the window's Ipc handshake only takes messages from the window itself; main adds
     the sidecar's credential only to the top frame's requests; and the page sends no referrer.
 - **Comments** (`comments.tsx`, the pure reads in `model.ts`): the Comments tab of the drawer lists the threads (open and
-  resolved), takes replies and resolves; there is no reopen, 0.83 has no route for it (G12). The instance anchors a
+  resolved), takes replies and resolves; with `reopenComments` (0.84, G12) a resolved thread has Reopen, in the tab and
+  in the thread dialog beside a chat, with the access resolving takes: it moves to Open, its mark and bubble come back,
+  and it says who reopened it and when. The instance anchors a
   comment to a node and a quote inside it, read from the `text` view (every node, blank ones too). A Markdown document is
   drawn by the app, so `CommentMarks` matches its blocks to the nodes by their text, marks the commented ones and offers
   Comment on a selection. A page in a frame (HTML, Word, Excel, PowerPoint) has an opaque origin the app cannot read, so
@@ -218,8 +220,11 @@ in-memory Drive for the tests.
     quote also offers to ask the agent, as the selection toolbar does. With the marks hidden, Markdown keeps the
     selection toolbar in the Drive, and comment mode (C) stays the Drive's; beside a chat, C and Escape stay the chat's.
     Nothing opens while the document is presented. HTML picks come from main's observer (`drive/README.md`). The previews of Word, Excel and PowerPoint, and a PDF, show no marks. A quote is only sent when it is in the node's own text (Markdown syntax
-  included); otherwise the comment anchors to the node. A cell range is offered only with `rangeComments`; a PDF takes
-  no comment (D22). An author no grant names reads "Someone", unless the instance names people by id (`peopleByRest`).
+  included); otherwise the comment anchors to the node. A cell range is offered only with `rangeComments` (0.84, G08),
+  for a spreadsheet (`xlsx`, `ods`, the instance's preview, no marks): the picker gains the sheet (when there are several)
+  and an A1 field checked as the core checks it, written upper-case; the thread points at "Sales · B2:D9", and one whose
+  sheet is gone (the instance keeps its sheet node and drops the range) names the sheet as deleted. A PDF takes no
+  comment (D22). An author no grant names reads "Someone", unless the instance names people by id (`peopleByRest`).
 
 - **Share** (`share-popover.tsx`, the decisions in `model.ts`: `madeByAgent`, `sharing`, `afterShare`): a popover
   under the Share button (`@opencode/ui/popover`), the same beside a chat and in the Drive's bar, which replaces the

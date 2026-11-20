@@ -14,8 +14,10 @@ export const Capabilities = Schema.Struct({
   personActions: Schema.Boolean,
   /** P11: Governance names the conversation of a write. Off: the revision message names it. */
   conversationLabel: Schema.Boolean,
-  /** P10: comments on a cell range (0.85). A PDF takes none: the core does not read PDF (D22). */
+  /** P10: comments on a cell range of a sheet (G08, 0.84). A PDF takes none: the core does not read PDF (D22). */
   rangeComments: Schema.Boolean,
+  /** G12: a resolved comment opens again (`POST …/comments/{id}/reopen`, 0.84). Off: resolving is for good. */
+  reopenComments: Schema.Boolean,
   /**
    * P13: the agent rewrites HTML with scripts through the MCP (`documents_edit {content_blob_ref}`, 0.84). Off: DynWork
    * refuses the agent's edits by ops of an HTML document, which strip its scripts (D21), and the agent uploads the whole
@@ -44,6 +46,7 @@ export const none: Capabilities = {
   personActions: false,
   conversationLabel: false,
   rangeComments: false,
+  reopenComments: false,
   rawHtmlByMcp: false,
   mcpFolders: false,
   contextByMcp: false,
@@ -66,9 +69,10 @@ export interface Instance {
 
 /**
  * What an instance delivers, from what it says of itself: 0.84 gives the REST side of G02, G09 and G13
- * (`conversationLabel`, `pushChanges`, `peopleByRest`) and the agent's side of G04, G05 and G06 through the MCP
- * (`rawHtmlByMcp`, `mcpFolders`, `contextByMcp`); 0.83 and older, none. Undefined when nothing tells, which asks for the
- * probe. The rest of 0.84 is turned on by the phases that use it.
+ * (`conversationLabel`, `pushChanges`, `peopleByRest`), the agent's side of G04, G05 and G06 through the MCP
+ * (`rawHtmlByMcp`, `mcpFolders`, `contextByMcp`) and comments on cell ranges and reopened (G08 `rangeComments`, G12
+ * `reopenComments`); 0.83 and older, none. Undefined when nothing tells, which asks for the probe. The rest of 0.84 is
+ * turned on by the phases that use it.
  */
 export function delivered(instance: Instance): Capabilities | undefined {
   const at84 = instance.documents === true || (atLeast(instance.version, 84) ?? instance.people)
@@ -81,6 +85,8 @@ export function delivered(instance: Instance): Capabilities | undefined {
     rawHtmlByMcp: at84,
     mcpFolders: at84,
     contextByMcp: at84,
+    rangeComments: at84,
+    reopenComments: at84,
   }
 }
 
@@ -95,6 +101,8 @@ export function agent(capabilities: Capabilities): DynWorkSync.Documents {
     mcpFolders: capabilities.mcpFolders,
     contextByMcp: capabilities.contextByMcp,
     peopleByRest: capabilities.peopleByRest,
+    rangeComments: capabilities.rangeComments,
+    reopenComments: capabilities.reopenComments,
   }
 }
 
