@@ -58,7 +58,7 @@ function stand(options: Standing = {}) {
   const asked = async (
     id: string,
     session: string,
-    verb: DynWorkDocuments.Verb = "create",
+    verb: DynWorkDocuments.Askable = "create",
     edit: Pick<DynWorkDocuments.Ask, "document" | "replace"> = {},
   ) => {
     await agent.ask({ id, session, verb, ...edit })
@@ -247,15 +247,18 @@ describe("the 0.84 way of working with a page (mcpFolders, rawHtmlByMcp)", () =>
     expect(answer?.folder).toBe(await folderAt("Artifacts/Billing/Q3 report"))
   })
 
-  test("mcpFolders on: the import is still filed by DynWork, which makes the folder once for the conversation", async () => {
+  test("mcpFolders on: DynWork makes no folder; an import or a creation gets the conversation's only once DynWork knows it", async () => {
     const subject = stand({ capabilities: { mcpFolders: true } })
-    const first = await subject.asked("call_1", "ses_q3", "import")
-    const second = await subject.asked("call_2", "ses_q3", "import")
-    expect(first?.folder).toBe(await subject.folderAt("Artifacts/Billing/Q3 report"))
-    expect(second?.folder).toBe(first?.folder)
-    expect(subject.fake.calls.createFolder).toBe(3)
-    // A creation is left to the agent, as before.
-    expect((await subject.asked("call_3", "ses_q3", "create"))?.folder).toBeUndefined()
+    expect(await subject.asked("call_1", "ses_q3", "import")).toEqual({ id: "call_1", message: "Q3 report by DynWork" })
+    expect(await subject.asked("call_2", "ses_q3", "create")).toEqual({ id: "call_2", message: "Q3 report by DynWork" })
+    expect(subject.fake.calls.createFolder).toBeUndefined()
+    expect(subject.fake.calls.children).toBeUndefined()
+    expect(await subject.paths()).toEqual([])
+    // A conversation DynWork filed before the instance moved to 0.84 keeps its folder, unread.
+    subject.service.folder.set(ana.id, "ses_q3", "folder-before")
+    expect((await subject.asked("call_3", "ses_q3", "import"))?.folder).toBe("folder-before")
+    expect((await subject.asked("call_4", "ses_q3", "create"))?.folder).toBe("folder-before")
+    expect(subject.fake.calls.createFolder).toBeUndefined()
   })
 
   test("what the agent imported enters the conversation's index as created, by the MCP, and is not imported again", async () => {
@@ -327,6 +330,115 @@ describe("a folder made meanwhile (G05)", () => {
       }),
     })
     expect(await subject.asked("call_1", "ses_q3")).toEqual({ id: "call_1", message: "Q3 report by DynWork" })
+  })
+})
+
+describe("the conversation in each write (contextByMcp, 0.84)", () => {
+  const at84 = { contextByMcp: true, conversationLabel: true }
+  const sessions = {
+    ses_q3: { directory: "/Users/ana/work/Billing", title: "Q3 report" },
+    ses_week: { directory: "/Users/ana/work/Billing", title: "Weekly" },
+  }
+
+  test("each write carries the context DynWork registered for its own conversation, and no message the instance can name", async () => {
+    const subject = stand({ capabilities: at84, sessions })
+    const q3 = await subject.asked("call_1", "ses_q3", "create")
+    const week = await subject.asked("call_2", "ses_week", "comment")
+    expect(q3?.context).toBe(subject.service.context("ses_q3"))
+    expect(week?.context).toBe(subject.service.context("ses_week"))
+    expect(q3?.context).toBeDefined()
+    expect(q3?.context).not.toBe(week?.context)
+    expect(q3?.message).toBeUndefined()
+    expect(subject.fake.calls.createContext).toBe(2)
+  })
+
+  test("a conversation open in two tabs is one session: its writes share one registration and one context", async () => {
+    const subject = stand({ capabilities: at84, sessions })
+    await Promise.all(["call_1", "call_2", "call_3"].map((id) => subject.agent.ask({ id, session: "ses_q3", verb: "edit" })))
+    expect(new Set(subject.answers.map((answer) => answer.context))).toEqual(new Set([subject.service.context("ses_q3")]))
+    expect(subject.fake.calls.createContext).toBe(1)
+  })
+
+  test("a comment, a review and a copy are given only the context: no message, no folder", async () => {
+    const subject = stand({ capabilities: at84, sessions })
+    const context = (await subject.asked("call_1", "ses_q3", "edit"))?.context
+    for (const [index, verb] of (["comment", "proposals", "copy"] as const).entries())
+      expect(await subject.asked(`call_${index + 2}`, "ses_q3", verb)).toEqual({ id: `call_${index + 2}`, context })
+    expect(subject.fake.calls.createFolder).toBeUndefined()
+  })
+
+  test("without contextByMcp (0.83) no context is registered or given, and the message names the conversation", async () => {
+    const subject = stand({ capabilities: { conversationLabel: true }, sessions })
+    expect(await subject.asked("call_1", "ses_q3", "edit")).toEqual({ id: "call_1", message: "Q3 report by DynWork" })
+    expect(subject.fake.calls.createContext).toBeUndefined()
+  })
+
+  test("a registration that fails leaves the write without a context, signed by the message instead", async () => {
+    const subject = stand({
+      capabilities: at84,
+      sessions,
+      around: () => ({
+        createContext: async () => ({ code: "unreachable", message: "down", retryable: true }) as const,
+      }),
+    })
+    expect(await subject.asked("call_1", "ses_q3", "edit")).toEqual({ id: "call_1", message: "Q3 report by DynWork" })
+  })
+
+  test("a context the instance refused is registered again at the next write; another conversation's refusal changes nothing", async () => {
+    const subject = stand({ capabilities: at84, sessions })
+    const first = (await subject.asked("call_1", "ses_q3", "edit"))?.context ?? ""
+    const week = (await subject.asked("call_2", "ses_week", "edit"))?.context ?? ""
+    // A stale context that is not the conversation's (another's, or one already replaced) is left alone.
+    subject.agent.stale({ session: "ses_q3", context: week })
+    expect((await subject.asked("call_3", "ses_q3", "edit"))?.context).toBe(first)
+    subject.agent.stale({ session: "ses_q3", context: first })
+    const again = (await subject.asked("call_4", "ses_q3", "edit"))?.context
+    expect(again).toBeDefined()
+    expect(again).not.toBe(first)
+    expect(again).not.toBe(week)
+    expect(subject.service.context("ses_week")).toBe(week)
+    expect(subject.fake.calls.createContext).toBe(3)
+  })
+})
+
+describe("folders the agent makes (mcpFolders, 0.84)", () => {
+  test("a folder refused as name_taken is answered with the one of that name already there, at the root or in its parent", async () => {
+    const subject = stand({ capabilities: { mcpFolders: true } })
+    const artifacts = await ok(subject.fake.createFolder({ name: "Artifacts" }))
+    const billing = await ok(subject.fake.createFolder({ name: "Billing", parent: artifacts.id }))
+    await subject.agent.ask({ id: "call_1:taken", session: "ses_q3", verb: "folder", name: "Artifacts" })
+    await subject.agent.ask({
+      id: "call_2:taken",
+      session: "ses_q3",
+      verb: "folder",
+      name: "Billing",
+      parent: artifacts.id,
+    })
+    expect(subject.answers).toEqual([
+      { id: "call_1:taken", folder: artifacts.id },
+      { id: "call_2:taken", folder: billing.id },
+    ])
+    // Nothing is made: the agent uses the folder that is there.
+    expect(subject.fake.calls.createFolder).toBe(2)
+  })
+
+  test("no folder of that name to be found, or a Drive that does not answer, is an answer with nothing", async () => {
+    const subject = stand({ capabilities: { mcpFolders: true } })
+    await subject.agent.ask({ id: "call_1:taken", session: "ses_q3", verb: "folder", name: "Artifacts" })
+    subject.fake.down({ code: "unreachable", message: "down", retryable: true })
+    await subject.agent.ask({ id: "call_2:taken", session: "ses_q3", verb: "folder", name: "Artifacts" })
+    expect(subject.answers).toEqual([{ id: "call_1:taken" }, { id: "call_2:taken" }])
+  })
+
+  test("a folder the agent made has the Drive read again, and indexes nothing", async () => {
+    const subject = stand({ capabilities: { mcpFolders: true } })
+    await flush()
+    const reads = subject.fake.calls.folders ?? 0
+    await subject.agent.touched(
+      subject.touch({ verb: "folder", input: { action: "create", name: "Q3 report" }, output: { folder_id: "f-q3" } }),
+    )
+    expect(subject.fake.calls.folders).toBe(reads + 1)
+    expect(subject.links()).toEqual([])
   })
 })
 
@@ -530,7 +642,9 @@ describe("following the service", () => {
     )
     await flush()
     await flush()
-    expect(events.subscribed).toEqual([["rpc.dynwork.documents.ask", "rpc.dynwork.documents.touch"]])
+    expect(events.subscribed).toEqual([
+      ["rpc.dynwork.documents.ask", "rpc.dynwork.documents.touch", "rpc.dynwork.documents.stale"],
+    ])
     expect(events.calls).toHaveLength(1)
     expect(events.calls[0]).toMatchObject({
       rpcID: "dynwork.documents",

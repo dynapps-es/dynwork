@@ -41,6 +41,11 @@ export type Options = {
   changed: (status: SyncStatus) => void
   /** Delivers the skills' runtime files after an apply; without it they are not delivered. */
   runtime?: Pick<DynWorkRuntime.Runtime, "capture" | "bind">
+  /**
+   * What an account's Drive delivers that changes the agent's `documents` rules and calls, sent with each apply; a
+   * change is applied again (`recheck`). Without it, or undefined, the plugin works with 0.83's.
+   */
+  documents?: (account: string) => DynWorkSync.Documents | undefined
 }
 
 /** The bridge's tolerance for a manifest's `not_before` against the local clock. */
@@ -240,7 +245,8 @@ export function make(options: Options) {
     }
     const manifest = loop.manifest
     if (loop.stopped || manifest === undefined) return
-    const digest = digestOf(manifest, loop.gateway)
+    const documents = options.documents?.(loop.id)
+    const digest = digestOf(manifest, loop.gateway, documents)
     if (loop.pushed !== digest) {
       const session = await accounts.session(loop.id)
       const files = await loop.bundles.fetch({ id: loop.id, url: loop.account.url }, plugged(manifest))
@@ -255,6 +261,7 @@ export function make(options: Options) {
               profile: loop.gateway?.profile,
               catalog: loop.gateway?.catalog,
               files,
+              documents,
             }),
       )
       if (loop.stopped || counts === undefined) return
@@ -398,6 +405,13 @@ export function make(options: Options) {
     now: () => {
       if (current.loop !== undefined) request(current.loop, true)
     },
+    /**
+     * Polls now without asking for anything fresh, so what the plugin gets besides the manifest (the Drive's switches)
+     * is applied again when it changed; a 304 and the same content push nothing.
+     */
+    recheck: () => {
+      if (current.loop !== undefined) request(current.loop)
+    },
     /** Whether a DynWork window has focus; gaining it polls at once and reads the user's models again. */
     focus: (focused: boolean) => {
       const was = life.focused
@@ -424,7 +438,7 @@ const plugged = Schema.decodeUnknownSync(DynWorkSync.Manifest)
 
 // What the plugin would get, entry by entry: kind, id and a digest of the entry, sorted so that order alone is no
 // change. The manifest's own metadata (`issued_at`, signature) is not part of it, so a re-signed catalog pushes nothing.
-function digestOf(manifest: Manifest, gateway: Loop["gateway"]) {
+function digestOf(manifest: Manifest, gateway: Loop["gateway"], documents: DynWorkSync.Documents | undefined) {
   const content = plugged(manifest)
   const entries = [
     ...content.skills.map((entry) => ["skill", entry.id, entry] as const),
@@ -436,6 +450,7 @@ function digestOf(manifest: Manifest, gateway: Loop["gateway"]) {
     ["hosts", "", content.enabled_hosts ?? null] as const,
     ["profile", "", gateway?.profile ?? null] as const,
     ["catalog", "", gateway?.catalog ?? null] as const,
+    ["documents", "", documents ?? null] as const,
   ]
     .map((entry) => `${entry[0]}:${entry[1]}:${hash(JSON.stringify(entry[2]))}`)
     .toSorted()

@@ -5,9 +5,15 @@ import type { DynWorkSync } from "./contract"
 
 // What the agent does with the instance's `documents` MCP server, as DynWork's main process needs to hear it. The
 // tools run on the instance (this plugin adds the server, `./mapping`); here the service only watches their calls:
-// before a write it asks main for the conversation's folder and revision message, or whether to refuse it (an edit by
-// ops of an HTML page, D21), and after one it tells main what the call touched, so main can file the document, index
-// it for the conversation and open it beside the chat. Before a share it waits for the user's decision (D24, below).
+// before a write it asks main for the conversation's folder, revision message and, on 0.84, `context_id`, or whether to
+// refuse it (an edit by ops of an HTML page, D21), and after one it tells main what the call touched, so main can file
+// the document, index it for the conversation and open it beside the chat. Before a share it waits for the user's
+// decision (D24, below).
+//
+// The conversation goes in each call (`context_id`), not in the connection: the `documents` server is one MCP
+// connection per instance, with fixed headers, shared by every conversation of the service, so its `x-context-id`
+// cannot say whose a call is. The call's own session can: main maps it to the context it registered for that
+// conversation, whichever window or tab shows it.
 // Calls a Code Mode program makes go through the same tool hooks as direct ones. Only `effect` is imported: main
 // bundles this file.
 
@@ -19,18 +25,36 @@ export const server = "documents"
 
 /**
  * The writes main hears of. Reading, listing, searching, commenting and sharing change no document's content.
- * `import` (0.84) makes a document from a blob the agent uploaded.
+ * `import` (0.84) makes a document from a blob the agent uploaded, and `folder` (0.84) makes or moves a folder.
  */
-const verbs = ["create", "edit", "upload", "update", "copy", "import"] as const
+const verbs = ["create", "edit", "upload", "update", "copy", "import", "folder"] as const
 export type Verb = (typeof verbs)[number]
 
+/**
+ * What main is asked about before a call runs: a creation, an import and an edit, which it adds to or may refuse; with
+ * `contextByMcp`, the other writes that take a `context_id` (a comment, a proposal's review, a copy); and, after a
+ * folder was refused as `name_taken`, which folder of that name is there (`folder`).
+ */
+const askable = ["create", "edit", "import", "comment", "proposals", "copy", "folder"] as const
+export type Askable = (typeof askable)[number]
+
+/** The writes whose revision takes a message: what main signs with the conversation when the instance cannot name it. */
+const messaged: ReadonlyArray<Askable> = ["create", "edit", "import"]
+
+/** The writes that take a `context_id` (0.84), and nothing else: with `contextByMcp` each carries its conversation's. */
+const signed: ReadonlyArray<string> = ["create", "edit", "comment", "proposals", "copy", "import"]
+
 // `<server>_<tool>`: the server `documents` and the tool `documents_create` make `documents_documents_create`.
-const tool = new RegExp(`^${server}_${server}_(${verbs.join("|")})$`)
+const prefix = `${server}_${server}_`
+const tool = new RegExp(`^${prefix}(${verbs.join("|")})$`)
 
 /** The write a tool name is, when it is one of the `documents` server's. */
 export function verb(name: string) {
   return tool.exec(name)?.[1] as Verb | undefined
 }
+
+// The `documents` server's tool a name is, without its prefix: `comment` for `documents_documents_comment`.
+const toolOf = (name: string) => (name.startsWith(prefix) ? name.slice(prefix.length) : undefined)
 
 const Text = Schema.optional(Schema.String)
 
@@ -44,6 +68,12 @@ const Input = Schema.Struct({
   message: Text,
   /** `documents_edit` (0.84): a blob the agent uploaded becomes the whole new content, in place of `ops`. */
   content_blob_ref: Text,
+  /** What a `documents_comment`, `documents_proposals` or `documents_folder` call does (`create`, `list`, `accept`...). */
+  action: Text,
+  /** The folder a `documents_folder` call makes a folder in; null or absent for the Drive's root. */
+  parent_id: Schema.optional(Schema.NullOr(Schema.String)),
+  /** The conversation a write is attributed to (0.84): only ever the one main gave the call. */
+  context_id: Text,
 })
 
 /** What the server answered, as far as main reads it. A proposal has `proposal_id`; an upload, the `blob_ref` to import. */
@@ -56,6 +86,8 @@ const Output = Schema.Struct({
   format: Text,
   name: Text,
   proposal_id: Text,
+  /** The folder a `documents_folder` call made or changed. */
+  folder_id: Text,
 })
 
 /** A write that completed: published as the `touch` event. */
@@ -70,26 +102,32 @@ export const Touch = Schema.Struct({
 export type Touch = typeof Touch.Type
 
 /**
- * A write about to run: published as the `ask` event; main answers with `answer`. An edit names its `document`, and
- * `replace` when it rewrites the whole content from a blob rather than by ops.
+ * A call about to run, or a folder name the instance refused: published as the `ask` event; main answers with
+ * `answer`. An edit names its `document`, and `replace` when it rewrites the whole content from a blob rather than by
+ * ops. A `folder` ask names the folder that was refused (`name`, in `parent`, the root when absent).
  */
 export const Ask = Schema.Struct({
   id: Schema.String,
   session: Schema.String,
-  verb: Schema.Literals(verbs),
+  verb: Schema.Literals(askable),
   document: Schema.optional(Schema.String),
   replace: Schema.optional(Schema.Boolean),
+  name: Schema.optional(Schema.String),
+  parent: Schema.optional(Schema.String),
 })
 export type Ask = typeof Ask.Type
 
 /**
- * What main adds to the call: the folder for a new document, and the revision message. Each only when it applies.
- * `refuse` stops the call before it reaches the instance, and is what the agent reads instead of an answer.
+ * What main adds to the call: the folder for a new document, the revision message and the conversation's `context`
+ * (the id DynWork registered for it in the instance, 0.84). Each only when it applies. `refuse` stops the call before
+ * it reaches the instance, and is what the agent reads instead of an answer. To a `folder` ask, `folder` is the one of
+ * that name already there.
  */
 export const Answer = Schema.Struct({
   id: Schema.String,
   folder: Schema.optional(Schema.String),
   message: Schema.optional(Schema.String),
+  context: Schema.optional(Schema.String),
   refuse: Schema.optional(Schema.String),
 })
 export type Answer = typeof Answer.Type
@@ -103,6 +141,7 @@ export interface Executed {
   readonly input: unknown
   readonly status: "completed" | "error"
   readonly result?: { readonly output?: unknown }
+  readonly error?: { readonly message: string }
 }
 
 const decodeInput = Schema.decodeUnknownOption(Input)
@@ -119,20 +158,33 @@ export function touch(event: Executed): Touch | undefined {
   )
 }
 
-/** What main is asked about a write about to run: the writes it adds to or may refuse, a creation, an import and an edit. */
-export function asking(event: {
-  readonly tool: string
-  readonly sessionID: string
-  readonly id: string
-  readonly input: unknown
-}): Ask | undefined {
-  const write = verb(event.tool)
-  if (write !== "create" && write !== "edit" && write !== "import") return undefined
+/**
+ * What main is asked about a call about to run: a creation, an import and an edit always; with `contextByMcp` (0.84),
+ * also a comment that writes, a proposal's acceptance or rejection and a copy, so that each carries its conversation.
+ * Reading comments or proposals writes nothing, and is not asked about.
+ */
+export function asking(
+  event: {
+    readonly tool: string
+    readonly sessionID: string
+    readonly id: string
+    readonly input: unknown
+  },
+  switches: DynWorkSync.Documents = {},
+): Ask | undefined {
+  const write = toolOf(event.tool)
   const given = Option.getOrUndefined(decodeInput(event.input))
+  const always = write === "create" || write === "edit" || write === "import"
+  const attributed =
+    switches.contextByMcp === true &&
+    ((write === "comment" && given?.action !== "list") ||
+      (write === "proposals" && (given?.action === "accept" || given?.action === "reject")) ||
+      write === "copy")
+  if (write === undefined || (!always && !attributed)) return undefined
   return {
     id: event.id,
     session: event.sessionID,
-    verb: write,
+    verb: write as Askable,
     ...(write === "edit" && given?.document_id !== undefined ? { document: given.document_id } : {}),
     ...(write === "edit" && given?.content_blob_ref !== undefined ? { replace: true } : {}),
   }
@@ -173,22 +225,68 @@ export function answer(input: Answer) {
 
 /**
  * The input of a write with what main added: the folder only for a new document the agent left unplaced (a folder the
- * agent chose stays), and the message after the agent's own, so the revision says which conversation wrote it. An import
- * takes the folder alone: `documents_import` has no message to carry (0.84).
+ * agent chose stays), the message after the agent's own, so the revision says which conversation wrote it, and the
+ * conversation's `context_id`. A `context_id` the agent wrote itself never goes: it can only name a conversation main
+ * did not give this call, another one's included. Main not answering is an answer with nothing (`{ id }`).
  */
-export function apply(write: Verb, input: unknown, answered: Answer) {
+export function apply(write: Askable, input: unknown, answered: Answer) {
   if (typeof input !== "object" || input === null || Array.isArray(input)) return input
   const given = decodeInput(input)
   if (Option.isNone(given)) return input
   const message =
-    answered.message === undefined || write === "import" ? undefined : joined(given.value.message, answered.message)
+    answered.message === undefined || !messaged.includes(write)
+      ? undefined
+      : joined(given.value.message, answered.message)
   const placed = write === "create" || write === "import"
   const folder = placed && given.value.folder_id === undefined ? answered.folder : undefined
+  const context = signed.includes(write) ? answered.context : undefined
   return {
-    ...input,
+    ...Object.fromEntries(Object.entries(input).filter((entry) => entry[0] !== "context_id")),
     ...(folder === undefined ? {} : { folder_id: folder }),
     ...(message === undefined ? {} : { message }),
+    ...(context === undefined ? {} : { context_id: context }),
   }
+}
+
+/**
+ * A folder the agent tried to make where there is one of that name (0.84 refuses it as `name_taken`): the ask main
+ * answers with that folder, so the agent reads its id in the refusal and uses it instead of making a second one (G05).
+ * The instance says so in its message only ("a folder named … already exists there"); any other failure is undefined.
+ */
+export function taken(event: Executed): Ask | undefined {
+  if (toolOf(event.tool) !== "folder" || event.status !== "error") return undefined
+  const given = Option.getOrUndefined(decodeInput(event.input))
+  if (given?.action !== "create" || given.name === undefined) return undefined
+  if (!event.error?.message.includes("already exists there")) return undefined
+  return {
+    id: `${event.id}:taken`,
+    session: event.sessionID,
+    verb: "folder",
+    name: given.name,
+    ...(typeof given.parent_id === "string" ? { parent: given.parent_id } : {}),
+  }
+}
+
+/** The refusal of a folder that is already there, with its id, which main found. */
+export function reuse(refusal: string, folder: string) {
+  return `${refusal} It is folder_id ${folder}: use that folder.`
+}
+
+/**
+ * A write the instance refused because it does not know the conversation main gave it (0.84 `unknown_context`: the
+ * conversation was deleted in Governance, say), published as the `stale` event: main forgets that context, and the
+ * next write registers the conversation again. The instance says which in its message only.
+ */
+export const Stale = Schema.Struct({ session: Schema.String, context: Schema.String })
+export type Stale = typeof Stale.Type
+
+export function stale(event: Executed): Stale | undefined {
+  const write = toolOf(event.tool)
+  if (write === undefined || !signed.includes(write) || event.status !== "error") return undefined
+  const context = Option.getOrUndefined(decodeInput(event.input))?.context_id
+  if (context === undefined || !event.error?.message.includes(`context ${context} is not one of your conversations`))
+    return undefined
+  return { session: event.sessionID, context }
 }
 
 function joined(written: string | undefined, label: string) {
@@ -423,18 +521,10 @@ export function shares(): Shares {
 }
 
 /**
- * What the instance delivers of 0.84, as far as the agent's rules change with it: the same two switches the Drive's
- * capabilities have (`rawHtmlByMcp`, `mcpFolders`, `DriveCapabilities` in the app). Both off is the 0.83 instance, and
- * the only one the plugin knows today: the capabilities live in main and are not sent here yet.
+ * What the instance delivers of 0.84, as far as the agent's rules and calls change with it: the switches main reads from
+ * the account's instance (`DriveCapabilities` in the app) and sends with each `apply`. All off is the 0.83 instance.
  */
-export interface Switches {
-  /** `documents_edit {content_blob_ref}` rewrites a page whole, scripts kept. */
-  readonly rawHtmlByMcp?: boolean
-  /** `documents_import` makes a document of an uploaded blob, scripts kept, and `documents_folder` makes folders. */
-  readonly mcpFolders?: boolean
-  /** The instance names people by id (`GET /documents/people?ids=`), so a share card names anyone without a lookup. */
-  readonly peopleByRest?: boolean
-}
+export type Switches = DynWorkSync.Documents
 
 /** The rules the plugin adds to the instance's own when the `documents` server is among its MCP servers. */
 export function rules(
@@ -455,14 +545,19 @@ export function rules(
 /**
  * The agent's rules for the Drive, in English and short: the model may be a small one. The work goes to the Drive, not
  * to local files (the model had been writing the page to disk, serving it, and offering the file), and a page goes up
- * from one program, without the disk. Two things change with the instance: how an uploaded page becomes a document,
- * and how a page is changed.
+ * from one program, without the disk. What changes with the instance (0.84): who makes the conversation's folder and
+ * imports an uploaded page (`mcpFolders`), how a page is changed (`rawHtmlByMcp`), that DynWork gives each write its
+ * conversation (`contextByMcp`), and whether a person needs looking up before a share (`peopleByRest`).
  */
 export function instructions(switches: Switches = {}) {
   const folder = switches.mcpFolders
     ? [
-        "Dynwork files what you import in a folder of this conversation (Artifacts/<project>/<conversation>) and lists it in",
-        "the conversation's panel: leave out `folder_id` in documents_import. In documents_create use the folder the user names.",
+        "Each conversation keeps what you make in its own folder, Artifacts/<project>/<conversation>: <project> is the name of",
+        "the working directory, <conversation> a short title for what the conversation is about. Before its first document,",
+        "make the three with documents_folder {action: create, name, parent_id} (no parent_id for Artifacts). A folder that is",
+        "already there is refused as name_taken with its folder_id (or find it with documents_list {folder_id: <parent>}):",
+        "use it, never make a second one under another name. Pass the conversation's folder_id to every documents_import and",
+        "documents_create in it, unless the user names another folder.",
       ]
     : [
         "Dynwork files every document you create in a folder of this conversation (Artifacts/<project>/<conversation>) and",
@@ -475,8 +570,8 @@ export function instructions(switches: Switches = {}) {
   ]
   const filed = switches.mcpFolders
     ? [
-        "Then call documents_import once with the returned blob_ref and the same name, and leave out folder_id: Dynwork puts",
-        "it in this conversation's folder, scripts kept, and opens it in the panel. Do not open it in a browser.",
+        "Then call documents_import once with the returned blob_ref, the same name and the conversation's folder_id: the",
+        "page keeps its scripts and Dynwork opens it in the panel. Do not open it in a browser.",
       ]
     : [
         "Dynwork imports that upload as a document of this conversation, scripts kept, and opens it in the panel: do not look",
@@ -486,13 +581,23 @@ export function instructions(switches: Switches = {}) {
     ? [
         "To change a page, upload the whole changed page with documents_upload, then call documents_edit with document_id,",
         "content_blob_ref and base_revision (the head revision from documents_read): the same document, scripts kept.",
-        "Edits by ops on a page with scripts or styles (str_replace, set_html) are refused.",
+        "An edit by ops (str_replace, set_html) that would strip a page's scripts or styles is refused as unsupported_op:",
+        "rewrite the page whole that way instead. On a document that is someone else's, or when an edit is refused because",
+        "its policy does not let you change it, send the same documents_edit with mode: propose, and tell the user that the",
+        "owner reviews it.",
       ]
     : [
         "documents_create, set_html and str_replace strip a page's scripts and styles, and Dynwork",
         "refuses documents_edit on an HTML document for that reason. To change a page, upload the whole changed page again",
         "under a new name: it becomes a new document next to the old one, and you tell the user so in one line.",
       ]
+  // With 0.84 the writes take the conversation, which the plugin adds; one the model wrote is never sent.
+  const context = switches.contextByMcp
+    ? [
+        "Dynwork gives every write the id of this conversation: leave out context_id. Call a write refused as",
+        "unknown_context once more, unchanged: Dynwork registers the conversation again.",
+      ]
+    : []
   // 0.83 names nobody by id, so the card can name a person only from a `documents_people` answer DynWork saw.
   const lookup = switches.peopleByRest
     ? []
@@ -512,6 +617,7 @@ export function instructions(switches: Switches = {}) {
     ...change,
     "Styles and scripts are kept in the page, but documents_read (model, outline) and documents_export (preview) show",
     "text only: never judge how a page looks from them.",
+    ...context,
     "",
     "A file you upload to put inside another document (an image for a Word file) is not imported as a document.",
     "Before every documents_share the user allows or rejects it on a card in this conversation: call it without asking",

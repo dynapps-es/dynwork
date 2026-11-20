@@ -55,6 +55,15 @@ test("apply posts the instance, manifest and JWT to the plugin RPC with the side
   ])
 })
 
+test("apply carries what the account's Drive delivers for the agent's documents rules, and nothing without it", async () => {
+  requests.length = 0
+  const documents = { rawHtmlByMcp: true, mcpFolders: true, contextByMcp: true, peopleByRest: true }
+  await sync().apply({ account, manifest, jwt: "a.b.c", expiresAt: 5, documents })
+  expect(requests[0]?.body).toMatchObject({ input: { documents } })
+  await sync().apply({ account, manifest, jwt: "a.b.c", expiresAt: 5 })
+  expect(requests[1]?.body).not.toHaveProperty("input.documents")
+})
+
 test("apply with the profile adds the gateway models the user is admitted to", async () => {
   requests.length = 0
   await sync().apply({

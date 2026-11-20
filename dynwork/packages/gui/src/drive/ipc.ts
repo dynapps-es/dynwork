@@ -107,6 +107,7 @@ export function make<A extends Account>(options: Options<A>) {
   const listeners = {
     account: new Set<(account: A | undefined) => unknown>(),
     asked: new Set<(asked: { account: string; document: string; comment: string }) => unknown>(),
+    capabilities: new Set<(account: string) => unknown>(),
   }
   const live: {
     account?: A
@@ -204,7 +205,9 @@ export function make<A extends Account>(options: Options<A>) {
     live.delivered = read
     if (live.stop) arm()
     const after = capabilities()
-    if (DriveCapabilities.keys.some((key) => before[key] !== after[key])) options.changed()
+    if (!DriveCapabilities.keys.some((key) => before[key] !== after[key])) return
+    options.changed()
+    listeners.capabilities.forEach((listener) => listener(account.id))
   }
 
   async function probe(backend: Backend, account: A) {
@@ -643,12 +646,33 @@ export function make<A extends Account>(options: Options<A>) {
         listeners.asked.add(listener)
         return () => void listeners.asked.delete(listener)
       },
+      /** What the account's instance delivers changed (`detect`): the agent's switches go to the plugin again. */
+      capabilities: (listener: (account: string) => unknown) => {
+        listeners.capabilities.add(listener)
+        return () => void listeners.capabilities.delete(listener)
+      },
     },
     /** The folders of the Drive as last read. */
     folders: () => live.cache.folders,
     /** The `x-context-id` of a conversation of the active account, once registered. */
     context: (conversation: string) => (live.account ? registered(live.account.id, conversation) : undefined),
+    /**
+     * The instance refused a write of the agent's for not knowing `context` (0.84, `unknown_context`): when it is still
+     * the conversation's on the active account, it is forgotten, and the conversation's next write registers it again.
+     */
+    stale: (conversation: string, context: string) => {
+      const account = live.account?.id
+      if (account !== undefined && registered(account, conversation) === context) forget(account, conversation)
+    },
     capabilities,
+    /**
+     * What the agent's `documents` rules and calls need of what `account`'s instance delivers (`DriveCapabilities.agent`),
+     * for the server plugin; undefined while `account` is not the Drive's active one.
+     */
+    switches: (account: string) => {
+      if (follow()) void load()
+      return live.account?.id === account ? DriveCapabilities.agent(capabilities()) : undefined
+    },
     dispose: () => {
       live.stop?.()
       live.stop = undefined

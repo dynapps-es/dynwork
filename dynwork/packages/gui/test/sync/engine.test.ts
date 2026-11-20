@@ -94,7 +94,14 @@ function fakePlugin() {
 }
 
 // Main's wiring, as `accounts/main.ts` does it: the accounts tell the engine about each change and each new JWT.
-async function boot(options: { focused?: boolean; instances?: Fake[]; store?: ReturnType<typeof memoryStore> } = {}) {
+async function boot(
+  options: {
+    focused?: boolean
+    instances?: Fake[]
+    store?: ReturnType<typeof memoryStore>
+    documents?: DynWorkSyncEngine.Options["documents"]
+  } = {},
+) {
   jest.useFakeTimers()
   setSystemTime(new Date(start))
   const fake = fakePlugin()
@@ -119,6 +126,7 @@ async function boot(options: { focused?: boolean; instances?: Fake[]; store?: Re
     plugin: fake.plugin,
     focused: options.focused ?? true,
     changed: (status) => statuses.push(status),
+    ...(options.documents ? { documents: options.documents } : {}),
   })
   holder.engine = engine
   cleanups.push(() => {
@@ -606,5 +614,34 @@ describe("bundle files", () => {
     expect(context.applies()[2]?.input.files).toEqual([
       { plugin: "kit", path: "agents/helper.md", content: Buffer.from("# Helper v2").toString("base64") },
     ])
+  })
+
+  test("the account's Drive switches go with every apply, and a new reading of them is applied again at once", async () => {
+    const read: { value?: DynWorkSync.Documents } = {}
+    const asked: string[] = []
+    const context = await boot({
+      documents: (account) => {
+        asked.push(account)
+        return read.value
+      },
+    })
+    await settled(context, 1)
+    expect(context.applies()).toHaveLength(1)
+    expect(context.applies()[0]?.input.documents).toBeUndefined()
+    expect(asked).toContain(context.id)
+
+    // The same switches push nothing.
+    context.engine.recheck()
+    await settled(context, 2)
+    expect(context.applies()).toHaveLength(1)
+
+    // The instance turned out to be 0.84: applied again without waiting for the next poll.
+    read.value = { rawHtmlByMcp: true, mcpFolders: true, contextByMcp: true, peopleByRest: true }
+    context.engine.recheck()
+    await settled(context, 3)
+    expect(context.applies()).toHaveLength(2)
+    expect(context.applies()[1]?.input.documents).toEqual(read.value)
+    // Nothing fresh was asked of the instance for it.
+    expect(context.polls(alpha).at(-1)?.headers["cache-control"]).toBeUndefined()
   })
 })

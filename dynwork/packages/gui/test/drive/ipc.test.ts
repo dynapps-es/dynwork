@@ -487,7 +487,15 @@ describe("changes the stream announces (G09)", () => {
 })
 
 describe("what the account's instance delivers", () => {
-  const rest = { conversationLabel: true, pushChanges: true, peopleByRest: true }
+  // What 0.84 turns on: the REST side (phase 20) and the agent's side through the MCP (phase 21).
+  const rest = {
+    conversationLabel: true,
+    pushChanges: true,
+    peopleByRest: true,
+    rawHtmlByMcp: true,
+    mcpFolders: true,
+    contextByMcp: true,
+  }
 
   test("a 0.83 instance delivers nothing: every capability stays off, as today", async () => {
     const { client, fake } = stand()
@@ -497,7 +505,7 @@ describe("what the account's instance delivers", () => {
     expect(fake().calls.people).toBeUndefined()
   })
 
-  test("a 0.84 instance turns on the REST side, pushed to the windows", async () => {
+  test("a 0.84 instance turns on the REST side and the agent's through the MCP, pushed to the windows", async () => {
     const { client, pushes } = stand({ version: () => "0.84" })
     const before = pushes.count
     await flush()
@@ -566,6 +574,30 @@ describe("what the account's instance delivers", () => {
     await flush()
     expect(unknown.client.state().capabilities).toEqual(DriveCapabilities.none)
     expect(unknown.fake().calls.people).toBeUndefined()
+  })
+
+  test("the agent's switches are the active account's, and a new reading tells main to apply them again", async () => {
+    const { service, active } = stand({ version: (account) => (account === ben.id ? "0.84" : "0.83") })
+    const heard: string[] = []
+    const stop = service.listen.capabilities((account) => heard.push(account))
+    await flush()
+    const off = { rawHtmlByMcp: false, mcpFolders: false, contextByMcp: false, peopleByRest: false }
+    expect(service.switches(ana.id)).toEqual(off)
+    // A 0.83 reading changes nothing: there is nothing to apply again.
+    expect(heard).toEqual([])
+    // Another account than the Drive's active one has no switches to give.
+    expect(service.switches(ben.id)).toBeUndefined()
+    active.account = ben
+    service.account()
+    await flush()
+    expect(service.switches(ben.id)).toEqual({ rawHtmlByMcp: true, mcpFolders: true, contextByMcp: true, peopleByRest: true })
+    expect(service.switches(ana.id)).toBeUndefined()
+    expect(heard).toEqual([ben.id])
+    stop()
+    active.account = ana
+    service.account()
+    await flush()
+    expect(heard).toEqual([ben.id])
   })
 
   test("what the main entry forces stays forced over what the instance delivers", async () => {
