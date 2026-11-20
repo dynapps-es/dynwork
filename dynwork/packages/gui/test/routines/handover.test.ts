@@ -41,7 +41,6 @@ describe("the farm handover markers", () => {
     expect(files).toContain("routines/contract.ts")
     expect(files).toContain("routines/backend.ts")
     expect(files).toContain("routines/main.ts")
-    expect(files).toContain("routines/farm/backend.ts")
     expect([...files].some((file) => file.startsWith("views/agents/"))).toBe(true)
   })
 
@@ -50,27 +49,8 @@ describe("the farm handover markers", () => {
     expect(without.map((marker) => `${marker.file}:${marker.line}`)).toEqual([])
   })
 
-  test("the skeleton marks every method of Backend", async () => {
-    const text = await Bun.file(path.join(src, "routines/farm/backend.ts")).text()
-    const methods = [
-      "capabilities",
-      "options",
-      "validate",
-      "list",
-      "get",
-      "create",
-      "update",
-      "remove",
-      "pause",
-      "resume",
-      "start",
-      "cancel",
-      "runs",
-      "transcript",
-      "viewed",
-      "watch",
-    ]
-    const missing = methods.filter((method) => !new RegExp(`// JESÚS: \`${method}\\(`).test(text))
-    expect(missing).toEqual([])
+  // The farm backend is written (its behaviour is `farm.test.ts`'s conformance): the farm folder keeps no marker.
+  test("the farm folder has no marker left", async () => {
+    expect((await comments()).filter((marker) => marker.file.startsWith("routines/farm/"))).toEqual([])
   })
 })
