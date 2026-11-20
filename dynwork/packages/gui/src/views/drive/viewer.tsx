@@ -419,9 +419,13 @@ function MarkdownDoc(props: {
       cancelAnimationFrame(frame.id)
     })
   })
+  // Who was told the outline last, told again on cleanup without reading props: by then a parent `<Show>` (the chat's
+  // panel) may have let go of the document, and reading it there throws a stale read that stops the panel updating.
+  let told: ((outline: Outline | undefined) => void) | undefined
   createEffect(() => {
     const list = headings()
-    props.onOutline?.({
+    told = props.onOutline
+    told?.({
       headings: list,
       active,
       go: (index) => rendered(list)[index]?.scrollIntoView({ block: "start", behavior: "smooth" }),
@@ -434,7 +438,7 @@ function MarkdownDoc(props: {
       },
     })
   })
-  onCleanup(() => props.onOutline?.(undefined))
+  onCleanup(() => told?.(undefined))
   return (
     <div ref={element} data-slot="drive-markdown" onScroll={later}>
       <ctx.ui.Markdown text={props.text} />
@@ -557,16 +561,19 @@ function PageFrame(props: {
       { defer: true },
     ),
   )
+  // Who was told the outline last, told again on cleanup without reading props (see `MarkdownDoc`).
+  let told: ((outline: Outline | undefined) => void) | undefined
   createEffect(() => {
     const page = shown()
-    props.onOutline?.({
+    told = props.onOutline
+    told?.({
       headings: page.headings,
       active,
       go: (index) => jump(page.headings[index]?.id),
       reveal: (thread) => jump(Object.hasOwn(page.marks, thread) ? page.marks[thread] : undefined),
     })
   })
-  onCleanup(() => props.onOutline?.(undefined))
+  onCleanup(() => told?.(undefined))
   // What main's observer saw in this frame, while someone listens.
   createEffect(() => {
     const client = observer()
