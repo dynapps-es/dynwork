@@ -7,9 +7,11 @@ import { createStore } from "solid-js/store"
 import { isFailure, type Document, type Link, type Revision } from "../../drive/contract"
 import { uploadFiles } from "./browser"
 import { conversationOf, docKey, openInDrive } from "./chat"
-import { CommentMarks, MarksToggle, ThreadCard } from "./comments"
-import { SharePopover } from "./menus"
+import { canComment, CommentMarks, MarksToggle, ThreadCard } from "./comments"
+import { CommentPopup, SharePopover } from "./menus"
+import { panes } from "./panes"
 import { failureText, FormatGlyph, PresentButton, PresentExit, Tag, useNames } from "./parts"
+import { createInline } from "./spot"
 import { drive, governance } from "./store"
 import { createPresent, Viewer } from "./viewer"
 
@@ -133,7 +135,8 @@ const [picks, setPicks] = createStore<Record<string, string | undefined>>({})
 /**
  * One document beside the chat: its header with its version, the comments marked on it, Share (a popover under its
  * button), Present and Open in the Drive, then its viewer. A click on a comment's mark or its bubble opens its thread
- * in a dialog.
+ * in a dialog; with the marks shown, a selection or a click on the document opens a comment popup there, and the new
+ * thread opens in that dialog.
  */
 export function DocPanel(props: { session: MountedSession; id: string }) {
   const ctx = usePlugin()
@@ -142,6 +145,18 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
   const key = () => `${props.session.id}:${props.id}`
   let content: HTMLDivElement | undefined
   const present = createPresent(() => content)
+  const inline = createInline({
+    doc,
+    shown: panes.marks,
+    allowed: () => {
+      const found = doc()
+      return found !== undefined && canComment(found)
+    },
+    paused: present.on,
+  })
+  createEffect(() => {
+    if (present.on() || !panes.marks()) inline.close()
+  })
   // The comments and nodes the marks need, read again with each new head.
   createEffect(
     on(
@@ -211,10 +226,17 @@ export function DocPanel(props: { session: MountedSession; id: string }) {
               doc={found()}
               revision={shown() > 0 ? picks[key()] : undefined}
               onMark={(id) => thread(found(), id)}
+              onSpot={inline.offer}
             />
             <Show when={found().format === "markdown" && shown() <= 0}>
-              <CommentMarks doc={found()} interactive={false} onThread={(id) => thread(found(), id)} />
+              <CommentMarks
+                doc={found()}
+                interactive={false}
+                onThread={(id) => thread(found(), id)}
+                onSpot={inline.offer}
+              />
             </Show>
+            <CommentPopup doc={found()} inline={inline} onSent={(id) => thread(found(), id)} />
             <PresentExit present={present} />
           </div>
         </div>

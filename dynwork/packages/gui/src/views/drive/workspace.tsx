@@ -6,10 +6,11 @@ import { Tabs } from "@opencode/ui/tabs"
 import { createEffect, createSignal, For, Match, on, Show, Switch } from "solid-js"
 import type { Document } from "../../drive/contract"
 import { askAgent, back, sessionOf, titleOf } from "./chat"
-import { CommentMarks, CommentsTab, MarksToggle } from "./comments"
-import { DocMenu, SharePopover } from "./menus"
+import { canComment, CommentMarks, CommentsTab, MarksToggle } from "./comments"
+import { CommentPopup, DocMenu, SharePopover } from "./menus"
 import { drawerWidth, outlineWidth, panes } from "./panes"
 import { Avatar, capText, FormatGlyph, Level, openGovernance, PresentButton, PresentExit, Tag, useNames } from "./parts"
+import { createInline } from "./spot"
 import { account, drive, governance, type DocTab } from "./store"
 import { createPresent, Viewer, type Outline } from "./viewer"
 
@@ -30,6 +31,17 @@ export function Workspace(props: { doc: Document }) {
   let canvas: HTMLDivElement | undefined
   let rail: HTMLElement | undefined
   const present = createPresent(() => canvas)
+  // With the marks shown, a selection or a click on the document opens a comment popup there; the new thread opens in
+  // the Comments tab, as `drive.comment` does.
+  const inline = createInline({
+    doc: () => props.doc,
+    shown: panes.marks,
+    allowed: () => canComment(props.doc),
+    paused: present.on,
+  })
+  createEffect(() => {
+    if (present.on() || !panes.marks()) inline.close()
+  })
   // The heading being read stays in sight in a long index.
   createEffect(() => {
     const index = outline()?.active()
@@ -157,10 +169,16 @@ export function Workspace(props: { doc: Document }) {
           </div>
         </Show>
         <div ref={canvas} data-slot="drive-canvas">
-          <Viewer doc={props.doc} onOutline={setOutline} onMark={(thread) => drive.focusThread(thread)} />
+          <Viewer
+            doc={props.doc}
+            onOutline={setOutline}
+            onMark={(thread) => drive.focusThread(thread)}
+            onSpot={inline.offer}
+          />
           <Show when={props.doc.format === "markdown"}>
-            <CommentMarks doc={props.doc} />
+            <CommentMarks doc={props.doc} onSpot={inline.offer} />
           </Show>
+          <CommentPopup doc={props.doc} inline={inline} ask onSent={(thread) => drive.focusThread(thread)} />
           <PresentExit present={present} />
         </div>
         <Show when={panes.drawer()}>

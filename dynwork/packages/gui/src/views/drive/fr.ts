@@ -157,6 +157,8 @@ export default {
   "drive.mention.failed": "La conversation n'a pas pu être jointe. Renvoyez-le.",
   "drive.comment.mode": "Mode commentaire : cliquez sur un paragraphe. Échap pour quitter.",
   "drive.comment.mode.hint": "Appuyez sur C, puis cliquez sur un paragraphe pour le commenter.",
+  "drive.comment.inline.hint":
+    "Sélectionnez du texte ou cliquez sur un paragraphe du document pour le commenter sur place.",
   "drive.comment.send": "Envoyer",
   "drive.comment.resolve": "Résoudre",
   "drive.comment.resolved": "Résolu",

@@ -28,10 +28,11 @@ import {
 import { DriveFrames } from "../../drive/frames"
 import { CommentBubbles } from "./comments"
 import { markPage } from "./marks"
-import { isPdf, marked, type Node, type Placed, type Thread } from "./model"
+import { framed, holds, isPdf, marked, type Node, type Placed, type Thread } from "./model"
 import { anchorPage, markdownHeadings, renderedHeading, type Heading } from "./outline"
 import { panes } from "./panes"
 import { failureText } from "./parts"
+import type { Spot } from "./spot"
 import { drive } from "./store"
 
 // A document as its format is read, in the Drive view's workspace and in a chat's side panel (D5, D6):
@@ -45,8 +46,9 @@ import { drive } from "./store"
 // The account's JWT stays in main: a frame gets only the page, never DynWork's origin, cookies, token or Ipc.
 // Nothing that comes out of a frame is trusted (G11): an agent writes these pages, so the viewer listens to no
 // `message` event and reads no `postMessage`. What the viewer learns of an HTML frame, the heading being read, a
-// comment mark clicked and where the marks sit, comes from main's observer in an isolated world of the frame
-// (`drive/frames.ts`, `drive/watch.ts`), as ids the viewer checks against the ones it gave the page (`fromFrame`).
+// comment mark clicked, where the marks sit and what the user picked to comment on, comes from main's observer in an
+// isolated world of the frame (`drive/frames.ts`, `drive/watch.ts`), as ids and numbers the viewer checks against the
+// ones it gave the page, and a quote it checks against the node's text (`fromFrame`).
 // The open comments of an HTML document at its head are marked on the page (`marks.ts`) while the user shows them, and
 // of Markdown by `CommentMarks`; either way a bubble beside the document names who wrote each, in a column of the app's
 // own, outside the frame (`CommentBubbles`): no name, picture or text of a comment ever goes into the page.
@@ -175,8 +177,10 @@ export function createPresent(target: () => HTMLElement | undefined) {
 export type Present = ReturnType<typeof createPresent>
 
 /**
- * What a report of main's observer means for the frame shown: a heading of its index, a thread it marked, or where its
- * marked threads sit. Anything else is dropped: another frame's report, an id the viewer did not give this page.
+ * What a report of main's observer means for the frame shown: a heading of its index, a thread it marked, where its
+ * marked threads sit, or a pick of one of the blocks it numbered (`blocks`, the node of each), with the quote picked in
+ * it. Anything else is dropped: another frame's report, an id or a block the viewer did not give this page, a quote the
+ * node does not hold (a script may change what the page shows; the comment still anchors to the document's own text).
  */
 export function fromFrame(
   seen: Seen,
@@ -184,9 +188,15 @@ export function fromFrame(
     readonly name: string
     readonly headings: readonly Heading[]
     readonly marks: Readonly<Record<string, string>>
+    readonly blocks?: readonly Node[]
   },
 ) {
   if (seen.frame !== shown.name) return undefined
+  if (seen.kind === "pick") {
+    const node = Number.isInteger(seen.block) && seen.block >= 0 ? shown.blocks?.[seen.block] : undefined
+    if (!node || (seen.quote !== undefined && !holds(node, seen.quote))) return undefined
+    return { kind: "pick" as const, node, quote: seen.quote, rect: seen.rect }
+  }
   if (seen.kind === "marks")
     return {
       kind: "marks" as const,
@@ -207,13 +217,15 @@ const outlined = ["html", "markdown", "docx"]
 /**
  * A document's viewer. It reads again when the document gets a new head, or when the tab picks another version. With
  * `onOutline` it tells the outline of what it shows, and undefined when it shows nothing that has one; with `onMark`,
- * which thread's mark the user clicked on an HTML page.
+ * which thread's mark the user clicked on an HTML page; with `onSpot`, what the user selected or clicked on one to
+ * comment on (Markdown's come from `CommentMarks`).
  */
 export function Viewer(props: {
   doc: Document
   revision?: string
   onOutline?: (outline: Outline | undefined) => void
   onMark?: (thread: string) => void
+  onSpot?: (spot: Spot) => void
 }) {
   const ctx = usePlugin()
   // A snapshot or a listing hands over a new document object for the same document: only these fields read again.
@@ -295,6 +307,7 @@ export function Viewer(props: {
               marks={marks()}
               onOutline={onOutline()}
               onMark={props.onMark}
+              onSpot={props.onSpot}
               onPlaced={setPlaced}
             />
           )}
@@ -404,7 +417,7 @@ const named = { count: 0 }
 /**
  * A page in a frame with the sandbox and the policy `frameOf` gives it. Its outline jumps to a heading's id and to a
  * comment's mark, and, while main observes the frame (`dynwork.drive.frames`), follows the heading being read; a click
- * on a mark goes to `onMark`, and where the marks sit to `onPlaced`.
+ * on a mark goes to `onMark`, where the marks sit to `onPlaced`, and a pick to `onSpot`, placed in the window.
  */
 function PageFrame(props: {
   page: Page
@@ -412,6 +425,7 @@ function PageFrame(props: {
   marks?: Marks
   onOutline?: (outline: Outline | undefined) => void
   onMark?: (thread: string) => void
+  onSpot?: (spot: Spot) => void
   onPlaced?: (placed: readonly Placed[]) => void
 }) {
   const name = `${DriveFrames.name}:${++named.count}`
@@ -452,7 +466,7 @@ function PageFrame(props: {
   // What main's observer saw in this frame, while someone listens.
   createEffect(() => {
     const client = observer()
-    if (!client || (!props.onOutline && !props.onMark)) return
+    if (!client || (!props.onOutline && !props.onMark && !props.onSpot)) return
     const held = new AbortController()
     void client.watch({ frame: name }, { signal: held.signal }).catch(() => undefined)
     client.on("seen", (seen) => {
@@ -460,6 +474,18 @@ function PageFrame(props: {
       if (found?.kind === "heading") setActive(found.index)
       if (found?.kind === "mark") props.onMark?.(found.thread)
       if (found?.kind === "marks") props.onPlaced?.(found.placed)
+      if (found?.kind === "pick" && element) {
+        // The frame's visible area, where the window draws it and at the window's scale.
+        const rect = framed(found.rect, {
+          box: element.getBoundingClientRect(),
+          offsetWidth: element.offsetWidth,
+          clientLeft: element.clientLeft,
+          clientTop: element.clientTop,
+          clientWidth: element.clientWidth,
+          clientHeight: element.clientHeight,
+        })
+        if (rect) props.onSpot?.({ node: found.node, quote: found.quote, rect })
+      }
     })
     onCleanup(() => held.abort())
   })
@@ -494,7 +520,7 @@ const flags = ["allow-scripts", "allow-forms", "allow-modals", "allow-popups", "
  * directive, so no scripts), and the page under that policy as a meta tag, first in its head, less the directives
  * only a response header can carry. Never more than the instance allowed; no policy at all is `default-src 'none'`.
  * The page is read into an inert document (`anchorPage`) to give its headings ids, its open comments are marked there
- * when `marks` names them (`markPage`), and it is written back whole.
+ * and its blocks numbered when `marks` names them (`markPage`), and it is written back whole.
  */
 export function frameOf(page: Page, options: { name?: string; marks?: Marks } = {}) {
   const directives = (page.csp ?? "default-src 'none'")
@@ -526,7 +552,9 @@ export function frameOf(page: Page, options: { name?: string; marks?: Marks } = 
     attributes.forEach(([key, value]) => meta.setAttribute(key, value))
     return meta
   })
-  const marked = options.marks ? markPage(anchored.page, options.marks.nodes, options.marks.threads) : {}
+  const marked = options.marks
+    ? markPage(anchored.page, options.marks.nodes, options.marks.threads)
+    : { marks: {}, blocks: [] }
   anchored.page.head.prepend(...tags)
   return {
     // Main keeps a frame with a viewer's name on its srcdoc, and observes it (`drive/frames.ts`).
@@ -536,6 +564,8 @@ export function frameOf(page: Page, options: { name?: string; marks?: Marks } = 
     /** The page's headings, each with the id a jump navigates the frame to. */
     headings: anchored.headings,
     /** The id of each marked thread's first mark, which a jump navigates the frame to. */
-    marks: marked,
+    marks: marked.marks,
+    /** The node of each block numbered in the page, by its number, which main's observer reports a pick by. */
+    blocks: marked.blocks,
   }
 }

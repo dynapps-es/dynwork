@@ -157,6 +157,7 @@ export default {
   "drive.mention.failed": "No se pudo avisar al chat. Vuelve a enviarlo.",
   "drive.comment.mode": "Modo comentario: haz clic en un párrafo. Esc para salir.",
   "drive.comment.mode.hint": "Pulsa C y haz clic en un párrafo para comentarlo.",
+  "drive.comment.inline.hint": "Selecciona texto o haz clic en un párrafo del documento para comentarlo ahí mismo.",
   "drive.comment.send": "Enviar",
   "drive.comment.resolve": "Resolver",
   "drive.comment.resolved": "Resuelto",

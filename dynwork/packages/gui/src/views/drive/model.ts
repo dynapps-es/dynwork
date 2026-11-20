@@ -1,5 +1,15 @@
 import { DriveCapabilities } from "../../drive/capabilities"
-import { isFailure, type Comment, type Document, type Failure, type Folder, type Link, type Outline, type Revision } from "../../drive/contract"
+import {
+  isFailure,
+  type Anchor,
+  type Comment,
+  type Document,
+  type Failure,
+  type Folder,
+  type Link,
+  type Outline,
+  type Revision,
+} from "../../drive/contract"
 
 // Pure reads of the Drive's data, as the `dynwork.drive` Ipc answers it: what the browser lists, folder paths, the
 // conversations' documents, sizes and times; and the anchors the comments layer draws.
@@ -275,6 +285,80 @@ export function quoteIn(node: Pick<Node, "text">, selected: string) {
   return quote && node.text.includes(quote) ? quote : undefined
 }
 
+/**
+ * Whether a node holds a quote a page reported picking, with each run of spaces as one: a page's script can change what
+ * the page shows, but not make the app anchor a comment to text the document does not have.
+ */
+export function holds(node: Pick<Node, "text">, quote: string) {
+  const squash = (text: string) => text.replace(/\s+/g, " ").trim()
+  const wanted = squash(quote)
+  return wanted !== "" && squash(node.text).includes(wanted)
+}
+
+/**
+ * The comment a pick on a document opens, at its node and the quote picked in it (`quoteIn`), or at the whole node
+ * without one; none unless the user shows the marks, may comment and the document draws its marks (HTML, Markdown).
+ */
+export function pickAnchor(input: {
+  shown: boolean
+  allowed: boolean
+  doc: Pick<Document, "format"> | undefined
+  node: Node
+  quote?: string
+}): Anchor | undefined {
+  if (!input.shown || !input.allowed || !input.doc || !marked(input.doc)) return undefined
+  const find = input.quote === undefined ? undefined : quoteIn(input.node, input.quote)
+  return find === undefined ? { kind: "node", node: input.node.id } : { kind: "node", node: input.node.id, find }
+}
+
+/** A rectangle in pixels, as `getBoundingClientRect` gives one. */
+export interface Rect {
+  readonly left: number
+  readonly top: number
+  readonly width: number
+  readonly height: number
+}
+
+/** The part of `rect` inside `bounds`; none when they do not meet. */
+export function clip(rect: Rect, bounds: Rect): Rect | undefined {
+  const left = Math.max(rect.left, bounds.left)
+  const top = Math.max(rect.top, bounds.top)
+  const right = Math.min(rect.left + rect.width, bounds.left + bounds.width)
+  const bottom = Math.min(rect.top + rect.height, bounds.top + bounds.height)
+  if (right < left || bottom < top) return undefined
+  return { left, top, width: right - left, height: bottom - top }
+}
+
+/**
+ * A rectangle a frame reported in its own visible area, in the window's: the frame's box where the window draws it,
+ * scaled as the window scales it (`box` against its layout width), from inside its border, and kept within what the
+ * frame shows.
+ */
+export function framed(
+  rect: Rect,
+  frame: {
+    box: Rect
+    offsetWidth: number
+    clientLeft: number
+    clientTop: number
+    clientWidth: number
+    clientHeight: number
+  },
+) {
+  const scale = frame.offsetWidth > 0 ? frame.box.width / frame.offsetWidth : 1
+  const left = frame.box.left + frame.clientLeft * scale
+  const top = frame.box.top + frame.clientTop * scale
+  return clip(
+    {
+      left: left + rect.left * scale,
+      top: top + rect.top * scale,
+      width: rect.width * scale,
+      height: rect.height * scale,
+    },
+    { left, top, width: frame.clientWidth * scale, height: frame.clientHeight * scale },
+  )
+}
+
 /** A node's text for a list or a line: what a reader sees of it, in a few words. */
 export function nodeLabel(node: Pick<Node, "text">, size = 90) {
   const text = plain(node.text.replace(/\t/g, " · "))
@@ -376,12 +460,7 @@ export function madeByAgent(doc: Pick<Document, "mine">, revisions: readonly Pic
  * account's instance is known: to copy, and to open it where the user can share. What a folder grants and the agents'
  * cap are never changed here (the cap needs `own`, which the instance keeps from agents).
  */
-export function sharing(input: {
-  access: string | undefined
-  link: string | undefined
-  made?: boolean
-  cap?: string
-}) {
+export function sharing(input: { access: string | undefined; link: string | undefined; made?: boolean; cap?: string }) {
   const shares = input.access === undefined || input.access === "own" || input.access === "share"
   const live = input.made === true && (input.access === "own" || input.access === "share") && input.cap === "edit"
   return {

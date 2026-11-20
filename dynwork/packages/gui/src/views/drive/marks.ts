@@ -7,6 +7,10 @@ import { matchNodes, type Thread } from "./model"
 // without scripts: the browser's own `mark` look and an id a jump navigates to. A mark carries the thread's id and
 // nothing of the comment: the page's scripts may reach the network, so the text stays in the app, where a click on the
 // mark opens it (main's observer, `drive/frames.ts`, reports the click).
+//
+// Each block matched to a node also carries an opaque number (`data-dynwork-block`), never the node's id: main's
+// observer reports a selection or a click in a block by that number, and the viewer turns it back into the node with the
+// table it kept for the page (`blocks`), so what the page says it picked is only ever a node the viewer gave it.
 
 /** The id of a thread's first mark in the page, which a jump navigates to. */
 export const markId = (thread: string) => `dynwork-comment-${thread}`
@@ -22,9 +26,13 @@ const tabular = new Set(["TABLE", "THEAD", "TBODY", "TFOOT", "TR", "COLGROUP"])
 const look =
   "mark[data-dynwork-comment]{background:rgb(255 196 0 / 0.28);color:inherit;border-bottom:2px solid #f0b400;border-radius:2px;cursor:pointer}"
 
+/** The attribute that numbers a page's blocks for main's observer. */
+export const blockAttribute = "data-dynwork-block"
+
 /**
- * Marks the open threads of a page read into an inert document, in place. A thread whose node or quote the page does
- * not show marks nothing, and a resolved one is not marked. Answers the id of each marked thread's first mark.
+ * Marks the open threads of a page read into an inert document, in place, and numbers the blocks matched to a node. A
+ * thread whose node or quote the page does not show marks nothing, and a resolved one is not marked. Answers the id of
+ * each marked thread's first mark (`marks`) and the node of each numbered block (`blocks`, by its number).
  */
 export function markPage(
   page: Document,
@@ -33,6 +41,11 @@ export function markPage(
 ) {
   const elements = [...page.body.querySelectorAll(blocks)]
   const matched = matchNodes(nodes, elements.map(ownText))
+  const numbered = elements.flatMap((element, index) => {
+    const node = matched[index]
+    return node ? [{ element, node }] : []
+  })
+  numbered.forEach((item, index) => item.element.setAttribute(blockAttribute, String(index)))
   const marked = threads.flatMap((thread) => {
     if (!thread.open) return []
     const element = elements[matched.findIndex((node) => node?.id === thread.node)]
@@ -48,7 +61,7 @@ export function markPage(
     style.textContent = look
     page.head.append(style)
   }
-  return Object.fromEntries(marked)
+  return { marks: Object.fromEntries(marked), blocks: numbered.map((item) => item.node) }
 }
 
 /** A part of one text node: `[from, to)`. */
