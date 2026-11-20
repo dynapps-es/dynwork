@@ -18,6 +18,7 @@ window                                main process
 | `ipc.ts`          | The service: the active account, its snapshot and polling, attribution, the conversation index, failures as data                 |
 | `fake.ts`         | An in-memory Drive that behaves as 0.83, or 0.84 with `version`, where DynWork can tell: `DriveFake.make(options)`               |
 | `agent.ts`        | What the agent does with the `documents` MCP tools: its folder, its signature, its index, its uploaded pages (phase 07)          |
+| `artifacts.ts`    | A conversation's documents: the index merged with what the instance lists for it (G07)                                           |
 | `mentions.ts`     | `@Agent` in a comment: written as a real mention, followed on the bridge stream, and woken to the linked conversation (phase 08) |
 | `share.ts`        | The agent's shares: each `documents_share` call waits on a card in its conversation for the user's decision (D24)                |
 | `frames.ts`       | The viewer's HTML frames: main's navigation guard, and the observer main runs in their isolated world                            |
@@ -95,10 +96,34 @@ What the instance keeps to a person (sharing, accepting proposals, restoring, de
 ## The conversation index
 
 What a conversation did to which documents (`created`, `edited`, `proposed`, `attached`, `read`), kept per account on
-this computer because the Drive cannot answer it yet. The service records a conversation's own uploads and edits;
-`DriveAgent` records what the agent wrote through the `documents` MCP, and `link` a document attached to a chat. A
-document a conversation edits again is still one entry per act, at its latest revision. Reads are not recorded: they
-change nothing. `documentsOf(conversation)` answers it newest first.
+this computer. The service records a conversation's own uploads and edits; `DriveAgent` records what the agent wrote
+through the `documents` MCP, and `link` a document attached to a chat. A document a conversation edits again is still
+one entry per act, at its latest revision. Reads are not recorded: they change nothing. The index keeps every write,
+also where the instance lists by conversation: it is what opens a new document beside its chat, what `@Agent` wakes a
+conversation by, and what answers when the instance does not.
+
+### A conversation's documents from the instance (G07, `docsByContext`)
+
+0.84 lists the documents one of the user's conversations wrote a revision or a comment on
+(`GET /api/v1/documents?scope=context&context_id=`, `Backend.byContext`, the newest 100). `byContext(conversation)` is
+that list for a conversation this computer registered (none while off, for a conversation it never registered, and
+when the instance fails or answers `422 unknown_context`: nothing fails, the index answers alone).
+`DriveArtifacts.merge` joins it with the index, deduplicated by document: a document both know keeps the index's acts
+at the instance's head and the later time; one only the instance lists is an `edited` entry, `via: "server"`; one only
+the index holds (an attachment the conversation never wrote to) stays. `documentsOf(conversation)` answers the merge
+newest first; the window merges the same way (`views/drive/store.ts`, `artifactsOf`), so the chat's Artifacts tab and
+the count in its header include what the conversation wrote from elsewhere. The instance names every document.
+
+**On another computer.** The context is registered by the computer that wrote first and kept in its own store
+(`Saved.accounts[account].contexts`, by session id); nothing brings it to another computer, and the instance cannot be
+asked for it: `POST /api/v1/core/contexts` takes only a title, with no id or metadata of DynWork's, and titles repeat. A
+conversation shown on another computer has no context there, so that computer lists only its own index for it; its
+first write there registers a second context with the same title, and from then on that computer lists what it wrote.
+What one computer wrote reaches another only for a conversation the second computer registered itself. Lifting it
+needs the context to travel with the conversation, or an instance lookup by an id DynWork chooses.
+
+From my chats (the Drive view) still reads the index only: listing every conversation of the account would take one
+request per conversation, and the instance has no scope for all of them.
 
 ## The agent's documents (phase 07, D4, D8)
 
@@ -154,10 +179,18 @@ OpenCode service                                       main process
   digest, and a new reading of what the instance delivers applies again at once (`listen.capabilities` →
   `DynWorkSyncEngine` `recheck`). Each account gets the variant of its own instance; absent, the 0.83 one.
 - **0.84: the agent files its own work (`mcpFolders`).** The agent makes `Artifacts/<project>/<conversation>` with
-  `documents_folder` (`<project>` the working directory's name, `<conversation>` a short title it chooses) and imports
-  what it uploaded with `documents_import` into it, passing the `folder_id`. DynWork makes no folder and imports nothing
-  by REST (`agentFiling` is `mcp`): it only fills in the folder of a conversation it already knows (one it made before
-  the instance moved to 0.84) when the agent leaves `folder_id` out, without reading the Drive. A `documents_folder`
+  `documents_folder` and imports what it uploaded with `documents_import` into it, passing the `folder_id`. DynWork
+  makes no folder and imports nothing by REST (`agentFiling` is `mcp`): it only fills in the folder of a conversation
+  it already knows when the agent leaves `folder_id` out, without reading the Drive.
+- **0.84: DynWork names the conversation's folders.** Before every `documents_folder {action: create}` inside another
+  folder, the plugin asks main (`folder` ask with `making`, `name` and `parent`). Main reads `Artifacts` and its
+  folders: in `Artifacts` the folder is the project's and takes the working directory's name; in a project's folder
+  there it is the conversation's and takes `folderName`: the conversation's title, or, when another conversation of the
+  account already holds a folder of that title there, the title and the end of its session id. These are the names
+  DynWork gives the folders it makes itself before 0.84 (`place`), so old and new conversations look the same. Main
+  answers `name` and the plugin writes it over the agent's (`DynWorkDocuments.apply`); anywhere else, or at the root,
+  the agent's name stays. The folder made under that name (its `touch`), or the one a `name_taken` refusal of it
+  points to, becomes the conversation's folder (`Saved.folders`). A `documents_folder`
   create refused as `name_taken` ("a folder named … already exists there") makes the plugin ask main which folder that
   is (`folder` ask, `name` and `parent`); main finds it by name under the parent and the plugin appends "It is folder_id
   … : use that folder." to the refusal the agent reads, so it uses that one instead of making another. A folder the
@@ -179,8 +212,8 @@ OpenCode service                                       main process
   the instance answers so, and uses it. 0.83 never answers it.
 - **Switching a capability on.** `mcpFolders` leaves the folders and the import to the agent; `rawHtmlByMcp` lets an
   edit by ops of a page reach the instance; `contextByMcp` gives each write its conversation; `conversationLabel` takes
-  the message away where the write carries the context; `docsByContext` with `contextByMcp` takes the index's entry
-  away (`DriveCapabilities.indexed`). 0.84 turns the first three on together: `rawHtmlByMcp` without `mcpFolders` would
+  the message away where the write carries the context; `docsByContext` adds the instance's list of a conversation to
+  its index. 0.84 turns the first three on together: `rawHtmlByMcp` without `mcpFolders` would
   have DynWork import a page the agent uploaded only to rewrite another one.
 - **When it is not there.** Main closed or signed out: the plugin's ask times out after 10 seconds and the call runs as
   the agent wrote it (on 0.84 less any `context_id` of its own), at the Drive's root; the touch is lost, and the document is not in the index.
@@ -409,8 +442,8 @@ the instance itself, in one place (`DriveCapabilities.delivered`), never from a 
 2. only where discovery tells neither, a probe: `GET /documents/people?ids=<the user's own id>` answering (0.84) or not.
 
 0.84 turns on `conversationLabel`, `pushChanges` and `peopleByRest` (the REST side of G02, G09 and G13),
-`rawHtmlByMcp`, `mcpFolders` and `contextByMcp` (the agent's side of G04, G05 and G06, through the MCP), and
-`rangeComments` and `reopenComments` (G08, G12); 0.83 and older, none. The rest of what 0.84 delivers is turned on by the phases that use it. An instance whose discovery does not answer
+`rawHtmlByMcp`, `mcpFolders` and `contextByMcp` (the agent's side of G04, G05 and G06, through the MCP),
+`rangeComments` and `reopenComments` (G08, G12) and `docsByContext` (G07); 0.83 and older, none. The rest of what 0.84 delivers is turned on by the phases that use it. An instance whose discovery does not answer
 keeps what was read before (nothing, for a new account), and the next read that succeeds asks again. `DriveMain.setup`
 still takes an option that forces a switch on or off over what was read.
 
@@ -423,13 +456,12 @@ still takes an option that forces a switch on or off over what was read.
 | `rawHtmlByMcp`      | G04 | Its edits by ops of an HTML document are refused; a changed page is a new document       | `documents_edit {content_blob_ref}` rewrites the page in the same document  |
 | `mcpFolders`        | G05 | DynWork makes `Artifacts/<project>/<conversation>` and imports the agent's files by REST | The agent makes the folders (`documents_folder`) and imports itself         |
 | `contextByMcp`      | G06 | An MCP write carries no conversation; it enters the local index                          | Each write carries its conversation's `context_id`; index kept as cache     |
-| `docsByContext`     | G07 | `documentsOf` reads the local index only                                                 | REST writes are left to the Drive, which adds its list by `x-context-id`    |
+| `docsByContext`     | G07 | `documentsOf` reads the local index only                                                 | The instance's list of a conversation, merged with the index                |
 | `pushChanges`       | G09 | 20 s poll while watched, 5 min otherwise; `document.drive.changed` is ignored            | Each change reads the Drive; 5 min poll only while the stream is open       |
 | `peopleByRest`      | G13 | `people` answers `unsupported`; authors no grant names read "Someone"; search by MCP     | Authors named by id (20 a call); the directory and the cards over REST      |
 
 `agentFiling(capabilities)` is the decision phase 07 reads for `mcpFolders` (HTML included: an import keeps the scripts), and
-`agentEdits(capabilities, edit)` the one the edit guard reads. The real backend has no `byContext` yet: with
-`docsByContext` on and no route, `documentsOf` still answers the index (and only for a registered conversation).
+`agentEdits(capabilities, edit)` the one the edit guard reads.
 
 A PDF takes no comment, and there is no capability for it: the core does not read PDF and refuses an anchor it cannot
 check (D22). `Anchor` has no `page` kind.

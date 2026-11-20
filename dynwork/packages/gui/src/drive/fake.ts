@@ -19,7 +19,7 @@ export interface Options {
   /** The signed-in user's id: what the fake writes as owner and author. */
   user?: string
   now?: () => number
-  /** Lists by conversation (`byContext`), as an instance with P3 will. */
+  /** Lists by conversation (`byContext`) whatever its version, as 0.84 does (`scope=context`). */
   contexts?: boolean
   /** Refuses a folder whose name a sibling already has (`name_taken`), as 0.84 does; 0.83 makes a second one. */
   nameTaken?: boolean
@@ -28,7 +28,8 @@ export interface Options {
   /**
    * The core it answers as: `0.83` (the default), or `0.84`, which announces the Drive in its discovery, keeps the
    * message of a document it creates, records each write's conversation and agent, refuses a conversation it did not
-   * issue (`unknown-context`), reopens a resolved comment and takes a comment on a cell range of a sheet.
+   * issue (`unknown-context`), reopens a resolved comment, takes a comment on a cell range of a sheet and lists what a
+   * conversation wrote a revision or a comment on (`byContext`).
    */
   version?: "0.83" | "0.84"
 }
@@ -557,13 +558,20 @@ export function make(options: Options = {}): Fake {
     announce,
     changed: () => send({ kind: "changed" }),
     contexts,
-    ...(options.contexts
+    ...(options.contexts || at84
       ? {
+          // As 0.84's `scope=context`: what the conversation wrote a revision or a comment on, newest first; a
+          // conversation it did not issue to the user is `unknown-context`.
           byContext: method("byContext", (context: string) =>
-            [...entries.values()]
-              .filter((entry) => entry.contexts.includes(context))
-              .map((entry) => entry.document)
-              .toSorted((a, b) => b.updated - a.updated),
+            at84 && !contexts.has(context)
+              ? fail("unknown-context", "Governance does not know this conversation.")
+              : [...entries.values()]
+                  .filter(
+                    (entry) =>
+                      entry.contexts.includes(context) || entry.comments.some((comment) => comment.context === context),
+                  )
+                  .map((entry) => entry.document)
+                  .toSorted((a, b) => b.updated - a.updated),
           ),
         }
       : {}),

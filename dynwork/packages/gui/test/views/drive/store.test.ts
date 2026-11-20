@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test"
+import { fail } from "../../../src/drive/backend"
 import { isFailure } from "../../../src/drive/contract"
 import { back, openInDrive } from "../../../src/views/drive/chat"
 import { account as active, drive, follow, governance } from "../../../src/views/drive/store"
@@ -10,6 +11,7 @@ const cleanups: Array<() => void> = []
 afterEach(() => {
   cleanups.splice(0).forEach((cleanup) => cleanup())
   follow(undefined)
+  setSystemTime()
 })
 
 async function stand(options?: Parameters<typeof setup>[0]) {
@@ -249,6 +251,81 @@ describe("a chat's artifacts", () => {
         .map((link) => link.document)
         .toSorted(),
     ).toEqual([report, analysis].toSorted())
+  })
+})
+
+describe("a chat's artifacts from the instance (G07)", () => {
+  test("0.84: the chat's artifacts and its count add what the instance lists for the chat, one per document", async () => {
+    const { store, client, service, fake } = await stand({ version: "0.84" })
+    await flush()
+    expect(client.state().capabilities.docsByContext).toBe(true)
+    const made = ok(await store.upload(file("made here.md", "# Here", "text/markdown"), chat))
+    // Written for the same conversation from another computer of the account: this one's index never saw it.
+    const elsewhere = ok(
+      await fake.upload({
+        name: "made elsewhere.md",
+        bytes: new TextEncoder().encode("# There"),
+        contextId: service.context(chat.id),
+      }),
+    )
+    await client.refresh()
+    expect(store.artifactsOf(chat.id).map((link) => link.document)).toEqual([made.document.id])
+    await store.readChat(chat.id)
+    const artifacts = store.artifactsOf(chat.id)
+    // The count in the chat header is how many there are.
+    expect(artifacts).toHaveLength(2)
+    expect(artifacts.map((link) => [link.document, link.via]).toSorted()).toEqual(
+      [
+        [made.document.id, "rest"],
+        [elsewhere.document.id, "server"],
+      ].toSorted(),
+    )
+    // The instance names what it lists: the card needs no read by id.
+    expect(store.doc(elsewhere.document.id)?.name).toBe("made elsewhere.md")
+    expect(store.artifactsOf("ses_other")).toEqual([])
+  })
+
+  test("the instance is asked once per read of the Drive, and the newest answer wins", async () => {
+    const { store, client, service, fake } = await stand({ version: "0.84" })
+    await flush()
+    ok(await store.upload(file("a.md"), chat))
+    await store.readChat(chat.id)
+    await store.readChat(chat.id)
+    const asked = fake.calls.byContext
+    expect(asked).toBe(1)
+    ok(await fake.upload({ name: "b.md", bytes: new TextEncoder().encode("b"), contextId: service.context(chat.id) }))
+    // A read of the Drive is told apart by the time it was made at.
+    setSystemTime(Date.now() + 1_000)
+    await client.refresh()
+    await store.readChat(chat.id)
+    expect(fake.calls.byContext).toBe((asked ?? 0) + 1)
+    expect(store.artifactsOf(chat.id)).toHaveLength(2)
+  })
+
+  test("an instance that fails leaves the chat's artifacts to the index, and nothing fails in the window", async () => {
+    const answers = { failing: false }
+    const { store, client } = await stand({
+      version: "0.84",
+      backend: (backend) => ({
+        ...backend,
+        byContext: async (context) =>
+          answers.failing ? fail("unreachable", "Governance did not answer.") : (backend.byContext?.(context) ?? []),
+      }),
+    })
+    await flush()
+    const made = ok(await store.upload(file("a.md"), chat))
+    answers.failing = true
+    await client.refresh()
+    await store.readChat(chat.id)
+    expect(store.artifactsOf(chat.id).map((link) => link.document)).toEqual([made.document.id])
+  })
+
+  test("docsByContext off (0.83): the instance is not asked, and the index alone answers", async () => {
+    const { store, fake } = await stand()
+    const made = ok(await store.upload(file("a.md"), chat))
+    await store.readChat(chat.id)
+    expect(fake.calls.byContext).toBeUndefined()
+    expect(store.artifactsOf(chat.id).map((link) => link.document)).toEqual([made.document.id])
   })
 })
 

@@ -487,8 +487,8 @@ describe("changes the stream announces (G09)", () => {
 })
 
 describe("what the account's instance delivers", () => {
-  // What 0.84 turns on: the REST side (phase 20), the agent's side through the MCP (phase 21) and comments on cell
-  // ranges and reopened (phase 22).
+  // What 0.84 turns on: the REST side (phase 20), the agent's side through the MCP (phase 21), comments on cell
+  // ranges and reopened (phase 22) and a conversation's documents (phase 23).
   const rest = {
     conversationLabel: true,
     pushChanges: true,
@@ -498,6 +498,7 @@ describe("what the account's instance delivers", () => {
     contextByMcp: true,
     rangeComments: true,
     reopenComments: true,
+    docsByContext: true,
   }
 
   test("a 0.83 instance delivers nothing: every capability stays off, as today", async () => {
@@ -740,37 +741,102 @@ describe("the conversation index", () => {
     expect(client.state().links).toHaveLength(2)
   })
 
-  test("docsByContext on: REST writes are left to the Drive, which lists them by the conversation's context", async () => {
+  test("docsByContext on: a REST write still enters the index, and the instance's listing of it is the same entry", async () => {
     const { client, store } = stand({ capabilities: { docsByContext: true } })
     const created = await ok(
       client.upload({ name: "c.md", bytes: text("x"), mime: "text/markdown", conversation: chat }),
     )
-    expect(store.value.accounts[ana.id]?.links ?? []).toEqual([])
+    expect(store.value.accounts[ana.id]?.links).toHaveLength(1)
     const links = await ok(client.documentsOf({ conversation: chat.id }))
-    expect(links).toEqual([expect.objectContaining({ document: created.document.id, via: "server" })])
+    expect(links).toEqual([
+      expect.objectContaining({ document: created.document.id, act: "created", via: "rest" }),
+    ])
   })
 
-  test("docsByContext on, the index still answers what it holds, and the Drive adds the rest", async () => {
-    const { client } = stand({ capabilities: { docsByContext: true } })
+  test("docsByContext on: the index keeps what the instance does not list, and the instance adds what the index lacks", async () => {
+    const { client, service, fake } = stand({ capabilities: { docsByContext: true } })
     await ok(client.link({ conversation: chat.id, document: "attached-doc", act: "attached", via: "mcp" }))
     const created = await ok(client.upload({ name: "c.md", bytes: text("x"), conversation: chat }))
+    // Written for the conversation where this computer's index does not see it: from another computer of the account.
+    const elsewhere = await ok(
+      fake().upload({ name: "elsewhere.md", bytes: text("y"), contextId: service.context(chat.id) }),
+    )
     const links = await ok(client.documentsOf({ conversation: chat.id }))
-    expect(links.map((link) => [link.document, link.via]).toSorted()).toEqual(
+    expect(links.map((link) => [link.document, link.act, link.via]).toSorted()).toEqual(
       [
-        ["attached-doc", "mcp"],
-        [created.document.id, "server"],
+        ["attached-doc", "attached", "mcp"],
+        [created.document.id, "created", "rest"],
+        [elsewhere.document.id, "edited", "server"],
       ].toSorted(),
+    )
+    expect(await ok(client.byContext({ conversation: chat.id }))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: created.document.id }),
+        expect.objectContaining({ id: elsewhere.document.id, name: "elsewhere.md" }),
+      ]),
     )
   })
 
-  test("contextByMcp: an MCP write is indexed here until both the MCP carries the context and the Drive lists by it", async () => {
+  test("docsByContext on: a document both know is one entry, at the instance's head and the later time", async () => {
+    const { client, fake } = stand({ capabilities: { docsByContext: true } })
+    const created = await ok(client.upload({ name: "c.md", bytes: text("# C"), conversation: chat }))
+    // Changed since, outside the conversation: the index still holds the revision the conversation wrote.
+    const later = await ok(fake().edit(created.document.id, { ops: [{ op: "append_markdown", markdown: "more" }] }))
+    expect(later.kind).toBe("landed")
+    const links = await ok(client.documentsOf({ conversation: chat.id }))
+    expect(links).toHaveLength(1)
+    expect(links[0]).toMatchObject({ act: "created", via: "rest", revision: later.revision.id })
+    expect(links[0]?.at).toBeGreaterThanOrEqual(later.revision.created)
+  })
+
+  test("docsByContext: an instance that fails, or no longer holds the context, leaves the index alone, with no failure", async () => {
+    for (const failure of [
+      fail("unknown-context", "Governance does not know this conversation."),
+      fail("unreachable", "Governance did not answer."),
+    ]) {
+      const { client } = stand({
+        capabilities: { docsByContext: true },
+        backend: (fake) => ({ ...fake, byContext: async () => failure }),
+      })
+      const created = await ok(client.upload({ name: "c.md", bytes: text("x"), conversation: chat }))
+      expect(await ok(client.byContext({ conversation: chat.id }))).toEqual([])
+      expect((await ok(client.documentsOf({ conversation: chat.id }))).map((link) => link.document)).toEqual([
+        created.document.id,
+      ])
+    }
+    // A 0.84 instance refusing a context it does not hold, for real: the fake answers as the core does.
+    const at84 = stand({ version: () => "0.84" })
+    await flush()
+    const created = await ok(at84.client.upload({ name: "c.md", bytes: text("x"), conversation: chat }))
+    at84.store.update((draft) => {
+      const saved = draft.accounts[ana.id]
+      if (saved) saved.contexts[chat.id] = { id: "ctx-gone", name: chat.name }
+    })
+    expect(await ok(at84.client.byContext({ conversation: chat.id }))).toEqual([])
+    expect((await ok(at84.client.documentsOf({ conversation: chat.id }))).map((link) => link.document)).toEqual([
+      created.document.id,
+    ])
+    expect(at84.fake().calls.byContext).toBe(2)
+  })
+
+  test("docsByContext off, or a conversation this computer never registered: the instance is not asked", async () => {
+    const off = stand()
+    await ok(off.client.upload({ name: "c.md", bytes: text("x"), conversation: chat }))
+    expect(await ok(off.client.byContext({ conversation: chat.id }))).toEqual([])
+    expect(await ok(off.client.documentsOf({ conversation: chat.id }))).toHaveLength(1)
+    const unknown = stand({ capabilities: { docsByContext: true } })
+    expect(await ok(unknown.client.byContext({ conversation: "ses_elsewhere" }))).toEqual([])
+    expect(off.fake().calls.byContext).toBeUndefined()
+    expect(unknown.fake().calls.byContext).toBeUndefined()
+  })
+
+  test("every write of a conversation is indexed, whatever the instance lists or the MCP carries", async () => {
     const mcp = { conversation: chat.id, document: "doc-1", act: "edited" as const, via: "mcp" as const }
-    const off = stand({ capabilities: { docsByContext: true } })
-    await ok(off.client.link(mcp))
-    expect(off.store.value.accounts[ana.id]?.links).toHaveLength(1)
-    const on = stand({ capabilities: { docsByContext: true, contextByMcp: true } })
-    await ok(on.client.link(mcp))
-    expect(on.store.value.accounts[ana.id]?.links ?? []).toEqual([])
+    for (const capabilities of [{}, { docsByContext: true }, { docsByContext: true, contextByMcp: true }]) {
+      const { client, store } = stand({ capabilities })
+      await ok(client.link(mcp))
+      expect(store.value.accounts[ana.id]?.links).toHaveLength(1)
+    }
   })
 
   test("the same act on the same revision is recorded once", async () => {

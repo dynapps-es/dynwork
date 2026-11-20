@@ -16,7 +16,8 @@ import { drive, governance } from "./store"
 import { createPresent, Viewer } from "./viewer"
 
 // The Drive beside a chat (a side panel tab, as Claude's artifacts): the documents the chat made, changed or attached,
-// newest first, from the conversation ↔ document index, and one tab per document with its viewer and a version picker.
+// newest first, from the conversation ↔ document index and what the instance lists for the chat (G07), and one tab per
+// document with its viewer and a version picker.
 // A document opens in the Drive view for the rest.
 
 /** What a change's card says it did. */
@@ -32,6 +33,7 @@ const actKey = {
 export function ArtifactsPanel(props: { session: MountedSession }) {
   const ctx = usePlugin()
   const names = useNames()
+  drive.followChat(() => props.session.id)
   const links = () => drive.artifactsOf(props.session.id)
   let input: HTMLInputElement | undefined
   // The index names documents no listing may hold yet.

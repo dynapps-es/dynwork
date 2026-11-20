@@ -531,8 +531,19 @@ export function startFake() {
       const scope = url.searchParams.get("scope") ?? "mine"
       const folder = url.searchParams.get("folder")
       const query = url.searchParams.get("query")?.toLowerCase()
+      // 0.84 lists what one of the user's conversations wrote a revision or a comment on; 0.83 has no such scope
+      const conversation = url.searchParams.get("context_id")
+      if (scope === "context" && (!at84 || conversation === null))
+        return refuse(400, "invalid_params", "scope=context needs a context_id")
+      if (scope === "context" && conversation !== null && !drive.contexts.has(conversation))
+        return refuse(422, "unknown_context", `context ${conversation} is not one of the caller's conversations`)
+      const touched = (entry: { id: string; contexts: string[] }) =>
+        entry.contexts.includes(conversation ?? "") ||
+        (drive.comments.get(entry.id) ?? []).some((comment) => comment.context_id === conversation)
       const matching = [...drive.documents.values()]
-        .filter((entry) => (scope === "folder" ? entry.folder_id === folder : scope !== "shared"))
+        .filter((entry) =>
+          scope === "folder" ? entry.folder_id === folder : scope === "context" ? touched(entry) : scope !== "shared",
+        )
         .filter((entry) => query === undefined || entry.name.toLowerCase().includes(query))
         .toSorted((a, b) =>
           url.searchParams.get("sort") === "name"

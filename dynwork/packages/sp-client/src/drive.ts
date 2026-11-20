@@ -55,12 +55,17 @@ const documents = "/api/v1/documents"
 /** A structured edit, as the instance's `edits` route reads it: `{ op: "append_markdown", markdown }` and the like. */
 export type Op = Readonly<Record<string, unknown>>
 
-export type Scope = "mine" | "shared" | "recent" | "folder"
+export type Scope = "mine" | "shared" | "recent" | "folder" | "context"
 
 export type ListOptions = {
   readonly scope?: Scope
   /** The folder to list, for `scope: "folder"`; its sub-folders come back with its documents. */
   readonly folder?: string
+  /**
+   * The conversation to list, for `scope: "context"` (0.84): the documents it wrote a revision or a comment on. One the
+   * user does not own, or that does not exist, is `UnknownContext`.
+   */
+  readonly contextId?: string
   /** Matches document names. */
   readonly query?: string
   readonly sort?: string
@@ -89,6 +94,7 @@ export const discovery = Effect.fn("SpDrive.discovery")(function* (baseUrl: stri
 export const list = Effect.fn("SpDrive.list")(function* (baseUrl: string, jwt: string, options?: ListOptions) {
   const query = new URLSearchParams({ scope: options?.scope ?? "mine" })
   if (options?.folder !== undefined) query.set("folder", options.folder)
+  if (options?.contextId !== undefined) query.set("context_id", options.contextId)
   if (options?.query !== undefined) query.set("query", options.query)
   if (options?.sort !== undefined) query.set("sort", options.sort)
   if (options?.limit !== undefined) query.set("limit", String(options.limit))

@@ -478,8 +478,18 @@ export const Drive = Ipc.define({
       }),
       output: Done,
     },
-    /** What a conversation did to which documents, newest first. */
+    /**
+     * What a conversation did to which documents, newest first: the index merged with what the instance lists for the
+     * conversation (`docsByContext`, `DriveArtifacts.merge`).
+     */
     documentsOf: { input: Schema.Struct({ conversation: Schema.String }), output: Outcome(Schema.Array(Link)) },
+    /**
+     * The documents the instance lists for a conversation of the active account, newest first (G07, `docsByContext`):
+     * what it wrote a revision or a comment on, from any computer. None while the capability is off, while this computer
+     * has not registered the conversation, or when the instance does not answer or no longer holds its context: the
+     * index answers alone then, and nothing fails.
+     */
+    byContext: { input: Schema.Struct({ conversation: Schema.String }), output: Outcome(Schema.Array(Document)) },
   },
 })
 

@@ -31,7 +31,10 @@ export const Capabilities = Schema.Struct({
   mcpFolders: Schema.Boolean,
   /** P5: an MCP write carries the conversation. Off: DynWork records it in its local index. */
   contextByMcp: Schema.Boolean,
-  /** P3: the Drive lists the documents of a conversation. Off: only the local index knows. */
+  /**
+   * P3: the Drive lists the documents of a conversation (G07, 0.84 `scope=context`), merged with the local index. Off:
+   * only the local index knows.
+   */
   docsByContext: Schema.Boolean,
   /** P6: the instance tells DynWork of changes (`document.drive.changed`, 0.84). Off: DynWork polls. */
   pushChanges: Schema.Boolean,
@@ -70,9 +73,9 @@ export interface Instance {
 /**
  * What an instance delivers, from what it says of itself: 0.84 gives the REST side of G02, G09 and G13
  * (`conversationLabel`, `pushChanges`, `peopleByRest`), the agent's side of G04, G05 and G06 through the MCP
- * (`rawHtmlByMcp`, `mcpFolders`, `contextByMcp`) and comments on cell ranges and reopened (G08 `rangeComments`, G12
- * `reopenComments`); 0.83 and older, none. Undefined when nothing tells, which asks for the probe. The rest of 0.84 is
- * turned on by the phases that use it.
+ * (`rawHtmlByMcp`, `mcpFolders`, `contextByMcp`), comments on cell ranges and reopened (G08 `rangeComments`, G12
+ * `reopenComments`) and a conversation's documents (G07 `docsByContext`); 0.83 and older, none. Undefined when nothing
+ * tells, which asks for the probe. The rest of 0.84 is turned on by the phases that use it.
  */
 export function delivered(instance: Instance): Capabilities | undefined {
   const at84 = instance.documents === true || (atLeast(instance.version, 84) ?? instance.people)
@@ -87,6 +90,7 @@ export function delivered(instance: Instance): Capabilities | undefined {
     contextByMcp: at84,
     rangeComments: at84,
     reopenComments: at84,
+    docsByContext: at84,
   }
 }
 
@@ -181,16 +185,6 @@ export function writer(capabilities: Capabilities, by: { conversation?: string; 
   const agent = by.ours ? "DynWork" : by.agent
   if (by.conversation === undefined) return agent
   return agent === undefined ? by.conversation : `${by.conversation} · ${agent}`
-}
-
-/**
- * Whether the local index must record a conversation's write: only what the Drive cannot answer by itself. A REST
- * write carries its `x-context-id`, so the Drive knows it once it lists by conversation (`docsByContext`); an MCP
- * write carries it only with `contextByMcp` too.
- */
-export function indexed(capabilities: Capabilities, via: "rest" | "mcp") {
-  if (!capabilities.docsByContext) return true
-  return via === "mcp" && !capabilities.contextByMcp
 }
 
 /**

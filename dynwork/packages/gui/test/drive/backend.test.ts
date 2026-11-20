@@ -418,6 +418,37 @@ describe("the Governance backend on 0.83 and 0.84", () => {
     expect(instance.state.drive.documents.size).toBe(before)
   })
 
+  test("0.84 lists what a conversation wrote a revision or a comment on, by its context, newest first (G07)", async () => {
+    const backend = remote()
+    const context = await ok(backend.createContext("Q3 report"))
+    const other = await ok(backend.createContext("Another chat"))
+    const bytes = new TextEncoder().encode("# Q3")
+    const written = await ok(backend.upload({ name: `w-${randomUUID()}.md`, bytes, mime: "text/markdown", contextId: context }))
+    const commented = await ok(backend.upload({ name: `c-${randomUUID()}.md`, bytes, mime: "text/markdown" }))
+    await ok(backend.comment(commented.document.id, { body: "Check", anchor: { kind: "node", node: "n1" }, contextId: context }))
+    await ok(backend.upload({ name: `o-${randomUUID()}.md`, bytes, mime: "text/markdown", contextId: other }))
+    const listed = await ok(backend.byContext?.(context) ?? Promise.resolve([]))
+    expect(listed.map((document) => document.id).toSorted()).toEqual(
+      [written.document.id, commented.document.id].toSorted(),
+    )
+    expect(listed[0]).toMatchObject({ name: expect.any(String), revision: expect.any(String) })
+    const asked = instance.state.requests.findLast(
+      (request) => request.method === "GET" && request.path === "/api/v1/documents",
+    )
+    expect(Object.fromEntries(new URLSearchParams(asked?.query))).toEqual({
+      scope: "context",
+      context_id: context,
+      sort: "updated",
+      limit: "100",
+    })
+  })
+
+  test("a conversation the instance does not hold lists as unknown-context, and 0.83 has no such listing", async () => {
+    expectFailure(await (remote().byContext?.(randomUUID()) ?? Promise.resolve([])), "unknown-context")
+    instance.state.drive.version = "0.83"
+    expectFailure(await (remote().byContext?.(randomUUID()) ?? Promise.resolve([])), "invalid")
+  })
+
   test("a template's document keeps the message it is sent", async () => {
     const created = await ok(remote().create({ template: "blank-markdown", name: "Notes", message: "Ana by DynWork" }))
     expect(created.revision.message).toBe("Ana by DynWork")

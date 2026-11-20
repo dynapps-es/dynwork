@@ -6,10 +6,12 @@ import { openArtifacts } from "./chat"
 import { drive } from "./store"
 
 // The chat header's artifacts button, as Claude counts a chat's artifacts beside its title: how many documents the chat
-// made, changed or attached (the cards of its Artifacts tab), none shown at 0, and a click opens that tab. The window
-// entry loads it on the client only (`register.tsx`): Kobalte's tooltip runs browser-only code when it loads.
+// made, changed or attached (the cards of its Artifacts tab, the instance's list of the chat included), none shown at 0,
+// and a click opens that tab. The window entry loads it on the client only (`register.tsx`): Kobalte's tooltip runs
+// browser-only code when it loads.
 export default function ArtifactsCount(props: { session: MountedSession }) {
   const ctx = usePlugin()
+  drive.followChat(() => props.session.id)
   const count = () => drive.artifactsOf(props.session.id).length
   return (
     <Tooltip value={ctx.t("drive.panel.title")} placement="bottom">
