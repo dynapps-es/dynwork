@@ -1,6 +1,7 @@
 import { uptime } from "node:os"
 import { Schema } from "effect"
 import { DynWorkAccounts } from "../../src/accounts/accounts"
+import { DynWorkPerson } from "../../src/accounts/person"
 import { startFake } from "../../../sp-client/test/fake"
 
 export type Fake = ReturnType<typeof startFake>
@@ -19,6 +20,43 @@ export function memoryStore() {
       disk.json = encode(value)
     },
   }
+}
+
+// The person's sessions as main's store keeps them, like `memoryStore`.
+export function personStore() {
+  const encode = Schema.encodeSync(Schema.fromJsonString(DynWorkPerson.Saved))
+  const decode = Schema.decodeUnknownSync(Schema.fromJsonString(DynWorkPerson.Saved))
+  const disk = { json: encode(DynWorkPerson.initial) }
+  return {
+    disk,
+    get value() {
+      return decode(disk.json)
+    },
+    set(value: DynWorkPerson.Saved) {
+      disk.json = encode(value)
+    },
+  }
+}
+
+// The person's session over a test's accounts, as main sets it up: same secure storage, its own store, and the
+// browser `open` plays (none opens anything unless given).
+export function personOf(
+  context: Pick<ReturnType<typeof setup>, "accounts" | "secure">,
+  options: { open?: (url: string) => Promise<void>; store?: ReturnType<typeof personStore> } = {},
+) {
+  const store = options.store ?? personStore()
+  const events = { changed: 0, log: [] as Array<{ message: string; data: unknown }> }
+  const person = DynWorkPerson.make({
+    accounts: context.accounts,
+    store,
+    secure: context.secure,
+    open: options.open ?? (async () => {}),
+    changed: () => {
+      events.changed++
+    },
+    log: (message, data) => void events.log.push({ message, data }),
+  })
+  return { person, store, events }
 }
 
 // Stands in for Electron's safeStorage: a reversible scramble that never leaves the plaintext readable. `reset`

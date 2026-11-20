@@ -100,8 +100,17 @@ export class UnknownContext extends Schema.TaggedError<UnknownContext>("SpClient
   Request,
 ) {}
 
+// `401` with `WWW-Authenticate: Bearer error="insufficient_user_authentication"` (RFC 9470, 0.84): the person's UI
+// session holds, but the action (sharing, transfer, delete, an agent cap) needs a sign-in no older than `maxAge`
+// seconds. Nothing was done: sign the person in again and retry once. Never a refusal of the credential.
+export class RecentSignIn extends Schema.TaggedError<RecentSignIn>("SpClient.RecentSignIn")("RecentSignIn", {
+  ...Request,
+  maxAge: Schema.optional(Schema.Number),
+}) {}
+
 export type SpError =
   | Unauthorized
+  | RecentSignIn
   | RateLimited
   | Unreachable
   | SignatureInvalid

@@ -472,6 +472,46 @@ allows an agent to change content only through structured ops. The `409` body wi
 a lost write; 0.83 merges an older `base_revision` instead, so the client's `Conflict` has only been seen for a missing
 anchor node and a complete upload with parts missing.
 
+## 13. The person's UI session (`SpPerson`, 0.84)
+
+The person's own session on the document routes ("First-party desktop UI" in the core's `documentation/documents.md`,
+G01 of the Drive plan), observed on sp-local `dynwork-sp-084` (core 0.84.0) on 20-11-2026 with an isolated headless
+Chromium and a virtual passkey. Nothing secret was recorded.
+
+| Step | Observed |
+| --- | --- |
+| Discovery | Nothing announces a `person_ui` client: neither `GET /api/v1` nor `/.well-known/oauth-authorization-server` |
+| `GET /api/v1/core/oauth/authorize` with `client_id=dynwork-desktop`, `redirect_uri=http://127.0.0.1:<port>/oauth/callback`, PKCE `S256`, a 43-character `state` | `200` the core's sign-in page (email, then passkey, then consent). An unknown client: `400` `invalid_request` "Invalid client_id" |
+| The same again in a browser that just signed in | The page asks for the email and the passkey again, and then the consent. With `prompt=none` or `max_age=0` too: the core reads neither (only `prompt=passkey`) |
+| Authorize | `303` to the loopback with `code`, `client_id`, the same `state` and `iss` |
+| `POST /api/v1/core/oauth/token`, form, `grant_type=authorization_code`, `client_id`, `code`, `redirect_uri`, `code_verifier` | `200` `access_token`, `token_type` `Bearer`, `expires_in` **300**, `refresh_token`, `scope` `user`. Claims: `aud` `["ui"]`, `ui_session` `true`, `auth_time` (the sign-in, within a second of `iat`), `client_id` `dynwork-desktop`, `sub`, `email`, `session_id` |
+| The UI token on `/api/v1/documents`, `/api/v1/document-folders` | `200`, as the person |
+| The UI token on `/v1/bridge/whoami`, `/api/v1/core/oauth/userinfo`, `/api/v1/core/contexts` | `401` |
+| `grant_type=refresh_token`, `client_id`, `refresh_token` | `200`, 300 s again, the same `auth_time`, **a new refresh token** |
+| The spent refresh token again | `400` `invalid_grant` "Refresh token invalid: Invalid refresh token", **and the newest one of the family stops working too** |
+| `POST /api/v1/core/oauth/revoke` (`token`, `token_type_hint=refresh_token`, `client_id`) | Without a bearer `401`; with the UI token `401` "Invalid or expired JWT token"; with the account's bridge JWT `200`, and the refresh token is then `invalid_grant` |
+| Sign-in older than 600 s: `DELETE /api/v1/document-folders/{id}` | `401` `WWW-Authenticate: Bearer error="insufficient_user_authentication", error_description="A more recent authentication is required", max_age=600`, body `{"code": "unauthorized", ...}`. Listing still `200`. Within the 600 s an agent cap answers `200` |
+| A new sign-in after that | The same delete `204` |
+
+What the client does with it:
+
+- `SpPerson.available(baseUrl)` asks the authorize page for the declared redirect without signing in: `200` (or a
+  redirect to the instance's own login page) means the client exists; `400`, `401` or `404` that it does not.
+- `begin()` makes the verifier, the S256 challenge and the `state`; `authorizeUrl` the page (with `max_age` when an
+  action asks for a recent sign-in); `parseCallback` takes only the callback with that `state` (`error=access_denied` is
+  the person's refusal).
+- `exchange` and `refresh` answer `Tokens` (`access`, `refresh`, `expiresAt`, `signedInAt` from `auth_time`, `user` from
+  `sub`) and refuse a token without `ui_session` and the `ui` audience (`Incompatible`). `invalid_grant` and
+  `invalid_client` are `Unauthorized`: the session is over.
+- `revoke` takes the account's bridge JWT as bearer.
+- The Drive client maps the step-up `401` to `RecentSignIn` with `maxAge`, never to `Unauthorized`.
+- The session ends 12 hours after the sign-in (`lifetime`), refreshes or not; the step-up window is 600 s (`recent`).
+
+**On sp-local `dynwork-sp-084`:** the passkey pages post the credential's `rawId` and buffers as arrays of numbers, which
+0.84 refuses (`400` "credential.rawId: invalid type: sequence, expected a base64 encoded string") on both
+`/webauthn/link/finish` and `/webauthn/auth/finish`. The live check rewrote those two bodies to base64url in the test
+browser. A person whose browser posts the same cannot sign in there; production was not checked.
+
 ## Not observed
 
 - Mobile sign-in: the Entra login on the authorize page (the local instance has none to offer), how long a refresh token

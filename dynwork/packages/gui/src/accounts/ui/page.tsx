@@ -10,6 +10,7 @@ import AddInstance from "./add"
 import { AccountsController } from "./controller"
 import { Lapsed } from "./lapse"
 import { AccountsModel } from "./model"
+import { ActingAs } from "./person"
 import { AccountsText } from "./text"
 import "./accounts.css"
 
@@ -98,7 +99,7 @@ export default function AccountsPage(props: { accounts: Accessor<Live<Client>>; 
           </Show>
         </section>
 
-        <Show when={active()}>{(row) => <Detail row={row()} />}</Show>
+        <Show when={active()}>{(row) => <Detail row={row()} client={client} />}</Show>
       </div>
     </>
   )
@@ -256,7 +257,7 @@ function Instance(props: {
 
 // What the active instance brings and which key vouches for it. The rules are listed here because they reach every
 // session's system context.
-function Detail(props: { row: AccountsModel.Row }) {
+function Detail(props: { row: AccountsModel.Row; client: () => Client | undefined }) {
   const ctx = usePlugin<typeof definition>()
   const [copied, setCopied] = createSignal(false)
   const row = () => props.row
@@ -290,6 +291,7 @@ function Detail(props: { row: AccountsModel.Row }) {
             </div>
           </div>
         </div>
+        <ActingAs account={account()} client={props.client} />
         <Show when={counts()}>
           {(value) => (
             <div data-component="settings-row" data-action="accounts-detail-content">

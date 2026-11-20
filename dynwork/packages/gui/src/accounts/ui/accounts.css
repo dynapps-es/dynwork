@@ -240,7 +240,8 @@
   color: var(--v2-text-text-muted);
 }
 
-[data-slot="accounts-lapse-error"] {
+[data-slot="accounts-lapse-error"],
+[data-slot="accounts-person-error"] {
   color: var(--v2-state-fg-danger);
 }
 

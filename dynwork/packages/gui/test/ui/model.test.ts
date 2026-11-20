@@ -217,3 +217,54 @@ describe("an instance whose sign-in the instance refused for good", () => {
     expect(AccountsModel.outcome("insecure")).toBe("lapse.outcome.failed")
   })
 })
+
+describe("acting as the person in the Drive", () => {
+  test("shows nothing for an account not signed in, or whose instance does not offer it", () => {
+    expect(AccountsModel.person(account({ person: { status: "unavailable" } }))).toBeUndefined()
+    expect(AccountsModel.person(account({}))).toBeUndefined()
+    expect(AccountsModel.person(account({ status: "signedOut", person: { status: "off" } }))).toBeUndefined()
+    expect(AccountsModel.person(account({ status: "needsSignIn", person: { status: "on" } }))).toBeUndefined()
+  })
+
+  test("on with its end and a sign-out, renewing, signing in with a cancel, off and ended with a sign-in", () => {
+    expect(AccountsModel.person(account({ person: { status: "on", until: 5 } }))).toEqual({
+      badge: "on",
+      key: "person.on",
+      action: "sign-out",
+      until: 5,
+    })
+    expect(AccountsModel.person(account({ person: { status: "renewing", until: 5 } }))).toMatchObject({
+      badge: "renewing",
+      key: "person.renewing",
+      action: "sign-out",
+    })
+    expect(AccountsModel.person(account({ person: { status: "signingIn" } }))).toMatchObject({
+      badge: undefined,
+      key: "person.signingIn",
+      action: "cancel",
+    })
+    expect(AccountsModel.person(account({ person: { status: "off" } }))).toMatchObject({
+      key: "person.off",
+      action: "sign-in",
+    })
+    expect(AccountsModel.person(account({ person: { status: "off", ended: true } }))).toMatchObject({
+      key: "person.ended",
+      action: "sign-in",
+    })
+  })
+
+  test("a sign-in that did not end signed in says why, except when cancelled", () => {
+    expect(AccountsModel.personOutcome("signed-in")).toBeUndefined()
+    expect(AccountsModel.personOutcome("cancelled")).toBeUndefined()
+    expect(AccountsModel.personOutcome("denied")).toBe("lapse.outcome.denied")
+    expect(AccountsModel.personOutcome("expired")).toBe("lapse.outcome.expired")
+    expect(AccountsModel.personOutcome("unreachable")).toBe("lapse.outcome.unreachable")
+    expect(AccountsModel.personOutcome("mismatch")).toBe("person.outcome.mismatch")
+    expect(AccountsModel.personOutcome("unavailable")).toBe("person.outcome.unavailable")
+    expect(AccountsModel.personOutcome("refused")).toBe("lapse.outcome.failed")
+  })
+
+  test("the session's end reads as a time of day", () => {
+    expect(AccountsModel.clock(Date.UTC(2026, 10, 20, 14, 5), "en-GB")).toMatch(/^\d{2}:\d{2}$/)
+  })
+})

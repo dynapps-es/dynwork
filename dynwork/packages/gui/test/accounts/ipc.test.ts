@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { SpClient } from "@dynwork/sp-client"
 import { DynWorkAccounts } from "../../src/accounts/accounts"
 import { AccountsIpc } from "../../src/accounts/ipc"
-import { setup, startFake, fakeSecure, type Fake } from "./fixture"
+import { personOf, setup, startFake, fakeSecure, type Fake } from "./fixture"
 
 let alpha: Fake
 
@@ -38,7 +38,7 @@ describe("sign-in failures over the Ipc", () => {
 
   test("a refused PAT and a dead instance answer instead of rejecting, with nothing stored", async () => {
     const context = setup(alpha)
-    const impl = AccountsIpc.implementation(context.accounts, idle)
+    const impl = AccountsIpc.implementation(context.accounts, idle, personOf(context).person)
 
     expect(await impl.signInToken({ url: alpha.url, token: "sp-live-nope" }, caller)).toBe("refused")
     expect(await impl.signInToken({ url: "http://127.0.0.1:1", token: "sp-live-nope" }, caller)).toBe("unreachable")
@@ -49,7 +49,7 @@ describe("sign-in failures over the Ipc", () => {
   test("without OS encryption the browser sign-in answers insecure and opens nothing", async () => {
     const opened: string[] = []
     const context = setup(alpha, { secure: fakeSecure(false), open: async (link) => void opened.push(link) })
-    const impl = AccountsIpc.implementation(context.accounts, idle)
+    const impl = AccountsIpc.implementation(context.accounts, idle, personOf(context).person)
 
     expect(await impl.signInBrowser({ url: alpha.url }, caller)).toBe("insecure")
     expect(opened).toEqual([])
@@ -60,7 +60,7 @@ describe("sign-in failures over the Ipc", () => {
 describe("summary", () => {
   test("counts the first manifest, verified against the key the account was offered", async () => {
     const context = setup(alpha)
-    const impl = AccountsIpc.implementation(context.accounts, idle)
+    const impl = AccountsIpc.implementation(context.accounts, idle, personOf(context).person)
 
     await impl.signInToken({ url: alpha.url, token: alpha.issuePat() }, caller)
     const id = context.accounts.list()[0]?.id ?? ""
@@ -75,7 +75,7 @@ describe("summary", () => {
   test("a manifest signed by another key is not counted", async () => {
     const fake = startFake()
     const context = setup(fake)
-    const impl = AccountsIpc.implementation(context.accounts, idle)
+    const impl = AccountsIpc.implementation(context.accounts, idle, personOf(context).person)
 
     await impl.signInToken({ url: fake.url, token: fake.issuePat() }, caller)
     const id = context.accounts.list()[0]?.id ?? ""
@@ -87,7 +87,7 @@ describe("summary", () => {
 
   test("an account that is not signed in has none", async () => {
     const context = setup(alpha)
-    const impl = AccountsIpc.implementation(context.accounts, idle)
+    const impl = AccountsIpc.implementation(context.accounts, idle, personOf(context).person)
 
     await expect(impl.summary("missing", caller)).rejects.toBeInstanceOf(DynWorkAccounts.NotSignedIn)
     context.accounts.dispose()
@@ -109,7 +109,7 @@ describe("sync over the Ipc", () => {
         engine.polls++
       },
     }
-    const impl = AccountsIpc.implementation(context.accounts, engine)
+    const impl = AccountsIpc.implementation(context.accounts, engine, personOf(context).person)
 
     expect(impl.state(1)).toEqual({ accounts: [], signingIn: undefined, sync: engine.status() })
     await impl.syncNow(undefined, caller)

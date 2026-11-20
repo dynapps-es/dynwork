@@ -7,6 +7,7 @@ import {
   NotFound,
   Protocol,
   RateLimited,
+  RecentSignIn,
   Unauthorized,
   UnknownContext,
   Unreachable,
@@ -1016,6 +1017,9 @@ const failure = Effect.fnUntraced(function* (
   const found = body._tag === "Some" ? body.value : undefined
   const message = found?.message ?? `status ${response.status}`
   const errorKey = found?.error_key
+  const challenge = stepUp(response.headers.get("www-authenticate"))
+  if (response.status === 401 && challenge !== undefined)
+    return yield* new RecentSignIn({ endpoint, message, maxAge: challenge.maxAge })
   if (response.status === 401) return yield* new Unauthorized({ endpoint, message, errorKey })
   if (response.status === 429)
     return yield* new RateLimited({
@@ -1054,6 +1058,14 @@ const decode = <A>(endpoint: string, schema: Schema.Decoder<A>, body: Uint8Array
       })
     }),
   )
+
+// The RFC 9470 step-up challenge of a person's UI session (`Bearer error="insufficient_user_authentication",
+// max_age=600`), with its `max_age` when it names one; undefined for any other challenge.
+function stepUp(header: string | null) {
+  if (header === null || !/error="insufficient_user_authentication"/.test(header)) return undefined
+  const age = /max_age="?(\d+)"?/.exec(header)?.[1]
+  return { maxAge: age === undefined ? undefined : Number(age) }
+}
 
 // `Retry-After` is either whole seconds or an HTTP date (always in GMT); anything else is unreadable, not "now".
 function retryAfter(headers: Headers, now: number) {

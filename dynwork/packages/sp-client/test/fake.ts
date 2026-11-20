@@ -101,6 +101,40 @@ export function startDrive() {
   }
 }
 
+// DynWork's `person_ui` client as the Dynapps extension declares it on 0.84, and the redirect it declares, which the
+// core takes on any port.
+export const personClient = "dynwork-desktop"
+
+function personRedirect(value: string) {
+  const url = URL.canParse(value) ? new URL(value) : undefined
+  return url !== undefined && url.protocol === "http:" && url.hostname === "127.0.0.1" && url.pathname === "/oauth/callback"
+}
+
+// The routes a UI session may call only within 600 s of its sign-in (0.84 `step_up.rs`)
+function stepUp(method: string, path: string) {
+  if (/\/grants$/.test(path) || /\/agent-cap$/.test(path)) return method !== "GET"
+  if (/^\/api\/v1\/(documents|document-folders)\/[^/]+$/.test(path)) return method === "DELETE"
+  return false
+}
+
+// The person's UI sessions the fake's OAuth server issued: codes waiting for their grant, live and spent refresh tokens
+// by family, live access tokens, and what a UI token did on the Drive.
+export function startPerson() {
+  return {
+    // `person_ui`: 0.84 with the client declared; `plain`: declared without `person_ui` (no UI session); `none`: 0.83
+    // or not declared
+    client: "person_ui" as "person_ui" | "plain" | "none",
+    codes: new Map<string, { challenge: string; redirect: string; signedInAt: number; user: string }>(),
+    refresh: new Map<string, { family: string; signedInAt: number; user: string }>(),
+    spent: new Map<string, string>(),
+    families: new Set<string>(),
+    access: new Map<string, { signedInAt: number; expiresAt: number }>(),
+    // The query of every authorize page asked for, and every Drive call a UI token made
+    authorized: [] as Array<Record<string, string>>,
+    acted: [] as string[],
+  }
+}
+
 export type Recorded = { method: string; path: string; query: string; headers: Record<string, string>; body: string }
 
 export function startFake() {
@@ -131,6 +165,7 @@ export function startFake() {
     bindings: new Map<string, { id: string; bound_at: string }>(),
     requests: [] as Recorded[],
     drive: startDrive(),
+    person: startPerson(),
     // Plugin bundle files by `<plugin>/<path>`, served at `/v1/bridge/plugins/<plugin>/<path>`
     files: {} as Record<string, Uint8Array | string>,
   }
@@ -213,6 +248,7 @@ export function startFake() {
           )
         : Response.json(state.discovery)
     if (route === "GET /v1/auth/bridge/capabilities") return Response.json(alpha.capabilities.body)
+    if (path.startsWith("/api/v1/core/oauth/")) return oauthRoute(request, path, body, bearer)
     if (route === "GET /api/v1/health") return Response.json(alpha.health.body)
     if (route === "GET /api/v1") return Response.json(rootDiscovery(new URL(request.url).origin))
     if (route === "GET /v1/bridge/pubkey") return Response.json({ pubkey: state.key.public })
@@ -438,7 +474,23 @@ export function startFake() {
 
   const driveRoute = async (request: Request, url: URL, raw: Uint8Array) => {
     const bearer = request.headers.get("authorization")?.replace(/^Bearer /, "")
-    if (bearer === undefined || !state.jwts.has(bearer)) return Response.json(alpha.rejected_jwt.body, { status: 401 })
+    const person = bearer === undefined ? undefined : state.person.access.get(bearer)
+    const ui = person !== undefined && person.expiresAt > Date.now()
+    if (bearer === undefined || (!state.jwts.has(bearer) && !ui))
+      return Response.json(alpha.rejected_jwt.body, { status: 401 })
+    // 0.84's step-up: sharing, delete and agent caps want a person's sign-in no older than 600 s
+    if (ui && stepUp(request.method, url.pathname) && Date.now() - person.signedInAt > 600_000)
+      return Response.json(
+        { code: "unauthorized", message: "this action needs a sign-in no older than the step-up window" },
+        {
+          status: 401,
+          headers: {
+            "www-authenticate":
+              'Bearer error="insufficient_user_authentication", error_description="A more recent authentication is required", max_age=600',
+          },
+        },
+      )
+    if (ui) state.person.acted.push(`${request.method} ${url.pathname}`)
     const drive = state.drive
     const user = alpha.whoami.body.user_id
     const refuse = (status: number, error_key: string, message: string, extra: Record<string, unknown> = {}) =>
@@ -747,7 +799,8 @@ export function startFake() {
             reason: "the dynapps-document-classes agent policy caps agents at edit",
           },
         })
-      if ((route.startsWith("POST") || route.startsWith("DELETE")) && rest === "grants" && !drive.agentShare)
+      // The person's UI session shares as the person: the agent rules are not theirs
+      if ((route.startsWith("POST") || route.startsWith("DELETE")) && rest === "grants" && !drive.agentShare && !ui)
         return refuse(
           403,
           "agent_forbidden",
@@ -1016,6 +1069,126 @@ export function startFake() {
     }
   }
 
+  // The core's OAuth server as far as the person's UI session goes (0.84, observed on sp-local `dynwork-sp-084`):
+  // authorize for DynWork's client, the code + PKCE grant, rotating refresh tokens whose family a reuse ends, the
+  // 12-hour cap from the sign-in, and revoke, which takes the bridge JWT and not the UI token.
+  const oauthRoute = (request: Request, path: string, body: string, bearer: string | undefined) => {
+    const person = state.person
+    const query = new URL(request.url).searchParams
+    const oauthError = (status: number, error: string, description: string) =>
+      Response.json({ error, error_description: description }, { status })
+    if (request.method === "GET" && path === "/api/v1/core/oauth/authorize") {
+      if (query.get("client_id") !== personClient || person.client === "none")
+        return oauthError(400, "invalid_request", "Invalid client_id")
+      if (!personRedirect(query.get("redirect_uri") ?? ""))
+        return oauthError(400, "invalid_request", "redirect_uri not registered for client")
+      if ((query.get("state") ?? "").length < 32)
+        return oauthError(400, "invalid_request", "CSRF token (state parameter) is invalid")
+      person.authorized.push(Object.fromEntries([...query.keys()].map((key) => [key, query.get(key) ?? ""])))
+      return new Response("<!doctype html><title>Sign in</title>", { headers: { "content-type": "text/html" } })
+    }
+    const form = new URLSearchParams(body)
+    if (request.method === "POST" && path === "/api/v1/core/oauth/token") {
+      if (form.get("client_id") !== personClient || person.client === "none")
+        return oauthError(401, "invalid_client", "Client authentication failed")
+      if (form.get("grant_type") === "authorization_code") {
+        const code = person.codes.get(form.get("code") ?? "")
+        person.codes.delete(form.get("code") ?? "")
+        const verifier = form.get("code_verifier") ?? ""
+        if (
+          code === undefined ||
+          code.redirect !== form.get("redirect_uri") ||
+          createHash("sha256").update(verifier).digest("base64url") !== code.challenge
+        )
+          return oauthError(400, "invalid_grant", "Invalid authorization code")
+        return Response.json(issuePerson(crypto.randomUUID(), code.signedInAt, code.user))
+      }
+      if (form.get("grant_type") === "refresh_token") {
+        const presented = form.get("refresh_token") ?? ""
+        const held = person.refresh.get(presented)
+        if (held === undefined) {
+          // A refresh token spent once more ends its whole family
+          const spent = person.spent.get(presented)
+          if (spent !== undefined) person.families.delete(spent)
+          return oauthError(400, "invalid_grant", "Refresh token invalid: Invalid refresh token")
+        }
+        person.refresh.delete(presented)
+        person.spent.set(presented, held.family)
+        if (!person.families.has(held.family) || Date.now() >= held.signedInAt + 12 * 3600_000)
+          return oauthError(400, "invalid_grant", "Refresh token invalid: Invalid refresh token")
+        return Response.json(issuePerson(held.family, held.signedInAt, held.user))
+      }
+      return oauthError(400, "unsupported_grant_type", "grant type not supported")
+    }
+    if (request.method === "POST" && path === "/api/v1/core/oauth/revoke") {
+      if (bearer === undefined || !state.jwts.has(bearer))
+        return Response.json({ code: "unauthorized", message: "Invalid or expired JWT token" }, { status: 401 })
+      const held = person.refresh.get(form.get("token") ?? "")
+      if (held !== undefined) person.families.delete(held.family)
+      return new Response(null, { status: 200 })
+    }
+    return Response.json({ code: "not_found", message: "no route" }, { status: 404 })
+  }
+
+  // A 300-second access token for the person and a new refresh token of the family. The access token carries the
+  // claims 0.84 gives a UI session, or an ordinary user token's when the client is not a `person_ui` one.
+  const issuePerson = (family: string, signedInAt: number, user: string) => {
+    const person = state.person
+    person.families.add(family)
+    const now = Date.now()
+    const claims =
+      person.client === "person_ui"
+        ? { aud: ["ui"], ui_session: true }
+        : { aud: ["web", "api", "a2a", "mcp"] }
+    const segment = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url")
+    const access = [
+      segment({ alg: "RS256", typ: "JWT" }),
+      segment({
+        ...claims,
+        sub: user,
+        auth_time: Math.floor(signedInAt / 1000),
+        iat: Math.floor(now / 1000),
+        exp: Math.floor(now / 1000) + 300,
+        client_id: personClient,
+        jti: randomBytes(8).toString("hex"),
+      }),
+      randomBytes(24).toString("base64url"),
+    ].join(".")
+    const refresh = `rt_${randomBytes(24).toString("hex")}`
+    person.access.set(access, { signedInAt, expiresAt: now + 300_000 })
+    person.refresh.set(refresh, { family, signedInAt, user })
+    return { access_token: access, token_type: "Bearer", expires_in: 300, refresh_token: refresh, scope: "user" }
+  }
+
+  // Plays the person in the system browser on the authorize page `link`: signs in (as `user`, the account's own
+  // unless said) and allows, or declines, and the page sends the browser to the redirect with the same `state`.
+  // `state` replaces the one the link carries, as a page that is not the instance's might.
+  const personBrowser = (
+    link: string,
+    options: { deny?: boolean; user?: string; state?: string } = {},
+  ) => {
+    const query = new URL(link).searchParams
+    const redirect = new URL(query.get("redirect_uri") ?? "")
+    redirect.searchParams.set("state", options.state ?? query.get("state") ?? "")
+    if (options.deny) {
+      redirect.searchParams.set("error", "access_denied")
+      redirect.searchParams.set("error_description", "User denied the request")
+    }
+    if (!options.deny) {
+      const code = randomBytes(21).toString("base64url")
+      state.person.codes.set(code, {
+        challenge: query.get("code_challenge") ?? "",
+        redirect: query.get("redirect_uri") ?? "",
+        signedInAt: Date.now(),
+        user: options.user ?? alpha.whoami.body.user_id,
+      })
+      redirect.searchParams.set("code", code)
+      redirect.searchParams.set("client_id", personClient)
+      redirect.searchParams.set("iss", `http://127.0.0.1:${server.port}`)
+    }
+    return fetch(redirect)
+  }
+
   const uploaded = (id: string) => {
     const entry = state.drive.uploads.get(id)!
     const count = Number(entry.meta.part_count)
@@ -1041,6 +1214,7 @@ export function startFake() {
     },
     // A JWT the instance minted but now refuses, as after a server restart or revocation
     staleJwt: () => `eyJ${randomBytes(24).toString("hex")}`,
+    personBrowser,
     stop: () => server.stop(true),
   }
 }
