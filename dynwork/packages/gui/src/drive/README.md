@@ -167,6 +167,15 @@ OpenCode service                                       main process
   cannot. A name the folder already holds becomes `name (2).html`. Other uploads (an image for a Word file) are left
   alone. The agent learns this from a rule the plugin adds to the instance's own when the `documents` server is among
   its MCP servers (`DynWorkDocuments.rules`).
+- **What became of the page (phase 28).** A page is an upload with a blob and a name whose mime (the instance's, else
+  the agent's) is `text/html`, or, with neither, whose name ends in `.html` (`DynWorkDocuments.page`). An instance that
+  sends this client no structured content answers the upload as text, a summary line and then the JSON; the plugin
+  reads that too. The upload's call waits up to 30 s for main's word over the plugin's RPC (`imported`): the document it
+  made, or what stopped it (no folder, a refused import, signed out). The plugin adds it to the upload's result, under
+  `dynwork` in a program's value and as text for the model, so the agent tells the user in the same turn; a main that
+  says nothing is said too. A page that could not be imported is kept per account (`unimported`, the newest 50) and
+  shows in the chat's Artifacts tab with Retry (`reimport`). On 0.84 the agent imports it, and the upload waits for
+  nothing.
 - **What the agent is told (phase 12).** The rule sends the work to the Drive: documents, pages, reports, presentations
   and artifacts are made with the `documents` tools, and a local file only when the user asks for one (code and the
   project's files stay local). A page goes up from one Code Mode call (encoded there, `documents_upload`), never through

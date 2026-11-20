@@ -151,17 +151,123 @@ export interface Executed {
 
 const decodeInput = Schema.decodeUnknownOption(Input)
 const decodeOutput = Schema.decodeUnknownOption(Output)
+const decodeOutputText = Schema.decodeUnknownOption(Schema.fromJsonString(Output))
 
 /** What a completed write touched, or undefined for any other call, a failed one, or an answer that is not a record. */
 export function touch(event: Executed): Touch | undefined {
   const write = verb(event.tool)
   if (write === undefined || event.status !== "completed") return undefined
   return Option.getOrUndefined(
-    Option.all({ input: decodeInput(event.input), output: decodeOutput(event.result?.output) }).pipe(
+    Option.all({ input: decodeInput(event.input), output: answered(event.result?.output) }).pipe(
       Option.map((read) => ({ session: event.sessionID, call: event.id, verb: write, ...read })),
     ),
   )
 }
+
+// The server's record: its structured content, or, from an instance that sends none to this client, the record its text
+// carries after a summary line (0.82: "uploaded as blob … (52311 bytes)" and the JSON on the next line).
+function answered(output: unknown) {
+  if (typeof output !== "string") return decodeOutput(output)
+  const start = output.indexOf("\n{")
+  return start < 0 ? Option.none() : decodeOutputText(output.slice(start + 1))
+}
+
+/**
+ * Whether DynWork imports an upload as a document (C7): an HTML page, by the mime the instance answered, else the one the
+ * agent declared, else its name, with a blob and a name to import it under. A resumable upload has no blob until it
+ * completes. On 0.84 (`mcpFolders`) the agent imports it with `documents_import`.
+ */
+export function page(touch: Touch, switches: Switches = {}) {
+  if (touch.verb !== "upload" || switches.mcpFolders === true) return false
+  const name = touch.input.name
+  if (touch.output.blob_ref === undefined || name === undefined) return false
+  const mime = (touch.output.mime ?? touch.input.mime)?.split(";")[0]?.trim().toLowerCase()
+  return mime === undefined ? /\.html?$/i.test(name) : mime === "text/html"
+}
+
+/**
+ * What main says became of a page it imports: the `document` it made, under `name`, or the `failure` that stopped it.
+ * Neither: the page is not DynWork's to import (0.84, the agent imports it).
+ */
+export const Imported = Schema.Struct({
+  id: Schema.String,
+  document: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String),
+  failure: Schema.optional(Schema.String),
+})
+export type Imported = typeof Imported.Type
+
+/**
+ * How long an upload waits for main's word on its page: the conversation's folders may be made first, and a name taken
+ * in the folder is tried again under the next. Past it the agent reads that DynWork did not confirm the import.
+ */
+export const importWithin = "30 seconds"
+
+// Like the asks: one process-wide slot, as main answers on whichever Location takes the call.
+const importSlot = globalThis as typeof globalThis & { __dynworkImports?: Map<string, (word: Imported) => void> }
+const importing: Map<string, (word: Imported) => void> = (importSlot.__dynworkImports ??= new Map())
+
+/**
+ * Publishes the upload (`publish`, the `touch` event) and waits for main's word on its page, so the agent reads in the
+ * upload's own result what became of it. Main not answering in time is no word.
+ */
+export function waitImport(publish: Effect.Effect<void>, touched: Touch, within: Duration.Input = importWithin) {
+  return Effect.callback<Imported>((resume) => {
+    importing.set(touched.call, (word) => resume(Effect.succeed(word)))
+    Effect.runFork(publish)
+    return Effect.sync(() => void importing.delete(touched.call))
+  }).pipe(Effect.timeoutOption(within), Effect.map(Option.getOrUndefined))
+}
+
+/** Main's `imported`: settles the upload it names; false when nothing waits for it (it timed out, or was told before). */
+export function imported(input: Imported) {
+  const found = importing.get(input.id)
+  if (!found) return { accepted: false }
+  importing.delete(input.id)
+  found(input)
+  return { accepted: true }
+}
+
+/**
+ * What the agent reads of main's word, after the upload's own answer. A page it cannot have is said with what failed and
+ * what to do; a page is never to be made again another way, which would strip its scripts. Undefined: nothing to say.
+ */
+export function note(word: Imported | undefined) {
+  if (word === undefined)
+    return "Dynwork did not confirm that it imported this page as a document (the app may be closed or signed out of Governance): it may not be in the user's Drive. Tell the user in one line, and that they can check the conversation's Artifacts tab."
+  if (word.failure !== undefined)
+    return `Dynwork could not import this page as a document: ${word.failure} It is not in the user's Drive. Tell the user in one line what failed, and that they can retry the import from the conversation's Artifacts tab. Do not make the page again with other documents tools: they strip its scripts.`
+  if (word.document === undefined) return undefined
+  return `Dynwork imported this page as the document ${word.name ?? "(unnamed)"} (document_id ${word.document}) in this conversation's folder, scripts kept, and opened it beside the chat. Do not upload or create it again.`
+}
+
+/**
+ * The upload's result with the note after it, where each kind of call reads it: a program reads the value (`output`,
+ * under `dynwork` when it is a record), and the model the text (`content`).
+ */
+export function noted(
+  result: { readonly output?: unknown; readonly content?: string | ReadonlyArray<Content> },
+  text: string,
+) {
+  const output = result.output
+  const content =
+    typeof result.content === "string" ? [{ type: "text" as const, text: result.content }] : (result.content ?? [])
+  return {
+    ...result,
+    output:
+      typeof output === "string"
+        ? `${output}\n${text}`
+        : typeof output === "object" && output !== null && !Array.isArray(output)
+          ? { ...output, dynwork: text }
+          : output,
+    content: [...content, { type: "text" as const, text }],
+  }
+}
+
+/** A part of a tool's result as OpenCode keeps it: text, or a file. */
+type Content =
+  | { readonly type: "text"; readonly text: string }
+  | { readonly type: "file"; readonly uri: string; readonly mime: string; readonly name?: string }
 
 /**
  * What main is asked about a call about to run: a creation, an import and an edit always; with `contextByMcp` (0.84),
@@ -585,6 +691,9 @@ export function instructions(switches: Switches = {}) {
         "lists it in the conversation's panel: leave out `folder_id` in documents_create unless the user names a folder.",
       ]
   const upload = [
+    "When the user asks for an interactive page, a dashboard, a report with charts or an artifact, make it an HTML page in",
+    "their Drive as below, even when they do not name the documents tools. Put the data the page shows inside it, as it is",
+    "when you make it: the page reads no file, server or API of this computer.",
     "HTML page (an artifact, a report, anything with styles, scripts or charts): write the whole page inside one Code Mode",
     "call, encode it there (TextEncoder, then btoa over chunks) and send it with documents_upload (mime text/html, a name",
     "ending in .html). Never write it to a file first, never start a local server, never fetch a file to read it back.",
@@ -595,8 +704,9 @@ export function instructions(switches: Switches = {}) {
         "page keeps its scripts and Dynwork opens it in the panel. Do not open it in a browser.",
       ]
     : [
-        "Dynwork imports that upload as a document of this conversation, scripts kept, and opens it in the panel: do not look",
-        "for it, do not import it yourself and do not open it in a browser.",
+        "Dynwork imports that upload as a document of this conversation, scripts kept, and opens it in the panel, and the",
+        "upload's result says what Dynwork did with it (dynwork): do not look for it, do not import it yourself and do not",
+        "open it in a browser. When it says the import failed, tell the user what it says; do not make the page another way.",
       ]
   const change = switches.rawHtmlByMcp
     ? [

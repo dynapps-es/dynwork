@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import type { DynWorkDocuments } from "@dynwork/server-plugin/documents"
 import type { OpenCodeClient } from "@opencode/client/promise"
 import { DriveAgent } from "../../src/drive/agent"
-import type { Backend } from "../../src/drive/backend"
+import { fail, type Backend } from "../../src/drive/backend"
 import type { DriveCapabilities } from "../../src/drive/capabilities"
 import { DriveFake } from "../../src/drive/fake"
 import { DriveIpc } from "../../src/drive/ipc"
@@ -48,11 +48,14 @@ function stand(options: Standing = {}) {
     timers: manualTimers(),
   })
   const answers: DynWorkDocuments.Answer[] = []
+  // What the plugin is told of each page it waits on: the upload's result carries it to the agent.
+  const told: DynWorkDocuments.Imported[] = []
   const agent = DriveAgent.make({
     service,
     session: async (id) => sessions[id],
     untitled: "Untitled conversation",
     answer: async (answer) => void answers.push(answer),
+    imported: async (imported) => void told.push(imported),
   })
   const client = connect(service)
   const asked = async (
@@ -87,7 +90,22 @@ function stand(options: Standing = {}) {
     ...value,
   })
   const links = () => client.state().links
-  return { fake, imports, service, agent, answers, asked, paths, folderAt, touch, links, sessions, capabilities }
+  return {
+    fake,
+    imports,
+    service,
+    client,
+    agent,
+    answers,
+    told,
+    asked,
+    paths,
+    folderAt,
+    touch,
+    links,
+    sessions,
+    capabilities,
+  }
 }
 
 describe("before a write", () => {
@@ -670,6 +688,137 @@ describe("an uploaded page", () => {
     expect(raw.fake.calls.importBlob).toBe(1)
   })
 
+  test("tells the agent, in the upload's own result, which document the page became", async () => {
+    const subject = stand()
+    await upload(subject, { call: "call_page" })
+    const listed = await ok(
+      subject.fake.list({ scope: "folder", folder: await subject.folderAt("Artifacts/Billing/Q3 report") }),
+    )
+    expect(subject.told).toEqual([{ id: "call_page", document: listed.documents[0]!.id, name: "report.html" }])
+  })
+
+  test("is told again, the same document, when its call is heard twice", async () => {
+    const subject = stand()
+    const blob = await upload(subject, { call: "call_page" })
+    await subject.agent.touched(
+      subject.touch({
+        call: "call_page",
+        verb: "upload",
+        input: { name: "report.html" },
+        output: { blob_ref: blob, mime: "text/html" },
+      }),
+    )
+    expect(subject.fake.calls.importBlob).toBe(1)
+    expect(subject.told).toHaveLength(2)
+    expect(subject.told[1]).toEqual(subject.told[0]!)
+  })
+
+  test("whose answer names no mime (0.82) is still a page by the agent's mime or by its name", async () => {
+    const subject = stand()
+    const blob = subject.fake.stage(text(page), "text/html")
+    await subject.agent.touched(
+      subject.touch({ verb: "upload", input: { name: "dashboard.html" }, output: { blob_ref: blob } }),
+    )
+    expect(subject.imports).toMatchObject([{ name: "dashboard.html" }])
+    expect(subject.told).toMatchObject([{ document: expect.any(String), name: "dashboard.html" }])
+  })
+
+  test("that the instance refuses is told to the agent, kept for the chat's Artifacts tab, and imported by a retry", async () => {
+    const refusals = { left: 1 }
+    const subject = stand({
+      around: (fake) => ({
+        importBlob: (input) =>
+          refusals.left-- > 0
+            ? Promise.resolve(fail("invalid", "The page is larger than the Drive takes."))
+            : fake.importBlob(input),
+      }),
+    })
+    await upload(subject, { call: "call_page" })
+    expect(subject.told).toEqual([{ id: "call_page", failure: "The page is larger than the Drive takes." }])
+    expect(subject.links()).toEqual([])
+    expect(subject.client.state().unimported).toMatchObject([
+      {
+        conversation: "ses_q3",
+        call: "call_page",
+        name: "report.html",
+        failure: { code: "invalid", message: "The page is larger than the Drive takes." },
+      },
+    ])
+    const retried = await ok(subject.client.reimport({ conversation: "ses_q3", call: "call_page" }))
+    expect(retried.document.name).toBe("report.html")
+    expect(retried.document.folder).toBe(await subject.folderAt("Artifacts/Billing/Q3 report"))
+    expect(subject.client.state().unimported).toEqual([])
+    expect(subject.links()).toMatchObject([
+      { conversation: "ses_q3", document: retried.document.id, act: "created", via: "rest" },
+    ])
+  })
+
+  test("a retry that fails again stays in the Artifacts tab with the new reason; one for nothing kept is not-found", async () => {
+    const subject = stand({
+      around: () => ({ importBlob: async () => fail("unreachable", "Governance did not answer.") }),
+    })
+    await upload(subject, { call: "call_page" })
+    const again = await subject.client.reimport({ conversation: "ses_q3", call: "call_page" })
+    expect(again).toMatchObject({ code: "unreachable" })
+    expect(subject.client.state().unimported).toMatchObject([
+      { call: "call_page", failure: { code: "unreachable", message: "Governance did not answer." } },
+    ])
+    expect(await subject.client.reimport({ conversation: "ses_q3", call: "call_gone" })).toMatchObject({
+      code: "not-found",
+    })
+  })
+
+  test("whose conversation's folder cannot be made fails the same way, said to the agent", async () => {
+    const subject = stand({
+      around: () => ({ createFolder: async () => fail("forbidden", "Agents may not make folders here.") }),
+    })
+    await upload(subject, { call: "call_page" })
+    expect(subject.fake.calls.importBlob).toBeUndefined()
+    expect(subject.told).toEqual([{ id: "call_page", failure: "Agents may not make folders here." }])
+    expect(subject.client.state().unimported).toMatchObject([{ call: "call_page", failure: { code: "forbidden" } }])
+  })
+
+  test("signed out of Governance, the agent hears that nothing was imported", async () => {
+    const subject = stand()
+    const signedOut = DriveIpc.make({
+      account: () => undefined,
+      backend: () => subject.fake,
+      store: storage(DriveIpc.Saved, DriveIpc.initial),
+      changed: () => {},
+      timers: manualTimers(),
+    })
+    const told: DynWorkDocuments.Imported[] = []
+    const agent = DriveAgent.make({
+      service: signedOut,
+      session: async () => subject.sessions.ses_q3,
+      untitled: "Untitled conversation",
+      answer: async () => undefined,
+      imported: async (imported) => void told.push(imported),
+    })
+    await agent.touched(
+      subject.touch({
+        call: "call_page",
+        verb: "upload",
+        input: { name: "report.html", mime: "text/html" },
+        output: { blob_ref: "b" },
+      }),
+    )
+    expect(told).toEqual([{ id: "call_page", failure: "Sign in to Governance to use the Drive." }])
+  })
+
+  test("an image says nothing to the agent; on 0.84 (mcpFolders) the page is the agent's to import, and it is told so", async () => {
+    const subject = stand()
+    const blob = subject.fake.stage(text("png"), "image/png")
+    await subject.agent.touched(
+      subject.touch({ verb: "upload", input: { name: "logo.png" }, output: { blob_ref: blob, mime: "image/png" } }),
+    )
+    expect(subject.told).toEqual([])
+    const filing = stand({ capabilities: { mcpFolders: true } })
+    await upload(filing, { call: "call_page" })
+    expect(filing.told).toEqual([{ id: "call_page" }])
+    expect(filing.client.state().unimported).toEqual([])
+  })
+
   test("without a known conversation lands in the Drive's root, still signed by its id", async () => {
     const subject = stand()
     await upload(subject, { session: "ses_unknown" })
@@ -740,6 +889,37 @@ describe("following the service", () => {
       input: { id: "call_1", message: "Q3 report by DynWork", folder: expect.any(String) },
     })
     expect(subject.links().map((link) => [link.document, link.act])).toEqual([["doc-1", "created"]])
+    cleanups.forEach((cleanup) => cleanup())
+  })
+
+  test("tells the plugin over its RPC what became of a page the agent uploaded", async () => {
+    const subject = stand()
+    const blob = subject.fake.stage(text("<h1>Dash</h1>"), "text/html")
+    const events = client([
+      {
+        type: "rpc.dynwork.documents.touch",
+        data: {
+          session: "ses_q3",
+          call: "call_up",
+          verb: "upload",
+          input: { name: "dash.html", mime: "text/html" },
+          output: { blob_ref: blob, mime: "text/html" },
+        },
+      },
+    ])
+    const cleanups: Array<() => void> = []
+    DriveAgent.setup(
+      { onCleanup: (cleanup) => void cleanups.push(cleanup) },
+      { service: subject.service, client: () => events.value, untitled: "Untitled conversation" },
+    )
+    for (const _ of Array.from({ length: 4 })) await flush()
+    expect(events.calls).toEqual([
+      {
+        rpcID: "dynwork.documents",
+        method: "imported",
+        input: { id: "call_up", document: expect.any(String), name: "dash.html" },
+      },
+    ])
     cleanups.forEach((cleanup) => cleanup())
   })
 })

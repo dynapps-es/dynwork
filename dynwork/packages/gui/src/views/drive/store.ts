@@ -278,6 +278,9 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
           listedOf(conversation),
         ),
       ),
+    /** The pages the chat's agent uploaded that DynWork could not import, newest first, with what stopped each. */
+    unimportedOf: (conversation: string) =>
+      (remote()?.unimported ?? []).filter((page) => page.conversation === conversation),
     readChat,
     /**
      * Keeps what the instance lists for a chat read while the calling component lives: now, and again after each read
@@ -385,6 +388,16 @@ export function createDriveStore(options: { client: () => DriveClient.Client | u
       const created = await client.createFolder({ name, parent: store.target() })
       await reload()
       return created
+    },
+    /**
+     * Imports again a page of a chat's agent that DynWork could not import (`unimportedOf`); answers the failure when it
+     * fails again, which keeps it with the new reason.
+     */
+    async reimport(conversation: string, call: string) {
+      const client = options.client()
+      if (!client) return disconnected
+      const created = await client.reimport({ conversation, call })
+      return isFailure(created) ? created : undefined
     },
     /** Records that a conversation used a document: the composer's attachment, the panel's Add from the Drive. */
     async link(conversation: string, document: string, act: Act) {

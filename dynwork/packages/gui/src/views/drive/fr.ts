@@ -54,6 +54,7 @@ export default {
   "drive.card.proposed": "Proposition",
   "drive.card.attached": "Joint",
   "drive.card.read": "Lu",
+  "drive.card.unimported": "Non importée",
   "drive.chat.none": "Ouvrez d'abord une conversation",
   "drive.chat.none.hint": "Le document s'ouvre à côté de la conversation ouverte, et dans son champ de saisie.",
   "drive.agent": "Agent",

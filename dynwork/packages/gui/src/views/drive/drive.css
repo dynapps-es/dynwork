@@ -1771,6 +1771,12 @@
   > [data-slot="icon-svg"] {
     color: var(--v2-icon-icon-faint);
   }
+
+  /* A page that could not be imported is not a link: only its Retry acts. */
+  &[data-state="unimported"]:hover {
+    background: var(--v2-background-bg-layer-01);
+    box-shadow: none;
+  }
 }
 
 [data-slot="drive-change-body"] {

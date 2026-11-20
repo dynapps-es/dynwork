@@ -11,8 +11,9 @@ import { boot, until } from "./service"
 // touches, deciding on its shares as the user would on the card, and checks what the MCP server received.
 
 const gateway: Array<{ tools: string[]; results: number; messages: string }> = []
-// What the model's Code Mode program does in the next Session.
-const program = { code: "" }
+// What the model does in the next Session: runs `code` as a Code Mode program, or, where Code Mode is off, calls the one
+// tool `direct` names.
+const program: { code: string; direct?: { name: string; input: unknown } } = { code: "" }
 const mcp: Array<{ method: string; arguments?: Record<string, unknown>; name?: string; auth?: string }> = []
 
 const rpcResult = (id: unknown, result: unknown) => Response.json({ jsonrpc: "2.0", id, result })
@@ -94,7 +95,10 @@ const instance = Bun.serve({
       results,
       messages: JSON.stringify(body.messages),
     })
-    return new Response(results > 0 ? text(body.model) : tool(body.model, "execute", { code: program.code }), {
+    const call = program.direct
+      ? tool(body.model, program.direct.name, program.direct.input)
+      : tool(body.model, "execute", { code: program.code })
+    return new Response(results > 0 ? text(body.model) : call, {
       headers: { "content-type": "text/event-stream" },
     })
   },
@@ -159,21 +163,23 @@ function text(model: string) {
 
 const service = await boot({}, { enabled_providers: ["systemprompt"], permission: "allow" })
 const client = DynWorkSyncClient.make(() => ({ url: service.url, headers: service.headers }))
-const [project] = service.projects as [string]
 const jwt = "eyJhbGciOiJSUzI1NiJ9.dXNlcg.c2ln"
 const models = [
   { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", api: "messages" },
 ] satisfies DynWorkSync.Gateway["models"]
+type Service = typeof service
 
-// Main: it answers each ask with a folder and a message, keeps each touch, and decides each share as `decision` says.
+// Main: it answers each ask with a folder and a message, keeps each touch, says what became of each page it imports as
+// `main.imports` says, and decides each share as `decision` says.
 const asks: DynWorkDocuments.Ask[] = []
 const touches: DynWorkDocuments.Touch[] = []
 const confirms: DynWorkDocuments.Share[] = []
 const seen: DynWorkDocuments.Seen[] = []
 const stales: DynWorkDocuments.Stale[] = []
 const decision = { allow: false, listening: true }
-// On 0.84 main gives each write its conversation's context: here `ctx-<session>`.
-const main = { contexts: false }
+// On 0.84 main gives each write its conversation's context: here `ctx-<session>`. A page main imports becomes
+// `doc-page`, fails with the instance's refusal, or main says nothing.
+const main: { contexts: boolean; imports: "imported" | "failed" | "mute" } = { contexts: false, imports: "imported" }
 const answerOf = (ask: DynWorkDocuments.Ask): DynWorkDocuments.Answer =>
   ask.verb === "folder" && ask.making
     ? { id: ask.id, name: "Chat" }
@@ -185,6 +191,10 @@ const answerOf = (ask: DynWorkDocuments.Ask): DynWorkDocuments.Answer =>
         message: "Chat by DynWork",
         ...(main.contexts ? { context: `ctx-${ask.session}` } : {}),
       }
+const importOf = (touch: DynWorkDocuments.Touch): DynWorkDocuments.Imported =>
+  main.imports === "imported"
+    ? { id: touch.call, document: "doc-page", name: touch.input.name }
+    : { id: touch.call, failure: "The instance refused the page: it is larger than the Drive takes." }
 const listening = new AbortController()
 
 afterAll(async () => {
@@ -193,26 +203,37 @@ afterAll(async () => {
   instance.stop(true)
 })
 
+const manifest = {
+  ...alpha,
+  managed_mcp_servers: [{ id: "documents", name: "documents", url: `${instance.url.origin}/api/v1/mcp/documents/mcp` }],
+}
+
 beforeAll(async () => {
   await client.apply({
     instance: { key: "alpha", url: instance.url.origin },
-    manifest: {
-      ...alpha,
-      managed_mcp_servers: [
-        { id: "documents", name: "documents", url: `${instance.url.origin}/api/v1/mcp/documents/mcp` },
-      ],
-    },
+    manifest,
     jwt,
     expiresAt: Date.now() + 3_600_000,
     gateway: { label: "Alpha", models },
   })
+  await listen(service)
+})
+
+// Plays main on a service: follows the plugin's events and answers them over its RPC.
+async function listen(on: Service) {
   const types = ["ask", "touch", "confirm", "people", "stale"]
     .map((name) => `types=rpc.${DynWorkDocuments.id}.${name}`)
     .join("&")
-  const events = await fetch(`${service.url}/api/event?${types}`, {
-    headers: { ...service.headers, accept: "text/event-stream" },
+  const events = await fetch(`${on.url}/api/event?${types}`, {
+    headers: { ...on.headers, accept: "text/event-stream" },
     signal: listening.signal,
   })
+  const rpc = (method: string, input: unknown) =>
+    fetch(`${on.url}/api/rpc/${DynWorkDocuments.id}/${method}`, {
+      method: "POST",
+      headers: { ...on.headers, "content-type": "application/json" },
+      body: JSON.stringify({ input }),
+    })
   void (async () => {
     const decoder = new TextDecoder()
     for await (const chunk of events.body!) {
@@ -221,14 +242,13 @@ beforeAll(async () => {
         const event: { type: string; data: never } = JSON.parse(line.slice(5))
         if (event.type.endsWith(".ask")) {
           asks.push(event.data)
-          const ask: DynWorkDocuments.Ask = event.data
-          await fetch(`${service.url}/api/rpc/${DynWorkDocuments.id}/answer`, {
-            method: "POST",
-            headers: { ...service.headers, "content-type": "application/json" },
-            body: JSON.stringify({ input: answerOf(ask) }),
-          })
+          await rpc("answer", answerOf(event.data))
         }
-        if (event.type.endsWith(".touch")) touches.push(event.data)
+        if (event.type.endsWith(".touch")) {
+          const touch: DynWorkDocuments.Touch = event.data
+          touches.push(touch)
+          if (touch.verb === "upload" && main.imports !== "mute") await rpc("imported", importOf(touch))
+        }
         if (event.type.endsWith(".people")) seen.push(event.data)
         if (event.type.endsWith(".stale")) stales.push(event.data)
         if (event.type.endsWith(".confirm")) {
@@ -236,37 +256,31 @@ beforeAll(async () => {
           confirms.push(share)
           // Main gone: nothing says the card is up, and nothing decides.
           if (!decision.listening) continue
-          await fetch(`${service.url}/api/rpc/${DynWorkDocuments.id}/shown`, {
-            method: "POST",
-            headers: { ...service.headers, "content-type": "application/json" },
-            body: JSON.stringify({ input: { id: share.id } }),
-          })
-          await fetch(`${service.url}/api/rpc/${DynWorkDocuments.id}/decide`, {
-            method: "POST",
-            headers: { ...service.headers, "content-type": "application/json" },
-            body: JSON.stringify({ input: { id: share.id, allow: decision.allow } }),
-          })
+          await rpc("shown", { id: share.id })
+          await rpc("decide", { id: share.id, allow: decision.allow })
         }
       }
     }
   })().catch(() => undefined)
-})
+}
 
-// One Session whose model runs `code` as a Code Mode program, and the calls the MCP server received from it.
-async function run(code: string, session?: string) {
+// One Session on a service (the one booted first unless named) whose model runs `code` as a Code Mode program, or the
+// direct call `program.direct` names, and the calls the MCP server received from it.
+async function run(code: string, session?: string, on: Service = service) {
   program.code = code
+  const [project] = on.projects as [string]
   const before = mcp.filter((entry) => entry.method === "tools/call").length
-  const created = await service.post("/api/session", {
+  const created = await on.post("/api/session", {
     ...(session === undefined ? {} : { id: session }),
     location: { directory: project },
     title: "documents test",
     model: { id: "claude-sonnet-5-5", providerID: "systemprompt" },
   })
   const id: string = created.body.data.id
-  expect((await service.post(`/api/session/${id}/prompt`, { text: "make a plan" }, project)).status).toBe(200)
+  expect((await on.post(`/api/session/${id}/prompt`, { text: "make a plan" }, project)).status).toBe(200)
   const waited = await fetch(
-    `${service.url}/api/experimental/session/${id}/wait?location[directory]=${encodeURIComponent(project)}`,
-    { method: "POST", headers: service.headers },
+    `${on.url}/api/experimental/session/${id}/wait?location[directory]=${encodeURIComponent(project)}`,
+    { method: "POST", headers: on.headers },
   )
   expect(waited.status).toBe(204)
   return { id, calls: mcp.filter((entry) => entry.method === "tools/call").slice(before) }
@@ -347,6 +361,83 @@ test("an upload is heard with the blob to import, and a write that fails is not 
   // The upload carries no message and no folder, so only the creation that failed was asked about.
   expect(asks.slice(asked).map((ask) => ask.verb)).toEqual(["create"])
 }, 60_000)
+
+// The page the agent uploads on a 0.82 or 0.83 instance: DynWork imports it, and the agent reads what became of it in
+// the upload's own result, in the same turn (Aylen's run, 20-11: two uploads, no document, nobody told).
+const page = `tools.documents.documents_upload({ name: "minusval-cuadro-planificacion.html", mime: "text/html", content_base64: "PGgxPkRhc2g8L2gxPg==" })`
+
+describe("a page the agent uploads", () => {
+  afterAll(() => {
+    main.imports = "imported"
+  })
+
+  test("from a Code Mode program waits for DynWork's import, and the program reads which document it became", async () => {
+    main.imports = "imported"
+    const heard = touches.length
+    await run(`return await ${page}`)
+    expect(touches.slice(heard)).toMatchObject([{ verb: "upload", output: { blob_ref: "blob-1" } }])
+    expect(gateway.at(-1)?.messages).toContain(
+      "Dynwork imported this page as the document minusval-cuadro-planificacion.html (document_id doc-page)",
+    )
+  }, 60_000)
+
+  test("whose import fails tells the agent in the same turn what failed and where the user retries it", async () => {
+    main.imports = "failed"
+    await run(`return await ${page}`)
+    const read = gateway.at(-1)?.messages ?? ""
+    expect(read).toContain(
+      "Dynwork could not import this page as a document: The instance refused the page: it is larger than the Drive takes.",
+    )
+    expect(read).toContain("retry the import from the conversation's Artifacts tab")
+  }, 60_000)
+
+  describe("called directly, where Code Mode is off", () => {
+    const direct = { value: undefined as Service | undefined }
+
+    beforeAll(async () => {
+      direct.value = await boot(
+        {},
+        {
+          enabled_providers: ["systemprompt"],
+          permission: "allow",
+          permissions: [{ action: "execute", resource: "*", effect: "deny" }],
+        },
+      )
+      const on = direct.value
+      await DynWorkSyncClient.make(() => ({ url: on.url, headers: on.headers })).apply({
+        instance: { key: "alpha", url: instance.url.origin },
+        manifest,
+        jwt,
+        expiresAt: Date.now() + 3_600_000,
+        gateway: { label: "Alpha", models },
+      })
+      await listen(on)
+    }, 60_000)
+
+    afterAll(async () => {
+      program.direct = undefined
+      await direct.value?.stop()
+    })
+
+    test("is heard, imported and said to the agent the same way", async () => {
+      main.imports = "imported"
+      program.direct = {
+        name: "documents_documents_upload",
+        input: { name: "direct.html", mime: "text/html", content_base64: "PGgxPkRhc2g8L2gxPg==" },
+      }
+      const heard = touches.length
+      const done = await run("", undefined, direct.value)
+      expect(gateway.at(-1)?.tools).toContain("documents_documents_upload")
+      expect(gateway.at(-1)?.tools).not.toContain("execute")
+      expect(touches.slice(heard)).toMatchObject([
+        { session: done.id, verb: "upload", input: { name: "direct.html" }, output: { blob_ref: "blob-1" } },
+      ])
+      expect(gateway.at(-1)?.messages).toContain(
+        "Dynwork imported this page as the document direct.html (document_id doc-page)",
+      )
+    }, 60_000)
+  })
+})
 
 test("the agent is told about the server in the service's AGENTS.md, after the instance's own rules", async () => {
   const rules = await Bun.file(`${service.config}/AGENTS.md`).text()
@@ -500,6 +591,17 @@ describe("on a 0.84 instance", () => {
       (found) => found.length > 0,
     )
     expect(touches.findLast((touch) => touch.session === done.id)?.input).toMatchObject({ name: "Chat", parent_id: "f-bill" })
+  }, 60_000)
+
+  test("a page uploaded is the agent's to import with documents_import: the upload waits for nothing", async () => {
+    main.imports = "mute"
+    const heard = touches.length
+    await run(`return await ${page}`)
+    main.imports = "imported"
+    expect(touches.slice(heard)).toMatchObject([{ verb: "upload" }])
+    // An upload that waited for main's word, which a mute main never gives, would read that it was not confirmed.
+    expect(gateway.at(-1)?.messages).not.toContain("Dynwork did not confirm")
+    expect(gateway.at(-1)?.messages).not.toContain("Dynwork imported this page")
   }, 60_000)
 
   test("a write refused for a context the instance does not know tells main which one to forget", async () => {
